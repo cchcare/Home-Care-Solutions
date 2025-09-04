@@ -23,7 +23,6 @@ import { insertCaregiverSchema } from "@shared/schema";
 
 const caregiverFormSchema = insertCaregiverSchema.extend({
   employeeId: z.string().min(1, "Employee ID is required"),
-  experienceYears: z.number().min(0, "Experience years must be 0 or greater"),
   hourlyWage: z.number().min(0, "Hourly wage must be 0 or greater"),
   // User information for login account
   email: z.string().email("Please enter a valid email address"),
@@ -47,9 +46,7 @@ export function AddCaregiverModal({ isOpen, onClose, onSubmit, isLoading }: AddC
     resolver: zodResolver(caregiverFormSchema),
     defaultValues: {
       employeeId: "",
-      experienceYears: 0,
       hourlyWage: 0,
-      specializations: [],
       isActive: true,
       email: "",
       firstName: "",
@@ -69,10 +66,6 @@ export function AddCaregiverModal({ isOpen, onClose, onSubmit, isLoading }: AddC
     onClose();
   };
 
-  const handleSpecializationsChange = (value: string) => {
-    const specializations = value.split(',').map(s => s.trim()).filter(s => s.length > 0);
-    form.setValue('specializations', specializations);
-  };
 
   return (
     <Dialog open={isOpen} onOpenChange={handleClose}>
@@ -261,69 +254,6 @@ export function AddCaregiverModal({ isOpen, onClose, onSubmit, isLoading }: AddC
                 />
               </div>
 
-              <FormField
-                control={form.control}
-                name="experienceYears"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Years of Experience</FormLabel>
-                    <FormControl>
-                      <Input 
-                        type="number" 
-                        min="0"
-                        placeholder="0"
-                        {...field}
-                        onChange={(e) => field.onChange(parseInt(e.target.value) || 0)}
-                        data-testid="input-experience-years"
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            </div>
-
-            {/* Specializations Section */}
-            <div className="space-y-4">
-              <h4 className="font-semibold text-foreground">Specializations & Skills</h4>
-              
-              <FormField
-                control={form.control}
-                name="specializations"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Specializations</FormLabel>
-                    <FormControl>
-                      <Textarea 
-                        placeholder="Enter specializations separated by commas (e.g., Alzheimer's Care, Physical Therapy, Medication Management)"
-                        rows={3}
-                        value={field.value?.join(', ') || ''}
-                        onChange={(e) => handleSpecializationsChange(e.target.value)}
-                        data-testid="textarea-specializations"
-                      />
-                    </FormControl>
-                    <p className="text-xs text-muted-foreground">
-                      Separate multiple specializations with commas
-                    </p>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            </div>
-
-            {/* Certification Requirements Notice */}
-            <div className="border border-border rounded-lg p-4 bg-muted/25">
-              <h4 className="font-semibold text-foreground mb-2">Required Certifications</h4>
-              <p className="text-sm text-muted-foreground mb-3">
-                After creating the caregiver profile, you'll need to add the following certifications:
-              </p>
-              <ul className="text-sm text-muted-foreground space-y-1">
-                <li>• CPR Certification</li>
-                <li>• First Aid Certification</li>
-                <li>• Background Check</li>
-                <li>• HIPAA Training</li>
-                <li>• State-specific Care Training</li>
-              </ul>
             </div>
 
             {/* Submit Buttons */}
