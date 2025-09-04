@@ -1,0 +1,86 @@
+Internal Home Care Agency Tool (Excluding Scheduling & Payroll)
+1. Client Management
+
+Digital client profiles (demographics, intake forms, care plans, medications, allergies, emergency contacts).
+
+HIPAA-compliant storage of assessments and signed documents.
+
+Progress notes & daily care logs.
+
+Incident reporting system.
+
+Secure document upload (insurance cards, ID, physician orders).
+
+2. Caregiver Management
+
+Staff profiles with demographics, credentials, hire date.
+
+Credentialing/training tracking (CPR, background check, TB, CEUs, etc.).
+
+Alerts for expiring certifications.
+
+HR forms storage (applications, policy acknowledgements, evaluations).
+
+3. Compliance & Regulatory
+
+State-specific compliance checklists (example: PA Chapter 51/611, EVV compliance, etc.).
+
+Audit-ready documentation library.
+
+Policy & procedures repository accessible to staff.
+
+FMLA/Leave documentation tracking.
+
+4. Communication Hub
+
+Internal messaging between office staff and caregivers.
+
+Broadcast announcements (policy updates, reminders).
+
+Family/caregiver portal (secure updates about client care).
+
+5. Task & Workflow Management
+
+To-do lists for office staff (intake, reassessment, training renewals).
+
+Caregiver daily checklist (visit logs, shift reports).
+
+Automated reminders for reassessments and physician order renewals.
+
+6. Forms & Documentation
+
+Digital intake packet (fillable forms).
+
+Incident/accident report templates.
+
+Visit verification (EVV logs without payroll integration).
+
+Electronic signature capability.
+
+7. Training & Resources
+
+Learning module uploads (videos, PDFs, quizzes).
+
+Caregiver handbook access.
+
+Orientation checklist completion tracker.
+
+8. Analytics & Reporting
+
+Client census report.
+
+Caregiver credential compliance report.
+
+Incident trends.
+
+Referral source tracking.
+
+Service utilization (hours authorized vs. hours used).
+
+9. Security & Access Control
+
+Role-based access (admin, supervisor, caregiver, family).
+
+Audit logs of document changes.
+
+HIPAA-compliant encryption.
