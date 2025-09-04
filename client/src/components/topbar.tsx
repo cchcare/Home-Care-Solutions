@@ -44,9 +44,9 @@ export function TopBar({
     setLocation("/account-settings");
   };
 
-  const userInitials = user?.firstName && user?.lastName 
-    ? `${user.firstName[0]}${user.lastName[0]}`
-    : user?.email?.[0]?.toUpperCase() || "U";
+  const userInitials = (user as any)?.firstName && (user as any)?.lastName 
+    ? `${(user as any).firstName[0]}${(user as any).lastName[0]}`
+    : (user as any)?.email?.[0]?.toUpperCase() || "U";
 
   return (
     <header className="bg-card border-b border-border h-16 flex items-center justify-between px-6 flex-shrink-0">
@@ -60,7 +60,7 @@ export function TopBar({
         {showOfficeSelector && (
           <OfficeSelector
             selectedOfficeId={selectedOfficeId}
-            onOfficeChange={onOfficeChange}
+            onOfficeChange={onOfficeChange!}
             showAllOption={true}
           />
         )}
@@ -104,13 +104,13 @@ export function TopBar({
               </div>
               <div className="hidden sm:block text-left">
                 <p className="text-sm font-medium">
-                  {user?.firstName && user?.lastName 
-                    ? `${user.firstName} ${user.lastName}` 
-                    : user?.email
+                  {(user as any)?.firstName && (user as any)?.lastName 
+                    ? `${(user as any).firstName} ${(user as any).lastName}` 
+                    : (user as any)?.email
                   }
                 </p>
                 <p className="text-xs text-muted-foreground capitalize">
-                  {user?.role?.replace('_', ' ') || 'User'}
+                  {(user as any)?.role?.replace('_', ' ') || 'User'}
                 </p>
               </div>
               <Settings className="w-4 h-4 text-muted-foreground" />
