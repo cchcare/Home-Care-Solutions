@@ -76,7 +76,7 @@ export function AddCaregiverModal({ isOpen, onClose, onSubmit, isLoading }: AddC
 
   return (
     <Dialog open={isOpen} onOpenChange={handleClose}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto" data-testid="modal-add-caregiver">
+      <DialogContent className="max-w-4xl max-h-[95vh] overflow-y-auto" data-testid="modal-add-caregiver">
         <DialogHeader>
           <DialogTitle className="flex items-center justify-between">
             Add New Caregiver
@@ -87,7 +87,7 @@ export function AddCaregiverModal({ isOpen, onClose, onSubmit, isLoading }: AddC
         </DialogHeader>
 
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-6">
+          <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-6 pb-4">
             {/* Personal Information Section */}
             <div className="space-y-4">
               <h4 className="font-semibold text-foreground">Personal Information</h4>
@@ -327,7 +327,7 @@ export function AddCaregiverModal({ isOpen, onClose, onSubmit, isLoading }: AddC
             </div>
 
             {/* Submit Buttons */}
-            <div className="flex justify-end space-x-3 pt-6 border-t border-border">
+            <div className="flex justify-end space-x-3 pt-6 border-t border-border sticky bottom-0 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 z-10 -mx-6 px-6 -mb-4">
               <Button type="button" variant="outline" onClick={handleClose} data-testid="button-cancel-add-caregiver">
                 Cancel
               </Button>
