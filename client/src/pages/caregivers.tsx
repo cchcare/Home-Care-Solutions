@@ -29,7 +29,7 @@ export default function Caregivers() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  const { data: caregivers, isLoading } = useQuery({
+  const { data: caregivers = [], isLoading } = useQuery<Caregiver[]>({
     queryKey: ["/api/caregivers"],
     retry: false,
   });
@@ -68,10 +68,10 @@ export default function Caregivers() {
     },
   });
 
-  const filteredCaregivers = caregivers?.filter((caregiver: Caregiver) =>
+  const filteredCaregivers = caregivers.filter((caregiver: Caregiver) =>
     searchTerm === "" || 
     caregiver.employeeId?.toLowerCase().includes(searchTerm.toLowerCase())
-  ) || [];
+  );
 
   return (
     <div className="flex h-screen overflow-hidden">
@@ -130,7 +130,7 @@ export default function Caregivers() {
                     <div>
                       <p className="text-sm font-medium text-muted-foreground">Total Caregivers</p>
                       <p className="text-2xl font-bold text-foreground" data-testid="text-total-caregivers">
-                        {caregivers?.length || 0}
+                        {caregivers.length}
                       </p>
                     </div>
                     <UserCheck className="w-8 h-8 text-primary" />
@@ -144,7 +144,7 @@ export default function Caregivers() {
                     <div>
                       <p className="text-sm font-medium text-muted-foreground">Active Staff</p>
                       <p className="text-2xl font-bold text-foreground" data-testid="text-active-caregivers-count">
-                        {caregivers?.filter((c: Caregiver) => c.isActive).length || 0}
+                        {caregivers.filter((c: Caregiver) => c.isActive).length}
                       </p>
                     </div>
                     <div className="w-8 h-8 bg-accent rounded-full flex items-center justify-center">
