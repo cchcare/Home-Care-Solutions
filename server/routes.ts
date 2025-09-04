@@ -18,7 +18,6 @@ import {
   insertMessageSchema,
   insertCertificationSchema,
   insertComplianceItemSchema,
-  insertSampleSchema,
   insertTrainingSchema,
   insertTrainingRecordSchema,
   insertFileSchema,
@@ -601,51 +600,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Sample management routes
-  app.get("/api/samples", isAuthenticated, async (req, res) => {
-    try {
-      const samples = await storage.getAllSamples();
-      res.json(samples);
-    } catch (error) {
-      console.error("Error fetching samples:", error);
-      res.status(500).json({ message: "Failed to fetch samples" });
-    }
-  });
-
-  app.post("/api/samples", isAuthenticated, async (req: any, res) => {
-    try {
-      const validatedData = insertSampleSchema.parse(req.body);
-      const sample = await storage.createSample(validatedData);
-      res.status(201).json(sample);
-    } catch (error) {
-      console.error("Error creating sample:", error);
-      res.status(400).json({ message: "Failed to create sample" });
-    }
-  });
-
-  app.get("/api/samples/:id", isAuthenticated, async (req, res) => {
-    try {
-      const sample = await storage.getSample(req.params.id);
-      if (!sample) {
-        return res.status(404).json({ message: "Sample not found" });
-      }
-      res.json(sample);
-    } catch (error) {
-      console.error("Error fetching sample:", error);
-      res.status(500).json({ message: "Failed to fetch sample" });
-    }
-  });
-
-  app.put("/api/samples/:id", isAuthenticated, async (req, res) => {
-    try {
-      const validatedData = insertSampleSchema.parse(req.body);
-      const sample = await storage.updateSample(req.params.id, validatedData);
-      res.json(sample);
-    } catch (error) {
-      console.error("Error updating sample:", error);
-      res.status(400).json({ message: "Failed to update sample" });
-    }
-  });
 
   // Training management routes
   app.get("/api/trainings", isAuthenticated, async (req, res) => {

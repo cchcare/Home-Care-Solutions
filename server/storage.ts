@@ -12,7 +12,6 @@ import {
   certifications,
   complianceItems,
   auditLogs,
-  samples,
   trainings,
   trainingRecords,
   files,
@@ -45,8 +44,6 @@ import {
   type InsertComplianceItem,
   type AuditLog,
   type InsertAuditLog,
-  type Sample,
-  type InsertSample,
   type Training,
   type InsertTraining,
   type TrainingRecord,
@@ -146,11 +143,6 @@ export interface IStorage {
   // Audit logging
   createAuditLog(log: InsertAuditLog): Promise<AuditLog>;
 
-  // Sample operations
-  getAllSamples(): Promise<Sample[]>;
-  getSample(id: string): Promise<Sample | undefined>;
-  createSample(sample: InsertSample): Promise<Sample>;
-  updateSample(id: string, sample: Partial<InsertSample>): Promise<Sample>;
 
   // Training operations
   getAllTrainings(): Promise<Training[]>;
@@ -558,29 +550,6 @@ export class DatabaseStorage implements IStorage {
     return newLog;
   }
 
-  // Sample operations
-  async getAllSamples(): Promise<Sample[]> {
-    return await db.select().from(samples).orderBy(desc(samples.createdAt));
-  }
-
-  async getSample(id: string): Promise<Sample | undefined> {
-    const [sample] = await db.select().from(samples).where(eq(samples.id, id));
-    return sample;
-  }
-
-  async createSample(sample: InsertSample): Promise<Sample> {
-    const [newSample] = await db.insert(samples).values(sample).returning();
-    return newSample;
-  }
-
-  async updateSample(id: string, sampleData: Partial<InsertSample>): Promise<Sample> {
-    const [updated] = await db
-      .update(samples)
-      .set(sampleData)
-      .where(eq(samples.id, id))
-      .returning();
-    return updated;
-  }
 
   // Training operations
   async getAllTrainings(): Promise<Training[]> {

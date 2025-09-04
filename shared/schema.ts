@@ -510,26 +510,6 @@ export const familyUpdatesRelations = relations(familyUpdates, ({ one }) => ({
   }),
 }));
 
-// Samples management
-export const sampleTypeEnum = pgEnum("sample_type", ["blood", "urine", "stool", "swab", "other"]);
-export const sampleStatusEnum = pgEnum("sample_status", ["collected", "in_transit", "received", "processing", "completed", "rejected"]);
-
-export const samples = pgTable("samples", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  clientId: varchar("client_id").notNull(),
-  caregiverId: varchar("caregiver_id"),
-  sampleType: sampleTypeEnum("sample_type").notNull(),
-  status: sampleStatusEnum("status").default("collected"),
-  collectionDate: timestamp("collection_date").notNull(),
-  labOrderNumber: varchar("lab_order_number"),
-  physicianName: varchar("physician_name"),
-  instructions: text("instructions"),
-  notes: text("notes"),
-  resultUrl: varchar("result_url"), // file path for uploaded results
-  officeId: varchar("office_id"),
-  createdAt: timestamp("created_at").defaultNow(),
-  updatedAt: timestamp("updated_at").defaultNow(),
-});
 
 // Training and certification management
 export const trainingTypeEnum = pgEnum("training_type", ["orientation", "annual", "certification", "continuing_education", "safety", "hipaa", "other"]);
@@ -566,7 +546,7 @@ export const trainingRecords = pgTable("training_records", {
 
 // Enhanced file management
 export const fileTypeEnum = pgEnum("file_type", ["document", "image", "video", "audio", "other"]);
-export const fileCategoryEnum = pgEnum("file_category", ["client_document", "training_material", "certificate", "sample_result", "insurance", "identification", "care_plan", "medical_record", "other"]);
+export const fileCategoryEnum = pgEnum("file_category", ["client_document", "training_material", "certificate", "insurance", "identification", "care_plan", "medical_record", "other"]);
 
 export const files = pgTable("files", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -578,7 +558,7 @@ export const files = pgTable("files", {
   fileSize: integer("file_size"), // in bytes
   mimeType: varchar("mime_type"),
   uploadedBy: varchar("uploaded_by").notNull(), // user ID
-  relatedEntityType: varchar("related_entity_type"), // 'client', 'caregiver', 'training', 'sample'
+  relatedEntityType: varchar("related_entity_type"), // 'client', 'caregiver', 'training'
   relatedEntityId: varchar("related_entity_id"),
   officeId: varchar("office_id"),
   isConfidential: boolean("is_confidential").default(false),
@@ -586,20 +566,6 @@ export const files = pgTable("files", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
-export const samplesRelations = relations(samples, ({ one }) => ({
-  client: one(clients, {
-    fields: [samples.clientId],
-    references: [clients.id],
-  }),
-  caregiver: one(caregivers, {
-    fields: [samples.caregiverId],
-    references: [caregivers.id],
-  }),
-  office: one(offices, {
-    fields: [samples.officeId],
-    references: [offices.id],
-  }),
-}));
 
 export const trainingsRelations = relations(trainings, ({ one, many }) => ({
   office: one(offices, {
@@ -683,9 +649,6 @@ export type AuditLog = typeof auditLogs.$inferSelect;
 export type InsertAuditLog = typeof auditLogs.$inferInsert;
 export const insertAuditLogSchema = createInsertSchema(auditLogs);
 
-export type Sample = typeof samples.$inferSelect;
-export type InsertSample = typeof samples.$inferInsert;
-export const insertSampleSchema = createInsertSchema(samples);
 
 export type Training = typeof trainings.$inferSelect;
 export type InsertTraining = typeof trainings.$inferInsert;
