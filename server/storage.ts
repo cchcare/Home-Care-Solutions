@@ -151,6 +151,9 @@ export interface IStorage {
   getAllTrainingRecords(): Promise<TrainingRecord[]>;
   createTrainingRecord(record: InsertTrainingRecord): Promise<TrainingRecord>;
 
+  // Certification operations
+  getAllCertifications(): Promise<Certification[]>;
+
   // Additional user operations for communication
   getAllUsers(): Promise<User[]>;
   updateMessage(id: string, data: Partial<InsertMessage>): Promise<Message>;
@@ -569,6 +572,10 @@ export class DatabaseStorage implements IStorage {
   async createTrainingRecord(record: InsertTrainingRecord): Promise<TrainingRecord> {
     const [newRecord] = await db.insert(trainingRecords).values(record).returning();
     return newRecord;
+  }
+
+  async getAllCertifications(): Promise<Certification[]> {
+    return await db.select().from(certifications).orderBy(desc(certifications.createdAt));
   }
 
   // Additional user operations for communication

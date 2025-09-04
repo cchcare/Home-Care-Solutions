@@ -758,6 +758,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Reports API endpoints
+  app.get("/api/training-records", isAuthenticated, async (req, res) => {
+    try {
+      const records = await storage.getAllTrainingRecords();
+      res.json(records);
+    } catch (error) {
+      console.error("Error fetching training records:", error);
+      res.status(500).json({ message: "Failed to fetch training records" });
+    }
+  });
+
+  app.get("/api/certifications", isAuthenticated, async (req, res) => {
+    try {
+      const certifications = await storage.getAllCertifications();
+      res.json(certifications);
+    } catch (error) {
+      console.error("Error fetching certifications:", error);
+      res.status(500).json({ message: "Failed to fetch certifications" });
+    }
+  });
+
   // Incident reports routes
   app.get("/api/incident-reports", isAuthenticated, async (req, res) => {
     try {

@@ -18,6 +18,7 @@ import Communication from "@/pages/communication";
 import Incidents from "@/pages/incidents";
 import SuperAdmin from "@/pages/super-admin";
 import UserManagement from "@/pages/user-management";
+import Reports from "@/pages/reports";
 
 function Router() {
   const { isAuthenticated, isLoading } = useAuth();
@@ -40,6 +41,7 @@ function Router() {
           <Route path="/incidents" component={Incidents} />
           <Route path="/super-admin" component={SuperAdmin} />
           <Route path="/user-management" component={UserManagement} />
+          <Route path="/reports" component={Reports} />
         </>
       )}
       <Route component={NotFound} />
