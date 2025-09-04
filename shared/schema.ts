@@ -160,15 +160,31 @@ export const documents = pgTable("documents", {
 // Incident reports
 export const incidentReports = pgTable("incident_reports", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  clientId: varchar("client_id").references(() => clients.id),
+  entityType: varchar("entity_type").notNull(), // client, caregiver, staff
+  entityId: varchar("entity_id").notNull(), // ID of the affected person
+  clientId: varchar("client_id").references(() => clients.id), // For client incidents or incidents involving clients
+  caregiverId: varchar("caregiver_id").references(() => caregivers.id), // For caregiver incidents
   reportedBy: varchar("reported_by").references(() => users.id),
-  incidentDate: timestamp("incident_date"),
-  incidentType: varchar("incident_type").notNull(),
+  incidentDate: timestamp("incident_date").notNull(),
+  incidentType: varchar("incident_type").notNull(), // fall, medication_error, injury, behavioral, etc.
+  incidentCategory: varchar("incident_category").notNull(), // safety, medical, behavioral, environmental
+  location: varchar("location"), // where the incident occurred
   description: text("description").notNull(),
-  severity: varchar("severity"), // low, medium, high, critical
-  actionsTaken: text("actions_taken"),
+  injuries: text("injuries"), // description of any injuries
+  witnessesPresent: boolean("witnesses_present").default(false),
+  witnessNames: text("witness_names"), // comma-separated list of witnesses
+  severity: varchar("severity").notNull(), // low, medium, high, critical
+  immediateActions: text("immediate_actions"), // actions taken immediately
+  actionsTaken: text("actions_taken"), // additional actions taken
+  preventiveMeasures: text("preventive_measures"), // measures to prevent recurrence
   followUpRequired: boolean("follow_up_required").default(false),
-  status: varchar("status").default("open"),
+  followUpDate: timestamp("follow_up_date"),
+  followUpNotes: text("follow_up_notes"),
+  notifiedFamily: boolean("notified_family").default(false),
+  notifiedDoctor: boolean("notified_doctor").default(false),
+  notifiedAgency: boolean("notified_agency").default(false),
+  status: varchar("status").default("open"), // open, under_investigation, resolved, closed
+  resolution: text("resolution"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -287,6 +303,7 @@ export const caregiversRelations = relations(caregivers, ({ one, many }) => ({
   progressNotes: many(progressNotes),
   documents: many(documents),
   complianceItems: many(complianceItems),
+  incidentReports: many(incidentReports),
 }));
 
 export const carePlansRelations = relations(carePlans, ({ one }) => ({
@@ -334,6 +351,10 @@ export const incidentReportsRelations = relations(incidentReports, ({ one }) => 
   client: one(clients, {
     fields: [incidentReports.clientId],
     references: [clients.id],
+  }),
+  caregiver: one(caregivers, {
+    fields: [incidentReports.caregiverId],
+    references: [caregivers.id],
   }),
   reportedBy: one(users, {
     fields: [incidentReports.reportedBy],

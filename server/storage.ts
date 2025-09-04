@@ -154,6 +154,12 @@ export interface IStorage {
   // Additional user operations for communication
   getAllUsers(): Promise<User[]>;
   updateMessage(id: string, data: Partial<InsertMessage>): Promise<Message>;
+
+  // Incident report operations
+  getAllIncidentReports(): Promise<IncidentReport[]>;
+  getIncidentReport(id: string): Promise<IncidentReport | undefined>;
+  createIncidentReport(report: InsertIncidentReport): Promise<IncidentReport>;
+  updateIncidentReport(id: string, report: Partial<InsertIncidentReport>): Promise<IncidentReport>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -348,24 +354,6 @@ export class DatabaseStorage implements IStorage {
     await db.delete(documents).where(eq(documents.id, id));
   }
 
-  // Incident report operations
-  async getAllIncidentReports(): Promise<IncidentReport[]> {
-    return await db.select().from(incidentReports).orderBy(desc(incidentReports.createdAt));
-  }
-
-  async createIncidentReport(report: InsertIncidentReport): Promise<IncidentReport> {
-    const [newReport] = await db.insert(incidentReports).values(report).returning();
-    return newReport;
-  }
-
-  async updateIncidentReport(id: string, report: Partial<InsertIncidentReport>): Promise<IncidentReport> {
-    const [updatedReport] = await db
-      .update(incidentReports)
-      .set({ ...report, updatedAt: new Date() })
-      .where(eq(incidentReports.id, id))
-      .returning();
-    return updatedReport;
-  }
 
   // Task operations
   async getAllTasks(): Promise<Task[]> {
@@ -588,6 +576,30 @@ export class DatabaseStorage implements IStorage {
       .update(messages)
       .set(data)
       .where(eq(messages.id, id))
+      .returning();
+    return updated;
+  }
+
+  // Incident report operations
+  async getAllIncidentReports(): Promise<IncidentReport[]> {
+    return await db.select().from(incidentReports).orderBy(desc(incidentReports.createdAt));
+  }
+
+  async getIncidentReport(id: string): Promise<IncidentReport | undefined> {
+    const [incident] = await db.select().from(incidentReports).where(eq(incidentReports.id, id));
+    return incident;
+  }
+
+  async createIncidentReport(report: InsertIncidentReport): Promise<IncidentReport> {
+    const [newReport] = await db.insert(incidentReports).values(report).returning();
+    return newReport;
+  }
+
+  async updateIncidentReport(id: string, reportData: Partial<InsertIncidentReport>): Promise<IncidentReport> {
+    const [updated] = await db
+      .update(incidentReports)
+      .set(reportData)
+      .where(eq(incidentReports.id, id))
       .returning();
     return updated;
   }

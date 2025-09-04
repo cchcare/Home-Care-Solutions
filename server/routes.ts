@@ -711,6 +711,55 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Incident reports routes
+  app.get("/api/incident-reports", isAuthenticated, async (req, res) => {
+    try {
+      const incidents = await storage.getAllIncidentReports();
+      res.json(incidents);
+    } catch (error) {
+      console.error("Error fetching incident reports:", error);
+      res.status(500).json({ message: "Failed to fetch incident reports" });
+    }
+  });
+
+  app.post("/api/incident-reports", isAuthenticated, async (req: any, res) => {
+    try {
+      const validatedData = insertIncidentReportSchema.parse({
+        ...req.body,
+        reportedBy: req.user.claims.sub,
+      });
+      const incident = await storage.createIncidentReport(validatedData);
+      res.status(201).json(incident);
+    } catch (error) {
+      console.error("Error creating incident report:", error);
+      res.status(400).json({ message: "Failed to create incident report" });
+    }
+  });
+
+  app.get("/api/incident-reports/:id", isAuthenticated, async (req, res) => {
+    try {
+      const incident = await storage.getIncidentReport(req.params.id);
+      if (!incident) {
+        return res.status(404).json({ message: "Incident report not found" });
+      }
+      res.json(incident);
+    } catch (error) {
+      console.error("Error fetching incident report:", error);
+      res.status(500).json({ message: "Failed to fetch incident report" });
+    }
+  });
+
+  app.put("/api/incident-reports/:id", isAuthenticated, async (req, res) => {
+    try {
+      const validatedData = insertIncidentReportSchema.partial().parse(req.body);
+      const incident = await storage.updateIncidentReport(req.params.id, validatedData);
+      res.json(incident);
+    } catch (error) {
+      console.error("Error updating incident report:", error);
+      res.status(400).json({ message: "Failed to update incident report" });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }

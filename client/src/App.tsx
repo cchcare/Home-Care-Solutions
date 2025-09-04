@@ -15,6 +15,7 @@ import Documents from "@/pages/documents";
 import Samples from "@/pages/samples";
 import Training from "@/pages/training";
 import Communication from "@/pages/communication";
+import Incidents from "@/pages/incidents";
 
 function Router() {
   const { isAuthenticated, isLoading } = useAuth();
@@ -34,6 +35,7 @@ function Router() {
           <Route path="/samples" component={Samples} />
           <Route path="/training" component={Training} />
           <Route path="/communication" component={Communication} />
+          <Route path="/incidents" component={Incidents} />
         </>
       )}
       <Route component={NotFound} />
