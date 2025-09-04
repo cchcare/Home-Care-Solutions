@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useAuth } from "@/hooks/useAuth";
+import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { 
   Search,
@@ -33,9 +34,14 @@ export function TopBar({
   onOfficeChange 
 }: TopBarProps) {
   const { user } = useAuth();
+  const [, setLocation] = useLocation();
 
   const handleLogout = () => {
     window.location.href = "/api/logout";
+  };
+
+  const navigateToAccountSettings = () => {
+    setLocation("/account-settings");
   };
 
   const userInitials = user?.firstName && user?.lastName 
@@ -111,11 +117,11 @@ export function TopBar({
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-56">
-            <DropdownMenuItem>
+            <DropdownMenuItem onClick={navigateToAccountSettings}>
               <User className="mr-2 h-4 w-4" />
               Profile Settings
             </DropdownMenuItem>
-            <DropdownMenuItem>
+            <DropdownMenuItem onClick={navigateToAccountSettings}>
               <Settings className="mr-2 h-4 w-4" />
               Account Settings
             </DropdownMenuItem>

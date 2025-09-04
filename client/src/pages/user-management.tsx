@@ -15,7 +15,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { insertUserSchema, type User } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
-import { Users, Plus, Edit, Trash2, Search, UserCheck, Shield, Eye } from "lucide-react";
+import { Users, Plus, Edit, Trash2, Search, UserCheck, Shield, Eye, User as UserIcon } from "lucide-react";
 import { format } from "date-fns";
 import { z } from "zod";
 import { useAuth } from "@/hooks/useAuth";
@@ -30,6 +30,8 @@ export default function UserManagementPage() {
   const { user: currentUser } = useAuth();
   const [open, setOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<User | null>(null);
+  const [selectedUser, setSelectedUser] = useState<User | null>(null);
+  const [showUserDetails, setShowUserDetails] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [roleFilter, setRoleFilter] = useState<string>("all");
   const { toast } = useToast();
@@ -139,6 +141,16 @@ export default function UserManagementPage() {
     setOpen(false);
     setEditingUser(null);
     form.reset();
+  };
+
+  const handleViewUser = (user: User) => {
+    setSelectedUser(user);
+    setShowUserDetails(true);
+  };
+
+  const handleCloseUserDetails = () => {
+    setSelectedUser(null);
+    setShowUserDetails(false);
   };
 
   const handleEdit = (user: User) => {
@@ -470,6 +482,15 @@ export default function UserManagementPage() {
                       <Button
                         variant="outline"
                         size="sm"
+                        onClick={() => handleViewUser(user)}
+                        data-testid={`button-view-user-${user.id}`}
+                      >
+                        <Eye className="mr-2 h-4 w-4" />
+                        View
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
                         onClick={() => handleEdit(user)}
                         data-testid={`button-edit-user-${user.id}`}
                       >
@@ -518,6 +539,127 @@ export default function UserManagementPage() {
           </div>
         </div>
       </main>
+
+      {/* User Details Modal */}
+      <Dialog open={showUserDetails} onOpenChange={handleCloseUserDetails}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center">
+              <UserIcon className="mr-2 h-5 w-5" />
+              User Details - {selectedUser?.firstName} {selectedUser?.lastName}
+            </DialogTitle>
+            <DialogDescription>
+              View detailed information about this user account
+            </DialogDescription>
+          </DialogHeader>
+          
+          {selectedUser && (
+            <div className="space-y-6">
+              {/* Profile Overview */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center">
+                    <UserIcon className="mr-2 h-4 w-4" />
+                    Profile Information
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="flex items-start space-x-6">
+                    <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center">
+                      {selectedUser.profileImageUrl ? (
+                        <img 
+                          src={selectedUser.profileImageUrl} 
+                          alt="Profile"
+                          className="w-20 h-20 rounded-full object-cover"
+                        />
+                      ) : (
+                        <span className="text-2xl font-semibold text-gray-500">
+                          {selectedUser.firstName?.[0]}{selectedUser.lastName?.[0]}
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex-1 space-y-4">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <label className="text-sm font-medium text-muted-foreground">Full Name</label>
+                          <p className="font-medium">{selectedUser.firstName} {selectedUser.lastName}</p>
+                        </div>
+                        <div>
+                          <label className="text-sm font-medium text-muted-foreground">Email</label>
+                          <p className="font-medium">{selectedUser.email}</p>
+                        </div>
+                        <div>
+                          <label className="text-sm font-medium text-muted-foreground">Role</label>
+                          <Badge variant={getRoleColor(selectedUser.role)}>
+                            {selectedUser.role?.replace('_', ' ')}
+                          </Badge>
+                        </div>
+                        <div>
+                          <label className="text-sm font-medium text-muted-foreground">Status</label>
+                          <Badge variant={selectedUser.isActive ? "default" : "secondary"}>
+                            {selectedUser.isActive ? "Active" : "Inactive"}
+                          </Badge>
+                        </div>
+                        <div>
+                          <label className="text-sm font-medium text-muted-foreground">Primary Office</label>
+                          <p className="font-medium">
+                            {offices.find((o: any) => o.id === selectedUser.primaryOfficeId)?.name || "No office assigned"}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Account Information */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center">
+                    <Shield className="mr-2 h-4 w-4" />
+                    Account Information
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                      <label className="text-sm font-medium text-muted-foreground">Account Created</label>
+                      <p className="font-medium">{format(new Date(selectedUser.createdAt), "PPP")}</p>
+                      <p className="text-sm text-muted-foreground">{format(new Date(selectedUser.createdAt), "p")}</p>
+                    </div>
+                    <div>
+                      <label className="text-sm font-medium text-muted-foreground">Last Updated</label>
+                      <p className="font-medium">{format(new Date(selectedUser.updatedAt), "PPP")}</p>
+                      <p className="text-sm text-muted-foreground">{format(new Date(selectedUser.updatedAt), "p")}</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Actions */}
+              <div className="flex justify-end space-x-3 pt-4 border-t border-border">
+                <Button 
+                  variant="outline" 
+                  onClick={handleCloseUserDetails}
+                  data-testid="button-close-user-details"
+                >
+                  Close
+                </Button>
+                <Button 
+                  onClick={() => {
+                    handleEdit(selectedUser);
+                    handleCloseUserDetails();
+                  }}
+                  data-testid="button-edit-from-details"
+                >
+                  <Edit className="mr-2 h-4 w-4" />
+                  Edit User
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

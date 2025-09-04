@@ -743,6 +743,46 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Allow users to update their own profile (limited fields)
+  app.put("/api/profile", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user?.claims?.sub;
+      if (!userId) {
+        return res.status(400).json({ message: "User ID not found" });
+      }
+      
+      // Only allow updating certain fields for self-profile
+      const allowedFields = { 
+        firstName: true, 
+        lastName: true, 
+        profileImageUrl: true 
+      };
+      
+      const sanitizedData: any = {};
+      Object.keys(req.body).forEach(key => {
+        if (allowedFields[key as keyof typeof allowedFields]) {
+          sanitizedData[key] = req.body[key];
+        }
+      });
+      
+      const validatedData = insertUserSchema.partial().omit({ 
+        id: true, 
+        createdAt: true, 
+        updatedAt: true,
+        email: true,
+        role: true,
+        primaryOfficeId: true,
+        isActive: true
+      }).parse(sanitizedData);
+      
+      const user = await storage.updateUser(userId, validatedData);
+      res.json(user);
+    } catch (error) {
+      console.error("Error updating profile:", error);
+      res.status(400).json({ message: "Failed to update profile" });
+    }
+  });
+
   app.put("/api/users/:id", isAuthenticated, requireAdminOrSupervisor, async (req, res) => {
     try {
       const validatedData = insertUserSchema.partial().omit({ id: true, createdAt: true, updatedAt: true }).parse(req.body);

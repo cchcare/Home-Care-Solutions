@@ -20,6 +20,7 @@ import UserManagement from "@/pages/user-management";
 import Reports from "@/pages/reports";
 import Tasks from "@/pages/tasks";
 import FamilyPortal from "@/pages/family-portal";
+import AccountSettings from "@/pages/account-settings";
 
 function Router() {
   const { isAuthenticated, isLoading, error } = useAuth();
@@ -56,6 +57,7 @@ function Router() {
           <Route path="/user-management" component={UserManagement} />
           <Route path="/reports" component={Reports} />
           <Route path="/tasks" component={Tasks} />
+          <Route path="/account-settings" component={AccountSettings} />
         </>
       )}
       <Route component={NotFound} />
