@@ -28,20 +28,33 @@ export function Sidebar() {
   const [isOpen, setIsOpen] = useState(false);
   const isMobile = useIsMobile();
 
-  const navigation = [
-    { name: "Dashboard", href: "/", icon: LayoutDashboard },
-    { name: "Client Management", href: "/clients", icon: Users },
-    { name: "Caregiver Management", href: "/caregivers", icon: UserCheck },
-    { name: "Office Management", href: "/offices", icon: Building2 },
-    { name: "Sample Management", href: "/samples", icon: TestTube },
-    { name: "Training & Resources", href: "/training", icon: GraduationCap },
-    { name: "Incident Reports", href: "/incidents", icon: AlertTriangle },
-    { name: "Compliance", href: "/compliance", icon: Shield },
-    { name: "Communication", href: "/communication", icon: MessageSquare },
-    { name: "Tasks & Workflows", href: "/tasks", icon: ClipboardList },
-    { name: "Forms & Documents", href: "/documents", icon: FileText },
-    { name: "Analytics & Reports", href: "/reports", icon: BarChart3 },
-  ];
+  // Role-based navigation
+  const getNavigation = () => {
+    // Super Admin only has access to office creation
+    if ((user as any)?.role === "super_admin") {
+      return [
+        { name: "Super Admin", href: "/super-admin", icon: Shield },
+      ];
+    }
+
+    // Regular navigation for all other roles
+    return [
+      { name: "Dashboard", href: "/", icon: LayoutDashboard },
+      { name: "Client Management", href: "/clients", icon: Users },
+      { name: "Caregiver Management", href: "/caregivers", icon: UserCheck },
+      { name: "Office Management", href: "/offices", icon: Building2 },
+      { name: "Sample Management", href: "/samples", icon: TestTube },
+      { name: "Training & Resources", href: "/training", icon: GraduationCap },
+      { name: "Incident Reports", href: "/incidents", icon: AlertTriangle },
+      { name: "Compliance", href: "/compliance", icon: Shield },
+      { name: "Communication", href: "/communication", icon: MessageSquare },
+      { name: "Tasks & Workflows", href: "/tasks", icon: ClipboardList },
+      { name: "Forms & Documents", href: "/documents", icon: FileText },
+      { name: "Analytics & Reports", href: "/reports", icon: BarChart3 },
+    ];
+  };
+
+  const navigation = getNavigation();
 
   const handleLogout = () => {
     window.location.href = "/api/logout";
@@ -82,11 +95,20 @@ export function Sidebar() {
         <div className="flex flex-col h-full">
           {/* Logo & Brand */}
           <div className="flex items-center justify-between p-6 border-b border-sidebar-border">
-            <div className="flex items-center space-x-3">
-              <div className="w-8 h-8 bg-sidebar-primary rounded-lg flex items-center justify-center">
-                <Heart className="w-5 h-5 text-sidebar-primary-foreground" />
+            <div className="flex flex-col">
+              <div className="flex items-center space-x-3">
+                <div className="w-8 h-8 bg-sidebar-primary rounded-lg flex items-center justify-center">
+                  <Heart className="w-5 h-5 text-sidebar-primary-foreground" />
+                </div>
+                <h1 className="text-xl font-bold text-sidebar-foreground">CareConnect</h1>
               </div>
-              <h1 className="text-xl font-bold text-sidebar-foreground">CareConnect</h1>
+              {(user as any)?.role === "super_admin" && (
+                <div className="ml-11 mt-1">
+                  <span className="text-xs font-medium text-blue-600 bg-blue-100 px-2 py-1 rounded-full">
+                    Super Admin
+                  </span>
+                </div>
+              )}
             </div>
             {isMobile && (
               <Button
