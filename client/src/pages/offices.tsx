@@ -34,6 +34,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { insertOfficeSchema, type Office, type InsertOffice } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
+import { Sidebar } from "@/components/sidebar";
 import { Plus, Building2, MapPin, Phone, Mail, Edit, Trash2 } from "lucide-react";
 
 export default function Offices() {
@@ -174,30 +175,35 @@ export default function Offices() {
 
   if (isLoading) {
     return (
-      <div className="p-6">
-        <div className="flex items-center space-x-2 mb-6">
-          <Building2 className="w-6 h-6" />
-          <h1 className="text-2xl font-bold">Office Management</h1>
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {[...Array(3)].map((_, i) => (
-            <Card key={i} className="h-48 animate-pulse">
-              <CardContent className="p-6">
-                <div className="space-y-2">
-                  <div className="h-4 bg-muted rounded w-3/4"></div>
-                  <div className="h-3 bg-muted rounded w-1/2"></div>
-                  <div className="h-3 bg-muted rounded w-2/3"></div>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+      <div className="flex h-screen overflow-hidden">
+        <Sidebar />
+        <main className="flex-1 overflow-auto p-6">
+          <div className="flex items-center space-x-2 mb-6">
+            <Building2 className="w-6 h-6" />
+            <h1 className="text-2xl font-bold">Office Management</h1>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {[...Array(3)].map((_, i) => (
+              <Card key={i} className="h-48 animate-pulse">
+                <CardContent className="p-6">
+                  <div className="space-y-2">
+                    <div className="h-4 bg-muted rounded w-3/4"></div>
+                    <div className="h-3 bg-muted rounded w-1/2"></div>
+                    <div className="h-3 bg-muted rounded w-2/3"></div>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </main>
       </div>
     );
   }
 
   return (
-    <div className="p-6">
+    <div className="flex h-screen overflow-hidden">
+      <Sidebar />
+      <main className="flex-1 overflow-auto p-6">
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center space-x-2">
           <Building2 className="w-6 h-6" />
@@ -529,6 +535,7 @@ export default function Offices() {
         onEdit={handleEditOffice}
         onDelete={handleDeleteOffice}
       />
+      </main>
     </div>
   );
 }
