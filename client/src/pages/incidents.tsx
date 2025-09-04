@@ -59,7 +59,17 @@ export default function IncidentsPage() {
         incidentDate: new Date(data.incidentDate).toISOString(),
         followUpDate: data.followUpDate ? new Date(data.followUpDate).toISOString() : null,
       };
-      return await apiRequest("POST", "/api/incident-reports", payload);
+      const response = await fetch("/api/incident-reports", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(payload),
+      });
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || "Failed to create incident report");
+      }
+      return response.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/incident-reports"] });
@@ -699,7 +709,7 @@ export default function IncidentsPage() {
                     <div className="flex items-center gap-4 text-xs text-muted-foreground">
                       <div className="flex items-center gap-1">
                         <Clock className="h-3 w-3" />
-                        <span>Reported {format(new Date(incident.createdAt), "MMM d, yyyy")}</span>
+                        <span>Reported {incident.createdAt ? format(new Date(incident.createdAt), "MMM d, yyyy") : "Unknown"}</span>
                       </div>
                       {incident.followUpRequired && incident.followUpDate && (
                         <div className="flex items-center gap-1 text-orange-600">
