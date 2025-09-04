@@ -230,7 +230,7 @@ export default function Training() {
           title="Training & Resources"
           subtitle="Manage training programs and resources"
         />
-      <main className="flex-1 overflow-auto p-6">
+        <div className="flex-1 overflow-auto p-6">
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center space-x-2">
             <GraduationCap className="w-6 h-6" />
@@ -607,6 +607,7 @@ export default function Training() {
             </p>
           </div>
         )}
+        </div>
       </main>
     </div>
   );

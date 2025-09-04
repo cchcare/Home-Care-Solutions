@@ -296,7 +296,7 @@ export default function Communication() {
           title="Communication Hub"
           subtitle="Manage internal messages and communications"
         />
-      <main className="flex-1 overflow-auto p-6">
+        <div className="flex-1 overflow-auto p-6">
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center space-x-2">
             <MessageCircle className="w-6 h-6" />
@@ -687,6 +687,7 @@ export default function Communication() {
             </p>
           </div>
         )}
+        </div>
       </main>
     </div>
   );

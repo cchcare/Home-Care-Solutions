@@ -24,10 +24,13 @@ import { insertCaregiverSchema } from "@shared/schema";
 const caregiverFormSchema = insertCaregiverSchema.extend({
   employeeId: z.string().min(1, "Employee ID is required"),
   experienceYears: z.number().min(0, "Experience years must be 0 or greater"),
+  hourlyWage: z.number().min(0, "Hourly wage must be 0 or greater"),
   // User information for login account
   email: z.string().email("Please enter a valid email address"),
   firstName: z.string().min(1, "First name is required"),
+  middleName: z.string().optional(),
   lastName: z.string().min(1, "Last name is required"),
+  dateOfBirth: z.date().optional(),
 });
 
 type CaregiverFormData = z.infer<typeof caregiverFormSchema>;
@@ -45,11 +48,15 @@ export function AddCaregiverModal({ isOpen, onClose, onSubmit, isLoading }: AddC
     defaultValues: {
       employeeId: "",
       experienceYears: 0,
+      hourlyWage: 0,
       specializations: [],
       isActive: true,
       email: "",
       firstName: "",
+      middleName: "",
       lastName: "",
+      dateOfBirth: undefined,
+      startDate: undefined,
     },
   });
 
@@ -85,7 +92,7 @@ export function AddCaregiverModal({ isOpen, onClose, onSubmit, isLoading }: AddC
             <div className="space-y-4">
               <h4 className="font-semibold text-foreground">Personal Information</h4>
               
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <FormField
                   control={form.control}
                   name="firstName"
@@ -101,12 +108,47 @@ export function AddCaregiverModal({ isOpen, onClose, onSubmit, isLoading }: AddC
                 />
                 <FormField
                   control={form.control}
+                  name="middleName"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Middle Name</FormLabel>
+                      <FormControl>
+                        <Input placeholder="Enter middle name" {...field} data-testid="input-middle-name" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
                   name="lastName"
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Last Name *</FormLabel>
                       <FormControl>
                         <Input placeholder="Enter last name" {...field} data-testid="input-last-name" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <FormField
+                  control={form.control}
+                  name="dateOfBirth"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Date of Birth</FormLabel>
+                      <FormControl>
+                        <Input 
+                          type="date" 
+                          {...field}
+                          value={field.value ? new Date(field.value).toISOString().split('T')[0] : ''}
+                          onChange={(e) => field.onChange(e.target.value ? new Date(e.target.value) : undefined)}
+                          data-testid="input-date-of-birth"
+                        />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -157,6 +199,30 @@ export function AddCaregiverModal({ isOpen, onClose, onSubmit, isLoading }: AddC
                 />
                 <FormField
                   control={form.control}
+                  name="hourlyWage"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Hourly Wage ($) *</FormLabel>
+                      <FormControl>
+                        <Input 
+                          type="number" 
+                          step="0.01"
+                          min="0"
+                          placeholder="0.00"
+                          {...field}
+                          onChange={(e) => field.onChange(parseFloat(e.target.value) || 0)}
+                          data-testid="input-hourly-wage"
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <FormField
+                  control={form.control}
                   name="hireDate"
                   render={({ field }) => (
                     <FormItem>
@@ -168,6 +234,25 @@ export function AddCaregiverModal({ isOpen, onClose, onSubmit, isLoading }: AddC
                           value={field.value ? new Date(field.value).toISOString().split('T')[0] : ''}
                           onChange={(e) => field.onChange(e.target.value ? new Date(e.target.value) : null)}
                           data-testid="input-hire-date"
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="startDate"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Start Date *</FormLabel>
+                      <FormControl>
+                        <Input 
+                          type="date" 
+                          {...field}
+                          value={field.value ? new Date(field.value).toISOString().split('T')[0] : ''}
+                          onChange={(e) => field.onChange(e.target.value ? new Date(e.target.value) : null)}
+                          data-testid="input-start-date"
                         />
                       </FormControl>
                       <FormMessage />

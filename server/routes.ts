@@ -296,13 +296,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/caregivers", isAuthenticated, async (req: any, res) => {
     try {
       // Extract user info from the request body
-      const { email, firstName, lastName, ...caregiverData } = req.body;
+      const { email, firstName, middleName, lastName, dateOfBirth, ...caregiverData } = req.body;
       
       // First create the user account for login
       const user = await storage.upsertUser({
         email,
         firstName,
+        middleName,
         lastName,
+        dateOfBirth,
         role: "caregiver"
       });
       
@@ -319,7 +321,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         action: "create",
         entityType: "caregiver",
         entityId: caregiver.id,
-        newValues: { ...caregiver, userEmail: email, userFirstName: firstName, userLastName: lastName },
+        newValues: { 
+          ...caregiver, 
+          userEmail: email, 
+          userFirstName: firstName, 
+          userMiddleName: middleName,
+          userLastName: lastName,
+          userDateOfBirth: dateOfBirth
+        },
         ipAddress: req.ip,
         userAgent: req.get("User-Agent"),
       });
@@ -330,7 +339,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         user: {
           email: user.email,
           firstName: user.firstName,
-          lastName: user.lastName
+          middleName: user.middleName,
+          lastName: user.lastName,
+          dateOfBirth: user.dateOfBirth
         }
       });
     } catch (error) {
