@@ -1,0 +1,88 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: hsl(210, 40%, 98%);
+  --foreground: hsl(210, 40%, 8%);
+  --card: hsl(0, 0%, 100%);
+  --card-foreground: hsl(210, 40%, 8%);
+  --popover: hsl(0, 0%, 100%);
+  --popover-foreground: hsl(210, 40%, 8%);
+  --primary: hsl(210, 100%, 45%);
+  --primary-foreground: hsl(0, 0%, 100%);
+  --secondary: hsl(210, 10%, 85%);
+  --secondary-foreground: hsl(210, 40%, 8%);
+  --muted: hsl(210, 40%, 96%);
+  --muted-foreground: hsl(210, 25%, 45%);
+  --accent: hsl(142, 76%, 36%);
+  --accent-foreground: hsl(0, 0%, 100%);
+  --destructive: hsl(0, 84%, 60%);
+  --destructive-foreground: hsl(0, 0%, 100%);
+  --border: hsl(214, 32%, 91%);
+  --input: hsl(214, 32%, 91%);
+  --ring: hsl(210, 100%, 45%);
+  --sidebar: hsl(180, 6.6667%, 97.0588%);
+  --sidebar-foreground: hsl(210, 25%, 7.8431%);
+  --sidebar-primary: hsl(210, 100%, 45%);
+  --sidebar-primary-foreground: hsl(0, 0%, 100%);
+  --sidebar-accent: hsl(211.5789, 51.3514%, 92.7451%);
+  --sidebar-accent-foreground: hsl(210, 100%, 45%);
+  --sidebar-border: hsl(205.0000, 25.0000%, 90.5882%);
+  --sidebar-ring: hsl(210, 100%, 45%);
+  --font-sans: Inter, system-ui, sans-serif;
+  --font-serif: Georgia, serif;
+  --font-mono: Menlo, monospace;
+  --radius: 0.75rem;
+}
+
+.dark {
+  --background: hsl(210, 30%, 8%);
+  --foreground: hsl(210, 40%, 98%);
+  --card: hsl(210, 25%, 11%);
+  --card-foreground: hsl(210, 40%, 98%);
+  --popover: hsl(210, 25%, 11%);
+  --popover-foreground: hsl(210, 40%, 98%);
+  --primary: hsl(210, 100%, 55%);
+  --primary-foreground: hsl(210, 30%, 8%);
+  --secondary: hsl(210, 20%, 15%);
+  --secondary-foreground: hsl(210, 40%, 98%);
+  --muted: hsl(210, 25%, 12%);
+  --muted-foreground: hsl(210, 25%, 60%);
+  --accent: hsl(142, 76%, 46%);
+  --accent-foreground: hsl(210, 30%, 8%);
+  --destructive: hsl(0, 84%, 50%);
+  --destructive-foreground: hsl(210, 40%, 98%);
+  --border: hsl(210, 25%, 18%);
+  --input: hsl(210, 25%, 18%);
+  --ring: hsl(210, 100%, 55%);
+  --sidebar: hsl(210, 25%, 11%);
+  --sidebar-foreground: hsl(210, 40%, 98%);
+  --sidebar-primary: hsl(210, 100%, 55%);
+  --sidebar-primary-foreground: hsl(210, 30%, 8%);
+  --sidebar-accent: hsl(210, 25%, 18%);
+  --sidebar-accent-foreground: hsl(210, 100%, 55%);
+  --sidebar-border: hsl(210, 25%, 18%);
+  --sidebar-ring: hsl(210, 100%, 55%);
+}
+
+.sidebar-transition {
+  transition: transform 0.3s ease-in-out;
+}
+
+@media (max-width: 1024px) {
+  .sidebar-closed {
+    transform: translateX(-100%);
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply font-sans antialiased bg-background text-foreground;
+  }
+}

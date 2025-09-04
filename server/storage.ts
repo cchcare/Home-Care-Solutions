@@ -1,0 +1,470 @@
+import {
+  users,
+  clients,
+  caregivers,
+  carePlans,
+  progressNotes,
+  documents,
+  incidentReports,
+  tasks,
+  messages,
+  certifications,
+  complianceItems,
+  auditLogs,
+  type User,
+  type UpsertUser,
+  type Client,
+  type InsertClient,
+  type Caregiver,
+  type InsertCaregiver,
+  type CarePlan,
+  type InsertCarePlan,
+  type ProgressNote,
+  type InsertProgressNote,
+  type Document,
+  type InsertDocument,
+  type IncidentReport,
+  type InsertIncidentReport,
+  type Task,
+  type InsertTask,
+  type Message,
+  type InsertMessage,
+  type Certification,
+  type InsertCertification,
+  type ComplianceItem,
+  type InsertComplianceItem,
+  type AuditLog,
+  type InsertAuditLog,
+} from "@shared/schema";
+import { db } from "./db";
+import { eq, desc, and, or, count, sql, like, gte, lte } from "drizzle-orm";
+
+export interface IStorage {
+  // User operations
+  getUser(id: string): Promise<User | undefined>;
+  upsertUser(user: UpsertUser): Promise<User>;
+
+  // Client operations
+  getAllClients(): Promise<Client[]>;
+  getClient(id: string): Promise<Client | undefined>;
+  createClient(client: InsertClient): Promise<Client>;
+  updateClient(id: string, client: Partial<InsertClient>): Promise<Client>;
+  deleteClient(id: string): Promise<void>;
+  searchClients(searchTerm: string): Promise<Client[]>;
+
+  // Caregiver operations
+  getAllCaregivers(): Promise<Caregiver[]>;
+  getCaregiver(id: string): Promise<Caregiver | undefined>;
+  getCaregiverByUserId(userId: string): Promise<Caregiver | undefined>;
+  createCaregiver(caregiver: InsertCaregiver): Promise<Caregiver>;
+  updateCaregiver(id: string, caregiver: Partial<InsertCaregiver>): Promise<Caregiver>;
+  deleteCaregiver(id: string): Promise<void>;
+
+  // Care plan operations
+  getCarePlansByClient(clientId: string): Promise<CarePlan[]>;
+  createCarePlan(carePlan: InsertCarePlan): Promise<CarePlan>;
+  updateCarePlan(id: string, carePlan: Partial<InsertCarePlan>): Promise<CarePlan>;
+
+  // Progress notes operations
+  getProgressNotesByClient(clientId: string): Promise<ProgressNote[]>;
+  createProgressNote(note: InsertProgressNote): Promise<ProgressNote>;
+
+  // Document operations
+  getAllDocuments(): Promise<Document[]>;
+  getDocumentsByClient(clientId: string): Promise<Document[]>;
+  createDocument(document: InsertDocument): Promise<Document>;
+  updateDocument(id: string, document: Partial<InsertDocument>): Promise<Document>;
+  deleteDocument(id: string): Promise<void>;
+
+  // Incident report operations
+  getAllIncidentReports(): Promise<IncidentReport[]>;
+  createIncidentReport(report: InsertIncidentReport): Promise<IncidentReport>;
+  updateIncidentReport(id: string, report: Partial<InsertIncidentReport>): Promise<IncidentReport>;
+
+  // Task operations
+  getAllTasks(): Promise<Task[]>;
+  getTasksByUser(userId: string): Promise<Task[]>;
+  createTask(task: InsertTask): Promise<Task>;
+  updateTask(id: string, task: Partial<InsertTask>): Promise<Task>;
+  deleteTask(id: string): Promise<void>;
+
+  // Message operations
+  getMessagesByUser(userId: string): Promise<Message[]>;
+  createMessage(message: InsertMessage): Promise<Message>;
+  markMessageAsRead(id: string): Promise<void>;
+
+  // Certification operations
+  getCertificationsByCaregiver(caregiverId: string): Promise<Certification[]>;
+  createCertification(certification: InsertCertification): Promise<Certification>;
+  updateCertification(id: string, certification: Partial<InsertCertification>): Promise<Certification>;
+
+  // Compliance operations
+  getComplianceItemsByCaregiver(caregiverId: string): Promise<ComplianceItem[]>;
+  createComplianceItem(item: InsertComplianceItem): Promise<ComplianceItem>;
+  updateComplianceItem(id: string, item: Partial<InsertComplianceItem>): Promise<ComplianceItem>;
+
+  // Dashboard metrics
+  getDashboardMetrics(): Promise<{
+    activeClients: number;
+    activeCaregivers: number;
+    pendingTasks: number;
+    complianceRate: number;
+    criticalAlerts: number;
+  }>;
+
+  // Audit logging
+  createAuditLog(log: InsertAuditLog): Promise<AuditLog>;
+}
+
+export class DatabaseStorage implements IStorage {
+  // User operations
+  async getUser(id: string): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.id, id));
+    return user;
+  }
+
+  async upsertUser(userData: UpsertUser): Promise<User> {
+    const [user] = await db
+      .insert(users)
+      .values(userData)
+      .onConflictDoUpdate({
+        target: users.id,
+        set: {
+          ...userData,
+          updatedAt: new Date(),
+        },
+      })
+      .returning();
+    return user;
+  }
+
+  // Client operations
+  async getAllClients(): Promise<Client[]> {
+    return await db.select().from(clients).orderBy(desc(clients.createdAt));
+  }
+
+  async getClient(id: string): Promise<Client | undefined> {
+    const [client] = await db.select().from(clients).where(eq(clients.id, id));
+    return client;
+  }
+
+  async createClient(client: InsertClient): Promise<Client> {
+    const [newClient] = await db.insert(clients).values(client).returning();
+    return newClient;
+  }
+
+  async updateClient(id: string, client: Partial<InsertClient>): Promise<Client> {
+    const [updatedClient] = await db
+      .update(clients)
+      .set({ ...client, updatedAt: new Date() })
+      .where(eq(clients.id, id))
+      .returning();
+    return updatedClient;
+  }
+
+  async deleteClient(id: string): Promise<void> {
+    await db.delete(clients).where(eq(clients.id, id));
+  }
+
+  async searchClients(searchTerm: string): Promise<Client[]> {
+    return await db
+      .select()
+      .from(clients)
+      .where(
+        or(
+          like(clients.firstName, `%${searchTerm}%`),
+          like(clients.lastName, `%${searchTerm}%`),
+          like(clients.phone, `%${searchTerm}%`)
+        )
+      );
+  }
+
+  // Caregiver operations
+  async getAllCaregivers(): Promise<Caregiver[]> {
+    return await db.select().from(caregivers).orderBy(desc(caregivers.createdAt));
+  }
+
+  async getCaregiver(id: string): Promise<Caregiver | undefined> {
+    const [caregiver] = await db.select().from(caregivers).where(eq(caregivers.id, id));
+    return caregiver;
+  }
+
+  async getCaregiverByUserId(userId: string): Promise<Caregiver | undefined> {
+    const [caregiver] = await db.select().from(caregivers).where(eq(caregivers.userId, userId));
+    return caregiver;
+  }
+
+  async createCaregiver(caregiver: InsertCaregiver): Promise<Caregiver> {
+    const [newCaregiver] = await db.insert(caregivers).values(caregiver).returning();
+    return newCaregiver;
+  }
+
+  async updateCaregiver(id: string, caregiver: Partial<InsertCaregiver>): Promise<Caregiver> {
+    const [updatedCaregiver] = await db
+      .update(caregivers)
+      .set({ ...caregiver, updatedAt: new Date() })
+      .where(eq(caregivers.id, id))
+      .returning();
+    return updatedCaregiver;
+  }
+
+  async deleteCaregiver(id: string): Promise<void> {
+    await db.delete(caregivers).where(eq(caregivers.id, id));
+  }
+
+  // Care plan operations
+  async getCarePlansByClient(clientId: string): Promise<CarePlan[]> {
+    return await db
+      .select()
+      .from(carePlans)
+      .where(eq(carePlans.clientId, clientId))
+      .orderBy(desc(carePlans.createdAt));
+  }
+
+  async createCarePlan(carePlan: InsertCarePlan): Promise<CarePlan> {
+    const [newCarePlan] = await db.insert(carePlans).values(carePlan).returning();
+    return newCarePlan;
+  }
+
+  async updateCarePlan(id: string, carePlan: Partial<InsertCarePlan>): Promise<CarePlan> {
+    const [updatedCarePlan] = await db
+      .update(carePlans)
+      .set({ ...carePlan, updatedAt: new Date() })
+      .where(eq(carePlans.id, id))
+      .returning();
+    return updatedCarePlan;
+  }
+
+  // Progress notes operations
+  async getProgressNotesByClient(clientId: string): Promise<ProgressNote[]> {
+    return await db
+      .select()
+      .from(progressNotes)
+      .where(eq(progressNotes.clientId, clientId))
+      .orderBy(desc(progressNotes.visitDate));
+  }
+
+  async createProgressNote(note: InsertProgressNote): Promise<ProgressNote> {
+    const [newNote] = await db.insert(progressNotes).values(note).returning();
+    return newNote;
+  }
+
+  // Document operations
+  async getAllDocuments(): Promise<Document[]> {
+    return await db.select().from(documents).orderBy(desc(documents.createdAt));
+  }
+
+  async getDocumentsByClient(clientId: string): Promise<Document[]> {
+    return await db
+      .select()
+      .from(documents)
+      .where(eq(documents.clientId, clientId))
+      .orderBy(desc(documents.createdAt));
+  }
+
+  async createDocument(document: InsertDocument): Promise<Document> {
+    const [newDocument] = await db.insert(documents).values(document).returning();
+    return newDocument;
+  }
+
+  async updateDocument(id: string, document: Partial<InsertDocument>): Promise<Document> {
+    const [updatedDocument] = await db
+      .update(documents)
+      .set(document)
+      .where(eq(documents.id, id))
+      .returning();
+    return updatedDocument;
+  }
+
+  async deleteDocument(id: string): Promise<void> {
+    await db.delete(documents).where(eq(documents.id, id));
+  }
+
+  // Incident report operations
+  async getAllIncidentReports(): Promise<IncidentReport[]> {
+    return await db.select().from(incidentReports).orderBy(desc(incidentReports.createdAt));
+  }
+
+  async createIncidentReport(report: InsertIncidentReport): Promise<IncidentReport> {
+    const [newReport] = await db.insert(incidentReports).values(report).returning();
+    return newReport;
+  }
+
+  async updateIncidentReport(id: string, report: Partial<InsertIncidentReport>): Promise<IncidentReport> {
+    const [updatedReport] = await db
+      .update(incidentReports)
+      .set({ ...report, updatedAt: new Date() })
+      .where(eq(incidentReports.id, id))
+      .returning();
+    return updatedReport;
+  }
+
+  // Task operations
+  async getAllTasks(): Promise<Task[]> {
+    return await db.select().from(tasks).orderBy(desc(tasks.createdAt));
+  }
+
+  async getTasksByUser(userId: string): Promise<Task[]> {
+    return await db
+      .select()
+      .from(tasks)
+      .where(eq(tasks.assignedTo, userId))
+      .orderBy(desc(tasks.dueDate));
+  }
+
+  async createTask(task: InsertTask): Promise<Task> {
+    const [newTask] = await db.insert(tasks).values(task).returning();
+    return newTask;
+  }
+
+  async updateTask(id: string, task: Partial<InsertTask>): Promise<Task> {
+    const [updatedTask] = await db
+      .update(tasks)
+      .set({ ...task, updatedAt: new Date() })
+      .where(eq(tasks.id, id))
+      .returning();
+    return updatedTask;
+  }
+
+  async deleteTask(id: string): Promise<void> {
+    await db.delete(tasks).where(eq(tasks.id, id));
+  }
+
+  // Message operations
+  async getMessagesByUser(userId: string): Promise<Message[]> {
+    return await db
+      .select()
+      .from(messages)
+      .where(
+        or(
+          eq(messages.senderId, userId),
+          eq(messages.recipientId, userId)
+        )
+      )
+      .orderBy(desc(messages.createdAt));
+  }
+
+  async createMessage(message: InsertMessage): Promise<Message> {
+    const [newMessage] = await db.insert(messages).values(message).returning();
+    return newMessage;
+  }
+
+  async markMessageAsRead(id: string): Promise<void> {
+    await db
+      .update(messages)
+      .set({ isRead: true })
+      .where(eq(messages.id, id));
+  }
+
+  // Certification operations
+  async getCertificationsByCaregiver(caregiverId: string): Promise<Certification[]> {
+    return await db
+      .select()
+      .from(certifications)
+      .where(eq(certifications.caregiverId, caregiverId))
+      .orderBy(desc(certifications.expirationDate));
+  }
+
+  async createCertification(certification: InsertCertification): Promise<Certification> {
+    const [newCertification] = await db.insert(certifications).values(certification).returning();
+    return newCertification;
+  }
+
+  async updateCertification(id: string, certification: Partial<InsertCertification>): Promise<Certification> {
+    const [updatedCertification] = await db
+      .update(certifications)
+      .set(certification)
+      .where(eq(certifications.id, id))
+      .returning();
+    return updatedCertification;
+  }
+
+  // Compliance operations
+  async getComplianceItemsByCaregiver(caregiverId: string): Promise<ComplianceItem[]> {
+    return await db
+      .select()
+      .from(complianceItems)
+      .where(eq(complianceItems.caregiverId, caregiverId))
+      .orderBy(desc(complianceItems.dueDate));
+  }
+
+  async createComplianceItem(item: InsertComplianceItem): Promise<ComplianceItem> {
+    const [newItem] = await db.insert(complianceItems).values(item).returning();
+    return newItem;
+  }
+
+  async updateComplianceItem(id: string, item: Partial<InsertComplianceItem>): Promise<ComplianceItem> {
+    const [updatedItem] = await db
+      .update(complianceItems)
+      .set({ ...item, updatedAt: new Date() })
+      .where(eq(complianceItems.id, id))
+      .returning();
+    return updatedItem;
+  }
+
+  // Dashboard metrics
+  async getDashboardMetrics(): Promise<{
+    activeClients: number;
+    activeCaregivers: number;
+    pendingTasks: number;
+    complianceRate: number;
+    criticalAlerts: number;
+  }> {
+    const [clientCount] = await db
+      .select({ count: count() })
+      .from(clients)
+      .where(eq(clients.status, "active"));
+
+    const [caregiverCount] = await db
+      .select({ count: count() })
+      .from(caregivers)
+      .where(eq(caregivers.isActive, true));
+
+    const [taskCount] = await db
+      .select({ count: count() })
+      .from(tasks)
+      .where(eq(tasks.status, "pending"));
+
+    const [totalCompliance] = await db
+      .select({ count: count() })
+      .from(complianceItems);
+
+    const [compliantItems] = await db
+      .select({ count: count() })
+      .from(complianceItems)
+      .where(eq(complianceItems.status, "compliant"));
+
+    const [criticalTasks] = await db
+      .select({ count: count() })
+      .from(tasks)
+      .where(
+        and(
+          eq(tasks.priority, "critical"),
+          or(
+            eq(tasks.status, "pending"),
+            eq(tasks.status, "overdue")
+          )
+        )
+      );
+
+    const complianceRate = totalCompliance.count > 0 
+      ? Math.round((compliantItems.count / totalCompliance.count) * 100)
+      : 100;
+
+    return {
+      activeClients: clientCount.count,
+      activeCaregivers: caregiverCount.count,
+      pendingTasks: taskCount.count,
+      complianceRate,
+      criticalAlerts: criticalTasks.count,
+    };
+  }
+
+  // Audit logging
+  async createAuditLog(log: InsertAuditLog): Promise<AuditLog> {
+    const [newLog] = await db.insert(auditLogs).values(log).returning();
+    return newLog;
+  }
+}
+
+export const storage = new DatabaseStorage();
