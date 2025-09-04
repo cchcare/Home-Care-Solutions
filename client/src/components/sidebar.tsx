@@ -18,7 +18,8 @@ import {
   BarChart3,
   Settings,
   Menu,
-  X
+  X,
+  Cog
 } from "lucide-react";
 
 export function Sidebar() {
@@ -29,13 +30,6 @@ export function Sidebar() {
 
   // Role-based navigation
   const getNavigation = () => {
-    // Super Admin only has access to office creation
-    if ((user as any)?.role === "super_admin") {
-      return [
-        { name: "Super Admin", href: "/super-admin", icon: Shield },
-      ];
-    }
-
     // Family members only have access to family portal
     if ((user as any)?.role === "family") {
       return [
@@ -43,7 +37,7 @@ export function Sidebar() {
       ];
     }
 
-    // Regular navigation for all other roles
+    // Base navigation for all authenticated users (including super admin)
     const baseNavigation = [
       { name: "Dashboard", href: "/", icon: LayoutDashboard },
       { name: "Client Management", href: "/clients", icon: Users },
@@ -58,9 +52,17 @@ export function Sidebar() {
       { name: "Analytics & Reports", href: "/reports", icon: BarChart3 },
     ];
 
-    // Add user management for admin and supervisor roles
-    if ((user as any)?.role === "admin" || (user as any)?.role === "supervisor") {
+    // Add user management for admin, supervisor, and super admin roles
+    if ((user as any)?.role === "admin" || (user as any)?.role === "supervisor" || (user as any)?.role === "super_admin") {
       baseNavigation.splice(4, 0, { name: "User Management", href: "/user-management", icon: Users });
+    }
+
+    // Add super admin specific features
+    if ((user as any)?.role === "super_admin") {
+      baseNavigation.push(
+        { name: "Super Admin", href: "/super-admin", icon: Shield },
+        { name: "Role & Access Control", href: "/role-wizard", icon: Cog }
+      );
     }
 
     return baseNavigation;
