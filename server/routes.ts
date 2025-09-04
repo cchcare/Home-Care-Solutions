@@ -284,6 +284,59 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Client bulk import
+  app.post("/api/clients/bulk-import", isAuthenticated, async (req: any, res) => {
+    try {
+      const { data } = req.body;
+      
+      if (!Array.isArray(data) || data.length === 0) {
+        return res.status(400).json({ message: "Invalid data format" });
+      }
+
+      const results = {
+        totalRows: data.length,
+        successfulImports: 0,
+        errors: []
+      };
+
+      for (let i = 0; i < data.length; i++) {
+        try {
+          const clientData = data[i];
+          
+          // Validate the data
+          const validatedData = insertClientSchema.parse(clientData);
+          
+          // Create the client
+          const client = await storage.createClient(validatedData);
+          
+          // Log audit trail
+          await storage.createAuditLog({
+            userId: req.user.claims.sub,
+            action: "bulk_import_create",
+            entityType: "client",
+            entityId: client.id,
+            newValues: client,
+            ipAddress: req.ip,
+            userAgent: req.get("User-Agent"),
+          });
+          
+          results.successfulImports++;
+        } catch (error: any) {
+          results.errors.push({
+            row: i + 1,
+            error: error.message || "Unknown error",
+            data: data[i]
+          });
+        }
+      }
+
+      res.json(results);
+    } catch (error) {
+      console.error("Error during bulk client import:", error);
+      res.status(500).json({ message: "Failed to import clients" });
+    }
+  });
+
   // Caregiver routes
   app.get("/api/caregivers", isAuthenticated, async (req, res) => {
     try {
@@ -353,6 +406,81 @@ export async function registerRoutes(app: Express): Promise<Server> {
       } else {
         res.status(400).json({ message: "Failed to create caregiver" });
       }
+    }
+  });
+
+  // Caregiver bulk import
+  app.post("/api/caregivers/bulk-import", isAuthenticated, async (req: any, res) => {
+    try {
+      const { data } = req.body;
+      
+      if (!Array.isArray(data) || data.length === 0) {
+        return res.status(400).json({ message: "Invalid data format" });
+      }
+
+      const results = {
+        totalRows: data.length,
+        successfulImports: 0,
+        errors: []
+      };
+
+      for (let i = 0; i < data.length; i++) {
+        try {
+          const caregiverData = data[i];
+          
+          // Extract user info from the caregiver data
+          const { email, firstName, middleName, lastName, dateOfBirth, ...caregiverInfo } = caregiverData;
+          
+          // First create the user account for login
+          const user = await storage.upsertUser({
+            email,
+            firstName,
+            middleName,
+            lastName,
+            dateOfBirth,
+            role: "caregiver"
+          });
+          
+          // Then create the caregiver record linked to the user
+          const validatedCaregiverData = insertCaregiverSchema.parse({
+            ...caregiverInfo,
+            userId: user.id
+          });
+          
+          const caregiver = await storage.createCaregiver(validatedCaregiverData);
+          
+          // Log audit trail
+          await storage.createAuditLog({
+            userId: req.user.claims.sub,
+            action: "bulk_import_create",
+            entityType: "caregiver",
+            entityId: caregiver.id,
+            newValues: { 
+              ...caregiver, 
+              userEmail: email, 
+              userFirstName: firstName, 
+              userMiddleName: middleName,
+              userLastName: lastName,
+              userDateOfBirth: dateOfBirth
+            },
+            ipAddress: req.ip,
+            userAgent: req.get("User-Agent"),
+          });
+          
+          results.successfulImports++;
+        } catch (error: any) {
+          results.errors.push({
+            row: i + 1,
+            error: error.message || "Unknown error",
+            data: data[i]
+          });
+        }
+      }
+
+      res.json(results);
+    } catch (error) {
+      console.error("Error during bulk caregiver import:", error);
+      res.status(500).json({ message: "Failed to import caregivers" });
     }
   });
 

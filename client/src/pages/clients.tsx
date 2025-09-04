@@ -22,6 +22,7 @@ import {
   Calendar
 } from "lucide-react";
 import type { Client } from "@shared/schema";
+import { ExcelImport } from "@/components/excel-import";
 
 export default function Clients() {
   const [searchTerm, setSearchTerm] = useState("");
@@ -133,10 +134,16 @@ export default function Clients() {
           <div className="flex items-center space-x-4">
             <div className="flex-1" />
           </div>
-          <Button onClick={() => setShowAddModal(true)} data-testid="button-add-client">
-            <Plus className="w-4 h-4 mr-2" />
-            Add Client
-          </Button>
+          <div className="flex items-center space-x-2">
+            <ExcelImport type="clients" onImportComplete={() => {
+              queryClient.invalidateQueries({ queryKey: ["/api/clients"] });
+              queryClient.invalidateQueries({ queryKey: ["/api/dashboard/metrics"] });
+            }} />
+            <Button onClick={() => setShowAddModal(true)} data-testid="button-add-client">
+              <Plus className="w-4 h-4 mr-2" />
+              Add Client
+            </Button>
+          </div>
         </header>
 
         {/* Content */}

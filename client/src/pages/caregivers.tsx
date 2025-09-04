@@ -21,6 +21,7 @@ import {
   Edit
 } from "lucide-react";
 import type { Caregiver } from "@shared/schema";
+import { ExcelImport } from "@/components/excel-import";
 
 export default function Caregivers() {
   const [searchTerm, setSearchTerm] = useState("");
@@ -87,10 +88,16 @@ export default function Caregivers() {
           <div className="flex items-center space-x-4">
             <div className="flex-1" />
           </div>
-          <Button onClick={() => setShowAddModal(true)} data-testid="button-add-caregiver">
-            <Plus className="w-4 h-4 mr-2" />
-            Add Caregiver
-          </Button>
+          <div className="flex items-center space-x-2">
+            <ExcelImport type="caregivers" onImportComplete={() => {
+              queryClient.invalidateQueries({ queryKey: ["/api/caregivers"] });
+              queryClient.invalidateQueries({ queryKey: ["/api/dashboard/metrics"] });
+            }} />
+            <Button onClick={() => setShowAddModal(true)} data-testid="button-add-caregiver">
+              <Plus className="w-4 h-4 mr-2" />
+              Add Caregiver
+            </Button>
+          </div>
         </header>
 
         {/* Content */}
