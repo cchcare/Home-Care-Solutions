@@ -155,6 +155,11 @@ export interface IStorage {
   getAllUsers(): Promise<User[]>;
   updateMessage(id: string, data: Partial<InsertMessage>): Promise<Message>;
 
+  // User management operations
+  createUser(user: Partial<UpsertUser>): Promise<User>;
+  updateUser(id: string, user: Partial<UpsertUser>): Promise<User>;
+  deleteUser(id: string): Promise<void>;
+
   // Incident report operations
   getAllIncidentReports(): Promise<IncidentReport[]>;
   getIncidentReport(id: string): Promise<IncidentReport | undefined>;
@@ -578,6 +583,25 @@ export class DatabaseStorage implements IStorage {
       .where(eq(messages.id, id))
       .returning();
     return updated;
+  }
+
+  // User management operations
+  async createUser(userData: Partial<UpsertUser>): Promise<User> {
+    const [user] = await db.insert(users).values(userData).returning();
+    return user;
+  }
+
+  async updateUser(id: string, userData: Partial<UpsertUser>): Promise<User> {
+    const [updated] = await db
+      .update(users)
+      .set({ ...userData, updatedAt: new Date() })
+      .where(eq(users.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteUser(id: string): Promise<void> {
+    await db.delete(users).where(eq(users.id, id));
   }
 
   // Incident report operations

@@ -38,7 +38,7 @@ export function Sidebar() {
     }
 
     // Regular navigation for all other roles
-    return [
+    const baseNavigation = [
       { name: "Dashboard", href: "/", icon: LayoutDashboard },
       { name: "Client Management", href: "/clients", icon: Users },
       { name: "Caregiver Management", href: "/caregivers", icon: UserCheck },
@@ -52,6 +52,13 @@ export function Sidebar() {
       { name: "Forms & Documents", href: "/documents", icon: FileText },
       { name: "Analytics & Reports", href: "/reports", icon: BarChart3 },
     ];
+
+    // Add user management for admin and supervisor roles
+    if ((user as any)?.role === "admin" || (user as any)?.role === "supervisor") {
+      baseNavigation.splice(4, 0, { name: "User Management", href: "/user-management", icon: Users });
+    }
+
+    return baseNavigation;
   };
 
   const navigation = getNavigation();

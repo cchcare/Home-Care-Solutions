@@ -605,3 +605,5 @@ export const insertTrainingRecordSchema = createInsertSchema(trainingRecords);
 export type File = typeof files.$inferSelect;
 export type InsertFile = typeof files.$inferInsert;
 export const insertFileSchema = createInsertSchema(files);
+
+export const insertUserSchema = createInsertSchema(users);

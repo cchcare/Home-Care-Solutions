@@ -17,6 +17,7 @@ import Training from "@/pages/training";
 import Communication from "@/pages/communication";
 import Incidents from "@/pages/incidents";
 import SuperAdmin from "@/pages/super-admin";
+import UserManagement from "@/pages/user-management";
 
 function Router() {
   const { isAuthenticated, isLoading } = useAuth();
@@ -38,6 +39,7 @@ function Router() {
           <Route path="/communication" component={Communication} />
           <Route path="/incidents" component={Incidents} />
           <Route path="/super-admin" component={SuperAdmin} />
+          <Route path="/user-management" component={UserManagement} />
         </>
       )}
       <Route component={NotFound} />

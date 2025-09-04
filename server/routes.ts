@@ -22,6 +22,7 @@ import {
   insertTrainingSchema,
   insertTrainingRecordSchema,
   insertFileSchema,
+  insertUserSchema,
 } from "@shared/schema";
 import { ObjectStorageService, ObjectNotFoundError } from "./objectStorage";
 import { ObjectPermission } from "./objectAcl";
@@ -708,6 +709,52 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error updating message:", error);
       res.status(500).json({ message: "Failed to update message" });
+    }
+  });
+
+  // User management routes (admin and supervisor only)
+  const requireAdminOrSupervisor = async (req: any, res: any, next: any) => {
+    try {
+      const userId = req.user?.claims?.sub;
+      const user = await storage.getUser(userId);
+      if (!user || (user.role !== "admin" && user.role !== "supervisor")) {
+        return res.status(403).json({ message: "Access denied. Admin or supervisor role required." });
+      }
+      next();
+    } catch (error) {
+      return res.status(500).json({ message: "Failed to verify permissions" });
+    }
+  };
+
+  app.post("/api/users", isAuthenticated, requireAdminOrSupervisor, async (req: any, res) => {
+    try {
+      const validatedData = insertUserSchema.omit({ id: true, createdAt: true, updatedAt: true }).parse(req.body);
+      const user = await storage.createUser(validatedData);
+      res.status(201).json(user);
+    } catch (error) {
+      console.error("Error creating user:", error);
+      res.status(400).json({ message: "Failed to create user" });
+    }
+  });
+
+  app.put("/api/users/:id", isAuthenticated, requireAdminOrSupervisor, async (req, res) => {
+    try {
+      const validatedData = insertUserSchema.partial().omit({ id: true, createdAt: true, updatedAt: true }).parse(req.body);
+      const user = await storage.updateUser(req.params.id, validatedData);
+      res.json(user);
+    } catch (error) {
+      console.error("Error updating user:", error);
+      res.status(400).json({ message: "Failed to update user" });
+    }
+  });
+
+  app.delete("/api/users/:id", isAuthenticated, requireAdminOrSupervisor, async (req, res) => {
+    try {
+      await storage.deleteUser(req.params.id);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting user:", error);
+      res.status(500).json({ message: "Failed to delete user" });
     }
   });
 
