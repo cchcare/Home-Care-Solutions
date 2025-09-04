@@ -235,6 +235,64 @@ export default function RoleWizard() {
     },
   });
 
+  const createStandardRolesMutation = useMutation({
+    mutationFn: async () => {
+      const standardRoles = [
+        {
+          name: "caregiver",
+          displayName: "Caregiver",
+          description: "Direct care provider with access to client information and care documentation",
+          isActive: true,
+          createdBy: "system"
+        },
+        {
+          name: "hr",
+          displayName: "HR",
+          description: "Human Resources staff with access to employee management and compliance",
+          isActive: true,
+          createdBy: "system"
+        },
+        {
+          name: "supervisor",
+          displayName: "Supervisor",
+          description: "Care supervision role with oversight of caregivers and care quality",
+          isActive: true,
+          createdBy: "system"
+        },
+        {
+          name: "manager",
+          displayName: "Manager",
+          description: "Management role with operational oversight and reporting capabilities",
+          isActive: true,
+          createdBy: "system"
+        },
+        {
+          name: "admin",
+          displayName: "Admin",
+          description: "Administrative role with full system access and configuration privileges",
+          isActive: true,
+          createdBy: "system"
+        }
+      ];
+
+      return await apiRequest("/api/custom-roles/bulk", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ roles: standardRoles }),
+      });
+    },
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/custom-roles"] });
+      toast({ 
+        title: "Success", 
+        description: `Created ${data.created} standard roles: Caregiver, HR, Supervisor, Manager, Admin` 
+      });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to create standard roles", variant: "destructive" });
+    },
+  });
+
   const assignRoleMutation = useMutation({
     mutationFn: async ({ userId, roleId, assignedBy }: { userId: string; roleId: string; assignedBy: string }) => 
       await apiRequest(`/api/users/${userId}/custom-roles`, {
@@ -326,6 +384,15 @@ export default function RoleWizard() {
           >
             <Settings className="h-4 w-4 mr-2" />
             Seed Default Permissions
+          </Button>
+          <Button
+            onClick={() => createStandardRolesMutation.mutate()}
+            disabled={createStandardRolesMutation.isPending}
+            variant="outline"
+            data-testid="button-create-standard-roles"
+          >
+            <Users className="h-4 w-4 mr-2" />
+            Create Standard Roles
           </Button>
         </div>
       </div>

@@ -1483,6 +1483,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Create multiple roles at once
+  app.post("/api/custom-roles/bulk", isAuthenticated, async (req, res) => {
+    try {
+      const rolesData = req.body.roles;
+      const createdRoles = [];
+      
+      for (const roleData of rolesData) {
+        try {
+          const validatedData = insertCustomRoleSchema.parse(roleData);
+          const role = await storage.createCustomRole(validatedData);
+          createdRoles.push(role);
+        } catch (error) {
+          console.error(`Error creating role ${roleData.name}:`, error);
+        }
+      }
+      
+      res.json({ 
+        message: "Roles created successfully", 
+        created: createdRoles.length,
+        roles: createdRoles
+      });
+    } catch (error) {
+      console.error("Error creating bulk roles:", error);
+      res.status(500).json({ message: "Failed to create roles" });
+    }
+  });
+
   // Seed default permissions (for super admin use)
   app.post("/api/permissions/seed", isAuthenticated, async (req, res) => {
     try {
