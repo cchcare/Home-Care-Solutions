@@ -1,6 +1,7 @@
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
+import { useQuery } from "@tanstack/react-query";
 import {
   Dialog,
   DialogContent,
@@ -15,15 +16,23 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Save, X } from "lucide-react";
-import { insertCaregiverSchema } from "@shared/schema";
+import { insertCaregiverSchema, type Office } from "@shared/schema";
 
 const caregiverFormSchema = insertCaregiverSchema.extend({
   employeeId: z.string().min(1, "Employee ID is required"),
   hourlyWage: z.number().min(0, "Hourly wage must be 0 or greater"),
+  officeId: z.string().min(1, "Office assignment is required"),
   // User information for login account
   email: z.string().email("Please enter a valid email address"),
   firstName: z.string().min(1, "First name is required"),
@@ -42,11 +51,17 @@ interface AddCaregiverModalProps {
 }
 
 export function AddCaregiverModal({ isOpen, onClose, onSubmit, isLoading }: AddCaregiverModalProps) {
+  const { data: offices = [] } = useQuery<Office[]>({
+    queryKey: ["/api/offices"],
+    retry: false,
+  });
+
   const form = useForm<CaregiverFormData>({
     resolver: zodResolver(caregiverFormSchema),
     defaultValues: {
       employeeId: "",
       hourlyWage: 0,
+      officeId: "",
       isActive: true,
       email: "",
       firstName: "",
@@ -81,6 +96,36 @@ export function AddCaregiverModal({ isOpen, onClose, onSubmit, isLoading }: AddC
 
         <Form {...form}>
           <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-6 pb-4">
+            {/* Office Assignment */}
+            <div className="space-y-4">
+              <h4 className="font-semibold text-foreground">Office Assignment</h4>
+              
+              <FormField
+                control={form.control}
+                name="officeId"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Office Location *</FormLabel>
+                    <Select onValueChange={field.onChange} value={field.value}>
+                      <FormControl>
+                        <SelectTrigger data-testid="select-caregiver-office">
+                          <SelectValue placeholder="Select office location" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {offices.map((office) => (
+                          <SelectItem key={office.id} value={office.id}>
+                            {office.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
+
             {/* Personal Information Section */}
             <div className="space-y-4">
               <h4 className="font-semibold text-foreground">Personal Information</h4>

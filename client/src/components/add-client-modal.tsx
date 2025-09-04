@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
+import { useQuery } from "@tanstack/react-query";
 import {
   Dialog,
   DialogContent,
@@ -28,7 +29,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Save, X } from "lucide-react";
-import { insertClientSchema } from "@shared/schema";
+import { insertClientSchema, type Office } from "@shared/schema";
 
 const clientFormSchema = insertClientSchema.extend({
   firstName: z.string().min(1, "First name is required"),
@@ -38,6 +39,7 @@ const clientFormSchema = insertClientSchema.extend({
   emergencyContactName: z.string().min(1, "Emergency contact name is required"),
   emergencyContactPhone: z.string().min(1, "Emergency contact phone is required"),
   emergencyContactRelation: z.string().min(1, "Emergency contact relationship is required"),
+  officeId: z.string().min(1, "Office assignment is required"),
   hipaaAcknowledged: z.boolean().refine(val => val === true, {
     message: "HIPAA acknowledgment is required"
   }),
@@ -53,6 +55,11 @@ interface AddClientModalProps {
 }
 
 export function AddClientModal({ isOpen, onClose, onSubmit, isLoading }: AddClientModalProps) {
+  const { data: offices = [] } = useQuery<Office[]>({
+    queryKey: ["/api/offices"],
+    retry: false,
+  });
+
   const form = useForm<ClientFormData>({
     resolver: zodResolver(clientFormSchema),
     defaultValues: {
@@ -66,6 +73,7 @@ export function AddClientModal({ isOpen, onClose, onSubmit, isLoading }: AddClie
       primaryDiagnosis: "",
       allergies: "",
       primaryPhysician: "",
+      officeId: "",
       hipaaAcknowledged: false,
     },
   });
@@ -94,6 +102,36 @@ export function AddClientModal({ isOpen, onClose, onSubmit, isLoading }: AddClie
 
         <Form {...form}>
           <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-6">
+            {/* Office Assignment */}
+            <div className="space-y-4">
+              <h4 className="font-semibold text-foreground">Office Assignment</h4>
+              
+              <FormField
+                control={form.control}
+                name="officeId"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Office Location *</FormLabel>
+                    <Select onValueChange={field.onChange} value={field.value}>
+                      <FormControl>
+                        <SelectTrigger data-testid="select-office">
+                          <SelectValue placeholder="Select office location" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {offices.map((office) => (
+                          <SelectItem key={office.id} value={office.id}>
+                            {office.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
+
             {/* Personal Information Section */}
             <div className="space-y-4">
               <h4 className="font-semibold text-foreground">Personal Information</h4>
