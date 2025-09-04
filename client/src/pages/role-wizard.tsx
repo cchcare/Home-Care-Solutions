@@ -164,11 +164,19 @@ export default function RoleWizard() {
 
   // Mutations
   const createRoleMutation = useMutation({
-    mutationFn: async (roleData: any) => await apiRequest("/api/custom-roles", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(roleData),
-    }),
+    mutationFn: async (roleData: any) => {
+      const response = await fetch("/api/custom-roles", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(roleData),
+      });
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || "Failed to create role");
+      }
+      return response.json();
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/custom-roles"] });
       setIsCreateDialogOpen(false);
@@ -183,9 +191,17 @@ export default function RoleWizard() {
   });
 
   const deleteRoleMutation = useMutation({
-    mutationFn: async (roleId: string) => await apiRequest(`/api/custom-roles/${roleId}`, {
-      method: "DELETE",
-    }),
+    mutationFn: async (roleId: string) => {
+      const response = await fetch(`/api/custom-roles/${roleId}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || "Failed to delete role");
+      }
+      return response.json();
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/custom-roles"] });
       setSelectedRole(null);
@@ -199,15 +215,21 @@ export default function RoleWizard() {
   const updateRolePermissionsMutation = useMutation({
     mutationFn: async ({ roleId, permissionId, action }: { roleId: string; permissionId: string; action: "add" | "remove" }) => {
       if (action === "add") {
-        return await apiRequest(`/api/custom-roles/${roleId}/permissions`, {
+        const response = await fetch(`/api/custom-roles/${roleId}/permissions`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
+          credentials: "include",
           body: JSON.stringify({ permissionId }),
         });
+        if (!response.ok) throw new Error("Failed to add permission");
+        return response.json();
       } else {
-        return await apiRequest(`/api/custom-roles/${roleId}/permissions/${permissionId}`, {
+        const response = await fetch(`/api/custom-roles/${roleId}/permissions/${permissionId}`, {
           method: "DELETE",
+          credentials: "include",
         });
+        if (!response.ok) throw new Error("Failed to remove permission");
+        return response.json();
       }
     },
     onSuccess: () => {
@@ -220,9 +242,17 @@ export default function RoleWizard() {
   });
 
   const seedPermissionsMutation = useMutation({
-    mutationFn: async () => await apiRequest("/api/permissions/seed", {
-      method: "POST",
-    }),
+    mutationFn: async () => {
+      const response = await fetch("/api/permissions/seed", {
+        method: "POST",
+        credentials: "include",
+      });
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || "Failed to seed permissions");
+      }
+      return response.json();
+    },
     onSuccess: (data: any) => {
       queryClient.invalidateQueries({ queryKey: ["/api/permissions"] });
       toast({ 
@@ -275,11 +305,17 @@ export default function RoleWizard() {
         }
       ];
 
-      return await apiRequest("/api/custom-roles/bulk", {
+      const response = await fetch("/api/custom-roles/bulk", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({ roles: standardRoles }),
       });
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || "Failed to create roles");
+      }
+      return response.json();
     },
     onSuccess: (data: any) => {
       queryClient.invalidateQueries({ queryKey: ["/api/custom-roles"] });
@@ -294,12 +330,16 @@ export default function RoleWizard() {
   });
 
   const assignRoleMutation = useMutation({
-    mutationFn: async ({ userId, roleId, assignedBy }: { userId: string; roleId: string; assignedBy: string }) => 
-      await apiRequest(`/api/users/${userId}/custom-roles`, {
+    mutationFn: async ({ userId, roleId, assignedBy }: { userId: string; roleId: string; assignedBy: string }) => {
+      const response = await fetch(`/api/users/${userId}/custom-roles`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({ roleId, assignedBy }),
-      }),
+      });
+      if (!response.ok) throw new Error("Failed to assign role");
+      return response.json();
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/users", selectedUser?.id, "custom-roles"] });
       toast({ title: "Success", description: "Role assigned successfully" });
@@ -310,10 +350,14 @@ export default function RoleWizard() {
   });
 
   const removeRoleMutation = useMutation({
-    mutationFn: async ({ userId, roleId }: { userId: string; roleId: string }) => 
-      await apiRequest(`/api/users/${userId}/custom-roles/${roleId}`, {
+    mutationFn: async ({ userId, roleId }: { userId: string; roleId: string }) => {
+      const response = await fetch(`/api/users/${userId}/custom-roles/${roleId}`, {
         method: "DELETE",
-      }),
+        credentials: "include",
+      });
+      if (!response.ok) throw new Error("Failed to remove role");
+      return response.json();
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/users", selectedUser?.id, "custom-roles"] });
       toast({ title: "Success", description: "Role removed successfully" });
@@ -339,8 +383,8 @@ export default function RoleWizard() {
     createRoleMutation.mutate({
       name: newRoleName.toLowerCase().replace(/\s+/g, '_'),
       displayName: newRoleName,
-      description: newRoleDescription,
-      officeId: selectedOffice || null,
+      description: newRoleDescription || "",
+      officeId: selectedOffice === "all-offices" ? null : selectedOffice || null,
       createdBy: "current-user", // This should come from auth context
       isActive: true,
     });
@@ -454,7 +498,7 @@ export default function RoleWizard() {
                             <SelectValue placeholder="Select office (leave empty for all offices)" />
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="">All Offices</SelectItem>
+                            <SelectItem value="all-offices">All Offices</SelectItem>
                             {offices.map((office) => (
                               <SelectItem key={office.id} value={office.id}>
                                 {office.name}
