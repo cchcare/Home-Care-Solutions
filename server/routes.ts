@@ -720,6 +720,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Channel communication routes
+  app.get("/api/channel/messages", isAuthenticated, async (req, res) => {
+    try {
+      const messages = await storage.getAllChannelMessages();
+      res.json(messages);
+    } catch (error) {
+      console.error("Error fetching channel messages:", error);
+      res.status(500).json({ message: "Failed to fetch channel messages" });
+    }
+  });
+
+  app.post("/api/channel/messages", isAuthenticated, async (req: any, res) => {
+    try {
+      const { content, priority = "normal" } = req.body;
+      if (!content || !content.trim()) {
+        return res.status(400).json({ message: "Message content is required" });
+      }
+      
+      const userId = req.user.claims.sub;
+      const message = await storage.createChannelMessage(userId, content.trim(), priority);
+      res.status(201).json(message);
+    } catch (error) {
+      console.error("Error creating channel message:", error);
+      res.status(500).json({ message: "Failed to send channel message" });
+    }
+  });
+
   // Certification routes
   app.get("/api/caregivers/:caregiverId/certifications", isAuthenticated, async (req, res) => {
     try {

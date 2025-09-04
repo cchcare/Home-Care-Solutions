@@ -76,10 +76,30 @@ export default function Communication() {
   const [searchTerm, setSearchTerm] = useState("");
   const [showComposeModal, setShowComposeModal] = useState(false);
   const [selectedMessage, setSelectedMessage] = useState<Message | null>(null);
-  const [activeTab, setActiveTab] = useState<"inbox" | "sent" | "archived">("inbox");
+  const [activeTab, setActiveTab] = useState<"channel" | "inbox" | "sent" | "archived">("channel");
   const [statusFilter, setStatusFilter] = useState<"all" | "unread" | "read">("all");
+  const [channelMessage, setChannelMessage] = useState("");
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Get channel messages (unified communication)
+  const { data: channelMessages, isLoading: channelLoading } = useQuery({
+    queryKey: ["/api/channel/messages"],
+    queryFn: async () => {
+      const response = await fetch("/api/channel/messages", { credentials: "include" });
+      if (!response.ok) throw new Error("Failed to fetch channel messages");
+      return response.json();
+    },
+    retry: false,
+    refetchInterval: 5000, // Refresh every 5 seconds for real-time feel
+  });
+
+  // Get all users for displaying names in channel
+  const { data: users = [] } = useQuery({
+    queryKey: ["/api/users"],
+    retry: false,
+  });
 
   // Get received messages (inbox)
   const { data: inboxMessages, isLoading: inboxLoading } = useQuery({
@@ -147,10 +167,6 @@ export default function Communication() {
     refetchInterval: 30000,
   });
 
-  const { data: users } = useQuery({
-    queryKey: ["/api/users"],
-    retry: false,
-  });
 
   const { data: currentUser } = useQuery({
     queryKey: ["/api/auth/user"],
@@ -178,6 +194,49 @@ export default function Communication() {
       relatedClientId: ""
     },
   });
+
+  // Scroll to bottom when new channel messages arrive
+  useEffect(() => {
+    if (activeTab === "channel" && messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [channelMessages, activeTab]);
+
+  // Send channel message
+  const sendChannelMessage = useMutation({
+    mutationFn: async (content: string) => {
+      const response = await fetch("/api/channel/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ content }),
+      });
+      if (!response.ok) throw new Error("Failed to send message");
+      return response.json();
+    },
+    onSuccess: () => {
+      setChannelMessage("");
+      queryClient.invalidateQueries({ queryKey: ["/api/channel/messages"] });
+      toast({
+        title: "Message sent",
+        description: "Your message has been sent to the team channel",
+      });
+    },
+    onError: (error) => {
+      toast({
+        title: "Error",
+        description: "Failed to send message",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleSendChannelMessage = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (channelMessage.trim()) {
+      sendChannelMessage.mutate(channelMessage.trim());
+    }
+  };
 
   const sendMessageMutation = useMutation({
     mutationFn: async (messageData: any) => {
@@ -271,6 +330,8 @@ export default function Communication() {
 
   const getMessagesForTab = () => {
     switch (activeTab) {
+      case "channel":
+        return channelMessages || [];
       case "inbox":
         return inboxMessages || [];
       case "sent":
@@ -284,6 +345,8 @@ export default function Communication() {
 
   const getLoadingForTab = () => {
     switch (activeTab) {
+      case "channel":
+        return channelLoading;
       case "inbox":
         return inboxLoading;
       case "sent":
@@ -296,6 +359,7 @@ export default function Communication() {
   };
 
   const filteredMessages = getMessagesForTab().filter((message: Message) => {
+    if (activeTab === "channel") return true; // No filtering for channel
     if (searchTerm === "") return true;
     
     const searchContent = [
@@ -425,10 +489,12 @@ export default function Communication() {
               <h1 className="text-lg font-semibold text-foreground">Messages</h1>
             </div>
           </div>
-          <Button onClick={() => setShowComposeModal(true)} data-testid="button-compose-message">
-            <Plus className="w-4 h-4 mr-2" />
-            Compose Message
-          </Button>
+          {activeTab !== "channel" && (
+            <Button onClick={() => setShowComposeModal(true)} data-testid="button-compose-message">
+              <Plus className="w-4 h-4 mr-2" />
+              Compose Message
+            </Button>
+          )}
         </header>
 
         {/* Content */}
@@ -439,7 +505,11 @@ export default function Communication() {
             <div className="mb-6">
               <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)} className="w-full">
                 <div className="flex items-center justify-between mb-4">
-                  <TabsList className="grid w-full max-w-md grid-cols-3">
+                  <TabsList className="grid w-full max-w-2xl grid-cols-4">
+                    <TabsTrigger value="channel" className="flex items-center space-x-2" data-testid="tab-channel">
+                      <Users className="w-4 h-4" />
+                      <span>Team Channel</span>
+                    </TabsTrigger>
                     <TabsTrigger value="inbox" className="flex items-center space-x-2" data-testid="tab-inbox">
                       <Inbox className="w-4 h-4" />
                       <span>Inbox</span>
@@ -459,33 +529,121 @@ export default function Communication() {
                     </TabsTrigger>
                   </TabsList>
 
-                  {/* Search and Filters */}
-                  <div className="flex items-center space-x-4">
-                    <div className="relative">
-                      <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                      <Input 
-                        placeholder="Search messages..."
-                        value={searchTerm}
-                        onChange={(e) => setSearchTerm(e.target.value)}
-                        className="pl-10 w-64"
-                        data-testid="input-search-messages"
-                      />
+                  {/* Search and Filters - Hidden for channel */}
+                  {activeTab !== "channel" && (
+                    <div className="flex items-center space-x-4">
+                      <div className="relative">
+                        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                        <Input 
+                          placeholder="Search messages..."
+                          value={searchTerm}
+                          onChange={(e) => setSearchTerm(e.target.value)}
+                          className="pl-10 w-64"
+                          data-testid="input-search-messages"
+                        />
+                      </div>
+                      
+                      {activeTab === "inbox" && (
+                        <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as any)}>
+                          <SelectTrigger className="w-32" data-testid="select-status-filter">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="all">All</SelectItem>
+                            <SelectItem value="unread">Unread</SelectItem>
+                            <SelectItem value="read">Read</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      )}
                     </div>
-                    
-                    {activeTab === "inbox" && (
-                      <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as any)}>
-                        <SelectTrigger className="w-32" data-testid="select-status-filter">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="all">All</SelectItem>
-                          <SelectItem value="unread">Unread</SelectItem>
-                          <SelectItem value="read">Read</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    )}
-                  </div>
+                  )}
                 </div>
+
+                <TabsContent value="channel" data-testid="content-channel">
+                  <div className="flex flex-col h-[calc(100vh-280px)]">
+                    {/* Channel Messages */}
+                    <ScrollArea className="flex-1 p-4 mb-4">
+                      <div className="space-y-4">
+                        {getLoadingForTab() ? (
+                          <div className="text-center py-8">
+                            <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+                            <p className="mt-2 text-muted-foreground">Loading team channel...</p>
+                          </div>
+                        ) : channelMessages && channelMessages.length > 0 ? (
+                          channelMessages.map((message: Message) => {
+                            const isCurrentUser = message.senderId === (currentUser as any)?.id;
+                            return (
+                              <div
+                                key={message.id}
+                                className={`flex ${isCurrentUser ? 'justify-end' : 'justify-start'} mb-4`}
+                                data-testid={`channel-message-${message.id}`}
+                              >
+                                <div className={`flex items-start space-x-2 max-w-[70%] ${isCurrentUser ? 'flex-row-reverse space-x-reverse' : ''}`}>
+                                  <Avatar className="w-8 h-8 flex-shrink-0">
+                                    <AvatarFallback className="bg-primary text-primary-foreground text-xs">
+                                      {getUserInitials(message.senderId || "")}
+                                    </AvatarFallback>
+                                  </Avatar>
+                                  <div className={`flex flex-col ${isCurrentUser ? 'items-end' : 'items-start'}`}>
+                                    <div className={`rounded-lg px-3 py-2 ${
+                                      isCurrentUser 
+                                        ? 'bg-primary text-primary-foreground' 
+                                        : 'bg-muted text-foreground'
+                                    }`}>
+                                      <div className="flex items-center space-x-2 mb-1">
+                                        <span className="text-xs font-medium">
+                                          {getUserName(message.senderId || "")}
+                                        </span>
+                                        <span className="text-xs opacity-70">
+                                          {new Date(message.createdAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                                        </span>
+                                      </div>
+                                      <p className="text-sm">{message.content}</p>
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })
+                        ) : (
+                          <div className="text-center py-12">
+                            <Users className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
+                            <h3 className="text-lg font-medium mb-2">Team Channel</h3>
+                            <p className="text-muted-foreground">
+                              Start the conversation! Send a message to your team.
+                            </p>
+                          </div>
+                        )}
+                        <div ref={messagesEndRef} />
+                      </div>
+                    </ScrollArea>
+
+                    {/* Message Input */}
+                    <form onSubmit={handleSendChannelMessage} className="border-t pt-4">
+                      <div className="flex space-x-2">
+                        <Input
+                          value={channelMessage}
+                          onChange={(e) => setChannelMessage(e.target.value)}
+                          placeholder="Type a message to your team..."
+                          className="flex-1"
+                          data-testid="input-channel-message"
+                          disabled={sendChannelMessage.isPending}
+                        />
+                        <Button 
+                          type="submit" 
+                          disabled={!channelMessage.trim() || sendChannelMessage.isPending}
+                          data-testid="button-send-channel-message"
+                        >
+                          {sendChannelMessage.isPending ? (
+                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                          ) : (
+                            <Send className="w-4 h-4" />
+                          )}
+                        </Button>
+                      </div>
+                    </form>
+                  </div>
+                </TabsContent>
 
                 <TabsContent value="inbox" data-testid="content-inbox">
                   <div className="space-y-4">

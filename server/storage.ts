@@ -466,6 +466,32 @@ export class DatabaseStorage implements IStorage {
       .orderBy(desc(messages.createdAt));
   }
 
+  // Channel messages operations (unified communication)
+  async getAllChannelMessages(): Promise<Message[]> {
+    return await db
+      .select()
+      .from(messages)
+      .where(eq(messages.messageType, "channel"))
+      .orderBy(asc(messages.createdAt));
+  }
+
+  async createChannelMessage(senderId: string, content: string, priority: string = "normal"): Promise<Message> {
+    const messageData = {
+      senderId,
+      recipientId: null, // No specific recipient for channel messages
+      content,
+      messageType: "channel",
+      priority,
+      subject: null,
+      isRead: true, // Channel messages are considered read by sender
+      senderStatus: "read" as const,
+      recipientStatus: "read" as const,
+    };
+    
+    const [newMessage] = await db.insert(messages).values(messageData).returning();
+    return newMessage;
+  }
+
   async getSentMessagesByUser(userId: string, status?: string): Promise<Message[]> {
     const conditions = [eq(messages.senderId, userId)];
     if (status) {
