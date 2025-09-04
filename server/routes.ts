@@ -753,6 +753,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.get("/api/compliance", isAuthenticated, async (req, res) => {
+    try {
+      const complianceItems = await storage.getAllComplianceItems();
+      res.json(complianceItems);
+    } catch (error) {
+      console.error("Error fetching compliance items:", error);
+      res.status(500).json({ message: "Failed to fetch compliance items" });
+    }
+  });
+
   app.post("/api/compliance", isAuthenticated, async (req: any, res) => {
     try {
       const validatedData = insertComplianceItemSchema.parse(req.body);
@@ -761,6 +771,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error creating compliance item:", error);
       res.status(400).json({ message: "Failed to create compliance item" });
+    }
+  });
+
+  app.put("/api/compliance/:id", isAuthenticated, async (req, res) => {
+    try {
+      const validatedData = insertComplianceItemSchema.partial().parse(req.body);
+      const item = await storage.updateComplianceItem(req.params.id, validatedData);
+      res.json(item);
+    } catch (error) {
+      console.error("Error updating compliance item:", error);
+      res.status(400).json({ message: "Failed to update compliance item" });
     }
   });
 

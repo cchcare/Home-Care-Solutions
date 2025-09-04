@@ -561,6 +561,13 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Compliance operations
+  async getAllComplianceItems(): Promise<ComplianceItem[]> {
+    return await db
+      .select()
+      .from(complianceItems)
+      .orderBy(desc(complianceItems.dueDate));
+  }
+
   async getComplianceItemsByCaregiver(caregiverId: string): Promise<ComplianceItem[]> {
     return await db
       .select()
