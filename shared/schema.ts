@@ -36,7 +36,7 @@ export const offices = pgTable("offices", {
   address: text("address"),
   phone: varchar("phone"),
   email: varchar("email"),
-  managerUserId: varchar("manager_user_id").references(() => users.id),
+  managerUserId: varchar("manager_user_id"),
   timezone: varchar("timezone").default("America/New_York"),
   isActive: boolean("is_active").default(true),
   settings: jsonb("settings"), // office-specific configuration
@@ -52,7 +52,7 @@ export const users = pgTable("users", {
   lastName: varchar("last_name"),
   profileImageUrl: varchar("profile_image_url"),
   role: roleEnum("role").default("caregiver"),
-  primaryOfficeId: varchar("primary_office_id").references(() => offices.id),
+  primaryOfficeId: varchar("primary_office_id"),
   isActive: boolean("is_active").default(true),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
