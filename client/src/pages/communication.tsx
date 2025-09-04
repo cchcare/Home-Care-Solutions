@@ -9,7 +9,7 @@ import { Sidebar } from "@/components/sidebar";
 import { TopBar } from "@/components/topbar";
 import { apiRequest } from "@/lib/queryClient";
 import { isUnauthorizedError } from "@/lib/authUtils";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
   Dialog,
   DialogContent,
@@ -34,8 +34,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { ObjectUploader } from "@/components/ObjectUploader";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { insertMessageSchema, type Message, type User } from "@shared/schema";
@@ -44,14 +44,17 @@ import {
   Search,
   MessageCircle,
   Send,
-  Paperclip,
   Users,
   Clock,
-  MoreVertical,
   Eye,
+  EyeOff,
   Reply,
   Archive,
-  Star,
+  ArchiveRestore,
+  Mail,
+  MailOpen,
+  Inbox,
+  SendIcon,
   Trash2
 } from "lucide-react";
 
@@ -63,32 +66,85 @@ const priorityLabels = {
 };
 
 const priorityColors = {
-  low: "bg-green-100 text-green-800",
-  normal: "bg-blue-100 text-blue-800",
-  high: "bg-orange-100 text-orange-800",
-  urgent: "bg-red-100 text-red-800"
-};
-
-const statusLabels = {
-  unread: "Unread",
-  read: "Read",
-  archived: "Archived"
+  low: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300",
+  normal: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300",
+  high: "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-300",
+  urgent: "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300"
 };
 
 export default function Communication() {
   const [searchTerm, setSearchTerm] = useState("");
   const [showComposeModal, setShowComposeModal] = useState(false);
   const [selectedMessage, setSelectedMessage] = useState<Message | null>(null);
-  const [activeFilter, setActiveFilter] = useState<"all" | "unread" | "high_priority">("all");
-  const [selectedConversation, setSelectedConversation] = useState<string | null>(null);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const [activeTab, setActiveTab] = useState<"inbox" | "sent" | "archived">("inbox");
+  const [statusFilter, setStatusFilter] = useState<"all" | "unread" | "read">("all");
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  const { data: messages, isLoading } = useQuery({
-    queryKey: ["/api/messages", searchTerm, activeFilter],
+  // Get received messages (inbox)
+  const { data: inboxMessages, isLoading: inboxLoading } = useQuery({
+    queryKey: ["/api/messages", "received", statusFilter === "all" ? undefined : statusFilter],
+    queryFn: async () => {
+      const url = new URL("/api/messages", window.location.origin);
+      url.searchParams.set("type", "received");
+      if (statusFilter !== "all") {
+        url.searchParams.set("status", statusFilter);
+      }
+      const response = await fetch(url.toString(), { credentials: "include" });
+      if (!response.ok) throw new Error("Failed to fetch inbox messages");
+      return response.json();
+    },
     retry: false,
-    refetchInterval: 30000, // Refresh every 30 seconds for real-time feel
+    refetchInterval: 30000,
+  });
+
+  // Get sent messages
+  const { data: sentMessages, isLoading: sentLoading } = useQuery({
+    queryKey: ["/api/messages", "sent", statusFilter === "all" ? undefined : statusFilter],
+    queryFn: async () => {
+      const url = new URL("/api/messages", window.location.origin);
+      url.searchParams.set("type", "sent");
+      if (statusFilter !== "all") {
+        url.searchParams.set("status", statusFilter);
+      }
+      const response = await fetch(url.toString(), { credentials: "include" });
+      if (!response.ok) throw new Error("Failed to fetch sent messages");
+      return response.json();
+    },
+    retry: false,
+    refetchInterval: 30000,
+  });
+
+  // Get archived messages (both sent and received)
+  const { data: archivedMessages, isLoading: archivedLoading } = useQuery({
+    queryKey: ["/api/messages", "received", "archived"],
+    queryFn: async () => {
+      const receivedUrl = new URL("/api/messages", window.location.origin);
+      receivedUrl.searchParams.set("type", "received");
+      receivedUrl.searchParams.set("status", "archived");
+      
+      const sentUrl = new URL("/api/messages", window.location.origin);
+      sentUrl.searchParams.set("type", "sent");
+      sentUrl.searchParams.set("status", "archived");
+
+      const [receivedResponse, sentResponse] = await Promise.all([
+        fetch(receivedUrl.toString(), { credentials: "include" }),
+        fetch(sentUrl.toString(), { credentials: "include" })
+      ]);
+
+      if (!receivedResponse.ok || !sentResponse.ok) {
+        throw new Error("Failed to fetch archived messages");
+      }
+
+      const received = await receivedResponse.json();
+      const sent = await sentResponse.json();
+      
+      return [...received, ...sent].sort((a, b) => 
+        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      );
+    },
+    retry: false,
+    refetchInterval: 30000,
   });
 
   const { data: users } = useQuery({
@@ -102,30 +158,24 @@ export default function Communication() {
   });
 
   const form = useForm({
-    resolver: zodResolver(insertMessageSchema.omit({ id: true, createdAt: true, updatedAt: true })),
+    resolver: zodResolver(insertMessageSchema.omit({ 
+      id: true, 
+      createdAt: true, 
+      updatedAt: true, 
+      senderId: true,
+      isRead: true,
+      senderStatus: true,
+      recipientStatus: true
+    })),
     defaultValues: {
       recipientId: "",
       subject: "",
       content: "",
       priority: "normal" as const,
-      status: "unread" as const,
+      messageType: "message" as const,
       attachmentUrl: "",
       parentMessageId: null,
-      officeId: ""
-    },
-  });
-
-  const replyForm = useForm({
-    resolver: zodResolver(insertMessageSchema.omit({ id: true, createdAt: true, updatedAt: true })),
-    defaultValues: {
-      recipientId: "",
-      subject: "",
-      content: "",
-      priority: "normal" as const,
-      status: "unread" as const,
-      attachmentUrl: "",
-      parentMessageId: null,
-      officeId: ""
+      relatedClientId: ""
     },
   });
 
@@ -163,129 +213,199 @@ export default function Communication() {
     },
   });
 
-  const markAsReadMutation = useMutation({
-    mutationFn: async (messageId: string) => {
-      const response = await apiRequest("PATCH", `/api/messages/${messageId}`, { status: "read" });
-      return response.json();
+  const updateMessageStatusMutation = useMutation({
+    mutationFn: async ({ messageId, action }: { messageId: string; action: 'read' | 'unread' | 'archive' }) => {
+      await apiRequest("PUT", `/api/messages/${messageId}/${action}`, {});
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/messages"] });
     },
-  });
-
-  const handleGetUploadParameters = async () => {
-    const response = await apiRequest("POST", "/api/objects/upload");
-    const data = await response.json();
-    return {
-      method: "PUT" as const,
-      url: data.uploadURL,
-    };
-  };
-
-  const handleFileUploadComplete = (result: any) => {
-    if (result.successful?.[0]?.uploadURL) {
-      form.setValue("attachmentUrl", result.successful[0].uploadURL);
-      toast({
-        title: "Success",
-        description: "File attached successfully",
-      });
-    }
-  };
-
-  const onSubmit = (data: any) => {
-    sendMessageMutation.mutate({
-      ...data,
-      senderId: currentUser?.id
-    });
-  };
-
-  const handleReply = (message: Message) => {
-    replyForm.setValue("recipientId", message.senderId);
-    replyForm.setValue("subject", `Re: ${message.subject}`);
-    replyForm.setValue("parentMessageId", message.id);
-    setSelectedMessage(message);
-  };
-
-  const handleMarkAsRead = (messageId: string) => {
-    markAsReadMutation.mutate(messageId);
-  };
-
-  // Group messages by conversation (based on subject or parent message)
-  const groupedMessages = messages?.reduce((groups: any, message: Message) => {
-    const conversationKey = message.parentMessageId || message.subject;
-    if (!groups[conversationKey]) {
-      groups[conversationKey] = [];
-    }
-    groups[conversationKey].push(message);
-    return groups;
-  }, {}) || {};
-
-  const filteredMessages = messages?.filter((message: Message) => {
-    if (!searchTerm) {
-      switch (activeFilter) {
-        case "unread":
-          return message.status === "unread";
-        case "high_priority":
-          return message.priority === "high" || message.priority === "urgent";
-        default:
-          return true;
+    onError: (error) => {
+      if (isUnauthorizedError(error as Error)) {
+        toast({
+          title: "Unauthorized",
+          description: "You are logged out. Logging in again...",
+          variant: "destructive",
+        });
+        setTimeout(() => {
+          window.location.href = "/api/login";
+        }, 500);
+        return;
       }
-    }
-    
-    const sender = users?.find((u: User) => u.id === message.senderId);
-    const recipient = users?.find((u: User) => u.id === message.recipientId);
-    const senderName = sender ? `${sender.firstName} ${sender.lastName}` : "";
-    const recipientName = recipient ? `${recipient.firstName} ${recipient.lastName}` : "";
-    
-    return (
-      message.subject.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      message.content.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      senderName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      recipientName.toLowerCase().includes(searchTerm.toLowerCase())
-    );
+      toast({
+        title: "Error",
+        description: "Failed to update message",
+        variant: "destructive",
+      });
+    },
   });
 
-  // Auto-scroll to bottom when new messages arrive
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [selectedConversation, messages]);
+  const onSubmit = (values: any) => {
+    sendMessageMutation.mutate(values);
+  };
 
-  if (isLoading) {
+  const handleMarkRead = (messageId: string) => {
+    updateMessageStatusMutation.mutate({ messageId, action: 'read' });
+  };
+
+  const handleMarkUnread = (messageId: string) => {
+    updateMessageStatusMutation.mutate({ messageId, action: 'unread' });
+  };
+
+  const handleArchive = (messageId: string) => {
+    updateMessageStatusMutation.mutate({ messageId, action: 'archive' });
+  };
+
+  const getUserName = (userId: string) => {
+    const user = users?.find((u: User) => u.id === userId);
+    return user ? `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.email : "Unknown User";
+  };
+
+  const getUserInitials = (userId: string) => {
+    const user = users?.find((u: User) => u.id === userId);
+    if (user?.firstName && user?.lastName) {
+      return `${user.firstName[0]}${user.lastName[0]}`;
+    }
+    return user?.email?.[0]?.toUpperCase() || "U";
+  };
+
+  const getMessagesForTab = () => {
+    switch (activeTab) {
+      case "inbox":
+        return inboxMessages || [];
+      case "sent":
+        return sentMessages || [];
+      case "archived":
+        return archivedMessages || [];
+      default:
+        return [];
+    }
+  };
+
+  const getLoadingForTab = () => {
+    switch (activeTab) {
+      case "inbox":
+        return inboxLoading;
+      case "sent":
+        return sentLoading;
+      case "archived":
+        return archivedLoading;
+      default:
+        return false;
+    }
+  };
+
+  const filteredMessages = getMessagesForTab().filter((message: Message) => {
+    if (searchTerm === "") return true;
+    
+    const searchContent = [
+      message.subject,
+      message.content,
+      getUserName(activeTab === "sent" ? message.recipientId || "" : message.senderId || "")
+    ].join(" ").toLowerCase();
+    
+    return searchContent.includes(searchTerm.toLowerCase());
+  });
+
+  const getUnreadCount = () => {
+    return inboxMessages?.filter((msg: Message) => !msg.isRead).length || 0;
+  };
+
+  const renderMessage = (message: Message) => {
+    const isReceivedMessage = message.recipientId === (currentUser as any)?.id;
+    const otherUserId = isReceivedMessage ? message.senderId : message.recipientId;
+    const userName = getUserName(otherUserId || "");
+    const userInitials = getUserInitials(otherUserId || "");
+    
     return (
-      <div className="flex h-screen overflow-hidden">
-        <Sidebar />
-        <main className="flex-1 overflow-auto p-6">
-          <div className="flex items-center space-x-2 mb-6">
-            <MessageCircle className="w-6 h-6" />
-            <h1 className="text-2xl font-bold">Communication Center</h1>
-          </div>
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-[600px]">
-            <Card className="animate-pulse">
-              <CardContent className="p-6">
-                <div className="space-y-4">
-                  {[...Array(5)].map((_, i) => (
-                    <div key={i} className="space-y-2">
-                      <div className="h-4 bg-muted rounded w-3/4"></div>
-                      <div className="h-3 bg-muted rounded w-1/2"></div>
-                    </div>
-                  ))}
+      <Card 
+        key={message.id} 
+        className={`mb-4 cursor-pointer transition-colors hover:bg-muted/50 ${
+          !message.isRead && isReceivedMessage ? "bg-blue-50 dark:bg-blue-950/20 border-blue-200 dark:border-blue-800" : ""
+        }`}
+        onClick={() => {
+          if (!message.isRead && isReceivedMessage) {
+            handleMarkRead(message.id);
+          }
+        }}
+        data-testid={`message-card-${message.id}`}
+      >
+        <CardContent className="p-4">
+          <div className="flex items-start justify-between space-x-4">
+            <div className="flex items-start space-x-3 flex-1">
+              <Avatar className="w-10 h-10">
+                <AvatarFallback className="bg-primary text-primary-foreground text-sm">
+                  {userInitials}
+                </AvatarFallback>
+              </Avatar>
+              
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center justify-between mb-1">
+                  <div className="flex items-center space-x-2">
+                    <span className="font-medium text-foreground" data-testid={`message-sender-${message.id}`}>
+                      {activeTab === "sent" ? `To: ${userName}` : `From: ${userName}`}
+                    </span>
+                    {!message.isRead && isReceivedMessage && (
+                      <Badge variant="secondary" className="text-xs">Unread</Badge>
+                    )}
+                    {message.priority && message.priority !== "normal" && (
+                      <Badge className={`text-xs ${priorityColors[message.priority as keyof typeof priorityColors]}`}>
+                        {priorityLabels[message.priority as keyof typeof priorityLabels]}
+                      </Badge>
+                    )}
+                  </div>
+                  <div className="flex items-center space-x-1">
+                    <span className="text-xs text-muted-foreground">
+                      {new Date(message.createdAt).toLocaleDateString()} {new Date(message.createdAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                    </span>
+                  </div>
                 </div>
-              </CardContent>
-            </Card>
-            <Card className="lg:col-span-2 animate-pulse">
-              <CardContent className="p-6">
-                <div className="h-4 bg-muted rounded w-1/2 mb-4"></div>
-                <div className="space-y-2">
-                  <div className="h-3 bg-muted rounded"></div>
-                  <div className="h-3 bg-muted rounded w-2/3"></div>
-                </div>
-              </CardContent>
-            </Card>
+                
+                <h3 className="font-medium text-foreground mb-1 truncate" data-testid={`message-subject-${message.id}`}>
+                  {message.subject || "No Subject"}
+                </h3>
+                <p className="text-sm text-muted-foreground line-clamp-2" data-testid={`message-content-${message.id}`}>
+                  {message.content}
+                </p>
+              </div>
+            </div>
+            
+            <div className="flex items-center space-x-1">
+              {isReceivedMessage && (
+                <>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      message.isRead ? handleMarkUnread(message.id) : handleMarkRead(message.id);
+                    }}
+                    data-testid={`button-toggle-read-${message.id}`}
+                  >
+                    {message.isRead ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </Button>
+                </>
+              )}
+              
+              {activeTab !== "archived" && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleArchive(message.id);
+                  }}
+                  data-testid={`button-archive-${message.id}`}
+                >
+                  <Archive className="w-4 h-4" />
+                </Button>
+              )}
+            </div>
           </div>
-        </main>
-      </div>
+        </CardContent>
+      </Card>
     );
-  }
+  };
 
   return (
     <div className="flex h-screen overflow-hidden">
@@ -293,401 +413,272 @@ export default function Communication() {
       
       <main className="flex-1 flex flex-col overflow-hidden">
         <TopBar 
-          title="Communication Hub"
-          subtitle="Manage internal messages and communications"
+          title="Communication Center"
+          subtitle="Internal messaging and notifications"
         />
-        <div className="flex-1 overflow-auto p-6">
-        <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center space-x-2">
-            <MessageCircle className="w-6 h-6" />
-            <h1 className="text-2xl font-bold">Communication Center</h1>
+        
+        {/* Header */}
+        <header className="bg-card border-b border-border h-16 flex items-center justify-between px-6 flex-shrink-0">
+          <div className="flex items-center space-x-4">
+            <MessageCircle className="w-6 h-6 text-primary" />
+            <div>
+              <h1 className="text-lg font-semibold text-foreground">Messages</h1>
+            </div>
           </div>
-          
-          <Dialog open={showComposeModal} onOpenChange={setShowComposeModal}>
-            <DialogTrigger asChild>
-              <Button data-testid="button-compose-message">
-                <Plus className="w-4 h-4 mr-2" />
-                Compose Message
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="max-w-2xl">
-              <DialogHeader>
-                <DialogTitle>Compose New Message</DialogTitle>
-                <DialogDescription>
-                  Send a message to a team member or client.
-                </DialogDescription>
-              </DialogHeader>
-              
-              <Form {...form}>
-                <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
-                    <FormField
-                      control={form.control}
-                      name="recipientId"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Recipient</FormLabel>
-                          <Select onValueChange={field.onChange} defaultValue={field.value}>
-                            <FormControl>
-                              <SelectTrigger data-testid="select-recipient">
-                                <SelectValue placeholder="Select recipient" />
-                              </SelectTrigger>
-                            </FormControl>
-                            <SelectContent>
-                              {users?.map((user: User) => (
-                                <SelectItem key={user.id} value={user.id}>
-                                  {user.firstName} {user.lastName} ({user.email})
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                    
-                    <FormField
-                      control={form.control}
-                      name="priority"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Priority</FormLabel>
-                          <Select onValueChange={field.onChange} defaultValue={field.value}>
-                            <FormControl>
-                              <SelectTrigger data-testid="select-priority">
-                                <SelectValue placeholder="Select priority" />
-                              </SelectTrigger>
-                            </FormControl>
-                            <SelectContent>
-                              {Object.entries(priorityLabels).map(([value, label]) => (
-                                <SelectItem key={value} value={value}>
-                                  {label}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                  </div>
+          <Button onClick={() => setShowComposeModal(true)} data-testid="button-compose-message">
+            <Plus className="w-4 h-4 mr-2" />
+            Compose Message
+          </Button>
+        </header>
 
-                  <FormField
-                    control={form.control}
-                    name="subject"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Subject</FormLabel>
-                        <FormControl>
-                          <Input placeholder="Message subject..." {...field} data-testid="input-subject" />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  
-                  <FormField
-                    control={form.control}
-                    name="content"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Message</FormLabel>
-                        <FormControl>
-                          <Textarea 
-                            placeholder="Type your message here..." 
-                            {...field} 
-                            className="min-h-[120px]"
-                            data-testid="textarea-message"
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  <div className="flex items-center gap-4">
-                    <ObjectUploader
-                      maxNumberOfFiles={3}
-                      maxFileSize={25485760} // 25MB
-                      onGetUploadParameters={handleGetUploadParameters}
-                      onComplete={handleFileUploadComplete}
-                      buttonClassName="w-auto"
-                    >
-                      <Paperclip className="w-4 h-4 mr-2" />
-                      Attach Files
-                    </ObjectUploader>
-                    {form.watch("attachmentUrl") && (
-                      <span className="text-sm text-green-600">Files attached</span>
-                    )}
-                  </div>
-                  
-                  <div className="flex justify-end space-x-2 pt-4">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => setShowComposeModal(false)}
-                      data-testid="button-cancel-message"
-                    >
-                      Cancel
-                    </Button>
-                    <Button type="submit" disabled={sendMessageMutation.isPending} data-testid="button-send-message">
-                      <Send className="w-4 h-4 mr-2" />
-                      {sendMessageMutation.isPending ? "Sending..." : "Send Message"}
-                    </Button>
-                  </div>
-                </form>
-              </Form>
-            </DialogContent>
-          </Dialog>
-        </div>
-
-        {/* Filters and Search */}
-        <div className="flex items-center justify-between mb-6">
-          <div className="flex space-x-2">
-            <Button
-              variant={activeFilter === "all" ? "default" : "outline"}
-              onClick={() => setActiveFilter("all")}
-              size="sm"
-              data-testid="filter-all"
-            >
-              All Messages
-            </Button>
-            <Button
-              variant={activeFilter === "unread" ? "default" : "outline"}
-              onClick={() => setActiveFilter("unread")}
-              size="sm"
-              data-testid="filter-unread"
-            >
-              Unread
-            </Button>
-            <Button
-              variant={activeFilter === "high_priority" ? "default" : "outline"}
-              onClick={() => setActiveFilter("high_priority")}
-              size="sm"
-              data-testid="filter-priority"
-            >
-              High Priority
-            </Button>
-          </div>
-          
-          <div className="relative w-72">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              placeholder="Search messages..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-10"
-              data-testid="input-search-messages"
-            />
-          </div>
-        </div>
-
-        {/* Messages Layout */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-[calc(100vh-280px)]">
-          {/* Messages List */}
-          <Card className="lg:col-span-1">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-lg flex items-center gap-2">
-                <MessageCircle className="w-5 h-5" />
-                Messages ({filteredMessages?.length || 0})
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="p-0">
-              <ScrollArea className="h-[calc(100vh-380px)]">
-                <div className="space-y-1 p-3">
-                  {filteredMessages?.map((message: Message) => {
-                    const sender = users?.find((u: User) => u.id === message.senderId);
-                    const isSelected = selectedMessage?.id === message.id;
-                    
-                    return (
-                      <div
-                        key={message.id}
-                        className={`p-3 rounded-lg cursor-pointer transition-colors hover:bg-muted ${
-                          isSelected ? "bg-primary/10 border border-primary/20" : ""
-                        } ${message.status === "unread" ? "bg-blue-50" : ""}`}
-                        onClick={() => {
-                          setSelectedMessage(message);
-                          if (message.status === "unread") {
-                            handleMarkAsRead(message.id);
-                          }
-                        }}
-                        data-testid={`message-item-${message.id}`}
-                      >
-                        <div className="flex items-start justify-between mb-2">
-                          <div className="flex items-center gap-2">
-                            <Avatar className="h-6 w-6">
-                              <AvatarImage src={sender?.profileImageUrl} />
-                              <AvatarFallback className="text-xs">
-                                {sender?.firstName?.charAt(0)}{sender?.lastName?.charAt(0)}
-                              </AvatarFallback>
-                            </Avatar>
-                            <span className="font-medium text-sm truncate">
-                              {sender ? `${sender.firstName} ${sender.lastName}` : "Unknown Sender"}
-                            </span>
-                          </div>
-                          <div className="flex items-center gap-1">
-                            {message.status === "unread" && (
-                              <div className="h-2 w-2 bg-blue-500 rounded-full"></div>
-                            )}
-                            <Badge 
-                              className={`text-xs ${priorityColors[message.priority as keyof typeof priorityColors]}`}
-                              variant="secondary"
-                            >
-                              {priorityLabels[message.priority as keyof typeof priorityLabels]}
-                            </Badge>
-                          </div>
-                        </div>
-                        
-                        <h4 className="font-medium text-sm mb-1 truncate">{message.subject}</h4>
-                        <p className="text-xs text-muted-foreground line-clamp-2 mb-2">
-                          {message.content}
-                        </p>
-                        
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                            <Clock className="h-3 w-3" />
-                            {new Date(message.createdAt).toLocaleString()}
-                          </div>
-                          {message.attachmentUrl && (
-                            <Paperclip className="h-3 w-3 text-muted-foreground" />
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </ScrollArea>
-            </CardContent>
-          </Card>
-
-          {/* Message Detail */}
-          <Card className="lg:col-span-2">
-            <CardContent className="p-0 h-full">
-              {selectedMessage ? (
-                <div className="flex flex-col h-full">
-                  {/* Message Header */}
-                  <div className="p-4 border-b">
-                    <div className="flex items-center justify-between mb-2">
-                      <h3 className="text-lg font-semibold">{selectedMessage.subject}</h3>
-                      <div className="flex items-center gap-2">
-                        <Badge className={priorityColors[selectedMessage.priority as keyof typeof priorityColors]}>
-                          {priorityLabels[selectedMessage.priority as keyof typeof priorityLabels]}
+        {/* Content */}
+        <div className="flex-1 overflow-auto p-6 bg-background">
+          <div className="max-w-6xl mx-auto">
+            
+            {/* Tabs and Controls */}
+            <div className="mb-6">
+              <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)} className="w-full">
+                <div className="flex items-center justify-between mb-4">
+                  <TabsList className="grid w-full max-w-md grid-cols-3">
+                    <TabsTrigger value="inbox" className="flex items-center space-x-2" data-testid="tab-inbox">
+                      <Inbox className="w-4 h-4" />
+                      <span>Inbox</span>
+                      {getUnreadCount() > 0 && (
+                        <Badge variant="destructive" className="ml-1 h-5 min-w-5 text-xs px-1">
+                          {getUnreadCount()}
                         </Badge>
-                        <Button size="sm" variant="outline" onClick={() => handleReply(selectedMessage)}>
-                          <Reply className="w-4 h-4 mr-1" />
-                          Reply
-                        </Button>
-                      </div>
+                      )}
+                    </TabsTrigger>
+                    <TabsTrigger value="sent" className="flex items-center space-x-2" data-testid="tab-sent">
+                      <SendIcon className="w-4 h-4" />
+                      <span>Sent</span>
+                    </TabsTrigger>
+                    <TabsTrigger value="archived" className="flex items-center space-x-2" data-testid="tab-archived">
+                      <Archive className="w-4 h-4" />
+                      <span>Archived</span>
+                    </TabsTrigger>
+                  </TabsList>
+
+                  {/* Search and Filters */}
+                  <div className="flex items-center space-x-4">
+                    <div className="relative">
+                      <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                      <Input 
+                        placeholder="Search messages..."
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                        className="pl-10 w-64"
+                        data-testid="input-search-messages"
+                      />
                     </div>
                     
-                    <div className="flex items-center gap-3 text-sm text-muted-foreground">
-                      <div className="flex items-center gap-2">
-                        <Avatar className="h-6 w-6">
-                          <AvatarImage src={users?.find((u: User) => u.id === selectedMessage.senderId)?.profileImageUrl} />
-                          <AvatarFallback className="text-xs">
-                            {users?.find((u: User) => u.id === selectedMessage.senderId)?.firstName?.charAt(0)}
-                            {users?.find((u: User) => u.id === selectedMessage.senderId)?.lastName?.charAt(0)}
-                          </AvatarFallback>
-                        </Avatar>
-                        <span>From: {users?.find((u: User) => u.id === selectedMessage.senderId)?.firstName} {users?.find((u: User) => u.id === selectedMessage.senderId)?.lastName}</span>
-                      </div>
-                      <span>•</span>
-                      <span>{new Date(selectedMessage.createdAt).toLocaleString()}</span>
-                    </div>
+                    {activeTab === "inbox" && (
+                      <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as any)}>
+                        <SelectTrigger className="w-32" data-testid="select-status-filter">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All</SelectItem>
+                          <SelectItem value="unread">Unread</SelectItem>
+                          <SelectItem value="read">Read</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    )}
                   </div>
-                  
-                  {/* Message Content */}
-                  <ScrollArea className="flex-1 p-4">
-                    <div className="whitespace-pre-wrap text-sm leading-relaxed">
-                      {selectedMessage.content}
-                    </div>
-                    
-                    {selectedMessage.attachmentUrl && (
-                      <div className="mt-4 p-3 bg-muted rounded-lg">
-                        <div className="flex items-center gap-2">
-                          <Paperclip className="h-4 w-4" />
-                          <span className="text-sm">Attachment</span>
-                          <Button size="sm" variant="outline">
-                            <Eye className="w-4 h-4 mr-1" />
-                            View
-                          </Button>
-                        </div>
+                </div>
+
+                <TabsContent value="inbox" data-testid="content-inbox">
+                  <div className="space-y-4">
+                    {getLoadingForTab() ? (
+                      <div className="text-center py-8">
+                        <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+                        <p className="mt-2 text-muted-foreground">Loading messages...</p>
+                      </div>
+                    ) : filteredMessages.length > 0 ? (
+                      <ScrollArea className="h-[calc(100vh-280px)]">
+                        {filteredMessages.map(renderMessage)}
+                      </ScrollArea>
+                    ) : (
+                      <div className="text-center py-12">
+                        <Inbox className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
+                        <h3 className="text-lg font-medium mb-2">No messages found</h3>
+                        <p className="text-muted-foreground">
+                          {searchTerm ? "Try adjusting your search terms" : "Your inbox is empty"}
+                        </p>
                       </div>
                     )}
-                    <div ref={messagesEndRef} />
-                  </ScrollArea>
-                  
-                  {/* Quick Reply */}
-                  {selectedMessage && (
-                    <div className="p-4 border-t">
-                      <Form {...replyForm}>
-                        <form onSubmit={replyForm.handleSubmit((data) => {
-                          sendMessageMutation.mutate({
-                            ...data,
-                            senderId: currentUser?.id,
-                            recipientId: selectedMessage.senderId,
-                            subject: `Re: ${selectedMessage.subject}`,
-                            parentMessageId: selectedMessage.id
-                          });
-                          replyForm.reset();
-                        })} className="space-y-3">
-                          <FormField
-                            control={replyForm.control}
-                            name="content"
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormControl>
-                                  <Textarea 
-                                    placeholder="Type your reply..." 
-                                    {...field} 
-                                    className="min-h-[80px] resize-none"
-                                    data-testid="textarea-reply"
-                                  />
-                                </FormControl>
-                                <FormMessage />
-                              </FormItem>
-                            )}
-                          />
-                          
-                          <div className="flex justify-end">
-                            <Button type="submit" size="sm" disabled={sendMessageMutation.isPending}>
-                              <Send className="w-4 h-4 mr-1" />
-                              {sendMessageMutation.isPending ? "Sending..." : "Send Reply"}
-                            </Button>
-                          </div>
-                        </form>
-                      </Form>
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <div className="flex items-center justify-center h-full text-center">
-                  <div>
-                    <MessageCircle className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
-                    <h3 className="text-lg font-medium text-muted-foreground mb-2">No message selected</h3>
-                    <p className="text-muted-foreground">
-                      Select a message from the list to view its contents
-                    </p>
                   </div>
-                </div>
-              )}
-            </CardContent>
-          </Card>
+                </TabsContent>
+
+                <TabsContent value="sent" data-testid="content-sent">
+                  <div className="space-y-4">
+                    {getLoadingForTab() ? (
+                      <div className="text-center py-8">
+                        <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+                        <p className="mt-2 text-muted-foreground">Loading sent messages...</p>
+                      </div>
+                    ) : filteredMessages.length > 0 ? (
+                      <ScrollArea className="h-[calc(100vh-280px)]">
+                        {filteredMessages.map(renderMessage)}
+                      </ScrollArea>
+                    ) : (
+                      <div className="text-center py-12">
+                        <SendIcon className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
+                        <h3 className="text-lg font-medium mb-2">No sent messages</h3>
+                        <p className="text-muted-foreground">
+                          {searchTerm ? "Try adjusting your search terms" : "You haven't sent any messages yet"}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                </TabsContent>
+
+                <TabsContent value="archived" data-testid="content-archived">
+                  <div className="space-y-4">
+                    {getLoadingForTab() ? (
+                      <div className="text-center py-8">
+                        <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+                        <p className="mt-2 text-muted-foreground">Loading archived messages...</p>
+                      </div>
+                    ) : filteredMessages.length > 0 ? (
+                      <ScrollArea className="h-[calc(100vh-280px)]">
+                        {filteredMessages.map(renderMessage)}
+                      </ScrollArea>
+                    ) : (
+                      <div className="text-center py-12">
+                        <Archive className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
+                        <h3 className="text-lg font-medium mb-2">No archived messages</h3>
+                        <p className="text-muted-foreground">
+                          {searchTerm ? "Try adjusting your search terms" : "No messages have been archived yet"}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                </TabsContent>
+              </Tabs>
+            </div>
+          </div>
         </div>
 
-        {filteredMessages?.length === 0 && (
-          <div className="text-center py-12">
-            <MessageCircle className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
-            <h3 className="text-lg font-medium text-muted-foreground mb-2">No messages found</h3>
-            <p className="text-muted-foreground">
-              {searchTerm 
-                ? "Try adjusting your search terms" 
-                : "Get started by composing your first message"
-              }
-            </p>
-          </div>
-        )}
-        </div>
+        {/* Compose Message Modal */}
+        <Dialog open={showComposeModal} onOpenChange={setShowComposeModal}>
+          <DialogContent className="max-w-2xl">
+            <DialogHeader>
+              <DialogTitle>Compose New Message</DialogTitle>
+              <DialogDescription>
+                Send a message to another user in your organization.
+              </DialogDescription>
+            </DialogHeader>
+            
+            <Form {...form}>
+              <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+                <FormField
+                  control={form.control}
+                  name="recipientId"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>To</FormLabel>
+                      <Select onValueChange={field.onChange} defaultValue={field.value}>
+                        <FormControl>
+                          <SelectTrigger data-testid="select-recipient">
+                            <SelectValue placeholder="Select recipient" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {users?.map((user: User) => (
+                            <SelectItem key={user.id} value={user.id}>
+                              {user.firstName && user.lastName 
+                                ? `${user.firstName} ${user.lastName}` 
+                                : user.email
+                              } ({user.role})
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="priority"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Priority</FormLabel>
+                      <Select onValueChange={field.onChange} defaultValue={field.value}>
+                        <FormControl>
+                          <SelectTrigger data-testid="select-priority">
+                            <SelectValue />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="low">Low</SelectItem>
+                          <SelectItem value="normal">Normal</SelectItem>
+                          <SelectItem value="high">High</SelectItem>
+                          <SelectItem value="urgent">Urgent</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="subject"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Subject</FormLabel>
+                      <FormControl>
+                        <Input {...field} placeholder="Message subject" data-testid="input-subject" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="content"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Message</FormLabel>
+                      <FormControl>
+                        <Textarea 
+                          {...field} 
+                          placeholder="Type your message here..." 
+                          rows={6}
+                          data-testid="textarea-message-content"
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <div className="flex justify-end space-x-2 pt-4">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setShowComposeModal(false)}
+                    data-testid="button-cancel-message"
+                  >
+                    Cancel
+                  </Button>
+                  <Button 
+                    type="submit" 
+                    disabled={sendMessageMutation.isPending}
+                    data-testid="button-send-message"
+                  >
+                    <Send className="w-4 h-4 mr-2" />
+                    {sendMessageMutation.isPending ? "Sending..." : "Send Message"}
+                  </Button>
+                </div>
+              </form>
+            </Form>
+          </DialogContent>
+        </Dialog>
       </main>
     </div>
   );

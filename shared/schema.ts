@@ -211,6 +211,8 @@ export const tasks = pgTable("tasks", {
 });
 
 // Internal messaging
+export const messageStatusEnum = pgEnum("message_status", ["unread", "read", "archived"]);
+
 export const messages = pgTable("messages", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   senderId: varchar("sender_id").references(() => users.id),
@@ -218,9 +220,15 @@ export const messages = pgTable("messages", {
   subject: varchar("subject"),
   content: text("content").notNull(),
   isRead: boolean("is_read").default(false),
+  senderStatus: messageStatusEnum("sender_status").default("read"), // sender's view: read, archived
+  recipientStatus: messageStatusEnum("recipient_status").default("unread"), // recipient's view: unread, read, archived
   messageType: varchar("message_type").default("message"), // message, announcement, alert
+  priority: varchar("priority").default("normal"), // low, normal, high, urgent
   relatedClientId: varchar("related_client_id").references(() => clients.id),
+  attachmentUrl: varchar("attachment_url"),
+  parentMessageId: varchar("parent_message_id"), // for threaded conversations
   createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
 });
 
 // Compliance checklists

@@ -652,7 +652,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Message routes
   app.get("/api/messages", isAuthenticated, async (req: any, res) => {
     try {
-      const messages = await storage.getMessagesByUser(req.user.claims.sub);
+      const { type = 'received', status } = req.query;
+      const userId = req.user.claims.sub;
+      let messages;
+      
+      if (type === 'sent') {
+        messages = await storage.getSentMessagesByUser(userId, status);
+      } else {
+        messages = await storage.getReceivedMessagesByUser(userId, status);
+      }
+      
       res.json(messages);
     } catch (error) {
       console.error("Error fetching messages:", error);
@@ -674,13 +683,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/messages/:id/read", isAuthenticated, async (req, res) => {
+  app.put("/api/messages/:id/read", isAuthenticated, async (req: any, res) => {
     try {
-      await storage.markMessageAsRead(req.params.id);
+      const userId = req.user.claims.sub;
+      await storage.updateMessageStatus(req.params.id, userId, 'read');
       res.status(204).send();
     } catch (error) {
       console.error("Error marking message as read:", error);
       res.status(500).json({ message: "Failed to mark message as read" });
+    }
+  });
+
+  app.put("/api/messages/:id/unread", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      await storage.updateMessageStatus(req.params.id, userId, 'unread');
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error marking message as unread:", error);
+      res.status(500).json({ message: "Failed to mark message as unread" });
+    }
+  });
+
+  app.put("/api/messages/:id/archive", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      await storage.updateMessageStatus(req.params.id, userId, 'archived');
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error archiving message:", error);
+      res.status(500).json({ message: "Failed to archive message" });
     }
   });
 

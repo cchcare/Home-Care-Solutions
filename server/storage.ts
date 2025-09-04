@@ -118,8 +118,11 @@ export interface IStorage {
 
   // Message operations
   getMessagesByUser(userId: string): Promise<Message[]>;
+  getSentMessagesByUser(userId: string, status?: string): Promise<Message[]>;
+  getReceivedMessagesByUser(userId: string, status?: string): Promise<Message[]>;
   createMessage(message: InsertMessage): Promise<Message>;
   markMessageAsRead(id: string): Promise<void>;
+  updateMessageStatus(messageId: string, userId: string, status: 'unread' | 'read' | 'archived'): Promise<void>;
 
   // Certification operations
   getCertificationsByCaregiver(caregiverId: string): Promise<Certification[]>;
@@ -428,6 +431,32 @@ export class DatabaseStorage implements IStorage {
       .orderBy(desc(messages.createdAt));
   }
 
+  async getSentMessagesByUser(userId: string, status?: string): Promise<Message[]> {
+    const conditions = [eq(messages.senderId, userId)];
+    if (status) {
+      conditions.push(eq(messages.senderStatus, status as any));
+    }
+
+    return await db
+      .select()
+      .from(messages)
+      .where(and(...conditions))
+      .orderBy(desc(messages.createdAt));
+  }
+
+  async getReceivedMessagesByUser(userId: string, status?: string): Promise<Message[]> {
+    const conditions = [eq(messages.recipientId, userId)];
+    if (status) {
+      conditions.push(eq(messages.recipientStatus, status as any));
+    }
+
+    return await db
+      .select()
+      .from(messages)
+      .where(and(...conditions))
+      .orderBy(desc(messages.createdAt));
+  }
+
   async createMessage(message: InsertMessage): Promise<Message> {
     const [newMessage] = await db.insert(messages).values(message).returning();
     return newMessage;
@@ -438,6 +467,39 @@ export class DatabaseStorage implements IStorage {
       .update(messages)
       .set({ isRead: true })
       .where(eq(messages.id, id));
+  }
+
+  async updateMessageStatus(messageId: string, userId: string, status: 'unread' | 'read' | 'archived'): Promise<void> {
+    // Get the message to determine if user is sender or recipient
+    const [message] = await db
+      .select()
+      .from(messages)
+      .where(eq(messages.id, messageId))
+      .limit(1);
+
+    if (!message) {
+      throw new Error('Message not found');
+    }
+
+    const updateData: any = { updatedAt: new Date() };
+    
+    if (message.senderId === userId) {
+      updateData.senderStatus = status;
+    } else if (message.recipientId === userId) {
+      updateData.recipientStatus = status;
+      if (status === 'read') {
+        updateData.isRead = true;
+      } else if (status === 'unread') {
+        updateData.isRead = false;
+      }
+    } else {
+      throw new Error('User not authorized to update this message');
+    }
+
+    await db
+      .update(messages)
+      .set(updateData)
+      .where(eq(messages.id, messageId));
   }
 
   // Certification operations
