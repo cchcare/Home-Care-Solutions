@@ -12,6 +12,10 @@ import {
   certifications,
   complianceItems,
   auditLogs,
+  samples,
+  trainings,
+  trainingRecords,
+  files,
   type User,
   type UpsertUser,
   type Office,
@@ -38,6 +42,14 @@ import {
   type InsertComplianceItem,
   type AuditLog,
   type InsertAuditLog,
+  type Sample,
+  type InsertSample,
+  type Training,
+  type InsertTraining,
+  type TrainingRecord,
+  type InsertTrainingRecord,
+  type File,
+  type InsertFile,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, or, count, sql, like, gte, lte } from "drizzle-orm";
@@ -124,6 +136,24 @@ export interface IStorage {
 
   // Audit logging
   createAuditLog(log: InsertAuditLog): Promise<AuditLog>;
+
+  // Sample operations
+  getAllSamples(): Promise<Sample[]>;
+  getSample(id: string): Promise<Sample | undefined>;
+  createSample(sample: InsertSample): Promise<Sample>;
+  updateSample(id: string, sample: Partial<InsertSample>): Promise<Sample>;
+
+  // Training operations
+  getAllTrainings(): Promise<Training[]>;
+  createTraining(training: InsertTraining): Promise<Training>;
+
+  // Training record operations
+  getAllTrainingRecords(): Promise<TrainingRecord[]>;
+  createTrainingRecord(record: InsertTrainingRecord): Promise<TrainingRecord>;
+
+  // Additional user operations for communication
+  getAllUsers(): Promise<User[]>;
+  updateMessage(id: string, data: Partial<InsertMessage>): Promise<Message>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -502,6 +532,64 @@ export class DatabaseStorage implements IStorage {
   async createAuditLog(log: InsertAuditLog): Promise<AuditLog> {
     const [newLog] = await db.insert(auditLogs).values(log).returning();
     return newLog;
+  }
+
+  // Sample operations
+  async getAllSamples(): Promise<Sample[]> {
+    return await db.select().from(samples).orderBy(desc(samples.createdAt));
+  }
+
+  async getSample(id: string): Promise<Sample | undefined> {
+    const [sample] = await db.select().from(samples).where(eq(samples.id, id));
+    return sample;
+  }
+
+  async createSample(sample: InsertSample): Promise<Sample> {
+    const [newSample] = await db.insert(samples).values(sample).returning();
+    return newSample;
+  }
+
+  async updateSample(id: string, sampleData: Partial<InsertSample>): Promise<Sample> {
+    const [updated] = await db
+      .update(samples)
+      .set(sampleData)
+      .where(eq(samples.id, id))
+      .returning();
+    return updated;
+  }
+
+  // Training operations
+  async getAllTrainings(): Promise<Training[]> {
+    return await db.select().from(trainings).orderBy(desc(trainings.createdAt));
+  }
+
+  async createTraining(training: InsertTraining): Promise<Training> {
+    const [newTraining] = await db.insert(trainings).values(training).returning();
+    return newTraining;
+  }
+
+  // Training record operations
+  async getAllTrainingRecords(): Promise<TrainingRecord[]> {
+    return await db.select().from(trainingRecords).orderBy(desc(trainingRecords.createdAt));
+  }
+
+  async createTrainingRecord(record: InsertTrainingRecord): Promise<TrainingRecord> {
+    const [newRecord] = await db.insert(trainingRecords).values(record).returning();
+    return newRecord;
+  }
+
+  // Additional user operations for communication
+  async getAllUsers(): Promise<User[]> {
+    return await db.select().from(users).orderBy(desc(users.createdAt));
+  }
+
+  async updateMessage(id: string, data: Partial<InsertMessage>): Promise<Message> {
+    const [updated] = await db
+      .update(messages)
+      .set(data)
+      .where(eq(messages.id, id))
+      .returning();
+    return updated;
   }
 }
 

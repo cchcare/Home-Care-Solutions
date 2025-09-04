@@ -18,7 +18,13 @@ import {
   insertMessageSchema,
   insertCertificationSchema,
   insertComplianceItemSchema,
+  insertSampleSchema,
+  insertTrainingSchema,
+  insertTrainingRecordSchema,
+  insertFileSchema,
 } from "@shared/schema";
+import { ObjectStorageService, ObjectNotFoundError } from "./objectStorage";
+import { ObjectPermission } from "./objectAcl";
 
 // Configure multer for HIPAA-compliant file uploads
 const upload = multer({
@@ -539,6 +545,169 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error creating compliance item:", error);
       res.status(400).json({ message: "Failed to create compliance item" });
+    }
+  });
+
+  // Sample management routes
+  app.get("/api/samples", isAuthenticated, async (req, res) => {
+    try {
+      const samples = await storage.getAllSamples();
+      res.json(samples);
+    } catch (error) {
+      console.error("Error fetching samples:", error);
+      res.status(500).json({ message: "Failed to fetch samples" });
+    }
+  });
+
+  app.post("/api/samples", isAuthenticated, async (req: any, res) => {
+    try {
+      const validatedData = insertSampleSchema.parse(req.body);
+      const sample = await storage.createSample(validatedData);
+      res.status(201).json(sample);
+    } catch (error) {
+      console.error("Error creating sample:", error);
+      res.status(400).json({ message: "Failed to create sample" });
+    }
+  });
+
+  app.get("/api/samples/:id", isAuthenticated, async (req, res) => {
+    try {
+      const sample = await storage.getSample(req.params.id);
+      if (!sample) {
+        return res.status(404).json({ message: "Sample not found" });
+      }
+      res.json(sample);
+    } catch (error) {
+      console.error("Error fetching sample:", error);
+      res.status(500).json({ message: "Failed to fetch sample" });
+    }
+  });
+
+  app.put("/api/samples/:id", isAuthenticated, async (req, res) => {
+    try {
+      const validatedData = insertSampleSchema.parse(req.body);
+      const sample = await storage.updateSample(req.params.id, validatedData);
+      res.json(sample);
+    } catch (error) {
+      console.error("Error updating sample:", error);
+      res.status(400).json({ message: "Failed to update sample" });
+    }
+  });
+
+  // Training management routes
+  app.get("/api/trainings", isAuthenticated, async (req, res) => {
+    try {
+      const trainings = await storage.getAllTrainings();
+      res.json(trainings);
+    } catch (error) {
+      console.error("Error fetching trainings:", error);
+      res.status(500).json({ message: "Failed to fetch trainings" });
+    }
+  });
+
+  app.post("/api/trainings", isAuthenticated, async (req: any, res) => {
+    try {
+      const validatedData = insertTrainingSchema.parse(req.body);
+      const training = await storage.createTraining(validatedData);
+      res.status(201).json(training);
+    } catch (error) {
+      console.error("Error creating training:", error);
+      res.status(400).json({ message: "Failed to create training" });
+    }
+  });
+
+  app.get("/api/training-records", isAuthenticated, async (req, res) => {
+    try {
+      const records = await storage.getAllTrainingRecords();
+      res.json(records);
+    } catch (error) {
+      console.error("Error fetching training records:", error);
+      res.status(500).json({ message: "Failed to fetch training records" });
+    }
+  });
+
+  app.post("/api/training-records", isAuthenticated, async (req: any, res) => {
+    try {
+      const validatedData = insertTrainingRecordSchema.parse(req.body);
+      const record = await storage.createTrainingRecord(validatedData);
+      res.status(201).json(record);
+    } catch (error) {
+      console.error("Error creating training record:", error);
+      res.status(400).json({ message: "Failed to create training record" });
+    }
+  });
+
+  // Object storage routes
+  app.get("/objects/:objectPath(*)", isAuthenticated, async (req: any, res) => {
+    const userId = req.user?.claims?.sub;
+    const objectStorageService = new ObjectStorageService();
+    try {
+      const objectFile = await objectStorageService.getObjectEntityFile(
+        req.path,
+      );
+      const canAccess = await objectStorageService.canAccessObjectEntity({
+        objectFile,
+        userId: userId,
+        requestedPermission: ObjectPermission.READ,
+      });
+      if (!canAccess) {
+        return res.sendStatus(401);
+      }
+      objectStorageService.downloadObject(objectFile, res);
+    } catch (error) {
+      console.error("Error checking object access:", error);
+      if (error instanceof ObjectNotFoundError) {
+        return res.sendStatus(404);
+      }
+      return res.sendStatus(500);
+    }
+  });
+
+  app.post("/api/objects/upload", isAuthenticated, async (req, res) => {
+    try {
+      const objectStorageService = new ObjectStorageService();
+      const uploadURL = await objectStorageService.getObjectEntityUploadURL();
+      res.json({ uploadURL });
+    } catch (error) {
+      console.error("Error getting upload URL:", error);
+      res.status(500).json({ error: "Failed to get upload URL" });
+    }
+  });
+
+  app.get("/public-objects/:filePath(*)", async (req, res) => {
+    const filePath = req.params.filePath;
+    const objectStorageService = new ObjectStorageService();
+    try {
+      const file = await objectStorageService.searchPublicObject(filePath);
+      if (!file) {
+        return res.status(404).json({ error: "File not found" });
+      }
+      objectStorageService.downloadObject(file, res);
+    } catch (error) {
+      console.error("Error searching for public object:", error);
+      return res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  // Users route (for communication functionality)
+  app.get("/api/users", isAuthenticated, async (req, res) => {
+    try {
+      const users = await storage.getAllUsers();
+      res.json(users);
+    } catch (error) {
+      console.error("Error fetching users:", error);
+      res.status(500).json({ message: "Failed to fetch users" });
+    }
+  });
+
+  // Update message status
+  app.patch("/api/messages/:id", isAuthenticated, async (req, res) => {
+    try {
+      const message = await storage.updateMessage(req.params.id, req.body);
+      res.json(message);
+    } catch (error) {
+      console.error("Error updating message:", error);
+      res.status(500).json({ message: "Failed to update message" });
     }
   });
 

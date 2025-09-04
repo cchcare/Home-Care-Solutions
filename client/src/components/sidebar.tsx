@@ -14,6 +14,7 @@ import {
   ClipboardList,
   FileText,
   GraduationCap,
+  TestTube,
   BarChart3,
   Settings,
   Menu,
@@ -31,11 +32,12 @@ export function Sidebar() {
     { name: "Client Management", href: "/clients", icon: Users },
     { name: "Caregiver Management", href: "/caregivers", icon: UserCheck },
     { name: "Office Management", href: "/offices", icon: Building2 },
+    { name: "Sample Management", href: "/samples", icon: TestTube },
+    { name: "Training & Resources", href: "/training", icon: GraduationCap },
     { name: "Compliance", href: "/compliance", icon: Shield },
     { name: "Communication", href: "/communication", icon: MessageSquare },
     { name: "Tasks & Workflows", href: "/tasks", icon: ClipboardList },
     { name: "Forms & Documents", href: "/documents", icon: FileText },
-    { name: "Training & Resources", href: "/training", icon: GraduationCap },
     { name: "Analytics & Reports", href: "/reports", icon: BarChart3 },
   ];
 

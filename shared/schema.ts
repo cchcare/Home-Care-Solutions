@@ -396,6 +396,127 @@ export const auditLogsRelations = relations(auditLogs, ({ one }) => ({
   }),
 }));
 
+// Samples management
+export const sampleTypeEnum = pgEnum("sample_type", ["blood", "urine", "stool", "swab", "other"]);
+export const sampleStatusEnum = pgEnum("sample_status", ["collected", "in_transit", "received", "processing", "completed", "rejected"]);
+
+export const samples = pgTable("samples", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  clientId: varchar("client_id").notNull(),
+  caregiverId: varchar("caregiver_id"),
+  sampleType: sampleTypeEnum("sample_type").notNull(),
+  status: sampleStatusEnum("status").default("collected"),
+  collectionDate: timestamp("collection_date").notNull(),
+  labOrderNumber: varchar("lab_order_number"),
+  physicianName: varchar("physician_name"),
+  instructions: text("instructions"),
+  notes: text("notes"),
+  resultUrl: varchar("result_url"), // file path for uploaded results
+  officeId: varchar("office_id"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Training and certification management
+export const trainingTypeEnum = pgEnum("training_type", ["orientation", "annual", "certification", "continuing_education", "safety", "hipaa", "other"]);
+export const trainingStatusEnum = pgEnum("training_status", ["not_started", "in_progress", "completed", "expired", "failed"]);
+
+export const trainings = pgTable("trainings", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  title: varchar("title").notNull(),
+  description: text("description"),
+  trainingType: trainingTypeEnum("training_type").notNull(),
+  durationHours: integer("duration_hours"),
+  expirationMonths: integer("expiration_months"), // how many months until it expires
+  isRequired: boolean("is_required").default(false),
+  materialUrl: varchar("material_url"), // file path for training materials
+  officeId: varchar("office_id"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const trainingRecords = pgTable("training_records", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  caregiverId: varchar("caregiver_id").notNull(),
+  trainingId: varchar("training_id").notNull(),
+  status: trainingStatusEnum("status").default("not_started"),
+  startDate: timestamp("start_date"),
+  completionDate: timestamp("completion_date"),
+  expirationDate: timestamp("expiration_date"),
+  score: integer("score"), // percentage score for tests
+  certificateUrl: varchar("certificate_url"), // file path for certificates
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Enhanced file management
+export const fileTypeEnum = pgEnum("file_type", ["document", "image", "video", "audio", "other"]);
+export const fileCategoryEnum = pgEnum("file_category", ["client_document", "training_material", "certificate", "sample_result", "insurance", "identification", "care_plan", "medical_record", "other"]);
+
+export const files = pgTable("files", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  fileName: varchar("file_name").notNull(),
+  originalName: varchar("original_name").notNull(),
+  fileType: fileTypeEnum("file_type").notNull(),
+  category: fileCategoryEnum("category").notNull(),
+  filePath: varchar("file_path").notNull(), // object storage path
+  fileSize: integer("file_size"), // in bytes
+  mimeType: varchar("mime_type"),
+  uploadedBy: varchar("uploaded_by").notNull(), // user ID
+  relatedEntityType: varchar("related_entity_type"), // 'client', 'caregiver', 'training', 'sample'
+  relatedEntityId: varchar("related_entity_id"),
+  officeId: varchar("office_id"),
+  isConfidential: boolean("is_confidential").default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const samplesRelations = relations(samples, ({ one }) => ({
+  client: one(clients, {
+    fields: [samples.clientId],
+    references: [clients.id],
+  }),
+  caregiver: one(caregivers, {
+    fields: [samples.caregiverId],
+    references: [caregivers.id],
+  }),
+  office: one(offices, {
+    fields: [samples.officeId],
+    references: [offices.id],
+  }),
+}));
+
+export const trainingsRelations = relations(trainings, ({ one, many }) => ({
+  office: one(offices, {
+    fields: [trainings.officeId],
+    references: [offices.id],
+  }),
+  trainingRecords: many(trainingRecords),
+}));
+
+export const trainingRecordsRelations = relations(trainingRecords, ({ one }) => ({
+  caregiver: one(caregivers, {
+    fields: [trainingRecords.caregiverId],
+    references: [caregivers.id],
+  }),
+  training: one(trainings, {
+    fields: [trainingRecords.trainingId],
+    references: [trainings.id],
+  }),
+}));
+
+export const filesRelations = relations(files, ({ one }) => ({
+  uploadedByUser: one(users, {
+    fields: [files.uploadedBy],
+    references: [users.id],
+  }),
+  office: one(offices, {
+    fields: [files.officeId],
+    references: [offices.id],
+  }),
+}));
+
 // Schema types
 export type Office = typeof offices.$inferSelect;
 export type InsertOffice = typeof offices.$inferInsert;
@@ -447,3 +568,19 @@ export const insertComplianceItemSchema = createInsertSchema(complianceItems);
 export type AuditLog = typeof auditLogs.$inferSelect;
 export type InsertAuditLog = typeof auditLogs.$inferInsert;
 export const insertAuditLogSchema = createInsertSchema(auditLogs);
+
+export type Sample = typeof samples.$inferSelect;
+export type InsertSample = typeof samples.$inferInsert;
+export const insertSampleSchema = createInsertSchema(samples);
+
+export type Training = typeof trainings.$inferSelect;
+export type InsertTraining = typeof trainings.$inferInsert;
+export const insertTrainingSchema = createInsertSchema(trainings);
+
+export type TrainingRecord = typeof trainingRecords.$inferSelect;
+export type InsertTrainingRecord = typeof trainingRecords.$inferInsert;
+export const insertTrainingRecordSchema = createInsertSchema(trainingRecords);
+
+export type File = typeof files.$inferSelect;
+export type InsertFile = typeof files.$inferInsert;
+export const insertFileSchema = createInsertSchema(files);
