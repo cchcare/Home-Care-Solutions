@@ -25,6 +25,10 @@ import {
   insertFamilyMemberSchema,
   insertClientFamilyMemberSchema,
   insertFamilyUpdateSchema,
+  insertCustomRoleSchema,
+  insertPermissionSchema,
+  insertRolePermissionSchema,
+  insertUserCustomRoleSchema,
 } from "@shared/schema";
 import { ObjectStorageService, ObjectNotFoundError } from "./objectStorage";
 import { ObjectPermission } from "./objectAcl";
@@ -1305,6 +1309,258 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error reviewing family update:", error);
       res.status(400).json({ message: "Failed to review update" });
+    }
+  });
+
+  // Role and Permission Management routes
+  // Custom roles
+  app.get("/api/custom-roles", isAuthenticated, async (req, res) => {
+    try {
+      const roles = await storage.getAllCustomRoles();
+      res.json(roles);
+    } catch (error) {
+      console.error("Error fetching custom roles:", error);
+      res.status(500).json({ message: "Failed to fetch custom roles" });
+    }
+  });
+
+  app.get("/api/custom-roles/:id", isAuthenticated, async (req, res) => {
+    try {
+      const role = await storage.getCustomRole(req.params.id);
+      if (!role) {
+        return res.status(404).json({ message: "Custom role not found" });
+      }
+      res.json(role);
+    } catch (error) {
+      console.error("Error fetching custom role:", error);
+      res.status(500).json({ message: "Failed to fetch custom role" });
+    }
+  });
+
+  app.post("/api/custom-roles", isAuthenticated, async (req, res) => {
+    try {
+      const roleData = insertCustomRoleSchema.parse(req.body);
+      const role = await storage.createCustomRole(roleData);
+      res.status(201).json(role);
+    } catch (error) {
+      console.error("Error creating custom role:", error);
+      res.status(500).json({ message: "Failed to create custom role" });
+    }
+  });
+
+  app.put("/api/custom-roles/:id", isAuthenticated, async (req, res) => {
+    try {
+      const roleData = insertCustomRoleSchema.partial().parse(req.body);
+      const role = await storage.updateCustomRole(req.params.id, roleData);
+      res.json(role);
+    } catch (error) {
+      console.error("Error updating custom role:", error);
+      res.status(500).json({ message: "Failed to update custom role" });
+    }
+  });
+
+  app.delete("/api/custom-roles/:id", isAuthenticated, async (req, res) => {
+    try {
+      await storage.deleteCustomRole(req.params.id);
+      res.json({ message: "Custom role deleted successfully" });
+    } catch (error) {
+      console.error("Error deleting custom role:", error);
+      res.status(500).json({ message: "Failed to delete custom role" });
+    }
+  });
+
+  // Permissions
+  app.get("/api/permissions", isAuthenticated, async (req, res) => {
+    try {
+      const permissions = await storage.getAllPermissions();
+      res.json(permissions);
+    } catch (error) {
+      console.error("Error fetching permissions:", error);
+      res.status(500).json({ message: "Failed to fetch permissions" });
+    }
+  });
+
+  app.get("/api/permissions/category/:category", isAuthenticated, async (req, res) => {
+    try {
+      const permissions = await storage.getPermissionsByCategory(req.params.category);
+      res.json(permissions);
+    } catch (error) {
+      console.error("Error fetching permissions by category:", error);
+      res.status(500).json({ message: "Failed to fetch permissions by category" });
+    }
+  });
+
+  app.post("/api/permissions", isAuthenticated, async (req, res) => {
+    try {
+      const permissionData = insertPermissionSchema.parse(req.body);
+      const permission = await storage.createPermission(permissionData);
+      res.status(201).json(permission);
+    } catch (error) {
+      console.error("Error creating permission:", error);
+      res.status(500).json({ message: "Failed to create permission" });
+    }
+  });
+
+  // Role permissions
+  app.get("/api/custom-roles/:roleId/permissions", isAuthenticated, async (req, res) => {
+    try {
+      const permissions = await storage.getRolePermissions(req.params.roleId);
+      res.json(permissions);
+    } catch (error) {
+      console.error("Error fetching role permissions:", error);
+      res.status(500).json({ message: "Failed to fetch role permissions" });
+    }
+  });
+
+  app.post("/api/custom-roles/:roleId/permissions", isAuthenticated, async (req, res) => {
+    try {
+      const rolePermissionData = insertRolePermissionSchema.parse({
+        roleId: req.params.roleId,
+        permissionId: req.body.permissionId,
+      });
+      const rolePermission = await storage.addPermissionToRole(rolePermissionData);
+      res.status(201).json(rolePermission);
+    } catch (error) {
+      console.error("Error adding permission to role:", error);
+      res.status(500).json({ message: "Failed to add permission to role" });
+    }
+  });
+
+  app.delete("/api/custom-roles/:roleId/permissions/:permissionId", isAuthenticated, async (req, res) => {
+    try {
+      await storage.removePermissionFromRole(req.params.roleId, req.params.permissionId);
+      res.json({ message: "Permission removed from role successfully" });
+    } catch (error) {
+      console.error("Error removing permission from role:", error);
+      res.status(500).json({ message: "Failed to remove permission from role" });
+    }
+  });
+
+  // User roles
+  app.get("/api/users/:userId/custom-roles", isAuthenticated, async (req, res) => {
+    try {
+      const roles = await storage.getUserCustomRoles(req.params.userId);
+      res.json(roles);
+    } catch (error) {
+      console.error("Error fetching user custom roles:", error);
+      res.status(500).json({ message: "Failed to fetch user custom roles" });
+    }
+  });
+
+  app.post("/api/users/:userId/custom-roles", isAuthenticated, async (req, res) => {
+    try {
+      const userRoleData = insertUserCustomRoleSchema.parse({
+        userId: req.params.userId,
+        roleId: req.body.roleId,
+        assignedBy: req.body.assignedBy,
+        isActive: true,
+      });
+      const userRole = await storage.assignRoleToUser(userRoleData);
+      res.status(201).json(userRole);
+    } catch (error) {
+      console.error("Error assigning role to user:", error);
+      res.status(500).json({ message: "Failed to assign role to user" });
+    }
+  });
+
+  app.delete("/api/users/:userId/custom-roles/:roleId", isAuthenticated, async (req, res) => {
+    try {
+      await storage.removeRoleFromUser(req.params.userId, req.params.roleId);
+      res.json({ message: "Role removed from user successfully" });
+    } catch (error) {
+      console.error("Error removing role from user:", error);
+      res.status(500).json({ message: "Failed to remove role from user" });
+    }
+  });
+
+  app.get("/api/users/:userId/permissions", isAuthenticated, async (req, res) => {
+    try {
+      const permissions = await storage.getUserPermissions(req.params.userId);
+      res.json(permissions);
+    } catch (error) {
+      console.error("Error fetching user permissions:", error);
+      res.status(500).json({ message: "Failed to fetch user permissions" });
+    }
+  });
+
+  // Seed default permissions (for super admin use)
+  app.post("/api/permissions/seed", isAuthenticated, async (req, res) => {
+    try {
+      const defaultPermissions = [
+        // Client Management
+        { name: "clients.view", displayName: "View Clients", description: "View client information", category: "Client Management", resource: "clients", action: "view", isSystemPermission: true },
+        { name: "clients.create", displayName: "Create Clients", description: "Create new clients", category: "Client Management", resource: "clients", action: "create", isSystemPermission: true },
+        { name: "clients.edit", displayName: "Edit Clients", description: "Edit client information", category: "Client Management", resource: "clients", action: "edit", isSystemPermission: true },
+        { name: "clients.delete", displayName: "Delete Clients", description: "Delete clients", category: "Client Management", resource: "clients", action: "delete", isSystemPermission: true },
+        
+        // Caregiver Management
+        { name: "caregivers.view", displayName: "View Caregivers", description: "View caregiver information", category: "Caregiver Management", resource: "caregivers", action: "view", isSystemPermission: true },
+        { name: "caregivers.create", displayName: "Create Caregivers", description: "Create new caregivers", category: "Caregiver Management", resource: "caregivers", action: "create", isSystemPermission: true },
+        { name: "caregivers.edit", displayName: "Edit Caregivers", description: "Edit caregiver information", category: "Caregiver Management", resource: "caregivers", action: "edit", isSystemPermission: true },
+        { name: "caregivers.delete", displayName: "Delete Caregivers", description: "Delete caregivers", category: "Caregiver Management", resource: "caregivers", action: "delete", isSystemPermission: true },
+        
+        // Care Plans
+        { name: "careplans.view", displayName: "View Care Plans", description: "View care plans", category: "Care Planning", resource: "careplans", action: "view", isSystemPermission: true },
+        { name: "careplans.create", displayName: "Create Care Plans", description: "Create care plans", category: "Care Planning", resource: "careplans", action: "create", isSystemPermission: true },
+        { name: "careplans.edit", displayName: "Edit Care Plans", description: "Edit care plans", category: "Care Planning", resource: "careplans", action: "edit", isSystemPermission: true },
+        
+        // Progress Notes
+        { name: "progress.view", displayName: "View Progress Notes", description: "View progress notes", category: "Progress Tracking", resource: "progress", action: "view", isSystemPermission: true },
+        { name: "progress.create", displayName: "Create Progress Notes", description: "Create progress notes", category: "Progress Tracking", resource: "progress", action: "create", isSystemPermission: true },
+        
+        // Documents
+        { name: "documents.view", displayName: "View Documents", description: "View documents", category: "Document Management", resource: "documents", action: "view", isSystemPermission: true },
+        { name: "documents.upload", displayName: "Upload Documents", description: "Upload documents", category: "Document Management", resource: "documents", action: "upload", isSystemPermission: true },
+        { name: "documents.delete", displayName: "Delete Documents", description: "Delete documents", category: "Document Management", resource: "documents", action: "delete", isSystemPermission: true },
+        
+        // Compliance
+        { name: "compliance.view", displayName: "View Compliance", description: "View compliance information", category: "Compliance", resource: "compliance", action: "view", isSystemPermission: true },
+        { name: "compliance.manage", displayName: "Manage Compliance", description: "Manage compliance items", category: "Compliance", resource: "compliance", action: "manage", isSystemPermission: true },
+        
+        // Training
+        { name: "training.view", displayName: "View Training", description: "View training information", category: "Training", resource: "training", action: "view", isSystemPermission: true },
+        { name: "training.create", displayName: "Create Training", description: "Create training sessions", category: "Training", resource: "training", action: "create", isSystemPermission: true },
+        { name: "training.manage", displayName: "Manage Training", description: "Manage training records", category: "Training", resource: "training", action: "manage", isSystemPermission: true },
+        
+        // Incidents
+        { name: "incidents.view", displayName: "View Incidents", description: "View incident reports", category: "Incident Management", resource: "incidents", action: "view", isSystemPermission: true },
+        { name: "incidents.create", displayName: "Create Incidents", description: "Create incident reports", category: "Incident Management", resource: "incidents", action: "create", isSystemPermission: true },
+        { name: "incidents.manage", displayName: "Manage Incidents", description: "Manage incident reports", category: "Incident Management", resource: "incidents", action: "manage", isSystemPermission: true },
+        
+        // Communication
+        { name: "messages.view", displayName: "View Messages", description: "View messages", category: "Communication", resource: "messages", action: "view", isSystemPermission: true },
+        { name: "messages.send", displayName: "Send Messages", description: "Send messages", category: "Communication", resource: "messages", action: "send", isSystemPermission: true },
+        
+        // Reports
+        { name: "reports.view", displayName: "View Reports", description: "View reports", category: "Reporting", resource: "reports", action: "view", isSystemPermission: true },
+        { name: "reports.export", displayName: "Export Reports", description: "Export reports", category: "Reporting", resource: "reports", action: "export", isSystemPermission: true },
+        
+        // Administration
+        { name: "users.view", displayName: "View Users", description: "View user information", category: "Administration", resource: "users", action: "view", isSystemPermission: true },
+        { name: "users.create", displayName: "Create Users", description: "Create new users", category: "Administration", resource: "users", action: "create", isSystemPermission: true },
+        { name: "users.edit", displayName: "Edit Users", description: "Edit user information", category: "Administration", resource: "users", action: "edit", isSystemPermission: true },
+        { name: "offices.manage", displayName: "Manage Offices", description: "Manage office locations", category: "Administration", resource: "offices", action: "manage", isSystemPermission: true },
+        { name: "roles.manage", displayName: "Manage Roles", description: "Manage custom roles and permissions", category: "Administration", resource: "roles", action: "manage", isSystemPermission: true },
+      ];
+
+      const createdPermissions = [];
+      for (const permission of defaultPermissions) {
+        try {
+          const created = await storage.createPermission(permission);
+          createdPermissions.push(created);
+        } catch (error) {
+          // Permission might already exist, continue
+        }
+      }
+
+      res.json({ 
+        message: "Default permissions seeded successfully", 
+        created: createdPermissions.length,
+        total: defaultPermissions.length
+      });
+    } catch (error) {
+      console.error("Error seeding permissions:", error);
+      res.status(500).json({ message: "Failed to seed permissions" });
     }
   });
 

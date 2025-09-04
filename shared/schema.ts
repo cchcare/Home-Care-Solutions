@@ -27,8 +27,8 @@ export const sessions = pgTable(
   (table) => [index("IDX_session_expire").on(table.expire)],
 );
 
-// User roles enum
-export const roleEnum = pgEnum("role", ["super_admin", "admin", "office_admin", "supervisor", "caregiver", "family"]);
+// User roles enum - keeping base roles for system functionality
+export const roleEnum = pgEnum("role", ["super_admin", "admin", "office_admin", "supervisor", "caregiver", "family", "custom"]);
 
 // Office/Location management
 export const offices = pgTable("offices", {
@@ -683,3 +683,62 @@ export const insertClientFamilyMemberSchema = createInsertSchema(clientFamilyMem
 export type FamilyUpdate = typeof familyUpdates.$inferSelect;
 export type InsertFamilyUpdate = typeof familyUpdates.$inferInsert;
 export const insertFamilyUpdateSchema = createInsertSchema(familyUpdates);
+
+// Custom Roles and Permissions System
+export const customRoles = pgTable("custom_roles", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: varchar("name").notNull().unique(),
+  displayName: varchar("display_name").notNull(),
+  description: text("description"),
+  isActive: boolean("is_active").default(true),
+  createdBy: varchar("created_by").references(() => users.id),
+  officeId: varchar("office_id").references(() => offices.id), // office-specific roles
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const permissions = pgTable("permissions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: varchar("name").notNull().unique(),
+  displayName: varchar("display_name").notNull(),
+  description: text("description"),
+  category: varchar("category").notNull(), // client_management, caregiver_management, etc.
+  resource: varchar("resource").notNull(), // clients, caregivers, tasks, etc.
+  action: varchar("action").notNull(), // create, read, update, delete, assign, etc.
+  isSystemPermission: boolean("is_system_permission").default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const rolePermissions = pgTable("role_permissions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  roleId: varchar("role_id").references(() => customRoles.id, { onDelete: "cascade" }),
+  permissionId: varchar("permission_id").references(() => permissions.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const userCustomRoles = pgTable("user_custom_roles", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").references(() => users.id, { onDelete: "cascade" }),
+  roleId: varchar("role_id").references(() => customRoles.id, { onDelete: "cascade" }),
+  assignedBy: varchar("assigned_by").references(() => users.id),
+  assignedAt: timestamp("assigned_at").defaultNow(),
+  expiresAt: timestamp("expires_at"),
+  isActive: boolean("is_active").default(true),
+});
+
+// Type exports for role and permission system
+export type CustomRole = typeof customRoles.$inferSelect;
+export type InsertCustomRole = typeof customRoles.$inferInsert;
+export const insertCustomRoleSchema = createInsertSchema(customRoles);
+
+export type Permission = typeof permissions.$inferSelect;
+export type InsertPermission = typeof permissions.$inferInsert;
+export const insertPermissionSchema = createInsertSchema(permissions);
+
+export type RolePermission = typeof rolePermissions.$inferSelect;
+export type InsertRolePermission = typeof rolePermissions.$inferInsert;
+export const insertRolePermissionSchema = createInsertSchema(rolePermissions);
+
+export type UserCustomRole = typeof userCustomRoles.$inferSelect;
+export type InsertUserCustomRole = typeof userCustomRoles.$inferInsert;
+export const insertUserCustomRoleSchema = createInsertSchema(userCustomRoles);

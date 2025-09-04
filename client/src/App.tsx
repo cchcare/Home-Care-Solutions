@@ -20,6 +20,7 @@ import UserManagement from "@/pages/user-management";
 import Reports from "@/pages/reports";
 import Tasks from "@/pages/tasks";
 import FamilyPortal from "@/pages/family-portal";
+import RoleWizard from "@/pages/role-wizard";
 import AccountSettings from "@/pages/account-settings";
 
 function Router() {
@@ -58,6 +59,7 @@ function Router() {
           <Route path="/reports" component={Reports} />
           <Route path="/tasks" component={Tasks} />
           <Route path="/account-settings" component={AccountSettings} />
+          <Route path="/role-wizard" component={RoleWizard} />
         </>
       )}
       <Route component={NotFound} />

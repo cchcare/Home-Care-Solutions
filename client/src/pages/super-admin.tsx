@@ -15,7 +15,8 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { insertOfficeSchema, insertUserSchema, type Office, type User } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
-import { Building2, Plus, Shield, Users, MapPin, Clock, UserCog, Edit, Trash2, Settings } from "lucide-react";
+import { Building2, Plus, Shield, Users, MapPin, Clock, UserCog, Edit, Trash2, Settings, Cog } from "lucide-react";
+import { Link } from "wouter";
 import { format } from "date-fns";
 import { z } from "zod";
 import { Sidebar } from "@/components/sidebar";
@@ -266,6 +267,23 @@ export default function SuperAdminPage() {
         <div className="flex-1 overflow-auto p-6 bg-background">
           <div className="max-w-7xl mx-auto">
             
+            <div className="mb-6">
+              <Card className="p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="text-lg font-semibold">Quick Access</h3>
+                    <p className="text-sm text-muted-foreground">Access key system management features</p>
+                  </div>
+                  <Link href="/role-wizard">
+                    <Button variant="outline" data-testid="button-role-wizard">
+                      <Cog className="w-4 h-4 mr-2" />
+                      Role & Access Control
+                    </Button>
+                  </Link>
+                </div>
+              </Card>
+            </div>
+
             <Tabs defaultValue="offices" className="w-full">
               <TabsList className="grid w-full max-w-md grid-cols-2">
                 <TabsTrigger value="offices" data-testid="tab-offices">
