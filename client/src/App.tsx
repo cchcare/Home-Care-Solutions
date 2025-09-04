@@ -9,6 +9,7 @@ import Landing from "@/pages/landing";
 import Dashboard from "@/pages/dashboard";
 import Clients from "@/pages/clients";
 import Caregivers from "@/pages/caregivers";
+import Offices from "@/pages/offices";
 import Compliance from "@/pages/compliance";
 import Documents from "@/pages/documents";
 
@@ -24,6 +25,7 @@ function Router() {
           <Route path="/" component={Dashboard} />
           <Route path="/clients" component={Clients} />
           <Route path="/caregivers" component={Caregivers} />
+          <Route path="/offices" component={Offices} />
           <Route path="/compliance" component={Compliance} />
           <Route path="/documents" component={Documents} />
         </>

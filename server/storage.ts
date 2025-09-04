@@ -1,5 +1,6 @@
 import {
   users,
+  offices,
   clients,
   caregivers,
   carePlans,
@@ -13,6 +14,8 @@ import {
   auditLogs,
   type User,
   type UpsertUser,
+  type Office,
+  type InsertOffice,
   type Client,
   type InsertClient,
   type Caregiver,
@@ -43,6 +46,13 @@ export interface IStorage {
   // User operations
   getUser(id: string): Promise<User | undefined>;
   upsertUser(user: UpsertUser): Promise<User>;
+
+  // Office operations
+  getAllOffices(): Promise<Office[]>;
+  getOffice(id: string): Promise<Office | undefined>;
+  createOffice(office: InsertOffice): Promise<Office>;
+  updateOffice(id: string, office: Partial<InsertOffice>): Promise<Office>;
+  deleteOffice(id: string): Promise<void>;
 
   // Client operations
   getAllClients(): Promise<Client[]>;
@@ -136,6 +146,34 @@ export class DatabaseStorage implements IStorage {
       })
       .returning();
     return user;
+  }
+
+  // Office operations
+  async getAllOffices(): Promise<Office[]> {
+    return await db.select().from(offices).orderBy(desc(offices.createdAt));
+  }
+
+  async getOffice(id: string): Promise<Office | undefined> {
+    const [office] = await db.select().from(offices).where(eq(offices.id, id));
+    return office;
+  }
+
+  async createOffice(office: InsertOffice): Promise<Office> {
+    const [newOffice] = await db.insert(offices).values(office).returning();
+    return newOffice;
+  }
+
+  async updateOffice(id: string, office: Partial<InsertOffice>): Promise<Office> {
+    const [updatedOffice] = await db
+      .update(offices)
+      .set({ ...office, updatedAt: new Date() })
+      .where(eq(offices.id, id))
+      .returning();
+    return updatedOffice;
+  }
+
+  async deleteOffice(id: string): Promise<void> {
+    await db.delete(offices).where(eq(offices.id, id));
   }
 
   // Client operations

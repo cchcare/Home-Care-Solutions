@@ -7,6 +7,7 @@ import crypto from "crypto";
 import path from "path";
 import fs from "fs";
 import {
+  insertOfficeSchema,
   insertClientSchema,
   insertCaregiverSchema,
   insertCarePlanSchema,
@@ -68,6 +69,102 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error fetching dashboard metrics:", error);
       res.status(500).json({ message: "Failed to fetch dashboard metrics" });
+    }
+  });
+
+  // Office routes
+  app.get("/api/offices", isAuthenticated, async (req, res) => {
+    try {
+      const offices = await storage.getAllOffices();
+      res.json(offices);
+    } catch (error) {
+      console.error("Error fetching offices:", error);
+      res.status(500).json({ message: "Failed to fetch offices" });
+    }
+  });
+
+  app.get("/api/offices/:id", isAuthenticated, async (req, res) => {
+    try {
+      const office = await storage.getOffice(req.params.id);
+      if (!office) {
+        return res.status(404).json({ message: "Office not found" });
+      }
+      res.json(office);
+    } catch (error) {
+      console.error("Error fetching office:", error);
+      res.status(500).json({ message: "Failed to fetch office" });
+    }
+  });
+
+  app.post("/api/offices", isAuthenticated, async (req: any, res) => {
+    try {
+      const validatedData = insertOfficeSchema.parse(req.body);
+      const office = await storage.createOffice(validatedData);
+      
+      await storage.createAuditLog({
+        userId: req.user.claims.sub,
+        action: "create",
+        entityType: "office",
+        entityId: office.id,
+        newValues: office,
+        ipAddress: req.ip,
+        userAgent: req.get("User-Agent"),
+      });
+      
+      res.status(201).json(office);
+    } catch (error) {
+      console.error("Error creating office:", error);
+      res.status(400).json({ message: "Failed to create office" });
+    }
+  });
+
+  app.put("/api/offices/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const oldOffice = await storage.getOffice(req.params.id);
+      const validatedData = insertOfficeSchema.partial().parse(req.body);
+      const office = await storage.updateOffice(req.params.id, validatedData);
+      
+      await storage.createAuditLog({
+        userId: req.user.claims.sub,
+        action: "update",
+        entityType: "office",
+        entityId: office.id,
+        oldValues: oldOffice,
+        newValues: office,
+        ipAddress: req.ip,
+        userAgent: req.get("User-Agent"),
+      });
+      
+      res.json(office);
+    } catch (error) {
+      console.error("Error updating office:", error);
+      res.status(400).json({ message: "Failed to update office" });
+    }
+  });
+
+  app.delete("/api/offices/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const office = await storage.getOffice(req.params.id);
+      if (!office) {
+        return res.status(404).json({ message: "Office not found" });
+      }
+      
+      await storage.deleteOffice(req.params.id);
+      
+      await storage.createAuditLog({
+        userId: req.user.claims.sub,
+        action: "delete",
+        entityType: "office",
+        entityId: req.params.id,
+        oldValues: office,
+        ipAddress: req.ip,
+        userAgent: req.get("User-Agent"),
+      });
+      
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting office:", error);
+      res.status(500).json({ message: "Failed to delete office" });
     }
   });
 

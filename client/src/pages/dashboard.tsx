@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import { useQuery } from "@tanstack/react-query";
@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Sidebar } from "@/components/sidebar";
+import { OfficeSelector } from "@/components/office-selector";
 import { isUnauthorizedError } from "@/lib/authUtils";
 import { 
   Users, 
@@ -25,6 +26,7 @@ import {
 export default function Dashboard() {
   const { toast } = useToast();
   const { isAuthenticated, isLoading, user } = useAuth();
+  const [selectedOfficeId, setSelectedOfficeId] = useState<string>("all");
 
   // Redirect to login if not authenticated
   useEffect(() => {
@@ -88,6 +90,11 @@ export default function Dashboard() {
               <h2 className="text-lg font-semibold text-foreground">Dashboard Overview</h2>
               <p className="text-sm text-muted-foreground">Welcome back, manage your care operations</p>
             </div>
+            <OfficeSelector
+              selectedOfficeId={selectedOfficeId === "all" ? undefined : selectedOfficeId}
+              onOfficeChange={setSelectedOfficeId}
+              showAllOption={true}
+            />
           </div>
 
           <div className="flex items-center space-x-4">

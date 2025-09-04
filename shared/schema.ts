@@ -29,6 +29,21 @@ export const sessions = pgTable(
 // User roles enum
 export const roleEnum = pgEnum("role", ["admin", "supervisor", "caregiver", "family"]);
 
+// Office/Location management
+export const offices = pgTable("offices", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: varchar("name").notNull(),
+  address: text("address"),
+  phone: varchar("phone"),
+  email: varchar("email"),
+  managerUserId: varchar("manager_user_id").references(() => users.id),
+  timezone: varchar("timezone").default("America/New_York"),
+  isActive: boolean("is_active").default(true),
+  settings: jsonb("settings"), // office-specific configuration
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
 // User storage table.
 export const users = pgTable("users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -37,6 +52,7 @@ export const users = pgTable("users", {
   lastName: varchar("last_name"),
   profileImageUrl: varchar("profile_image_url"),
   role: roleEnum("role").default("caregiver"),
+  primaryOfficeId: varchar("primary_office_id").references(() => offices.id),
   isActive: boolean("is_active").default(true),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
@@ -58,6 +74,7 @@ export const clients = pgTable("clients", {
   medications: text("medications"),
   primaryPhysician: varchar("primary_physician"),
   primaryCaregiverId: varchar("primary_caregiver_id"),
+  officeId: varchar("office_id").references(() => offices.id),
   status: varchar("status").default("active"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
@@ -71,6 +88,7 @@ export const caregivers = pgTable("caregivers", {
   hireDate: timestamp("hire_date"),
   experienceYears: integer("experience_years"),
   specializations: text("specializations").array(),
+  officeId: varchar("office_id").references(() => offices.id),
   isActive: boolean("is_active").default(true),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
@@ -212,7 +230,21 @@ export const auditLogs = pgTable("audit_logs", {
 });
 
 // Relations
-export const usersRelations = relations(users, ({ many }) => ({
+export const officesRelations = relations(offices, ({ one, many }) => ({
+  manager: one(users, {
+    fields: [offices.managerUserId],
+    references: [users.id],
+  }),
+  users: many(users),
+  clients: many(clients),
+  caregivers: many(caregivers),
+}));
+
+export const usersRelations = relations(users, ({ one, many }) => ({
+  primaryOffice: one(offices, {
+    fields: [users.primaryOfficeId],
+    references: [offices.id],
+  }),
   caregivers: many(caregivers),
   createdCarePlans: many(carePlans),
   uploadedDocuments: many(documents),
@@ -221,12 +253,17 @@ export const usersRelations = relations(users, ({ many }) => ({
   assignedTasks: many(tasks, { relationName: "assignedTasks" }),
   createdTasks: many(tasks, { relationName: "createdTasks" }),
   auditLogs: many(auditLogs),
+  managedOffices: many(offices),
 }));
 
 export const clientsRelations = relations(clients, ({ one, many }) => ({
   primaryCaregiver: one(caregivers, {
     fields: [clients.primaryCaregiverId],
     references: [caregivers.id],
+  }),
+  office: one(offices, {
+    fields: [clients.officeId],
+    references: [offices.id],
   }),
   carePlans: many(carePlans),
   progressNotes: many(progressNotes),
@@ -240,6 +277,10 @@ export const caregiversRelations = relations(caregivers, ({ one, many }) => ({
   user: one(users, {
     fields: [caregivers.userId],
     references: [users.id],
+  }),
+  office: one(offices, {
+    fields: [caregivers.officeId],
+    references: [offices.id],
   }),
   clients: many(clients),
   certifications: many(certifications),
@@ -356,6 +397,10 @@ export const auditLogsRelations = relations(auditLogs, ({ one }) => ({
 }));
 
 // Schema types
+export type Office = typeof offices.$inferSelect;
+export type InsertOffice = typeof offices.$inferInsert;
+export const insertOfficeSchema = createInsertSchema(offices);
+
 export type UpsertUser = typeof users.$inferInsert;
 export type User = typeof users.$inferSelect;
 
