@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Sidebar } from "@/components/sidebar";
+import { TopBar } from "@/components/topbar";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { insertUserSchema, type User } from "@shared/schema";
@@ -198,6 +199,12 @@ export default function UserManagementPage() {
   return (
     <div className="flex h-screen overflow-hidden">
       <Sidebar />
+      
+      <main className="flex-1 flex flex-col overflow-hidden">
+        <TopBar 
+          title="User Management"
+          subtitle="Manage system users and permissions"
+        />
       
       {/* Main Content Area */}
       <main className="flex-1 flex flex-col overflow-hidden">

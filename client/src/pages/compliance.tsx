@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Sidebar } from "@/components/sidebar";
+import { TopBar } from "@/components/topbar";
 import { 
   Shield, 
   Search, 
@@ -133,11 +134,15 @@ export default function Compliance() {
       <Sidebar />
       
       <main className="flex-1 flex flex-col overflow-hidden">
+        <TopBar 
+          title="Compliance Tracking"
+          subtitle="Monitor compliance status and requirements"
+        />
+        
         {/* Header */}
         <header className="bg-card border-b border-border h-16 flex items-center justify-between px-6 flex-shrink-0">
-          <div>
-            <h2 className="text-lg font-semibold text-foreground">Compliance Management</h2>
-            <p className="text-sm text-muted-foreground">Monitor regulatory compliance and certifications</p>
+          <div className="flex items-center space-x-4">
+            <div className="flex-1" />
           </div>
           <Button data-testid="button-generate-compliance-report">
             <Download className="w-4 h-4 mr-2" />

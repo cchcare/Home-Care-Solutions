@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Sidebar } from "@/components/sidebar";
+import { TopBar } from "@/components/topbar";
 import { FileUpload } from "@/components/file-upload";
 import { apiRequest } from "@/lib/queryClient";
 import { isUnauthorizedError } from "@/lib/authUtils";
@@ -160,11 +161,15 @@ export default function Documents() {
       <Sidebar />
       
       <main className="flex-1 flex flex-col overflow-hidden">
+        <TopBar 
+          title="Forms & Documents"
+          subtitle="Manage document storage and forms"
+        />
+        
         {/* Header */}
         <header className="bg-card border-b border-border h-16 flex items-center justify-between px-6 flex-shrink-0">
-          <div>
-            <h2 className="text-lg font-semibold text-foreground">Document Management</h2>
-            <p className="text-sm text-muted-foreground">Secure HIPAA-compliant document storage</p>
+          <div className="flex items-center space-x-4">
+            <div className="flex-1" />
           </div>
           <Button onClick={() => setShowUploadModal(true)} data-testid="button-upload-document">
             <Upload className="w-4 h-4 mr-2" />

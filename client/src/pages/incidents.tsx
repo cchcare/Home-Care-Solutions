@@ -12,6 +12,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Sidebar } from "@/components/sidebar";
+import { TopBar } from "@/components/topbar";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { insertIncidentReportSchema, type IncidentReport } from "@shared/schema";
@@ -161,6 +162,11 @@ export default function IncidentsPage() {
       
       {/* Main Content Area */}
       <main className="flex-1 flex flex-col overflow-hidden">
+        <TopBar 
+          title="Critical Incident Reports"
+          subtitle="Record and track incidents for clients, caregivers, and staff"
+        />
+        
         {/* Content Area */}
         <div className="flex-1 overflow-auto p-6 bg-background">
           <div className="max-w-7xl mx-auto space-y-6">

@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Sidebar } from "@/components/sidebar";
+import { TopBar } from "@/components/topbar";
 import { apiRequest } from "@/lib/queryClient";
 import { isUnauthorizedError } from "@/lib/authUtils";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -289,6 +290,12 @@ export default function Communication() {
   return (
     <div className="flex h-screen overflow-hidden">
       <Sidebar />
+      
+      <main className="flex-1 flex flex-col overflow-hidden">
+        <TopBar 
+          title="Communication Hub"
+          subtitle="Manage internal messages and communications"
+        />
       <main className="flex-1 overflow-auto p-6">
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center space-x-2">

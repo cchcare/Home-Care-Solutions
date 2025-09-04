@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Sidebar } from "@/components/sidebar";
+import { TopBar } from "@/components/topbar";
 import { AddClientModal } from "@/components/add-client-modal";
 import { ClientProfileModal } from "@/components/client-profile-modal";
 import { apiRequest } from "@/lib/queryClient";
@@ -122,11 +123,15 @@ export default function Clients() {
       <Sidebar />
       
       <main className="flex-1 flex flex-col overflow-hidden">
+        <TopBar 
+          title="Client Management"
+          subtitle="Manage client profiles and care information"
+        />
+        
         {/* Header */}
         <header className="bg-card border-b border-border h-16 flex items-center justify-between px-6 flex-shrink-0">
-          <div>
-            <h2 className="text-lg font-semibold text-foreground">Client Management</h2>
-            <p className="text-sm text-muted-foreground">Manage client profiles and care information</p>
+          <div className="flex items-center space-x-4">
+            <div className="flex-1" />
           </div>
           <Button onClick={() => setShowAddModal(true)} data-testid="button-add-client">
             <Plus className="w-4 h-4 mr-2" />

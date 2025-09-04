@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Sidebar } from "@/components/sidebar";
+import { TopBar } from "@/components/topbar";
 import { AddCaregiverModal } from "@/components/add-caregiver-modal";
 import { apiRequest } from "@/lib/queryClient";
 import { isUnauthorizedError } from "@/lib/authUtils";
@@ -76,11 +77,15 @@ export default function Caregivers() {
       <Sidebar />
       
       <main className="flex-1 flex flex-col overflow-hidden">
+        <TopBar 
+          title="Caregiver Management"
+          subtitle="Manage caregiver profiles and certifications"
+        />
+        
         {/* Header */}
         <header className="bg-card border-b border-border h-16 flex items-center justify-between px-6 flex-shrink-0">
-          <div>
-            <h2 className="text-lg font-semibold text-foreground">Caregiver Management</h2>
-            <p className="text-sm text-muted-foreground">Manage staff profiles and credentials</p>
+          <div className="flex items-center space-x-4">
+            <div className="flex-1" />
           </div>
           <Button onClick={() => setShowAddModal(true)} data-testid="button-add-caregiver">
             <Plus className="w-4 h-4 mr-2" />

@@ -11,6 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Sidebar } from "@/components/sidebar";
+import { TopBar } from "@/components/topbar";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { insertTaskSchema, type Task } from "@shared/schema";
@@ -205,6 +206,12 @@ export default function TasksPage() {
   return (
     <div className="flex h-screen overflow-hidden">
       <Sidebar />
+      
+      <main className="flex-1 flex flex-col overflow-hidden">
+        <TopBar 
+          title="Tasks & Workflows"
+          subtitle="Manage tasks and workflow processes"
+        />
       
       {/* Main Content Area */}
       <main className="flex-1 flex flex-col overflow-hidden">
