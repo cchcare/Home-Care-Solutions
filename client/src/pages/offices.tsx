@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
+import { OfficeDetailsSidebar } from "@/components/office-details-sidebar";
 import {
   Card,
   CardContent,
@@ -38,6 +39,8 @@ import { Plus, Building2, MapPin, Phone, Mail, Edit, Trash2 } from "lucide-react
 export default function Offices() {
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [editingOffice, setEditingOffice] = useState<Office | null>(null);
+  const [selectedOffice, setSelectedOffice] = useState<Office | null>(null);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -157,6 +160,16 @@ export default function Offices() {
       email: office.email || "",
       isActive: office.isActive || true,
     });
+  };
+
+  const handleOfficeClick = (office: Office) => {
+    setSelectedOffice(office);
+    setIsSidebarOpen(true);
+  };
+
+  const handleCloseSidebar = () => {
+    setIsSidebarOpen(false);
+    setSelectedOffice(null);
   };
 
   if (isLoading) {
@@ -309,7 +322,12 @@ export default function Offices() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {offices?.map((office: Office) => (
-          <Card key={office.id} className="relative">
+          <Card 
+            key={office.id} 
+            className="relative cursor-pointer hover:shadow-md transition-shadow"
+            onClick={() => handleOfficeClick(office)}
+            data-testid={`card-office-${office.id}`}
+          >
             <CardHeader className="pb-3">
               <div className="flex items-start justify-between">
                 <div className="space-y-1">
@@ -324,7 +342,10 @@ export default function Offices() {
                   <Button
                     variant="ghost"
                     size="sm"
-                    onClick={() => handleEditOffice(office)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleEditOffice(office);
+                    }}
                     data-testid={`button-edit-office-${office.id}`}
                   >
                     <Edit className="w-4 h-4" />
@@ -332,7 +353,10 @@ export default function Offices() {
                   <Button
                     variant="ghost"
                     size="sm"
-                    onClick={() => handleDeleteOffice(office.id)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleDeleteOffice(office.id);
+                    }}
                     className="text-destructive hover:text-destructive"
                     data-testid={`button-delete-office-${office.id}`}
                   >
@@ -496,6 +520,15 @@ export default function Offices() {
           </Form>
         </DialogContent>
       </Dialog>
+
+      {/* Office Details Sidebar */}
+      <OfficeDetailsSidebar
+        office={selectedOffice}
+        isOpen={isSidebarOpen}
+        onClose={handleCloseSidebar}
+        onEdit={handleEditOffice}
+        onDelete={handleDeleteOffice}
+      />
     </div>
   );
 }
