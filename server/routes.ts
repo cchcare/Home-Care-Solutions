@@ -878,13 +878,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // User management routes (admin and supervisor only)
+  // User management routes (admin, supervisor, and super admin)
   const requireAdminOrSupervisor = async (req: any, res: any, next: any) => {
     try {
       const userId = req.user?.claims?.sub;
       const user = await storage.getUser(userId);
-      if (!user || (user.role !== "admin" && user.role !== "supervisor")) {
-        return res.status(403).json({ message: "Access denied. Admin or supervisor role required." });
+      if (!user || (user.role !== "admin" && user.role !== "supervisor" && user.role !== "super_admin")) {
+        return res.status(403).json({ message: "Access denied. Admin, supervisor, or super admin role required." });
+      }
+      next();
+    } catch (error) {
+      return res.status(500).json({ message: "Failed to verify permissions" });
+    }
+  };
+
+  // Super admin only routes
+  const requireSuperAdmin = async (req: any, res: any, next: any) => {
+    try {
+      const userId = req.user?.claims?.sub;
+      const user = await storage.getUser(userId);
+      if (!user || user.role !== "super_admin") {
+        return res.status(403).json({ message: "Access denied. Super admin role required." });
       }
       next();
     } catch (error) {
