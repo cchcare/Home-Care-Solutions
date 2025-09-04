@@ -28,7 +28,7 @@ export const sessions = pgTable(
 );
 
 // User roles enum
-export const roleEnum = pgEnum("role", ["super_admin", "admin", "supervisor", "caregiver", "family"]);
+export const roleEnum = pgEnum("role", ["super_admin", "admin", "office_admin", "supervisor", "caregiver", "family"]);
 
 // Office/Location management
 export const offices = pgTable("offices", {
