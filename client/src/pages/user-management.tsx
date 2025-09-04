@@ -38,7 +38,9 @@ export default function UserManagementPage() {
   const queryClient = useQueryClient();
 
   // Check if user has permission to access user management
-  const hasPermission = (currentUser as any)?.role === "admin" || (currentUser as any)?.role === "supervisor";
+  const hasPermission = (currentUser as any)?.role === "admin" || 
+                        (currentUser as any)?.role === "supervisor" || 
+                        (currentUser as any)?.role === "super_admin";
 
   if (!hasPermission) {
     return (
@@ -257,6 +259,7 @@ export default function UserManagementPage() {
                           type="email"
                           placeholder="user@example.com"
                           {...field} 
+                          value={field.value || ""}
                           data-testid="input-user-email"
                         />
                       </FormControl>
@@ -312,7 +315,7 @@ export default function UserManagementPage() {
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>Role</FormLabel>
-                        <Select onValueChange={field.onChange} defaultValue={field.value}>
+                        <Select onValueChange={field.onChange} defaultValue={field.value || ""}>
                           <FormControl>
                             <SelectTrigger data-testid="select-user-role">
                               <SelectValue placeholder="Select role" />
@@ -436,7 +439,7 @@ export default function UserManagementPage() {
           </Card>
         ) : (
           filteredUsers.map((user: User) => {
-            const RoleIcon = getRoleIcon(user.role);
+            const RoleIcon = getRoleIcon(user.role || "caregiver");
             return (
               <Card key={user.id} className="hover:shadow-md transition-shadow">
                 <CardContent className="pt-6">
@@ -471,7 +474,7 @@ export default function UserManagementPage() {
                         </div>
                         <p className="text-sm text-muted-foreground">{user.email}</p>
                         <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                          <span>Created {format(new Date(user.createdAt), "MMM d, yyyy")}</span>
+                          <span>Created {user.createdAt ? format(new Date(user.createdAt), "MMM d, yyyy") : "Unknown"}</span>
                           {user.primaryOfficeId && (
                             <span>Office: {offices.find((o: any) => o.id === user.primaryOfficeId)?.name || "Unknown"}</span>
                           )}
@@ -590,7 +593,7 @@ export default function UserManagementPage() {
                         </div>
                         <div>
                           <label className="text-sm font-medium text-muted-foreground">Role</label>
-                          <Badge variant={getRoleColor(selectedUser.role)}>
+                          <Badge variant={getRoleColor(selectedUser.role || "caregiver")}>
                             {selectedUser.role?.replace('_', ' ')}
                           </Badge>
                         </div>
@@ -624,13 +627,13 @@ export default function UserManagementPage() {
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div>
                       <label className="text-sm font-medium text-muted-foreground">Account Created</label>
-                      <p className="font-medium">{format(new Date(selectedUser.createdAt), "PPP")}</p>
-                      <p className="text-sm text-muted-foreground">{format(new Date(selectedUser.createdAt), "p")}</p>
+                      <p className="font-medium">{selectedUser.createdAt ? format(new Date(selectedUser.createdAt), "PPP") : "Unknown"}</p>
+                      <p className="text-sm text-muted-foreground">{selectedUser.createdAt ? format(new Date(selectedUser.createdAt), "p") : ""}</p>
                     </div>
                     <div>
                       <label className="text-sm font-medium text-muted-foreground">Last Updated</label>
-                      <p className="font-medium">{format(new Date(selectedUser.updatedAt), "PPP")}</p>
-                      <p className="text-sm text-muted-foreground">{format(new Date(selectedUser.updatedAt), "p")}</p>
+                      <p className="font-medium">{selectedUser.updatedAt ? format(new Date(selectedUser.updatedAt), "PPP") : "Unknown"}</p>
+                      <p className="text-sm text-muted-foreground">{selectedUser.updatedAt ? format(new Date(selectedUser.updatedAt), "p") : ""}</p>
                     </div>
                   </div>
                 </CardContent>
