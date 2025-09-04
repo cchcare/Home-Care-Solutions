@@ -236,6 +236,53 @@ export const complianceItems = pgTable("compliance_items", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
+// Family members
+export const familyMembers = pgTable("family_members", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").references(() => users.id),
+  relationshipType: varchar("relationship_type").notNull(), // spouse, child, parent, sibling, guardian, other
+  isEmergencyContact: boolean("is_emergency_contact").default(false),
+  isPrimaryContact: boolean("is_primary_contact").default(false),
+  canReceiveUpdates: boolean("can_receive_updates").default(true),
+  canUpdateClientInfo: boolean("can_update_client_info").default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Client-Family relationship
+export const clientFamilyMembers = pgTable("client_family_members", {
+  clientId: varchar("client_id").notNull().references(() => clients.id),
+  familyMemberId: varchar("family_member_id").notNull().references(() => familyMembers.id),
+  accessLevel: varchar("access_level").default("view_only"), // view_only, limited_edit, full_edit
+  canViewCarePlans: boolean("can_view_care_plans").default(true),
+  canViewProgressNotes: boolean("can_view_progress_notes").default(true),
+  canViewDocuments: boolean("can_view_documents").default(false),
+  canViewIncidentReports: boolean("can_view_incident_reports").default(true),
+  canReceiveAlerts: boolean("can_receive_alerts").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  // Composite primary key ensures unique client-family member relationships
+  pk: primaryKey({ columns: [table.clientId, table.familyMemberId] }),
+}));
+
+// Family portal updates/requests
+export const familyUpdates = pgTable("family_updates", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  clientId: varchar("client_id").references(() => clients.id),
+  submittedBy: varchar("submitted_by").references(() => users.id), // family member user ID
+  updateType: varchar("update_type").notNull(), // emergency_contact, preferences, medical_info, notes
+  requestedChanges: jsonb("requested_changes").notNull(), // what they want to change
+  currentValues: jsonb("current_values"), // current values for comparison
+  status: varchar("status").default("pending"), // pending, approved, rejected, partially_approved
+  reviewedBy: varchar("reviewed_by").references(() => users.id), // staff member who reviewed
+  reviewedAt: timestamp("reviewed_at"),
+  reviewNotes: text("review_notes"),
+  appliedAt: timestamp("applied_at"), // when changes were actually applied
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
 // Audit logs
 export const auditLogs = pgTable("audit_logs", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -275,6 +322,9 @@ export const usersRelations = relations(users, ({ one, many }) => ({
   createdTasks: many(tasks, { relationName: "createdTasks" }),
   auditLogs: many(auditLogs),
   managedOffices: many(offices),
+  familyMember: one(familyMembers),
+  submittedFamilyUpdates: many(familyUpdates, { relationName: "submittedFamilyUpdates" }),
+  reviewedFamilyUpdates: many(familyUpdates, { relationName: "reviewedFamilyUpdates" }),
 }));
 
 export const clientsRelations = relations(clients, ({ one, many }) => ({
@@ -292,6 +342,8 @@ export const clientsRelations = relations(clients, ({ one, many }) => ({
   incidentReports: many(incidentReports),
   tasks: many(tasks),
   relatedMessages: many(messages),
+  familyMembers: many(clientFamilyMembers),
+  familyUpdates: many(familyUpdates),
 }));
 
 export const caregiversRelations = relations(caregivers, ({ one, many }) => ({
@@ -419,6 +471,42 @@ export const auditLogsRelations = relations(auditLogs, ({ one }) => ({
   user: one(users, {
     fields: [auditLogs.userId],
     references: [users.id],
+  }),
+}));
+
+export const familyMembersRelations = relations(familyMembers, ({ one, many }) => ({
+  user: one(users, {
+    fields: [familyMembers.userId],
+    references: [users.id],
+  }),
+  clientRelationships: many(clientFamilyMembers),
+}));
+
+export const clientFamilyMembersRelations = relations(clientFamilyMembers, ({ one }) => ({
+  client: one(clients, {
+    fields: [clientFamilyMembers.clientId],
+    references: [clients.id],
+  }),
+  familyMember: one(familyMembers, {
+    fields: [clientFamilyMembers.familyMemberId],
+    references: [familyMembers.id],
+  }),
+}));
+
+export const familyUpdatesRelations = relations(familyUpdates, ({ one }) => ({
+  client: one(clients, {
+    fields: [familyUpdates.clientId],
+    references: [clients.id],
+  }),
+  submittedBy: one(users, {
+    fields: [familyUpdates.submittedBy],
+    references: [users.id],
+    relationName: "submittedFamilyUpdates",
+  }),
+  reviewedBy: one(users, {
+    fields: [familyUpdates.reviewedBy],
+    references: [users.id],
+    relationName: "reviewedFamilyUpdates",
   }),
 }));
 
@@ -612,3 +700,15 @@ export type InsertFile = typeof files.$inferInsert;
 export const insertFileSchema = createInsertSchema(files);
 
 export const insertUserSchema = createInsertSchema(users);
+
+export type FamilyMember = typeof familyMembers.$inferSelect;
+export type InsertFamilyMember = typeof familyMembers.$inferInsert;
+export const insertFamilyMemberSchema = createInsertSchema(familyMembers);
+
+export type ClientFamilyMember = typeof clientFamilyMembers.$inferSelect;
+export type InsertClientFamilyMember = typeof clientFamilyMembers.$inferInsert;
+export const insertClientFamilyMemberSchema = createInsertSchema(clientFamilyMembers);
+
+export type FamilyUpdate = typeof familyUpdates.$inferSelect;
+export type InsertFamilyUpdate = typeof familyUpdates.$inferInsert;
+export const insertFamilyUpdateSchema = createInsertSchema(familyUpdates);

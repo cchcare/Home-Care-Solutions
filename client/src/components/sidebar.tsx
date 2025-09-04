@@ -37,6 +37,13 @@ export function Sidebar() {
       ];
     }
 
+    // Family members only have access to family portal
+    if ((user as any)?.role === "family") {
+      return [
+        { name: "Family Portal", href: "/family-portal", icon: Heart },
+      ];
+    }
+
     // Regular navigation for all other roles
     const baseNavigation = [
       { name: "Dashboard", href: "/", icon: LayoutDashboard },

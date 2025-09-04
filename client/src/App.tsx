@@ -20,6 +20,7 @@ import SuperAdmin from "@/pages/super-admin";
 import UserManagement from "@/pages/user-management";
 import Reports from "@/pages/reports";
 import Tasks from "@/pages/tasks";
+import FamilyPortal from "@/pages/family-portal";
 
 function Router() {
   const { isAuthenticated, isLoading, error } = useAuth();
@@ -43,6 +44,7 @@ function Router() {
       ) : (
         <>
           <Route path="/" component={Dashboard} />
+          <Route path="/family-portal" component={FamilyPortal} />
           <Route path="/clients" component={Clients} />
           <Route path="/caregivers" component={Caregivers} />
           <Route path="/offices" component={Offices} />

@@ -16,6 +16,9 @@ import {
   trainings,
   trainingRecords,
   files,
+  familyMembers,
+  clientFamilyMembers,
+  familyUpdates,
   type User,
   type UpsertUser,
   type Office,
@@ -50,6 +53,12 @@ import {
   type InsertTrainingRecord,
   type File,
   type InsertFile,
+  type FamilyMember,
+  type InsertFamilyMember,
+  type ClientFamilyMember,
+  type InsertClientFamilyMember,
+  type FamilyUpdate,
+  type InsertFamilyUpdate,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, or, count, sql, like, gte, lte } from "drizzle-orm";
@@ -168,6 +177,25 @@ export interface IStorage {
   getIncidentReport(id: string): Promise<IncidentReport | undefined>;
   createIncidentReport(report: InsertIncidentReport): Promise<IncidentReport>;
   updateIncidentReport(id: string, report: Partial<InsertIncidentReport>): Promise<IncidentReport>;
+
+  // Family member operations
+  getFamilyMember(id: string): Promise<FamilyMember | undefined>;
+  getFamilyMemberByUserId(userId: string): Promise<FamilyMember | undefined>;
+  createFamilyMember(familyMember: InsertFamilyMember): Promise<FamilyMember>;
+  updateFamilyMember(id: string, familyMember: Partial<InsertFamilyMember>): Promise<FamilyMember>;
+
+  // Client-Family relationship operations
+  getClientFamilyMembers(clientId: string): Promise<(ClientFamilyMember & { familyMember: FamilyMember & { user: User } })[]>;
+  getFamilyMemberClients(familyMemberId: string): Promise<(ClientFamilyMember & { client: Client })[]>;
+  addFamilyMemberToClient(relationship: InsertClientFamilyMember): Promise<ClientFamilyMember>;
+  updateClientFamilyAccess(clientId: string, familyMemberId: string, access: Partial<InsertClientFamilyMember>): Promise<ClientFamilyMember>;
+  removeFamilyMemberFromClient(clientId: string, familyMemberId: string): Promise<void>;
+
+  // Family portal update operations
+  getFamilyUpdates(clientId?: string, familyMemberId?: string): Promise<FamilyUpdate[]>;
+  createFamilyUpdate(update: InsertFamilyUpdate): Promise<FamilyUpdate>;
+  updateFamilyUpdate(id: string, update: Partial<InsertFamilyUpdate>): Promise<FamilyUpdate>;
+  reviewFamilyUpdate(id: string, reviewedBy: string, status: string, reviewNotes?: string): Promise<FamilyUpdate>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -631,6 +659,127 @@ export class DatabaseStorage implements IStorage {
       .update(incidentReports)
       .set(reportData)
       .where(eq(incidentReports.id, id))
+      .returning();
+    return updated;
+  }
+
+  // Family member operations
+  async getFamilyMember(id: string): Promise<FamilyMember | undefined> {
+    const [familyMember] = await db.select().from(familyMembers).where(eq(familyMembers.id, id));
+    return familyMember;
+  }
+
+  async getFamilyMemberByUserId(userId: string): Promise<FamilyMember | undefined> {
+    const [familyMember] = await db.select().from(familyMembers).where(eq(familyMembers.userId, userId));
+    return familyMember;
+  }
+
+  async createFamilyMember(familyMemberData: InsertFamilyMember): Promise<FamilyMember> {
+    const [familyMember] = await db.insert(familyMembers).values(familyMemberData).returning();
+    return familyMember;
+  }
+
+  async updateFamilyMember(id: string, familyMemberData: Partial<InsertFamilyMember>): Promise<FamilyMember> {
+    const [updated] = await db
+      .update(familyMembers)
+      .set({ ...familyMemberData, updatedAt: new Date() })
+      .where(eq(familyMembers.id, id))
+      .returning();
+    return updated;
+  }
+
+  // Client-Family relationship operations
+  async getClientFamilyMembers(clientId: string): Promise<(ClientFamilyMember & { familyMember: FamilyMember & { user: User } })[]> {
+    return await db
+      .select()
+      .from(clientFamilyMembers)
+      .innerJoin(familyMembers, eq(clientFamilyMembers.familyMemberId, familyMembers.id))
+      .innerJoin(users, eq(familyMembers.userId, users.id))
+      .where(eq(clientFamilyMembers.clientId, clientId)) as any;
+  }
+
+  async getFamilyMemberClients(familyMemberId: string): Promise<(ClientFamilyMember & { client: Client })[]> {
+    return await db
+      .select()
+      .from(clientFamilyMembers)
+      .innerJoin(clients, eq(clientFamilyMembers.clientId, clients.id))
+      .where(eq(clientFamilyMembers.familyMemberId, familyMemberId)) as any;
+  }
+
+  async addFamilyMemberToClient(relationship: InsertClientFamilyMember): Promise<ClientFamilyMember> {
+    const [clientFamilyMember] = await db.insert(clientFamilyMembers).values(relationship).returning();
+    return clientFamilyMember;
+  }
+
+  async updateClientFamilyAccess(clientId: string, familyMemberId: string, access: Partial<InsertClientFamilyMember>): Promise<ClientFamilyMember> {
+    const [updated] = await db
+      .update(clientFamilyMembers)
+      .set({ ...access, updatedAt: new Date() })
+      .where(and(
+        eq(clientFamilyMembers.clientId, clientId),
+        eq(clientFamilyMembers.familyMemberId, familyMemberId)
+      ))
+      .returning();
+    return updated;
+  }
+
+  async removeFamilyMemberFromClient(clientId: string, familyMemberId: string): Promise<void> {
+    await db.delete(clientFamilyMembers).where(and(
+      eq(clientFamilyMembers.clientId, clientId),
+      eq(clientFamilyMembers.familyMemberId, familyMemberId)
+    ));
+  }
+
+  // Family portal update operations
+  async getFamilyUpdates(clientId?: string, familyMemberId?: string): Promise<FamilyUpdate[]> {
+    let query = db.select().from(familyUpdates);
+    
+    if (clientId && familyMemberId) {
+      // Get family member's user ID first
+      const familyMember = await this.getFamilyMember(familyMemberId);
+      if (familyMember?.userId) {
+        return await query.where(and(
+          eq(familyUpdates.clientId, clientId),
+          eq(familyUpdates.submittedBy, familyMember.userId)
+        )).orderBy(desc(familyUpdates.createdAt));
+      }
+    } else if (clientId) {
+      return await query.where(eq(familyUpdates.clientId, clientId)).orderBy(desc(familyUpdates.createdAt));
+    } else if (familyMemberId) {
+      const familyMember = await this.getFamilyMember(familyMemberId);
+      if (familyMember?.userId) {
+        return await query.where(eq(familyUpdates.submittedBy, familyMember.userId)).orderBy(desc(familyUpdates.createdAt));
+      }
+    }
+    
+    return await query.orderBy(desc(familyUpdates.createdAt));
+  }
+
+  async createFamilyUpdate(updateData: InsertFamilyUpdate): Promise<FamilyUpdate> {
+    const [familyUpdate] = await db.insert(familyUpdates).values(updateData).returning();
+    return familyUpdate;
+  }
+
+  async updateFamilyUpdate(id: string, updateData: Partial<InsertFamilyUpdate>): Promise<FamilyUpdate> {
+    const [updated] = await db
+      .update(familyUpdates)
+      .set({ ...updateData, updatedAt: new Date() })
+      .where(eq(familyUpdates.id, id))
+      .returning();
+    return updated;
+  }
+
+  async reviewFamilyUpdate(id: string, reviewedBy: string, status: string, reviewNotes?: string): Promise<FamilyUpdate> {
+    const [updated] = await db
+      .update(familyUpdates)
+      .set({
+        status,
+        reviewedBy,
+        reviewedAt: new Date(),
+        reviewNotes,
+        updatedAt: new Date()
+      })
+      .where(eq(familyUpdates.id, id))
       .returning();
     return updated;
   }

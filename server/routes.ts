@@ -23,6 +23,9 @@ import {
   insertTrainingRecordSchema,
   insertFileSchema,
   insertUserSchema,
+  insertFamilyMemberSchema,
+  insertClientFamilyMemberSchema,
+  insertFamilyUpdateSchema,
 } from "@shared/schema";
 import { ObjectStorageService, ObjectNotFoundError } from "./objectStorage";
 import { ObjectPermission } from "./objectAcl";
@@ -874,6 +877,266 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error updating incident report:", error);
       res.status(400).json({ message: "Failed to update incident report" });
+    }
+  });
+
+  // Family Portal API Routes
+  
+  // Family member management routes
+  app.get("/api/family-members/me", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const user = await storage.getUser(userId);
+      
+      if (user?.role !== "family") {
+        return res.status(403).json({ message: "Access denied. Family member role required." });
+      }
+      
+      const familyMember = await storage.getFamilyMemberByUserId(userId);
+      if (!familyMember) {
+        return res.status(404).json({ message: "Family member profile not found" });
+      }
+      
+      res.json(familyMember);
+    } catch (error) {
+      console.error("Error fetching family member profile:", error);
+      res.status(500).json({ message: "Failed to fetch family member profile" });
+    }
+  });
+
+  // Get clients for the family member
+  app.get("/api/family-members/me/clients", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const user = await storage.getUser(userId);
+      
+      if (user?.role !== "family") {
+        return res.status(403).json({ message: "Access denied. Family member role required." });
+      }
+      
+      const familyMember = await storage.getFamilyMemberByUserId(userId);
+      if (!familyMember) {
+        return res.status(404).json({ message: "Family member profile not found" });
+      }
+      
+      const clients = await storage.getFamilyMemberClients(familyMember.id);
+      res.json(clients);
+    } catch (error) {
+      console.error("Error fetching family member clients:", error);
+      res.status(500).json({ message: "Failed to fetch clients" });
+    }
+  });
+
+  // Get client details with access permissions
+  app.get("/api/family-portal/client/:clientId", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const user = await storage.getUser(userId);
+      const { clientId } = req.params;
+      
+      if (user?.role !== "family") {
+        return res.status(403).json({ message: "Access denied. Family member role required." });
+      }
+      
+      const familyMember = await storage.getFamilyMemberByUserId(userId);
+      if (!familyMember) {
+        return res.status(404).json({ message: "Family member profile not found" });
+      }
+      
+      // Check if family member has access to this client
+      const clientRelationships = await storage.getFamilyMemberClients(familyMember.id);
+      const relationship = clientRelationships.find(r => r.client.id === clientId);
+      
+      if (!relationship) {
+        return res.status(403).json({ message: "Access denied to this client" });
+      }
+      
+      res.json({
+        client: relationship.client,
+        accessPermissions: {
+          canViewCarePlans: relationship.canViewCarePlans,
+          canViewProgressNotes: relationship.canViewProgressNotes,
+          canViewDocuments: relationship.canViewDocuments,
+          canViewIncidentReports: relationship.canViewIncidentReports,
+          accessLevel: relationship.accessLevel
+        }
+      });
+    } catch (error) {
+      console.error("Error fetching client details:", error);
+      res.status(500).json({ message: "Failed to fetch client details" });
+    }
+  });
+
+  // Get care plans for a client (with permission check)
+  app.get("/api/family-portal/client/:clientId/care-plans", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const user = await storage.getUser(userId);
+      const { clientId } = req.params;
+      
+      if (user?.role !== "family") {
+        return res.status(403).json({ message: "Access denied. Family member role required." });
+      }
+      
+      const familyMember = await storage.getFamilyMemberByUserId(userId);
+      if (!familyMember) {
+        return res.status(404).json({ message: "Family member profile not found" });
+      }
+      
+      // Check if family member has access to view care plans for this client
+      const clientRelationships = await storage.getFamilyMemberClients(familyMember.id);
+      const relationship = clientRelationships.find(r => r.client.id === clientId);
+      
+      if (!relationship || !relationship.canViewCarePlans) {
+        return res.status(403).json({ message: "Access denied to care plans" });
+      }
+      
+      const carePlans = await storage.getCarePlansByClient(clientId);
+      res.json(carePlans);
+    } catch (error) {
+      console.error("Error fetching care plans:", error);
+      res.status(500).json({ message: "Failed to fetch care plans" });
+    }
+  });
+
+  // Get progress notes for a client (with permission check)
+  app.get("/api/family-portal/client/:clientId/progress-notes", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const user = await storage.getUser(userId);
+      const { clientId } = req.params;
+      
+      if (user?.role !== "family") {
+        return res.status(403).json({ message: "Access denied. Family member role required." });
+      }
+      
+      const familyMember = await storage.getFamilyMemberByUserId(userId);
+      if (!familyMember) {
+        return res.status(404).json({ message: "Family member profile not found" });
+      }
+      
+      // Check if family member has access to view progress notes for this client
+      const clientRelationships = await storage.getFamilyMemberClients(familyMember.id);
+      const relationship = clientRelationships.find(r => r.client.id === clientId);
+      
+      if (!relationship || !relationship.canViewProgressNotes) {
+        return res.status(403).json({ message: "Access denied to progress notes" });
+      }
+      
+      const progressNotes = await storage.getProgressNotesByClient(clientId);
+      res.json(progressNotes);
+    } catch (error) {
+      console.error("Error fetching progress notes:", error);
+      res.status(500).json({ message: "Failed to fetch progress notes" });
+    }
+  });
+
+  // Submit family update request
+  app.post("/api/family-portal/client/:clientId/update-request", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const user = await storage.getUser(userId);
+      const { clientId } = req.params;
+      
+      if (user?.role !== "family") {
+        return res.status(403).json({ message: "Access denied. Family member role required." });
+      }
+      
+      const familyMember = await storage.getFamilyMemberByUserId(userId);
+      if (!familyMember) {
+        return res.status(404).json({ message: "Family member profile not found" });
+      }
+      
+      // Check if family member has access to update info for this client
+      const clientRelationships = await storage.getFamilyMemberClients(familyMember.id);
+      const relationship = clientRelationships.find(r => r.client.id === clientId);
+      
+      if (!relationship || relationship.accessLevel === "view_only") {
+        return res.status(403).json({ message: "Access denied to submit updates" });
+      }
+      
+      const validatedData = insertFamilyUpdateSchema.parse({
+        ...req.body,
+        clientId,
+        submittedBy: userId,
+      });
+      
+      const familyUpdate = await storage.createFamilyUpdate(validatedData);
+      res.status(201).json(familyUpdate);
+    } catch (error) {
+      console.error("Error creating family update request:", error);
+      res.status(400).json({ message: "Failed to create update request" });
+    }
+  });
+
+  // Get family update requests
+  app.get("/api/family-portal/client/:clientId/update-requests", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const user = await storage.getUser(userId);
+      const { clientId } = req.params;
+      
+      if (user?.role !== "family") {
+        return res.status(403).json({ message: "Access denied. Family member role required." });
+      }
+      
+      const familyMember = await storage.getFamilyMemberByUserId(userId);
+      if (!familyMember) {
+        return res.status(404).json({ message: "Family member profile not found" });
+      }
+      
+      // Check if family member has access to this client
+      const clientRelationships = await storage.getFamilyMemberClients(familyMember.id);
+      const relationship = clientRelationships.find(r => r.client.id === clientId);
+      
+      if (!relationship) {
+        return res.status(403).json({ message: "Access denied to this client" });
+      }
+      
+      const updates = await storage.getFamilyUpdates(clientId, familyMember.id);
+      res.json(updates);
+    } catch (error) {
+      console.error("Error fetching family update requests:", error);
+      res.status(500).json({ message: "Failed to fetch update requests" });
+    }
+  });
+
+  // Staff routes for managing family update requests
+  app.get("/api/admin/family-updates", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const user = await storage.getUser(userId);
+      
+      // Only admin, supervisor roles can view all family updates
+      if (!["admin", "supervisor", "super_admin"].includes(user?.role || "")) {
+        return res.status(403).json({ message: "Access denied. Admin role required." });
+      }
+      
+      const updates = await storage.getFamilyUpdates();
+      res.json(updates);
+    } catch (error) {
+      console.error("Error fetching family updates:", error);
+      res.status(500).json({ message: "Failed to fetch family updates" });
+    }
+  });
+
+  app.put("/api/admin/family-updates/:id/review", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const user = await storage.getUser(userId);
+      const { id } = req.params;
+      const { status, reviewNotes } = req.body;
+      
+      // Only admin, supervisor roles can review family updates
+      if (!["admin", "supervisor", "super_admin"].includes(user?.role || "")) {
+        return res.status(403).json({ message: "Access denied. Admin role required." });
+      }
+      
+      const update = await storage.reviewFamilyUpdate(id, userId, status, reviewNotes);
+      res.json(update);
+    } catch (error) {
+      console.error("Error reviewing family update:", error);
+      res.status(400).json({ message: "Failed to review update" });
     }
   });
 
