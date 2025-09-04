@@ -24,6 +24,10 @@ import { insertCaregiverSchema } from "@shared/schema";
 const caregiverFormSchema = insertCaregiverSchema.extend({
   employeeId: z.string().min(1, "Employee ID is required"),
   experienceYears: z.number().min(0, "Experience years must be 0 or greater"),
+  // User information for login account
+  email: z.string().email("Please enter a valid email address"),
+  firstName: z.string().min(1, "First name is required"),
+  lastName: z.string().min(1, "Last name is required"),
 });
 
 type CaregiverFormData = z.infer<typeof caregiverFormSchema>;
@@ -43,6 +47,9 @@ export function AddCaregiverModal({ isOpen, onClose, onSubmit, isLoading }: AddC
       experienceYears: 0,
       specializations: [],
       isActive: true,
+      email: "",
+      firstName: "",
+      lastName: "",
     },
   });
 
@@ -74,9 +81,65 @@ export function AddCaregiverModal({ isOpen, onClose, onSubmit, isLoading }: AddC
 
         <Form {...form}>
           <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-6">
-            {/* Basic Information Section */}
+            {/* Personal Information Section */}
             <div className="space-y-4">
-              <h4 className="font-semibold text-foreground">Basic Information</h4>
+              <h4 className="font-semibold text-foreground">Personal Information</h4>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <FormField
+                  control={form.control}
+                  name="firstName"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>First Name *</FormLabel>
+                      <FormControl>
+                        <Input placeholder="Enter first name" {...field} data-testid="input-first-name" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="lastName"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Last Name *</FormLabel>
+                      <FormControl>
+                        <Input placeholder="Enter last name" {...field} data-testid="input-last-name" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+
+              <FormField
+                control={form.control}
+                name="email"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Email Address *</FormLabel>
+                    <FormControl>
+                      <Input 
+                        type="email" 
+                        placeholder="Enter email address for login account" 
+                        {...field} 
+                        data-testid="input-email" 
+                      />
+                    </FormControl>
+                    <p className="text-xs text-muted-foreground">
+                      This email will be used for their login account
+                    </p>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
+
+            {/* Employment Information Section */}
+            <div className="space-y-4">
+              <h4 className="font-semibold text-foreground">Employment Information</h4>
               
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <FormField

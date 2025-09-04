@@ -295,23 +295,51 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/caregivers", isAuthenticated, async (req: any, res) => {
     try {
-      const validatedData = insertCaregiverSchema.parse(req.body);
-      const caregiver = await storage.createCaregiver(validatedData);
+      // Extract user info from the request body
+      const { email, firstName, lastName, ...caregiverData } = req.body;
+      
+      // First create the user account for login
+      const user = await storage.upsertUser({
+        email,
+        firstName,
+        lastName,
+        role: "caregiver"
+      });
+      
+      // Then create the caregiver record linked to the user
+      const validatedCaregiverData = insertCaregiverSchema.parse({
+        ...caregiverData,
+        userId: user.id
+      });
+      
+      const caregiver = await storage.createCaregiver(validatedCaregiverData);
       
       await storage.createAuditLog({
         userId: req.user.claims.sub,
         action: "create",
         entityType: "caregiver",
         entityId: caregiver.id,
-        newValues: caregiver,
+        newValues: { ...caregiver, userEmail: email, userFirstName: firstName, userLastName: lastName },
         ipAddress: req.ip,
         userAgent: req.get("User-Agent"),
       });
       
-      res.status(201).json(caregiver);
+      // Return caregiver with user information
+      res.status(201).json({
+        ...caregiver,
+        user: {
+          email: user.email,
+          firstName: user.firstName,
+          lastName: user.lastName
+        }
+      });
     } catch (error) {
       console.error("Error creating caregiver:", error);
-      res.status(400).json({ message: "Failed to create caregiver" });
+      if (error instanceof Error && error.message.includes("unique constraint")) {
+        res.status(400).json({ message: "Email address or employee ID already exists" });
+      } else {
+        res.status(400).json({ message: "Failed to create caregiver" });
+      }
     }
   });
 
