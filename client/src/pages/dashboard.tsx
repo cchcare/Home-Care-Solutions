@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Sidebar } from "@/components/sidebar";
 import { OfficeSelector } from "@/components/office-selector";
 import { isUnauthorizedError } from "@/lib/authUtils";
+import { Link } from "wouter";
 import { 
   Users, 
   UserCheck, 
@@ -248,45 +249,53 @@ export default function Dashboard() {
                   <CardTitle>Quick Actions</CardTitle>
                 </CardHeader>
                 <CardContent className="p-6 grid grid-cols-2 gap-4">
-                  <Button 
-                    className="flex flex-col items-center p-6 h-auto bg-muted hover:bg-secondary text-foreground"
-                    data-testid="button-add-client"
-                  >
-                    <div className="w-12 h-12 bg-primary rounded-lg flex items-center justify-center mb-3">
-                      <Plus className="w-6 h-6 text-primary-foreground" />
-                    </div>
-                    <span className="text-sm font-medium">Add Client</span>
-                  </Button>
+                  <Link href="/clients">
+                    <Button 
+                      className="flex flex-col items-center p-6 h-auto bg-muted hover:bg-secondary text-foreground w-full"
+                      data-testid="button-add-client"
+                    >
+                      <div className="w-12 h-12 bg-primary rounded-lg flex items-center justify-center mb-3">
+                        <Plus className="w-6 h-6 text-primary-foreground" />
+                      </div>
+                      <span className="text-sm font-medium">Add Client</span>
+                    </Button>
+                  </Link>
 
-                  <Button 
-                    className="flex flex-col items-center p-6 h-auto bg-muted hover:bg-secondary text-foreground"
-                    data-testid="button-add-caregiver"
-                  >
-                    <div className="w-12 h-12 bg-accent rounded-lg flex items-center justify-center mb-3">
-                      <UserCheck className="w-6 h-6 text-accent-foreground" />
-                    </div>
-                    <span className="text-sm font-medium">Add Caregiver</span>
-                  </Button>
+                  <Link href="/caregivers">
+                    <Button 
+                      className="flex flex-col items-center p-6 h-auto bg-muted hover:bg-secondary text-foreground w-full"
+                      data-testid="button-add-caregiver"
+                    >
+                      <div className="w-12 h-12 bg-accent rounded-lg flex items-center justify-center mb-3">
+                        <UserCheck className="w-6 h-6 text-accent-foreground" />
+                      </div>
+                      <span className="text-sm font-medium">Add Caregiver</span>
+                    </Button>
+                  </Link>
 
-                  <Button 
-                    className="flex flex-col items-center p-6 h-auto bg-muted hover:bg-secondary text-foreground"
-                    data-testid="button-incident-report"
-                  >
-                    <div className="w-12 h-12 bg-destructive rounded-lg flex items-center justify-center mb-3">
-                      <AlertTriangle className="w-6 h-6 text-destructive-foreground" />
-                    </div>
-                    <span className="text-sm font-medium">Incident Report</span>
-                  </Button>
+                  <Link href="/incidents">
+                    <Button 
+                      className="flex flex-col items-center p-6 h-auto bg-muted hover:bg-secondary text-foreground w-full"
+                      data-testid="button-incident-report"
+                    >
+                      <div className="w-12 h-12 bg-destructive rounded-lg flex items-center justify-center mb-3">
+                        <AlertTriangle className="w-6 h-6 text-destructive-foreground" />
+                      </div>
+                      <span className="text-sm font-medium">Incident Report</span>
+                    </Button>
+                  </Link>
 
-                  <Button 
-                    className="flex flex-col items-center p-6 h-auto bg-muted hover:bg-secondary text-foreground"
-                    data-testid="button-view-reports"
-                  >
-                    <div className="w-12 h-12 bg-primary rounded-lg flex items-center justify-center mb-3">
-                      <Eye className="w-6 h-6 text-primary-foreground" />
-                    </div>
-                    <span className="text-sm font-medium">View Reports</span>
-                  </Button>
+                  <Link href="/reports">
+                    <Button 
+                      className="flex flex-col items-center p-6 h-auto bg-muted hover:bg-secondary text-foreground w-full"
+                      data-testid="button-view-reports"
+                    >
+                      <div className="w-12 h-12 bg-primary rounded-lg flex items-center justify-center mb-3">
+                        <Eye className="w-6 h-6 text-primary-foreground" />
+                      </div>
+                      <span className="text-sm font-medium">View Reports</span>
+                    </Button>
+                  </Link>
                 </CardContent>
               </Card>
             </div>
