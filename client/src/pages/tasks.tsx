@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Sidebar } from "@/components/sidebar";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { insertTaskSchema, type Task } from "@shared/schema";
@@ -202,7 +203,14 @@ export default function TasksPage() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="flex h-screen overflow-hidden">
+      <Sidebar />
+      
+      {/* Main Content Area */}
+      <main className="flex-1 flex flex-col overflow-hidden">
+        {/* Content Area */}
+        <div className="flex-1 overflow-auto p-6 bg-background">
+          <div className="max-w-7xl mx-auto space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Tasks & Workflows</h1>
@@ -553,6 +561,9 @@ export default function TasksPage() {
           })
         )}
       </div>
+          </div>
+        </div>
+      </main>
     </div>
   );
 }

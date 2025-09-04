@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Sidebar } from "@/components/sidebar";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
@@ -227,7 +228,14 @@ export default function ReportsPage() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="flex h-screen overflow-hidden">
+      <Sidebar />
+      
+      {/* Main Content Area */}
+      <main className="flex-1 flex flex-col overflow-hidden">
+        {/* Content Area */}
+        <div className="flex-1 overflow-auto p-6 bg-background">
+          <div className="max-w-7xl mx-auto space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Analytics & Reports</h1>
@@ -728,6 +736,9 @@ export default function ReportsPage() {
           </div>
         </TabsContent>
       </Tabs>
+          </div>
+        </div>
+      </main>
     </div>
   );
 }

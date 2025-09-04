@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import { Sidebar } from "@/components/sidebar";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { insertIncidentReportSchema, type IncidentReport } from "@shared/schema";
@@ -155,14 +156,21 @@ export default function IncidentsPage() {
   };
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Critical Incident Reports</h1>
-          <p className="text-muted-foreground">
-            Record and track incidents for clients, caregivers, and staff
-          </p>
-        </div>
+    <div className="flex h-screen overflow-hidden">
+      <Sidebar />
+      
+      {/* Main Content Area */}
+      <main className="flex-1 flex flex-col overflow-hidden">
+        {/* Content Area */}
+        <div className="flex-1 overflow-auto p-6 bg-background">
+          <div className="max-w-7xl mx-auto space-y-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <h1 className="text-3xl font-bold tracking-tight">Critical Incident Reports</h1>
+                <p className="text-muted-foreground">
+                  Record and track incidents for clients, caregivers, and staff
+                </p>
+              </div>
         <Dialog open={open} onOpenChange={setOpen}>
           <DialogTrigger asChild>
             <Button data-testid="button-create-incident">
@@ -716,7 +724,10 @@ export default function IncidentsPage() {
             </Card>
           ))
         )}
-      </div>
+            </div>
+          </div>
+        </div>
+      </main>
     </div>
   );
 }
