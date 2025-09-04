@@ -45,7 +45,7 @@ export default function Offices() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  const { data: offices, isLoading } = useQuery({
+  const { data: offices = [], isLoading } = useQuery<Office[]>({
     queryKey: ["/api/offices"],
     retry: false,
   });
@@ -74,7 +74,7 @@ export default function Offices() {
 
   const createMutation = useMutation({
     mutationFn: async (data: InsertOffice) => {
-      return apiRequest("/api/offices", "POST", data);
+      return apiRequest("POST", "/api/offices", data);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/offices"] });
@@ -96,7 +96,7 @@ export default function Offices() {
 
   const updateMutation = useMutation({
     mutationFn: async ({ id, data }: { id: string; data: Partial<InsertOffice> }) => {
-      return apiRequest(`/api/offices/${id}`, "PUT", data);
+      return apiRequest("PUT", `/api/offices/${id}`, data);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/offices"] });
@@ -118,7 +118,7 @@ export default function Offices() {
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
-      return apiRequest(`/api/offices/${id}`, "DELETE");
+      return apiRequest("DELETE", `/api/offices/${id}`);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/offices"] });
