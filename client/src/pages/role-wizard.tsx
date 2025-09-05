@@ -132,6 +132,12 @@ export default function RoleWizard() {
   
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  
+  // Get current user for setting createdBy field
+  const { data: currentUser } = useQuery({
+    queryKey: ["/api/auth/user"],
+    retry: false,
+  });
 
   // Fetch data
   const { data: roles = [], isLoading: rolesLoading } = useQuery<CustomRole[]>({
@@ -275,35 +281,35 @@ export default function RoleWizard() {
             displayName: "Caregiver",
             description: "Direct care provider with access to client information and care documentation",
             isActive: true,
-            createdBy: "system"
+            createdBy: currentUser?.id || "system"
         },
         {
             name: "hr",
             displayName: "HR",
             description: "Human Resources staff with access to employee management and compliance",
             isActive: true,
-            createdBy: "system"
+            createdBy: currentUser?.id || "system"
         },
         {
             name: "supervisor",
             displayName: "Supervisor",
             description: "Care supervision role with oversight of caregivers and care quality",
             isActive: true,
-            createdBy: "system"
+            createdBy: currentUser?.id || "system"
         },
         {
             name: "manager",
             displayName: "Manager",
             description: "Management role with operational oversight and reporting capabilities",
             isActive: true,
-            createdBy: "system"
+            createdBy: currentUser?.id || "system"
         },
         {
             name: "admin",
             displayName: "Admin",
             description: "Administrative role with full system access and configuration privileges",
             isActive: true,
-            createdBy: "system"
+            createdBy: currentUser?.id || "system"
         }
       ];
 
@@ -387,7 +393,7 @@ export default function RoleWizard() {
       displayName: newRoleName,
       description: newRoleDescription || "",
       officeId: selectedOffice === "all-offices" ? null : selectedOffice || null,
-      createdBy: "current-user", // This should come from auth context
+      createdBy: currentUser?.id || "system", // Use actual user ID
       isActive: true,
     });
   };
@@ -775,7 +781,7 @@ export default function RoleWizard() {
                         assignRoleMutation.mutate({
                           userId: selectedUser.id,
                           roleId,
-                          assignedBy: "current-user", // This should come from auth context
+                          assignedBy: currentUser?.id || "system", // Use actual user ID
                         });
                       }}
                       onRemoveRole={(roleId: string) => {
