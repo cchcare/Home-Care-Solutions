@@ -39,6 +39,7 @@ const caregiverFormSchema = insertCaregiverSchema.extend({
   middleName: z.string().optional(),
   lastName: z.string().min(1, "Last name is required"),
   dateOfBirth: z.date().optional(),
+  hireDate: z.date().optional(),
 });
 
 type CaregiverFormData = z.infer<typeof caregiverFormSchema>;
@@ -69,11 +70,19 @@ export function AddCaregiverModal({ isOpen, onClose, onSubmit, isLoading }: AddC
       lastName: "",
       dateOfBirth: undefined,
       startDate: undefined,
+      hireDate: undefined,
     },
   });
 
   const handleSubmit = (data: CaregiverFormData) => {
-    onSubmit(data);
+    // Convert date strings to Date objects for the backend
+    const processedData = {
+      ...data,
+      dateOfBirth: data.dateOfBirth ? new Date(data.dateOfBirth) : undefined,
+      startDate: data.startDate ? new Date(data.startDate) : undefined,
+      hireDate: data.hireDate ? new Date(data.hireDate) : undefined,
+    };
+    onSubmit(processedData);
   };
 
   const handleClose = () => {
