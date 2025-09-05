@@ -216,6 +216,8 @@ export const tasks = pgTable("tasks", {
 
 // Internal messaging
 export const messageStatusEnum = pgEnum("message_status", ["unread", "read", "archived"]);
+export const communicationTypeEnum = pgEnum("communication_type", ["internal", "email", "sms"]);
+export const deliveryStatusEnum = pgEnum("delivery_status", ["pending", "sent", "delivered", "failed", "bounced"]);
 
 export const messages = pgTable("messages", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -228,6 +230,13 @@ export const messages = pgTable("messages", {
   recipientStatus: messageStatusEnum("recipient_status").default("unread"), // recipient's view: unread, read, archived
   messageType: varchar("message_type").default("message"), // message, announcement, alert
   priority: varchar("priority").default("normal"), // low, normal, high, urgent
+  communicationType: communicationTypeEnum("communication_type").default("internal"), // internal, email, sms
+  recipientEmail: varchar("recipient_email"), // for email communications
+  recipientPhone: varchar("recipient_phone"), // for SMS communications
+  deliveryStatus: deliveryStatusEnum("delivery_status").default("pending"), // for email/SMS tracking
+  deliveryAttempts: integer("delivery_attempts").default(0),
+  lastDeliveryAttempt: timestamp("last_delivery_attempt"),
+  externalId: varchar("external_id"), // SendGrid message ID or Twilio SID
   relatedClientId: varchar("related_client_id").references(() => clients.id),
   attachmentUrl: varchar("attachment_url"),
   parentMessageId: varchar("parent_message_id"), // for threaded conversations
@@ -778,3 +787,76 @@ export const insertRolePermissionSchema = createInsertSchema(rolePermissions);
 export type UserCustomRole = typeof userCustomRoles.$inferSelect;
 export type InsertUserCustomRole = typeof userCustomRoles.$inferInsert;
 export const insertUserCustomRoleSchema = createInsertSchema(userCustomRoles);
+
+// Scheduling system
+export const masterWeekTemplates = pgTable("master_week_templates", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: varchar("name").notNull(),
+  description: text("description"),
+  clientId: varchar("client_id").references(() => clients.id),
+  createdBy: varchar("created_by").references(() => users.id),
+  startDate: timestamp("start_date"), // When to start applying this template
+  endDate: timestamp("end_date"), // When to stop applying this template
+  isActive: boolean("is_active").default(true),
+  autoRollover: boolean("auto_rollover").default(false), // Automatic midnight updates
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const masterWeekSlots = pgTable("master_week_slots", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  templateId: varchar("template_id").references(() => masterWeekTemplates.id, { onDelete: "cascade" }),
+  dayOfWeek: integer("day_of_week").notNull(), // 0 = Sunday, 1 = Monday, etc.
+  startTime: varchar("start_time").notNull(), // HH:MM format
+  endTime: varchar("end_time").notNull(), // HH:MM format
+  caregiverId: varchar("caregiver_id").references(() => caregivers.id),
+  serviceType: varchar("service_type"), // Personal care, medication reminder, etc.
+  notes: text("notes"),
+  isRecurring: boolean("is_recurring").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const clientSchedules = pgTable("client_schedules", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  clientId: varchar("client_id").references(() => clients.id),
+  caregiverId: varchar("caregiver_id").references(() => caregivers.id),
+  scheduledDate: timestamp("scheduled_date").notNull(),
+  startTime: varchar("start_time").notNull(), // HH:MM format
+  endTime: varchar("end_time").notNull(), // HH:MM format
+  serviceType: varchar("service_type"),
+  status: varchar("status").default("scheduled"), // scheduled, in_progress, completed, cancelled
+  notes: text("notes"),
+  masterWeekSlotId: varchar("master_week_slot_id").references(() => masterWeekSlots.id), // Link to template if auto-generated
+  createdBy: varchar("created_by").references(() => users.id),
+  completedAt: timestamp("completed_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const scheduleChangeLog = pgTable("schedule_change_log", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  scheduleId: varchar("schedule_id").references(() => clientSchedules.id),
+  changeType: varchar("change_type").notNull(), // created, updated, cancelled, completed
+  oldValues: jsonb("old_values"), // Previous schedule data
+  newValues: jsonb("new_values"), // New schedule data
+  changedBy: varchar("changed_by").references(() => users.id),
+  reason: text("reason"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// Type exports for scheduling system
+export type MasterWeekTemplate = typeof masterWeekTemplates.$inferSelect;
+export type InsertMasterWeekTemplate = typeof masterWeekTemplates.$inferInsert;
+export const insertMasterWeekTemplateSchema = createInsertSchema(masterWeekTemplates);
+
+export type MasterWeekSlot = typeof masterWeekSlots.$inferSelect;
+export type InsertMasterWeekSlot = typeof masterWeekSlots.$inferInsert;
+export const insertMasterWeekSlotSchema = createInsertSchema(masterWeekSlots);
+
+export type ClientSchedule = typeof clientSchedules.$inferSelect;
+export type InsertClientSchedule = typeof clientSchedules.$inferInsert;
+export const insertClientScheduleSchema = createInsertSchema(clientSchedules);
+
+export type ScheduleChangeLog = typeof scheduleChangeLog.$inferSelect;
+export type InsertScheduleChangeLog = typeof scheduleChangeLog.$inferInsert;
+export const insertScheduleChangeLogSchema = createInsertSchema(scheduleChangeLog);

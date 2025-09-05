@@ -29,6 +29,10 @@ import {
   insertPermissionSchema,
   insertRolePermissionSchema,
   insertUserCustomRoleSchema,
+  insertMasterWeekTemplateSchema,
+  insertMasterWeekSlotSchema,
+  insertClientScheduleSchema,
+  insertScheduleChangeLogSchema,
 } from "@shared/schema";
 import { ObjectStorageService, ObjectNotFoundError } from "./objectStorage";
 import { ObjectPermission } from "./objectAcl";
@@ -692,7 +696,68 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ...req.body,
         senderId: req.user.claims.sub,
       });
+      
       const message = await storage.createMessage(validatedData);
+      
+      // Handle external communications (email/SMS)
+      if (validatedData.communicationType === 'email' || validatedData.communicationType === 'sms') {
+        const { sendEmail, sendSMS, isValidEmail, isValidPhone, formatPhoneNumber } = await import('./communication-services');
+        
+        if (validatedData.communicationType === 'email' && validatedData.recipientEmail) {
+          if (!isValidEmail(validatedData.recipientEmail)) {
+            return res.status(400).json({ message: "Invalid email address" });
+          }
+          
+          const emailResult = await sendEmail({
+            to: validatedData.recipientEmail,
+            subject: validatedData.subject || 'Message from Healthcare Team',
+            text: validatedData.content,
+            html: `<p>${validatedData.content.replace(/\n/g, '<br>')}</p>`
+          });
+          
+          // Update message with delivery status
+          await storage.updateMessageDelivery(message.id, {
+            deliveryStatus: emailResult.success ? 'sent' : 'failed',
+            externalId: emailResult.messageId,
+            deliveryAttempts: 1,
+            lastDeliveryAttempt: new Date()
+          });
+          
+          if (!emailResult.success) {
+            return res.status(500).json({ 
+              message: "Message saved but email delivery failed",
+              error: emailResult.error 
+            });
+          }
+        }
+        
+        if (validatedData.communicationType === 'sms' && validatedData.recipientPhone) {
+          if (!isValidPhone(validatedData.recipientPhone)) {
+            return res.status(400).json({ message: "Invalid phone number" });
+          }
+          
+          const smsResult = await sendSMS({
+            to: formatPhoneNumber(validatedData.recipientPhone),
+            body: validatedData.content
+          });
+          
+          // Update message with delivery status
+          await storage.updateMessageDelivery(message.id, {
+            deliveryStatus: smsResult.success ? 'sent' : 'failed',
+            externalId: smsResult.messageSid,
+            deliveryAttempts: 1,
+            lastDeliveryAttempt: new Date()
+          });
+          
+          if (!smsResult.success) {
+            return res.status(500).json({ 
+              message: "Message saved but SMS delivery failed",
+              error: smsResult.error 
+            });
+          }
+        }
+      }
+      
       res.status(201).json(message);
     } catch (error) {
       console.error("Error creating message:", error);
@@ -1683,6 +1748,216 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error seeding permissions:", error);
       res.status(500).json({ message: "Failed to seed permissions" });
+    }
+  });
+
+  // Scheduling API Routes
+  
+  // Master Week Templates
+  app.get("/api/clients/:clientId/master-week-templates", isAuthenticated, async (req, res) => {
+    try {
+      const templates = await storage.getMasterWeekTemplatesByClient(req.params.clientId);
+      res.json(templates);
+    } catch (error) {
+      console.error("Error fetching master week templates:", error);
+      res.status(500).json({ message: "Failed to fetch master week templates" });
+    }
+  });
+
+  app.post("/api/master-week-templates", isAuthenticated, async (req: any, res) => {
+    try {
+      const validatedData = insertMasterWeekTemplateSchema.parse({
+        ...req.body,
+        createdBy: req.user?.claims?.sub,
+      });
+      const template = await storage.createMasterWeekTemplate(validatedData);
+      res.status(201).json(template);
+    } catch (error) {
+      console.error("Error creating master week template:", error);
+      res.status(400).json({ message: "Failed to create master week template" });
+    }
+  });
+
+  app.put("/api/master-week-templates/:id", isAuthenticated, async (req, res) => {
+    try {
+      const validatedData = insertMasterWeekTemplateSchema.partial().parse(req.body);
+      const template = await storage.updateMasterWeekTemplate(req.params.id, validatedData);
+      res.json(template);
+    } catch (error) {
+      console.error("Error updating master week template:", error);
+      res.status(400).json({ message: "Failed to update master week template" });
+    }
+  });
+
+  app.delete("/api/master-week-templates/:id", isAuthenticated, async (req, res) => {
+    try {
+      await storage.deleteMasterWeekTemplate(req.params.id);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting master week template:", error);
+      res.status(400).json({ message: "Failed to delete master week template" });
+    }
+  });
+
+  // Master Week Slots
+  app.get("/api/master-week-templates/:templateId/slots", isAuthenticated, async (req, res) => {
+    try {
+      const slots = await storage.getMasterWeekSlots(req.params.templateId);
+      res.json(slots);
+    } catch (error) {
+      console.error("Error fetching master week slots:", error);
+      res.status(500).json({ message: "Failed to fetch master week slots" });
+    }
+  });
+
+  app.post("/api/master-week-slots", isAuthenticated, async (req: any, res) => {
+    try {
+      const validatedData = insertMasterWeekSlotSchema.parse(req.body);
+      const slot = await storage.createMasterWeekSlot(validatedData);
+      res.status(201).json(slot);
+    } catch (error) {
+      console.error("Error creating master week slot:", error);
+      res.status(400).json({ message: "Failed to create master week slot" });
+    }
+  });
+
+  app.put("/api/master-week-slots/:id", isAuthenticated, async (req, res) => {
+    try {
+      const validatedData = insertMasterWeekSlotSchema.partial().parse(req.body);
+      const slot = await storage.updateMasterWeekSlot(req.params.id, validatedData);
+      res.json(slot);
+    } catch (error) {
+      console.error("Error updating master week slot:", error);
+      res.status(400).json({ message: "Failed to update master week slot" });
+    }
+  });
+
+  app.delete("/api/master-week-slots/:id", isAuthenticated, async (req, res) => {
+    try {
+      await storage.deleteMasterWeekSlot(req.params.id);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting master week slot:", error);
+      res.status(400).json({ message: "Failed to delete master week slot" });
+    }
+  });
+
+  // Client Schedules
+  app.get("/api/clients/:clientId/schedules", isAuthenticated, async (req, res) => {
+    try {
+      const startDate = req.query.startDate ? new Date(req.query.startDate as string) : undefined;
+      const endDate = req.query.endDate ? new Date(req.query.endDate as string) : undefined;
+      const schedules = await storage.getClientSchedules(req.params.clientId, startDate, endDate);
+      res.json(schedules);
+    } catch (error) {
+      console.error("Error fetching client schedules:", error);
+      res.status(500).json({ message: "Failed to fetch client schedules" });
+    }
+  });
+
+  app.get("/api/caregivers/:caregiverId/schedules", isAuthenticated, async (req, res) => {
+    try {
+      const startDate = req.query.startDate ? new Date(req.query.startDate as string) : undefined;
+      const endDate = req.query.endDate ? new Date(req.query.endDate as string) : undefined;
+      const schedules = await storage.getSchedulesByCaregiver(req.params.caregiverId, startDate, endDate);
+      res.json(schedules);
+    } catch (error) {
+      console.error("Error fetching caregiver schedules:", error);
+      res.status(500).json({ message: "Failed to fetch caregiver schedules" });
+    }
+  });
+
+  app.post("/api/client-schedules", isAuthenticated, async (req: any, res) => {
+    try {
+      const validatedData = insertClientScheduleSchema.parse({
+        ...req.body,
+        createdBy: req.user?.claims?.sub,
+      });
+      const schedule = await storage.createClientSchedule(validatedData);
+      
+      // Log the creation
+      await storage.createScheduleChangeLog({
+        scheduleId: schedule.id,
+        changeType: 'created',
+        newValues: schedule,
+        changedBy: req.user?.claims?.sub,
+        reason: 'Schedule created manually'
+      });
+      
+      res.status(201).json(schedule);
+    } catch (error) {
+      console.error("Error creating client schedule:", error);
+      res.status(400).json({ message: "Failed to create client schedule" });
+    }
+  });
+
+  app.put("/api/client-schedules/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const validatedData = insertClientScheduleSchema.partial().parse(req.body);
+      const schedule = await storage.updateClientSchedule(req.params.id, validatedData);
+      
+      // Log the update
+      await storage.createScheduleChangeLog({
+        scheduleId: schedule.id,
+        changeType: 'updated',
+        newValues: validatedData,
+        changedBy: req.user?.claims?.sub,
+        reason: req.body.reason || 'Schedule updated'
+      });
+      
+      res.json(schedule);
+    } catch (error) {
+      console.error("Error updating client schedule:", error);
+      res.status(400).json({ message: "Failed to update client schedule" });
+    }
+  });
+
+  app.delete("/api/client-schedules/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      // Log the deletion before deleting
+      await storage.createScheduleChangeLog({
+        scheduleId: req.params.id,
+        changeType: 'cancelled',
+        changedBy: req.user?.claims?.sub,
+        reason: req.body.reason || 'Schedule cancelled'
+      });
+      
+      await storage.deleteClientSchedule(req.params.id);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting client schedule:", error);
+      res.status(400).json({ message: "Failed to delete client schedule" });
+    }
+  });
+
+  // Master Week Rollover
+  app.post("/api/master-week-templates/:id/apply", isAuthenticated, async (req: any, res) => {
+    try {
+      const { weekStartDate } = req.body;
+      if (!weekStartDate) {
+        return res.status(400).json({ message: "Week start date is required" });
+      }
+
+      const schedules = await storage.applyMasterWeekToSchedules(req.params.id, new Date(weekStartDate));
+      
+      // Log the rollover
+      for (const schedule of schedules) {
+        await storage.createScheduleChangeLog({
+          scheduleId: schedule.id,
+          changeType: 'created',
+          newValues: schedule,
+          changedBy: req.user?.claims?.sub,
+          reason: 'Schedule created from master week template rollover'
+        });
+      }
+      
+      res.status(201).json({ 
+        message: `Created ${schedules.length} schedule entries from master week template`,
+        schedules 
+      });
+    } catch (error) {
+      console.error("Error applying master week template:", error);
+      res.status(400).json({ message: "Failed to apply master week template" });
     }
   });
 

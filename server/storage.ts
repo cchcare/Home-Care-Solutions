@@ -71,6 +71,18 @@ import {
   clientCaregiverAssignments,
   type ClientCaregiverAssignment,
   type InsertClientCaregiverAssignment,
+  masterWeekTemplates,
+  type MasterWeekTemplate,
+  type InsertMasterWeekTemplate,
+  masterWeekSlots,
+  type MasterWeekSlot,
+  type InsertMasterWeekSlot,
+  clientSchedules,
+  type ClientSchedule,
+  type InsertClientSchedule,
+  scheduleChangeLog,
+  type ScheduleChangeLog,
+  type InsertScheduleChangeLog,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, asc, and, or, count, sql, like, gte, lte } from "drizzle-orm";
@@ -144,6 +156,12 @@ export interface IStorage {
   createMessage(message: InsertMessage): Promise<Message>;
   markMessageAsRead(id: string): Promise<void>;
   updateMessageStatus(messageId: string, userId: string, status: 'unread' | 'read' | 'archived'): Promise<void>;
+  updateMessageDelivery(messageId: string, delivery: {
+    deliveryStatus: string;
+    externalId?: string;
+    deliveryAttempts: number;
+    lastDeliveryAttempt: Date;
+  }): Promise<void>;
 
   // Certification operations
   getCertificationsByCaregiver(caregiverId: string): Promise<Certification[]>;
@@ -235,6 +253,34 @@ export interface IStorage {
   assignRoleToUser(userRole: InsertUserCustomRole): Promise<UserCustomRole>;
   removeRoleFromUser(userId: string, roleId: string): Promise<void>;
   getUserPermissions(userId: string): Promise<Permission[]>;
+
+  // Scheduling operations
+  // Master week templates
+  getMasterWeekTemplatesByClient(clientId: string): Promise<MasterWeekTemplate[]>;
+  getMasterWeekTemplate(id: string): Promise<MasterWeekTemplate | undefined>;
+  createMasterWeekTemplate(template: InsertMasterWeekTemplate): Promise<MasterWeekTemplate>;
+  updateMasterWeekTemplate(id: string, template: Partial<InsertMasterWeekTemplate>): Promise<MasterWeekTemplate>;
+  deleteMasterWeekTemplate(id: string): Promise<void>;
+  
+  // Master week slots
+  getMasterWeekSlots(templateId: string): Promise<MasterWeekSlot[]>;
+  createMasterWeekSlot(slot: InsertMasterWeekSlot): Promise<MasterWeekSlot>;
+  updateMasterWeekSlot(id: string, slot: Partial<InsertMasterWeekSlot>): Promise<MasterWeekSlot>;
+  deleteMasterWeekSlot(id: string): Promise<void>;
+  
+  // Client schedules
+  getClientSchedules(clientId: string, startDate?: Date, endDate?: Date): Promise<ClientSchedule[]>;
+  getSchedulesByCaregiver(caregiverId: string, startDate?: Date, endDate?: Date): Promise<ClientSchedule[]>;
+  createClientSchedule(schedule: InsertClientSchedule): Promise<ClientSchedule>;
+  updateClientSchedule(id: string, schedule: Partial<InsertClientSchedule>): Promise<ClientSchedule>;
+  deleteClientSchedule(id: string): Promise<void>;
+  
+  // Schedule rollover from master week
+  applyMasterWeekToSchedules(templateId: string, weekStartDate: Date): Promise<ClientSchedule[]>;
+  
+  // Schedule change logging
+  createScheduleChangeLog(log: InsertScheduleChangeLog): Promise<ScheduleChangeLog>;
+  getScheduleChangeLogs(scheduleId: string): Promise<ScheduleChangeLog[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -778,6 +824,24 @@ export class DatabaseStorage implements IStorage {
     return updated;
   }
 
+  async updateMessageDelivery(messageId: string, delivery: {
+    deliveryStatus: string;
+    externalId?: string;
+    deliveryAttempts: number;
+    lastDeliveryAttempt: Date;
+  }): Promise<void> {
+    await db
+      .update(messages)
+      .set({
+        deliveryStatus: delivery.deliveryStatus as any,
+        externalId: delivery.externalId,
+        deliveryAttempts: delivery.deliveryAttempts,
+        lastDeliveryAttempt: delivery.lastDeliveryAttempt,
+        updatedAt: new Date()
+      })
+      .where(eq(messages.id, messageId));
+  }
+
   // User management operations
   async createUser(userData: Partial<UpsertUser>): Promise<User> {
     const [user] = await db.insert(users).values(userData).returning();
@@ -1109,6 +1173,148 @@ export class DatabaseStorage implements IStorage {
     }, [] as Permission[]);
     
     return uniquePermissions;
+  }
+
+  // Scheduling operations implementation
+  async getMasterWeekTemplatesByClient(clientId: string): Promise<MasterWeekTemplate[]> {
+    return await db.select().from(masterWeekTemplates)
+      .where(eq(masterWeekTemplates.clientId, clientId))
+      .orderBy(desc(masterWeekTemplates.createdAt));
+  }
+
+  async getMasterWeekTemplate(id: string): Promise<MasterWeekTemplate | undefined> {
+    const [template] = await db.select().from(masterWeekTemplates)
+      .where(eq(masterWeekTemplates.id, id));
+    return template;
+  }
+
+  async createMasterWeekTemplate(template: InsertMasterWeekTemplate): Promise<MasterWeekTemplate> {
+    const [newTemplate] = await db.insert(masterWeekTemplates).values(template).returning();
+    return newTemplate;
+  }
+
+  async updateMasterWeekTemplate(id: string, template: Partial<InsertMasterWeekTemplate>): Promise<MasterWeekTemplate> {
+    const [updatedTemplate] = await db.update(masterWeekTemplates)
+      .set({ ...template, updatedAt: new Date() })
+      .where(eq(masterWeekTemplates.id, id))
+      .returning();
+    return updatedTemplate;
+  }
+
+  async deleteMasterWeekTemplate(id: string): Promise<void> {
+    await db.delete(masterWeekTemplates).where(eq(masterWeekTemplates.id, id));
+  }
+
+  async getMasterWeekSlots(templateId: string): Promise<MasterWeekSlot[]> {
+    return await db.select().from(masterWeekSlots)
+      .where(eq(masterWeekSlots.templateId, templateId))
+      .orderBy(asc(masterWeekSlots.dayOfWeek), asc(masterWeekSlots.startTime));
+  }
+
+  async createMasterWeekSlot(slot: InsertMasterWeekSlot): Promise<MasterWeekSlot> {
+    const [newSlot] = await db.insert(masterWeekSlots).values(slot).returning();
+    return newSlot;
+  }
+
+  async updateMasterWeekSlot(id: string, slot: Partial<InsertMasterWeekSlot>): Promise<MasterWeekSlot> {
+    const [updatedSlot] = await db.update(masterWeekSlots)
+      .set(slot)
+      .where(eq(masterWeekSlots.id, id))
+      .returning();
+    return updatedSlot;
+  }
+
+  async deleteMasterWeekSlot(id: string): Promise<void> {
+    await db.delete(masterWeekSlots).where(eq(masterWeekSlots.id, id));
+  }
+
+  async getClientSchedules(clientId: string, startDate?: Date, endDate?: Date): Promise<ClientSchedule[]> {
+    let query = db.select().from(clientSchedules).where(eq(clientSchedules.clientId, clientId));
+    
+    if (startDate && endDate) {
+      query = query.where(and(
+        gte(clientSchedules.scheduledDate, startDate),
+        lte(clientSchedules.scheduledDate, endDate)
+      ));
+    }
+    
+    return await query.orderBy(asc(clientSchedules.scheduledDate), asc(clientSchedules.startTime));
+  }
+
+  async getSchedulesByCaregiver(caregiverId: string, startDate?: Date, endDate?: Date): Promise<ClientSchedule[]> {
+    let query = db.select().from(clientSchedules).where(eq(clientSchedules.caregiverId, caregiverId));
+    
+    if (startDate && endDate) {
+      query = query.where(and(
+        gte(clientSchedules.scheduledDate, startDate),
+        lte(clientSchedules.scheduledDate, endDate)
+      ));
+    }
+    
+    return await query.orderBy(asc(clientSchedules.scheduledDate), asc(clientSchedules.startTime));
+  }
+
+  async createClientSchedule(schedule: InsertClientSchedule): Promise<ClientSchedule> {
+    const [newSchedule] = await db.insert(clientSchedules).values(schedule).returning();
+    return newSchedule;
+  }
+
+  async updateClientSchedule(id: string, schedule: Partial<InsertClientSchedule>): Promise<ClientSchedule> {
+    const [updatedSchedule] = await db.update(clientSchedules)
+      .set({ ...schedule, updatedAt: new Date() })
+      .where(eq(clientSchedules.id, id))
+      .returning();
+    return updatedSchedule;
+  }
+
+  async deleteClientSchedule(id: string): Promise<void> {
+    await db.delete(clientSchedules).where(eq(clientSchedules.id, id));
+  }
+
+  async applyMasterWeekToSchedules(templateId: string, weekStartDate: Date): Promise<ClientSchedule[]> {
+    // Get template and its slots
+    const template = await this.getMasterWeekTemplate(templateId);
+    if (!template || !template.isActive) {
+      throw new Error('Template not found or inactive');
+    }
+
+    const slots = await this.getMasterWeekSlots(templateId);
+    const newSchedules: ClientSchedule[] = [];
+
+    // Create schedules for each slot for the week
+    for (const slot of slots) {
+      const scheduleDate = new Date(weekStartDate);
+      scheduleDate.setDate(scheduleDate.getDate() + slot.dayOfWeek);
+
+      const scheduleData: InsertClientSchedule = {
+        clientId: template.clientId,
+        caregiverId: slot.caregiverId,
+        scheduledDate: scheduleDate,
+        startTime: slot.startTime,
+        endTime: slot.endTime,
+        serviceType: slot.serviceType,
+        status: 'scheduled',
+        notes: slot.notes,
+        masterWeekSlotId: slot.id,
+        createdBy: template.createdBy,
+      };
+
+      const newSchedule = await this.createClientSchedule(scheduleData);
+      newSchedules.push(newSchedule);
+    }
+
+    return newSchedules;
+  }
+
+  async createScheduleChangeLog(log: InsertScheduleChangeLog): Promise<ScheduleChangeLog> {
+    const [newLog] = await db.insert(scheduleChangeLog).values(log).returning();
+    return newLog;
+  }
+
+  async getScheduleChangeLogs(scheduleId: string): Promise<ScheduleChangeLog[]> {
+    return await db.select().from(scheduleChangeLog)
+      .where(eq(scheduleChangeLog.scheduleId, scheduleId))
+      .orderBy(desc(scheduleChangeLog.createdAt));
   }
 }
 

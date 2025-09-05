@@ -55,7 +55,9 @@ import {
   MailOpen,
   Inbox,
   SendIcon,
-  Trash2
+  Trash2,
+  Phone,
+  AtSign
 } from "lucide-react";
 
 const priorityLabels = {
@@ -79,6 +81,7 @@ export default function Communication() {
   const [activeTab, setActiveTab] = useState<"channel" | "inbox" | "sent" | "archived">("channel");
   const [statusFilter, setStatusFilter] = useState<"all" | "unread" | "read">("all");
   const [channelMessage, setChannelMessage] = useState("");
+  const [communicationType, setCommunicationType] = useState<"internal" | "email" | "sms">("internal");
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -181,7 +184,11 @@ export default function Communication() {
       senderId: true,
       isRead: true,
       senderStatus: true,
-      recipientStatus: true
+      recipientStatus: true,
+      deliveryStatus: true,
+      deliveryAttempts: true,
+      lastDeliveryAttempt: true,
+      externalId: true
     })),
     defaultValues: {
       recipientId: "",
@@ -189,9 +196,12 @@ export default function Communication() {
       content: "",
       priority: "normal" as const,
       messageType: "message" as const,
+      communicationType: "internal" as const,
+      recipientEmail: "",
+      recipientPhone: "",
       attachmentUrl: "",
       parentMessageId: null,
-      relatedClientId: ""
+      relatedClientId: null
     },
   });
 
@@ -724,39 +734,142 @@ export default function Communication() {
             <DialogHeader>
               <DialogTitle>Compose New Message</DialogTitle>
               <DialogDescription>
-                Send a message to another user in your organization.
+                Send an internal message, email, or SMS text to communicate with your team or clients.
               </DialogDescription>
             </DialogHeader>
             
             <Form {...form}>
               <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+                {/* Communication Type Selector */}
                 <FormField
                   control={form.control}
-                  name="recipientId"
+                  name="communicationType"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>To</FormLabel>
-                      <Select onValueChange={field.onChange} defaultValue={field.value}>
+                      <FormLabel>Communication Method</FormLabel>
+                      <Select onValueChange={(value) => {
+                        field.onChange(value);
+                        setCommunicationType(value as any);
+                        // Reset recipient fields when switching types
+                        if (value === 'email') {
+                          form.setValue('recipientId', '');
+                        } else if (value === 'sms') {
+                          form.setValue('recipientId', '');
+                        }
+                      }} defaultValue={field.value}>
                         <FormControl>
-                          <SelectTrigger data-testid="select-recipient">
-                            <SelectValue placeholder="Select recipient" />
+                          <SelectTrigger data-testid="select-communication-type">
+                            <SelectValue />
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          {users?.map((user: User) => (
-                            <SelectItem key={user.id} value={user.id}>
-                              {user.firstName && user.lastName 
-                                ? `${user.firstName} ${user.lastName}` 
-                                : user.email
-                              } ({user.role})
-                            </SelectItem>
-                          ))}
+                          <SelectItem value="internal">
+                            <div className="flex items-center">
+                              <MessageCircle className="w-4 h-4 mr-2" />
+                              Internal Message
+                            </div>
+                          </SelectItem>
+                          <SelectItem value="email">
+                            <div className="flex items-center">
+                              <Mail className="w-4 h-4 mr-2" />
+                              Email
+                            </div>
+                          </SelectItem>
+                          <SelectItem value="sms">
+                            <div className="flex items-center">
+                              <Phone className="w-4 h-4 mr-2" />
+                              SMS Text
+                            </div>
+                          </SelectItem>
                         </SelectContent>
                       </Select>
                       <FormMessage />
                     </FormItem>
                   )}
                 />
+
+                {/* Recipient Selection for Internal Messages */}
+                {communicationType === 'internal' && (
+                  <FormField
+                    control={form.control}
+                    name="recipientId"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>To</FormLabel>
+                        <Select onValueChange={field.onChange} defaultValue={field.value}>
+                          <FormControl>
+                            <SelectTrigger data-testid="select-recipient">
+                              <SelectValue placeholder="Select recipient" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            {users?.map((user: User) => (
+                              <SelectItem key={user.id} value={user.id}>
+                                {user.firstName && user.lastName 
+                                  ? `${user.firstName} ${user.lastName}` 
+                                  : user.email
+                                } ({user.role})
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                )}
+
+                {/* Email Address for Email Communications */}
+                {communicationType === 'email' && (
+                  <FormField
+                    control={form.control}
+                    name="recipientEmail"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Email Address</FormLabel>
+                        <div className="relative">
+                          <AtSign className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                          <FormControl>
+                            <Input 
+                              {...field} 
+                              type="email"
+                              placeholder="recipient@example.com" 
+                              className="pl-10"
+                              data-testid="input-recipient-email" 
+                            />
+                          </FormControl>
+                        </div>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                )}
+
+                {/* Phone Number for SMS Communications */}
+                {communicationType === 'sms' && (
+                  <FormField
+                    control={form.control}
+                    name="recipientPhone"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Phone Number</FormLabel>
+                        <div className="relative">
+                          <Phone className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                          <FormControl>
+                            <Input 
+                              {...field} 
+                              type="tel"
+                              placeholder="+1 (555) 123-4567" 
+                              className="pl-10"
+                              data-testid="input-recipient-phone" 
+                            />
+                          </FormControl>
+                        </div>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                )}
 
                 <FormField
                   control={form.control}
@@ -829,8 +942,16 @@ export default function Communication() {
                     disabled={sendMessageMutation.isPending}
                     data-testid="button-send-message"
                   >
-                    <Send className="w-4 h-4 mr-2" />
-                    {sendMessageMutation.isPending ? "Sending..." : "Send Message"}
+                    {communicationType === 'email' ? (
+                      <Mail className="w-4 h-4 mr-2" />
+                    ) : communicationType === 'sms' ? (
+                      <Phone className="w-4 h-4 mr-2" />
+                    ) : (
+                      <Send className="w-4 h-4 mr-2" />
+                    )}
+                    {sendMessageMutation.isPending ? "Sending..." : 
+                      communicationType === 'email' ? "Send Email" :
+                      communicationType === 'sms' ? "Send SMS" : "Send Message"}
                   </Button>
                 </div>
               </form>
