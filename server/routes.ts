@@ -993,7 +993,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       const sanitizedData: any = {};
       Object.keys(req.body).forEach(key => {
-        if (allowedFields[key as keyof typeof allowedFields]) {
+        // Prevent prototype pollution by blocking dangerous keys
+        if (key === '__proto__' || key === 'constructor' || key === 'prototype') {
+          return;
+        }
+        if (Object.prototype.hasOwnProperty.call(allowedFields, key)) {
           sanitizedData[key] = req.body[key];
         }
       });
