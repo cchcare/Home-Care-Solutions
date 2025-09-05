@@ -285,7 +285,7 @@ export default function TasksPage() {
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>Status</FormLabel>
-                        <Select onValueChange={field.onChange} defaultValue={field.value}>
+                        <Select onValueChange={field.onChange} defaultValue={field.value || undefined}>
                           <FormControl>
                             <SelectTrigger data-testid="select-task-status">
                               <SelectValue placeholder="Select status" />
@@ -308,7 +308,7 @@ export default function TasksPage() {
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>Priority</FormLabel>
-                        <Select onValueChange={field.onChange} defaultValue={field.value}>
+                        <Select onValueChange={field.onChange} defaultValue={field.value || undefined}>
                           <FormControl>
                             <SelectTrigger data-testid="select-task-priority">
                               <SelectValue placeholder="Select priority" />
@@ -484,7 +484,7 @@ export default function TasksPage() {
           </Card>
         ) : (
           filteredTasks.map((task: Task) => {
-            const StatusIcon = getStatusIcon(task.status);
+            const StatusIcon = getStatusIcon(task.status || "pending");
             const assignee = task.assignedTo ? caregivers.find((c: any) => c.id === task.assignedTo) : null;
             const client = task.clientId ? clients.find((c: any) => c.id === task.clientId) : null;
             
@@ -534,7 +534,7 @@ export default function TasksPage() {
                               <span>Client: {client.firstName} {client.lastName}</span>
                             </div>
                           )}
-                          <span>Created {format(new Date(task.createdAt), "MMM d, yyyy")}</span>
+                          <span>Created {format(new Date(task.createdAt || new Date()), "MMM d, yyyy")}</span>
                         </div>
                       </div>
                     </div>
