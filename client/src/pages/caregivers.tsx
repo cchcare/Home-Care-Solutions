@@ -249,10 +249,20 @@ export default function Caregivers() {
                             </td>
                             <td className="p-4">
                               <div className="flex space-x-2">
-                                <Button variant="ghost" size="sm" data-testid={`button-view-caregiver-${caregiver.id}`}>
+                                <Button 
+                                  variant="ghost" 
+                                  size="sm"
+                                  onClick={() => toast({ title: "Caregiver Details", description: `Viewing details for Employee #${caregiver.employeeId}` })}
+                                  data-testid={`button-view-caregiver-${caregiver.id}`}
+                                >
                                   <Eye className="w-4 h-4" />
                                 </Button>
-                                <Button variant="ghost" size="sm" data-testid={`button-edit-caregiver-${caregiver.id}`}>
+                                <Button 
+                                  variant="ghost" 
+                                  size="sm"
+                                  onClick={() => toast({ title: "Edit Caregiver", description: `Editing Employee #${caregiver.employeeId}` })}
+                                  data-testid={`button-edit-caregiver-${caregiver.id}`}
+                                >
                                   <Edit className="w-4 h-4" />
                                 </Button>
                               </div>

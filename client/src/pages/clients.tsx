@@ -31,7 +31,7 @@ export default function Clients() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  const { data: clients, isLoading } = useQuery({
+  const { data: clients = [], isLoading } = useQuery<Client[]>({
     queryKey: ["/api/clients", searchTerm],
     retry: false,
   });
@@ -164,11 +164,19 @@ export default function Clients() {
                       data-testid="input-search-clients"
                     />
                   </div>
-                  <Button variant="outline" data-testid="button-filter-clients">
+                  <Button 
+                    variant="outline" 
+                    onClick={() => toast({ title: "Filter", description: "Client filtering coming soon" })}
+                    data-testid="button-filter-clients"
+                  >
                     <Users className="w-4 h-4 mr-2" />
                     Filter
                   </Button>
-                  <Button variant="outline" data-testid="button-export-all-clients">
+                  <Button 
+                    variant="outline"
+                    onClick={() => toast({ title: "Export", description: "Client export coming soon" })}
+                    data-testid="button-export-all-clients"
+                  >
                     <Download className="w-4 h-4 mr-2" />
                     Export
                   </Button>

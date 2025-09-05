@@ -40,7 +40,7 @@ export default function Documents() {
     retry: false,
   });
 
-  const { data: clients = [] } = useQuery({
+  const { data: clients = [] } = useQuery<any[]>({
     queryKey: ["/api/clients"],
     retry: false,
   });
@@ -266,7 +266,11 @@ export default function Documents() {
                       </option>
                     ))}
                   </select>
-                  <Button variant="outline" data-testid="button-advanced-filter">
+                  <Button 
+                    variant="outline"
+                    onClick={() => toast({ title: "Advanced Filter", description: "Advanced filtering coming soon" })}
+                    data-testid="button-advanced-filter"
+                  >
                     <Filter className="w-4 h-4 mr-2" />
                     Advanced Filter
                   </Button>

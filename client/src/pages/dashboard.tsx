@@ -44,27 +44,27 @@ export default function Dashboard() {
     }
   }, [isAuthenticated, isLoading, toast]);
 
-  const { data: metrics, isLoading: metricsLoading } = useQuery({
+  const { data: metrics = {}, isLoading: metricsLoading } = useQuery<any>({
     queryKey: ["/api/dashboard/metrics"],
     retry: false,
   });
 
-  const { data: clients, isLoading: clientsLoading } = useQuery({
+  const { data: clients = [], isLoading: clientsLoading } = useQuery<any[]>({
     queryKey: ["/api/clients"],
     retry: false,
   });
 
-  const { data: tasks, isLoading: tasksLoading } = useQuery({
+  const { data: tasks = [], isLoading: tasksLoading } = useQuery<any[]>({
     queryKey: ["/api/tasks"],
     retry: false,
   });
 
-  const { data: messages, isLoading: messagesLoading } = useQuery({
+  const { data: messages = [], isLoading: messagesLoading } = useQuery<any[]>({
     queryKey: ["/api/messages"],
     retry: false,
   });
 
-  const { data: documents, isLoading: documentsLoading } = useQuery({
+  const { data: documents = [], isLoading: documentsLoading } = useQuery<any[]>({
     queryKey: ["/api/documents"],
     retry: false,
   });
@@ -113,6 +113,7 @@ export default function Dashboard() {
             {/* Notifications */}
             <button 
               className="relative p-2 text-muted-foreground hover:text-foreground" 
+              onClick={() => toast({ title: "Notifications", description: `${metrics?.criticalAlerts || 0} critical alerts pending` })}
               data-testid="button-notifications"
             >
               <Bell className="w-5 h-5" />
@@ -122,10 +123,14 @@ export default function Dashboard() {
             </button>
 
             {/* User Menu */}
-            <button className="flex items-center space-x-2 p-2 rounded-lg hover:bg-muted" data-testid="button-user-menu">
+            <button 
+              className="flex items-center space-x-2 p-2 rounded-lg hover:bg-muted" 
+              onClick={() => toast({ title: "User Settings", description: "User settings coming soon" })}
+              data-testid="button-user-menu"
+            >
               <div className="w-8 h-8 bg-primary rounded-full flex items-center justify-center">
                 <span className="text-primary-foreground text-sm font-medium">
-                  {user?.firstName?.[0]}{user?.lastName?.[0]}
+                  {user?.firstName?.[0] || 'U'}{user?.lastName?.[0] || 'U'}
                 </span>
               </div>
               <Settings className="w-4 h-4 text-muted-foreground" />
@@ -215,7 +220,12 @@ export default function Dashboard() {
                 <CardHeader className="border-b border-border">
                   <div className="flex items-center justify-between">
                     <CardTitle>Recent Activity</CardTitle>
-                    <Button variant="ghost" size="sm" data-testid="button-view-all-activity">
+                    <Button 
+                      variant="ghost" 
+                      size="sm" 
+                      onClick={() => toast({ title: "Activity", description: "View all activity coming soon" })}
+                      data-testid="button-view-all-activity"
+                    >
                       View all
                     </Button>
                   </div>
@@ -311,14 +321,21 @@ export default function Dashboard() {
                     </Badge>
                   </div>
                   <div className="flex space-x-2">
-                    <Button variant="outline" size="sm" data-testid="button-export-clients">
+                    <Button 
+                      variant="outline" 
+                      size="sm"
+                      onClick={() => toast({ title: "Export", description: "Client export coming soon" })}
+                      data-testid="button-export-clients"
+                    >
                       <Download className="w-4 h-4 mr-2" />
                       Export
                     </Button>
-                    <Button size="sm" data-testid="button-add-new-client">
-                      <Plus className="w-4 h-4 mr-2" />
-                      Add Client
-                    </Button>
+                    <Link href="/clients">
+                      <Button size="sm" data-testid="button-add-new-client">
+                        <Plus className="w-4 h-4 mr-2" />
+                        Add Client
+                      </Button>
+                    </Link>
                   </div>
                 </div>
               </CardHeader>
@@ -374,10 +391,20 @@ export default function Dashboard() {
                             </td>
                             <td className="p-4">
                               <div className="flex space-x-2">
-                                <Button variant="ghost" size="sm" data-testid={`button-view-client-${client.id}`}>
+                                <Button 
+                                  variant="ghost" 
+                                  size="sm"
+                                  onClick={() => toast({ title: "Client Details", description: `Viewing details for ${client.firstName} ${client.lastName}` })}
+                                  data-testid={`button-view-client-${client.id}`}
+                                >
                                   <Eye className="w-4 h-4" />
                                 </Button>
-                                <Button variant="ghost" size="sm" data-testid={`button-edit-client-${client.id}`}>
+                                <Button 
+                                  variant="ghost" 
+                                  size="sm"
+                                  onClick={() => toast({ title: "Edit Client", description: `Editing ${client.firstName} ${client.lastName}` })}
+                                  data-testid={`button-edit-client-${client.id}`}
+                                >
                                   <Edit className="w-4 h-4" />
                                 </Button>
                               </div>
@@ -404,9 +431,11 @@ export default function Dashboard() {
                 <CardHeader className="border-b border-border">
                   <div className="flex items-center justify-between">
                     <CardTitle>Pending Tasks</CardTitle>
-                    <Button variant="ghost" size="sm" data-testid="button-view-all-tasks">
-                      View all tasks
-                    </Button>
+                    <Link href="/tasks">
+                      <Button variant="ghost" size="sm" data-testid="button-view-all-tasks">
+                        View all tasks
+                      </Button>
+                    </Link>
                   </div>
                 </CardHeader>
                 <CardContent className="p-6 space-y-3">
@@ -447,9 +476,11 @@ export default function Dashboard() {
                 <CardHeader className="border-b border-border">
                   <div className="flex items-center justify-between">
                     <CardTitle>Recent Documents</CardTitle>
-                    <Button variant="ghost" size="sm" data-testid="button-manage-documents">
-                      Manage Documents
-                    </Button>
+                    <Link href="/documents">
+                      <Button variant="ghost" size="sm" data-testid="button-manage-documents">
+                        Manage Documents
+                      </Button>
+                    </Link>
                   </div>
                 </CardHeader>
                 <CardContent className="p-6 space-y-4">
@@ -473,7 +504,12 @@ export default function Dashboard() {
                           <Badge variant={document.isSigned ? "default" : "secondary"} data-testid={`badge-document-status-${document.id}`}>
                             {document.isSigned ? "Signed" : "Pending"}
                           </Badge>
-                          <Button variant="ghost" size="sm" data-testid={`button-view-document-${document.id}`}>
+                          <Button 
+                            variant="ghost" 
+                            size="sm"
+                            onClick={() => toast({ title: "Document", description: `Viewing ${document.originalName}` })}
+                            data-testid={`button-view-document-${document.id}`}
+                          >
                             <Eye className="w-4 h-4" />
                           </Button>
                         </div>
