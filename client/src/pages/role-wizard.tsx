@@ -12,6 +12,8 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Sidebar } from "@/components/sidebar";
+import { TopBar } from "@/components/topbar";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { Shield, Plus, Users, Settings, Eye, Trash2, Edit, Check, X } from "lucide-react";
@@ -47,31 +49,31 @@ function UserRoleAssignments({ user, roles, onAssignRole, onRemoveRole }: UserRo
       <div>
         <h4 className="font-medium mb-3">Current Custom Roles</h4>
         {userRoles.length > 0 ? (
-          <div className="space-y-2">
-            {userRoles.map((role) => (
-              <div
-                key={role.id}
-                className="flex items-center justify-between p-3 border rounded-lg"
-              >
-                <div>
-                  <div className="font-medium">{role.displayName}</div>
-                  <div className="text-sm text-muted-foreground">
-                    {role.description}
-                  </div>
-                </div>
-                <Button
-                  variant="destructive"
-                  size="sm"
-                  onClick={() => onRemoveRole(role.id)}
-                  data-testid={`button-remove-role-${role.id}`}
+            <div className="space-y-2">
+              {userRoles.map((role) => (
+                <div
+                  key={role.id}
+                  className="flex items-center justify-between p-3 border rounded-lg"
                 >
-                  <X className="h-4 w-4" />
-                </Button>
-              </div>
-            ))}
-          </div>
+                  <div>
+                    <div className="font-medium">{role.displayName}</div>
+                    <div className="text-sm text-muted-foreground">
+                      {role.description}
+                    </div>
+                  </div>
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    onClick={() => onRemoveRole(role.id)}
+                    data-testid={`button-remove-role-${role.id}`}
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
+              ))}
+            </div>
         ) : (
-          <p className="text-muted-foreground text-sm">No custom roles assigned</p>
+            <p className="text-muted-foreground text-sm">No custom roles assigned</p>
         )}
       </div>
 
@@ -81,37 +83,37 @@ function UserRoleAssignments({ user, roles, onAssignRole, onRemoveRole }: UserRo
       <div>
         <h4 className="font-medium mb-3">Available Roles</h4>
         {availableRoles.length > 0 ? (
-          <div className="space-y-2">
-            {availableRoles.map((role) => (
-              <div
-                key={role.id}
-                className="flex items-center justify-between p-3 border rounded-lg"
-              >
-                <div>
-                  <div className="font-medium">{role.displayName}</div>
-                  <div className="text-sm text-muted-foreground">
-                    {role.description}
-                  </div>
-                  {role.officeId && (
-                    <Badge variant="outline" className="mt-1">
-                      Office Specific
-                    </Badge>
-                  )}
-                </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => onAssignRole(role.id)}
-                  data-testid={`button-assign-role-${role.id}`}
+            <div className="space-y-2">
+              {availableRoles.map((role) => (
+                <div
+                  key={role.id}
+                  className="flex items-center justify-between p-3 border rounded-lg"
                 >
-                  <Plus className="h-4 w-4 mr-1" />
-                  Assign
-                </Button>
-              </div>
-            ))}
-          </div>
+                  <div>
+                    <div className="font-medium">{role.displayName}</div>
+                    <div className="text-sm text-muted-foreground">
+                      {role.description}
+                    </div>
+                    {role.officeId && (
+                      <Badge variant="outline" className="mt-1">
+                        Office Specific
+                      </Badge>
+                    )}
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => onAssignRole(role.id)}
+                    data-testid={`button-assign-role-${role.id}`}
+                  >
+                    <Plus className="h-4 w-4 mr-1" />
+                    Assign
+                  </Button>
+                </div>
+              ))}
+            </div>
         ) : (
-          <p className="text-muted-foreground text-sm">All available roles are already assigned</p>
+            <p className="text-muted-foreground text-sm">All available roles are already assigned</p>
         )}
       </div>
     </div>
@@ -216,17 +218,17 @@ export default function RoleWizard() {
     mutationFn: async ({ roleId, permissionId, action }: { roleId: string; permissionId: string; action: "add" | "remove" }) => {
       if (action === "add") {
         const response = await fetch(`/api/custom-roles/${roleId}/permissions`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "include",
-          body: JSON.stringify({ permissionId }),
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({ permissionId }),
         });
         if (!response.ok) throw new Error("Failed to add permission");
         return response.json();
       } else {
         const response = await fetch(`/api/custom-roles/${roleId}/permissions/${permissionId}`, {
-          method: "DELETE",
-          credentials: "include",
+            method: "DELETE",
+            credentials: "include",
         });
         if (!response.ok) throw new Error("Failed to remove permission");
         return response.json();
@@ -269,39 +271,39 @@ export default function RoleWizard() {
     mutationFn: async () => {
       const standardRoles = [
         {
-          name: "caregiver",
-          displayName: "Caregiver",
-          description: "Direct care provider with access to client information and care documentation",
-          isActive: true,
-          createdBy: "system"
+            name: "caregiver",
+            displayName: "Caregiver",
+            description: "Direct care provider with access to client information and care documentation",
+            isActive: true,
+            createdBy: "system"
         },
         {
-          name: "hr",
-          displayName: "HR",
-          description: "Human Resources staff with access to employee management and compliance",
-          isActive: true,
-          createdBy: "system"
+            name: "hr",
+            displayName: "HR",
+            description: "Human Resources staff with access to employee management and compliance",
+            isActive: true,
+            createdBy: "system"
         },
         {
-          name: "supervisor",
-          displayName: "Supervisor",
-          description: "Care supervision role with oversight of caregivers and care quality",
-          isActive: true,
-          createdBy: "system"
+            name: "supervisor",
+            displayName: "Supervisor",
+            description: "Care supervision role with oversight of caregivers and care quality",
+            isActive: true,
+            createdBy: "system"
         },
         {
-          name: "manager",
-          displayName: "Manager",
-          description: "Management role with operational oversight and reporting capabilities",
-          isActive: true,
-          createdBy: "system"
+            name: "manager",
+            displayName: "Manager",
+            description: "Management role with operational oversight and reporting capabilities",
+            isActive: true,
+            createdBy: "system"
         },
         {
-          name: "admin",
-          displayName: "Admin",
-          description: "Administrative role with full system access and configuration privileges",
-          isActive: true,
-          createdBy: "system"
+            name: "admin",
+            displayName: "Admin",
+            description: "Administrative role with full system access and configuration privileges",
+            isActive: true,
+            createdBy: "system"
         }
       ];
 
@@ -402,387 +404,403 @@ export default function RoleWizard() {
 
   if (rolesLoading || permissionsLoading) {
     return (
-      <div className="space-y-6">
-        <div className="flex items-center space-x-2">
-          <Shield className="h-6 w-6" />
-          <h1 className="text-2xl font-bold">Role & Access Control Wizard</h1>
+      <div className="flex h-screen overflow-hidden">
+        <Sidebar />
+        <div className="flex-1 flex flex-col">
+            <TopBar />
+            <div className="flex-1 p-6 overflow-auto">
+              <div className="max-w-7xl mx-auto space-y-6">
+                <div className="flex items-center space-x-2">
+                  <Shield className="h-6 w-6" />
+                  <h1 className="text-2xl font-bold">Role & Access Control Wizard</h1>
+                </div>
+                <div className="text-center py-8">Loading...</div>
+              </div>
+            </div>
         </div>
-        <div className="text-center py-8">Loading...</div>
       </div>
     );
   }
 
   return (
-    <div className="space-y-6" data-testid="role-wizard-page">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center space-x-2">
-          <Shield className="h-6 w-6" />
-          <h1 className="text-2xl font-bold">Role & Access Control Wizard</h1>
-        </div>
-        <div className="flex gap-2">
-          <Button
-            onClick={() => seedPermissionsMutation.mutate()}
-            disabled={seedPermissionsMutation.isPending}
-            variant="outline"
-            data-testid="button-seed-permissions"
-          >
-            <Settings className="h-4 w-4 mr-2" />
-            Seed Default Permissions
-          </Button>
-          <Button
-            onClick={() => createStandardRolesMutation.mutate()}
-            disabled={createStandardRolesMutation.isPending}
-            variant="outline"
-            data-testid="button-create-standard-roles"
-          >
-            <Users className="h-4 w-4 mr-2" />
-            Create Standard Roles
-          </Button>
-        </div>
-      </div>
-
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="grid w-full grid-cols-3">
-          <TabsTrigger value="roles" data-testid="tab-roles">Custom Roles</TabsTrigger>
-          <TabsTrigger value="permissions" data-testid="tab-permissions">Permissions</TabsTrigger>
-          <TabsTrigger value="assignments" data-testid="tab-assignments">Role Assignments</TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="roles" className="space-y-6">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Roles List */}
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between">
-                <div>
-                  <CardTitle>Custom Roles</CardTitle>
-                  <CardDescription>
-                    Manage custom roles and their permissions
-                  </CardDescription>
+    <div className="flex h-screen overflow-hidden">
+      <Sidebar />
+      <div className="flex-1 flex flex-col">
+        <TopBar />
+        <div className="flex-1 p-6 overflow-auto">
+            <div className="max-w-7xl mx-auto space-y-6" data-testid="role-wizard-page">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-2">
+                  <Shield className="h-6 w-6" />
+                  <h1 className="text-2xl font-bold">Role & Access Control Wizard</h1>
                 </div>
-                <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
-                  <DialogTrigger asChild>
-                    <Button data-testid="button-create-role">
-                      <Plus className="h-4 w-4 mr-2" />
-                      Create Role
-                    </Button>
-                  </DialogTrigger>
-                  <DialogContent>
-                    <DialogHeader>
-                      <DialogTitle>Create Custom Role</DialogTitle>
-                    </DialogHeader>
-                    <div className="space-y-4">
-                      <div>
-                        <Label htmlFor="role-name">Role Name</Label>
-                        <Input
-                          id="role-name"
-                          value={newRoleName}
-                          onChange={(e) => setNewRoleName(e.target.value)}
-                          placeholder="e.g., Senior Caregiver"
-                          data-testid="input-role-name"
-                        />
-                      </div>
-                      <div>
-                        <Label htmlFor="role-description">Description</Label>
-                        <Textarea
-                          id="role-description"
-                          value={newRoleDescription}
-                          onChange={(e) => setNewRoleDescription(e.target.value)}
-                          placeholder="Describe the role's responsibilities"
-                          data-testid="textarea-role-description"
-                        />
-                      </div>
-                      <div>
-                        <Label htmlFor="role-office">Office (Optional)</Label>
-                        <Select value={selectedOffice} onValueChange={setSelectedOffice}>
-                          <SelectTrigger data-testid="select-role-office">
-                            <SelectValue placeholder="Select office (leave empty for all offices)" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="all-offices">All Offices</SelectItem>
-                            {offices.map((office) => (
-                              <SelectItem key={office.id} value={office.id}>
-                                {office.name}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div className="flex justify-end space-x-2">
-                        <Button 
-                          variant="outline" 
-                          onClick={() => setIsCreateDialogOpen(false)}
-                          data-testid="button-cancel-create"
-                        >
-                          Cancel
-                        </Button>
-                        <Button 
-                          onClick={handleCreateRole}
-                          disabled={createRoleMutation.isPending}
-                          data-testid="button-save-role"
-                        >
-                          Create Role
-                        </Button>
-                      </div>
-                    </div>
-                  </DialogContent>
-                </Dialog>
-              </CardHeader>
-              <CardContent>
-                <ScrollArea className="h-[400px]">
-                  <div className="space-y-2">
-                    {roles.map((role) => (
-                      <div
-                        key={role.id}
-                        className={`p-3 rounded-lg border cursor-pointer transition-colors ${
-                          selectedRole?.id === role.id 
-                            ? "bg-primary/10 border-primary" 
-                            : "hover:bg-muted"
-                        }`}
-                        onClick={() => setSelectedRole(role)}
-                        data-testid={`role-item-${role.id}`}
-                      >
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <h4 className="font-medium">{role.displayName}</h4>
-                            <p className="text-sm text-muted-foreground">
-                              {role.description}
-                            </p>
-                            {role.officeId && (
-                              <Badge variant="outline" className="mt-1">
-                                Office Specific
-                              </Badge>
-                            )}
-                          </div>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              deleteRoleMutation.mutate(role.id);
-                            }}
-                            data-testid={`button-delete-role-${role.id}`}
+                <div className="flex gap-2">
+                  <Button
+                    onClick={() => seedPermissionsMutation.mutate()}
+                    disabled={seedPermissionsMutation.isPending}
+                    variant="outline"
+                    data-testid="button-seed-permissions"
+                  >
+                    <Settings className="h-4 w-4 mr-2" />
+                    Seed Default Permissions
+                  </Button>
+                  <Button
+                    onClick={() => createStandardRolesMutation.mutate()}
+                    disabled={createStandardRolesMutation.isPending}
+                    variant="outline"
+                    data-testid="button-create-standard-roles"
+                  >
+                    <Users className="h-4 w-4 mr-2" />
+                    Create Standard Roles
+                  </Button>
+                </div>
+              </div>
+
+              <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+                <TabsList className="grid w-full grid-cols-3">
+                  <TabsTrigger value="roles" data-testid="tab-roles">Custom Roles</TabsTrigger>
+                  <TabsTrigger value="permissions" data-testid="tab-permissions">Permissions</TabsTrigger>
+                  <TabsTrigger value="assignments" data-testid="tab-assignments">Role Assignments</TabsTrigger>
+                </TabsList>
+
+                <TabsContent value="roles" className="space-y-6">
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    {/* Roles List */}
+                    <Card>
+                <CardHeader className="flex flex-row items-center justify-between">
+                  <div>
+                    <CardTitle>Custom Roles</CardTitle>
+                    <CardDescription>
+                      Manage custom roles and their permissions
+                    </CardDescription>
+                  </div>
+                  <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
+                    <DialogTrigger asChild>
+                      <Button data-testid="button-create-role">
+                        <Plus className="h-4 w-4 mr-2" />
+                        Create Role
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent>
+                      <DialogHeader>
+                        <DialogTitle>Create Custom Role</DialogTitle>
+                      </DialogHeader>
+                      <div className="space-y-4">
+                        <div>
+                          <Label htmlFor="role-name">Role Name</Label>
+                          <Input
+                            id="role-name"
+                            value={newRoleName}
+                            onChange={(e) => setNewRoleName(e.target.value)}
+                            placeholder="e.g., Senior Caregiver"
+                            data-testid="input-role-name"
+                          />
+                        </div>
+                        <div>
+                          <Label htmlFor="role-description">Description</Label>
+                          <Textarea
+                            id="role-description"
+                            value={newRoleDescription}
+                            onChange={(e) => setNewRoleDescription(e.target.value)}
+                            placeholder="Describe the role's responsibilities"
+                            data-testid="textarea-role-description"
+                          />
+                        </div>
+                        <div>
+                          <Label htmlFor="role-office">Office (Optional)</Label>
+                          <Select value={selectedOffice} onValueChange={setSelectedOffice}>
+                            <SelectTrigger data-testid="select-role-office">
+                              <SelectValue placeholder="Select office (leave empty for all offices)" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="all-offices">All Offices</SelectItem>
+                              {offices.map((office) => (
+                                <SelectItem key={office.id} value={office.id}>
+                                  {office.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="flex justify-end space-x-2">
+                          <Button 
+                            variant="outline" 
+                            onClick={() => setIsCreateDialogOpen(false)}
+                            data-testid="button-cancel-create"
                           >
-                            <Trash2 className="h-4 w-4" />
+                            Cancel
+                          </Button>
+                          <Button 
+                            onClick={handleCreateRole}
+                            disabled={createRoleMutation.isPending}
+                            data-testid="button-save-role"
+                          >
+                            Create Role
                           </Button>
                         </div>
                       </div>
-                    ))}
-                  </div>
-                </ScrollArea>
-              </CardContent>
-            </Card>
-
-            {/* Role Permissions */}
-            <Card>
-              <CardHeader>
-                <CardTitle>
-                  {selectedRole ? `${selectedRole.displayName} Permissions` : "Select a Role"}
-                </CardTitle>
-                <CardDescription>
-                  {selectedRole 
-                    ? "Configure permissions for this role" 
-                    : "Choose a role from the left to manage its permissions"}
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                {selectedRole ? (
+                    </DialogContent>
+                  </Dialog>
+                </CardHeader>
+                <CardContent>
                   <ScrollArea className="h-[400px]">
-                    <div className="space-y-4">
-                      {Object.entries(permissionsByCategory).map(([category, categoryPermissions]) => (
-                        <div key={category} className="space-y-2">
-                          <h4 className="font-medium text-sm text-muted-foreground uppercase tracking-wide">
-                            {category}
-                          </h4>
-                          <div className="space-y-2">
-                            {categoryPermissions.map((permission) => {
-                              const hasPermission = selectedPermissions.has(permission.id);
-                              return (
-                                <div
-                                  key={permission.id}
-                                  className="flex items-center space-x-3 p-2 rounded border"
-                                >
-                                  <Checkbox
-                                    checked={hasPermission}
-                                    onCheckedChange={() => handlePermissionToggle(permission.id, hasPermission)}
-                                    data-testid={`checkbox-permission-${permission.id}`}
-                                  />
-                                  <div className="flex-1">
-                                    <div className="font-medium text-sm">
-                                      {permission.displayName}
-                                    </div>
-                                    <div className="text-xs text-muted-foreground">
-                                      {permission.description}
-                                    </div>
-                                  </div>
-                                  {hasPermission && (
-                                    <Check className="h-4 w-4 text-green-600" />
-                                  )}
-                                </div>
-                              );
-                            })}
+                    <div className="space-y-2">
+                      {roles.map((role) => (
+                        <div
+                          key={role.id}
+                          className={`p-3 rounded-lg border cursor-pointer transition-colors ${
+                            selectedRole?.id === role.id 
+                              ? "bg-primary/10 border-primary" 
+                              : "hover:bg-muted"
+                          }`}
+                          onClick={() => setSelectedRole(role)}
+                          data-testid={`role-item-${role.id}`}
+                        >
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <h4 className="font-medium">{role.displayName}</h4>
+                              <p className="text-sm text-muted-foreground">
+                                {role.description}
+                              </p>
+                              {role.officeId && (
+                                <Badge variant="outline" className="mt-1">
+                                  Office Specific
+                                </Badge>
+                              )}
+                            </div>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                deleteRoleMutation.mutate(role.id);
+                              }}
+                              data-testid={`button-delete-role-${role.id}`}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
                           </div>
-                          <Separator className="my-3" />
                         </div>
                       ))}
                     </div>
                   </ScrollArea>
-                ) : (
-                  <div className="flex items-center justify-center h-[400px] text-muted-foreground">
-                    <div className="text-center">
-                      <Shield className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                      <p>Select a role to configure its permissions</p>
-                    </div>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </div>
-        </TabsContent>
+                </CardContent>
+              </Card>
 
-        <TabsContent value="permissions" className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>System Permissions</CardTitle>
-              <CardDescription>
-                All available permissions organized by category
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <ScrollArea className="h-[600px]">
-                <div className="space-y-6">
-                  {Object.entries(permissionsByCategory).map(([category, categoryPermissions]) => (
-                    <div key={category} className="space-y-3">
-                      <div className="flex items-center space-x-2">
-                        <h3 className="text-lg font-semibold">{category}</h3>
-                        <Badge variant="secondary">{categoryPermissions.length}</Badge>
-                      </div>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                        {categoryPermissions.map((permission) => (
-                          <div
-                            key={permission.id}
-                            className="p-3 border rounded-lg"
-                          >
-                            <div className="font-medium">{permission.displayName}</div>
-                            <div className="text-sm text-muted-foreground">
-                              {permission.description}
+              {/* Role Permissions */}
+              <Card>
+                <CardHeader>
+                  <CardTitle>
+                    {selectedRole ? `${selectedRole.displayName} Permissions` : "Select a Role"}
+                  </CardTitle>
+                  <CardDescription>
+                    {selectedRole 
+                      ? "Configure permissions for this role" 
+                      : "Choose a role from the left to manage its permissions"}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {selectedRole ? (
+                    <ScrollArea className="h-[400px]">
+                      <div className="space-y-4">
+                        {Object.entries(permissionsByCategory).map(([category, categoryPermissions]) => (
+                          <div key={category} className="space-y-2">
+                            <h4 className="font-medium text-sm text-muted-foreground uppercase tracking-wide">
+                              {category}
+                            </h4>
+                            <div className="space-y-2">
+                              {categoryPermissions.map((permission) => {
+                                const hasPermission = selectedPermissions.has(permission.id);
+                                return (
+                                  <div
+                                    key={permission.id}
+                                    className="flex items-center space-x-3 p-2 rounded border"
+                                  >
+                                    <Checkbox
+                                      checked={hasPermission}
+                                      onCheckedChange={() => handlePermissionToggle(permission.id, hasPermission)}
+                                      data-testid={`checkbox-permission-${permission.id}`}
+                                    />
+                                    <div className="flex-1">
+                                      <div className="font-medium text-sm">
+                                        {permission.displayName}
+                                      </div>
+                                      <div className="text-xs text-muted-foreground">
+                                        {permission.description}
+                                      </div>
+                                    </div>
+                                    {hasPermission && (
+                                      <Check className="h-4 w-4 text-green-600" />
+                                    )}
+                                  </div>
+                                );
+                              })}
                             </div>
-                            <div className="flex items-center space-x-2 mt-2">
-                              <Badge variant="outline" className="text-xs">
-                                {permission.resource}.{permission.action}
-                              </Badge>
-                              {permission.isSystemPermission && (
-                                <Badge variant="secondary" className="text-xs">
-                                  System
-                                </Badge>
-                              )}
-                            </div>
+                            <Separator className="my-3" />
                           </div>
                         ))}
                       </div>
-                      <Separator />
+                    </ScrollArea>
+                  ) : (
+                    <div className="flex items-center justify-center h-[400px] text-muted-foreground">
+                      <div className="text-center">
+                        <Shield className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                        <p>Select a role to configure its permissions</p>
+                      </div>
                     </div>
-                  ))}
-                </div>
-              </ScrollArea>
-            </CardContent>
-          </Card>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
         </TabsContent>
 
-        <TabsContent value="assignments" className="space-y-6">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Users List */}
+        <TabsContent value="permissions" className="space-y-6">
             <Card>
               <CardHeader>
-                <CardTitle>Users</CardTitle>
+                <CardTitle>System Permissions</CardTitle>
                 <CardDescription>
-                  Select a user to manage their role assignments
+                  All available permissions organized by category
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <ScrollArea className="h-[500px]">
-                  <div className="space-y-2">
-                    {users.map((user) => (
-                      <div
-                        key={user.id}
-                        className={`p-3 rounded-lg border cursor-pointer transition-colors ${
-                          selectedUser?.id === user.id 
-                            ? "bg-primary/10 border-primary" 
-                            : "hover:bg-muted"
-                        }`}
-                        onClick={() => setSelectedUser(user)}
-                        data-testid={`user-item-${user.id}`}
-                      >
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center space-x-3">
-                            <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center">
-                              <Users className="h-4 w-4" />
-                            </div>
-                            <div>
-                              <h4 className="font-medium">
-                                {user.firstName} {user.lastName}
-                              </h4>
-                              <p className="text-sm text-muted-foreground">
-                                {user.email}
-                              </p>
-                            </div>
-                          </div>
-                          <Badge variant="outline">
-                            {(user as any).role || 'No Role'}
-                          </Badge>
+                <ScrollArea className="h-[600px]">
+                  <div className="space-y-6">
+                    {Object.entries(permissionsByCategory).map(([category, categoryPermissions]) => (
+                      <div key={category} className="space-y-3">
+                        <div className="flex items-center space-x-2">
+                          <h3 className="text-lg font-semibold">{category}</h3>
+                          <Badge variant="secondary">{categoryPermissions.length}</Badge>
                         </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                          {categoryPermissions.map((permission) => (
+                            <div
+                              key={permission.id}
+                              className="p-3 border rounded-lg"
+                            >
+                              <div className="font-medium">{permission.displayName}</div>
+                              <div className="text-sm text-muted-foreground">
+                                {permission.description}
+                              </div>
+                              <div className="flex items-center space-x-2 mt-2">
+                                <Badge variant="outline" className="text-xs">
+                                  {permission.resource}.{permission.action}
+                                </Badge>
+                                {permission.isSystemPermission && (
+                                  <Badge variant="secondary" className="text-xs">
+                                    System
+                                  </Badge>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                        <Separator />
                       </div>
                     ))}
                   </div>
                 </ScrollArea>
               </CardContent>
             </Card>
-
-            {/* User Role Management */}
-            <Card>
-              <CardHeader>
-                <CardTitle>
-                  {selectedUser 
-                    ? `${selectedUser.firstName} ${selectedUser.lastName} - Role Assignments` 
-                    : "Select a User"}
-                </CardTitle>
-                <CardDescription>
-                  {selectedUser 
-                    ? "Manage custom role assignments for this user" 
-                    : "Choose a user from the left to manage their role assignments"}
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                {selectedUser ? (
-                  <UserRoleAssignments 
-                    user={selectedUser}
-                    roles={roles}
-                    onAssignRole={(roleId: string) => {
-                      assignRoleMutation.mutate({
-                        userId: selectedUser.id,
-                        roleId,
-                        assignedBy: "current-user", // This should come from auth context
-                      });
-                    }}
-                    onRemoveRole={(roleId: string) => {
-                      removeRoleMutation.mutate({
-                        userId: selectedUser.id,
-                        roleId,
-                      });
-                    }}
-                  />
-                ) : (
-                  <div className="flex items-center justify-center h-[400px] text-muted-foreground">
-                    <div className="text-center">
-                      <Users className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                      <p>Select a user to manage their role assignments</p>
-                    </div>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </div>
         </TabsContent>
-      </Tabs>
+
+        <TabsContent value="assignments" className="space-y-6">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* Users List */}
+              <Card>
+                <CardHeader>
+                  <CardTitle>Users</CardTitle>
+                  <CardDescription>
+                    Select a user to manage their role assignments
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <ScrollArea className="h-[500px]">
+                    <div className="space-y-2">
+                      {users.map((user) => (
+                        <div
+                          key={user.id}
+                          className={`p-3 rounded-lg border cursor-pointer transition-colors ${
+                            selectedUser?.id === user.id 
+                              ? "bg-primary/10 border-primary" 
+                              : "hover:bg-muted"
+                          }`}
+                          onClick={() => setSelectedUser(user)}
+                          data-testid={`user-item-${user.id}`}
+                        >
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center space-x-3">
+                              <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center">
+                                <Users className="h-4 w-4" />
+                              </div>
+                              <div>
+                                <h4 className="font-medium">
+                                  {user.firstName} {user.lastName}
+                                </h4>
+                                <p className="text-sm text-muted-foreground">
+                                  {user.email}
+                                </p>
+                              </div>
+                            </div>
+                            <Badge variant="outline">
+                              {(user as any).role || 'No Role'}
+                            </Badge>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </ScrollArea>
+                </CardContent>
+              </Card>
+
+              {/* User Role Management */}
+              <Card>
+                <CardHeader>
+                  <CardTitle>
+                    {selectedUser 
+                      ? `${selectedUser.firstName} ${selectedUser.lastName} - Role Assignments` 
+                      : "Select a User"}
+                  </CardTitle>
+                  <CardDescription>
+                    {selectedUser 
+                      ? "Manage custom role assignments for this user" 
+                      : "Choose a user from the left to manage their role assignments"}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {selectedUser ? (
+                    <UserRoleAssignments 
+                      user={selectedUser}
+                      roles={roles}
+                      onAssignRole={(roleId: string) => {
+                        assignRoleMutation.mutate({
+                          userId: selectedUser.id,
+                          roleId,
+                          assignedBy: "current-user", // This should come from auth context
+                        });
+                      }}
+                      onRemoveRole={(roleId: string) => {
+                        removeRoleMutation.mutate({
+                          userId: selectedUser.id,
+                          roleId,
+                        });
+                      }}
+                    />
+                  ) : (
+                    <div className="flex items-center justify-center h-[400px] text-muted-foreground">
+                      <div className="text-center">
+                        <Users className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                        <p>Select a user to manage their role assignments</p>
+                      </div>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+              </TabsContent>
+            </Tabs>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
