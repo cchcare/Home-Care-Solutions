@@ -869,6 +869,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.post("/api/training-records/bulk-assign", isAuthenticated, async (req: any, res) => {
+    try {
+      const { trainingId, caregiverIds } = req.body;
+      
+      if (!trainingId || !Array.isArray(caregiverIds) || caregiverIds.length === 0) {
+        return res.status(400).json({ message: "Training ID and caregiver IDs are required" });
+      }
+
+      const records = [];
+      for (const caregiverId of caregiverIds) {
+        const recordData = {
+          caregiverId,
+          trainingId,
+          status: "not_started" as const,
+          startDate: new Date(),
+        };
+        const record = await storage.createTrainingRecord(recordData);
+        records.push(record);
+      }
+
+      res.status(201).json({ 
+        message: `Training assigned to ${records.length} caregivers`, 
+        records 
+      });
+    } catch (error) {
+      console.error("Error bulk assigning training:", error);
+      res.status(400).json({ message: "Failed to bulk assign training" });
+    }
+  });
+
   // Object storage routes
   app.get("/objects/:objectPath(*)", isAuthenticated, async (req: any, res) => {
     const userId = req.user?.claims?.sub;

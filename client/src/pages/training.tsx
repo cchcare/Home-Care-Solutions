@@ -34,6 +34,7 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
+import { Checkbox } from "@/components/ui/checkbox";
 import { ObjectUploader } from "@/components/ObjectUploader";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -84,22 +85,24 @@ const statusColors = {
 export default function Training() {
   const [searchTerm, setSearchTerm] = useState("");
   const [showAddModal, setShowAddModal] = useState(false);
+  const [showAssignModal, setShowAssignModal] = useState(false);
   const [selectedTraining, setSelectedTraining] = useState<Training | null>(null);
+  const [selectedCaregivers, setSelectedCaregivers] = useState<string[]>([]);
   const [activeTab, setActiveTab] = useState<"trainings" | "records">("trainings");
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  const { data: trainings, isLoading: trainingsLoading } = useQuery({
+  const { data: trainings = [], isLoading: trainingsLoading } = useQuery<Training[]>({
     queryKey: ["/api/trainings", searchTerm],
     retry: false,
   });
 
-  const { data: trainingRecords, isLoading: recordsLoading } = useQuery({
+  const { data: trainingRecords = [], isLoading: recordsLoading } = useQuery<TrainingRecord[]>({
     queryKey: ["/api/training-records", searchTerm],
     retry: false,
   });
 
-  const { data: caregivers } = useQuery({
+  const { data: caregivers = [] } = useQuery<Caregiver[]>({
     queryKey: ["/api/caregivers"],
     retry: false,
   });
@@ -115,6 +118,44 @@ export default function Training() {
       isRequired: false,
       materialUrl: "",
       officeId: ""
+    },
+  });
+
+  const bulkAssignMutation = useMutation({
+    mutationFn: async ({ trainingId, caregiverIds }: { trainingId: string; caregiverIds: string[] }) => {
+      const response = await apiRequest("POST", "/api/training-records/bulk-assign", {
+        trainingId,
+        caregiverIds
+      });
+      return response.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/training-records"] });
+      setShowAssignModal(false);
+      setSelectedTraining(null);
+      setSelectedCaregivers([]);
+      toast({
+        title: "Success",
+        description: data.message,
+      });
+    },
+    onError: (error) => {
+      if (isUnauthorizedError(error as Error)) {
+        toast({
+          title: "Unauthorized",
+          description: "You are logged out. Logging in again...",
+          variant: "destructive",
+        });
+        setTimeout(() => {
+          window.location.href = "/api/login";
+        }, 500);
+        return;
+      }
+      toast({
+        title: "Error",
+        description: "Failed to assign training to caregivers",
+        variant: "destructive",
+      });
     },
   });
 
@@ -175,6 +216,38 @@ export default function Training() {
     createTrainingMutation.mutate(data);
   };
 
+  const handleSelectAllCaregivers = () => {
+    if (selectedCaregivers.length === (caregivers?.length || 0)) {
+      setSelectedCaregivers([]);
+    } else {
+      setSelectedCaregivers(caregivers?.map((c: Caregiver) => c.id) || []);
+    }
+  };
+
+  const handleCaregiverToggle = (caregiverId: string) => {
+    setSelectedCaregivers(prev => 
+      prev.includes(caregiverId) 
+        ? prev.filter(id => id !== caregiverId)
+        : [...prev, caregiverId]
+    );
+  };
+
+  const handleBulkAssign = () => {
+    if (!selectedTraining || selectedCaregivers.length === 0) {
+      toast({
+        title: "Error",
+        description: "Please select a training and at least one caregiver",
+        variant: "destructive",
+      });
+      return;
+    }
+    
+    bulkAssignMutation.mutate({
+      trainingId: selectedTraining.id,
+      caregiverIds: selectedCaregivers
+    });
+  };
+
   const filteredTrainings = trainings?.filter((training: Training) => {
     if (!searchTerm) return true;
     return (
@@ -186,7 +259,7 @@ export default function Training() {
   const filteredRecords = trainingRecords?.filter((record: TrainingRecord) => {
     if (!searchTerm) return true;
     const caregiver = caregivers?.find((c: Caregiver) => c.id === record.caregiverId);
-    const caregiverName = caregiver ? `${caregiver.firstName} ${caregiver.lastName}` : "";
+    const caregiverName = caregiver ? `${(caregiver as any).firstName || 'Unknown'} ${(caregiver as any).lastName || 'Caregiver'}` : "";
     const training = trainings?.find((t: Training) => t.id === record.trainingId);
     return (
       caregiverName.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -237,14 +310,15 @@ export default function Training() {
             <h1 className="text-2xl font-bold">Training Management</h1>
           </div>
           
-          <Dialog open={showAddModal} onOpenChange={setShowAddModal}>
-            <DialogTrigger asChild>
-              <Button data-testid="button-add-training">
-                <Plus className="w-4 h-4 mr-2" />
-                Add Training
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="max-w-2xl">
+          <div className="flex gap-2">
+            <Dialog open={showAddModal} onOpenChange={setShowAddModal}>
+              <DialogTrigger asChild>
+                <Button data-testid="button-add-training">
+                  <Plus className="w-4 h-4 mr-2" />
+                  Add Training
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="max-w-2xl">
               <DialogHeader>
                 <DialogTitle>Add New Training Program</DialogTitle>
                 <DialogDescription>
@@ -408,7 +482,111 @@ export default function Training() {
               </Form>
             </DialogContent>
           </Dialog>
+          
+          <Button 
+            variant="outline" 
+            onClick={() => setShowAssignModal(true)}
+            data-testid="button-assign-training"
+          >
+            <Users className="w-4 h-4 mr-2" />
+            Assign Training
+          </Button>
+          </div>
         </div>
+        
+        {/* Training Assignment Dialog */}
+        <Dialog open={showAssignModal} onOpenChange={setShowAssignModal}>
+          <DialogContent className="max-w-2xl max-h-[80vh] overflow-auto">
+            <DialogHeader>
+              <DialogTitle>Assign Training to Caregivers</DialogTitle>
+              <DialogDescription>
+                Select a training program and choose caregivers to assign it to.
+              </DialogDescription>
+            </DialogHeader>
+            
+            <div className="space-y-6">
+              {/* Training Selection */}
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Select Training</label>
+                <Select onValueChange={(value) => {
+                  const training = trainings?.find((t: Training) => t.id === value);
+                  setSelectedTraining(training || null);
+                }}>
+                  <SelectTrigger data-testid="select-training">
+                    <SelectValue placeholder="Choose a training program" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {trainings?.map((training: Training) => (
+                      <SelectItem key={training.id} value={training.id}>
+                        {training.title}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              
+              {/* Caregiver Selection */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-sm font-medium">Select Caregivers</label>
+                  <Button
+                    variant="ghost" 
+                    size="sm"
+                    onClick={handleSelectAllCaregivers}
+                    data-testid="button-select-all"
+                  >
+                    {selectedCaregivers.length === (caregivers?.length || 0) ? "Deselect All" : "Select All"}
+                  </Button>
+                </div>
+                
+                <div className="border rounded-lg p-4 max-h-64 overflow-auto space-y-2">
+                  {caregivers?.map((caregiver: Caregiver) => (
+                    <div key={caregiver.id} className="flex items-center space-x-2">
+                      <Checkbox
+                        id={caregiver.id}
+                        checked={selectedCaregivers.includes(caregiver.id)}
+                        onCheckedChange={() => handleCaregiverToggle(caregiver.id)}
+                        data-testid={`checkbox-caregiver-${caregiver.id}`}
+                      />
+                      <label htmlFor={caregiver.id} className="flex-1 cursor-pointer">
+                        {(caregiver as any).firstName || 'Unknown'} {(caregiver as any).lastName || 'Caregiver'}
+                        <span className="text-sm text-muted-foreground ml-2">
+                          ({caregiver.specializations?.join(", ") || "No specializations"})
+                        </span>
+                      </label>
+                    </div>
+                  ))}
+                </div>
+                
+                <div className="text-sm text-muted-foreground">
+                  {selectedCaregivers.length} of {caregivers?.length || 0} caregivers selected
+                </div>
+              </div>
+              
+              {/* Action Buttons */}
+              <div className="flex justify-end space-x-2 pt-4">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setShowAssignModal(false);
+                    setSelectedTraining(null);
+                    setSelectedCaregivers([]);
+                  }}
+                  data-testid="button-cancel-assign"
+                >
+                  Cancel
+                </Button>
+                <Button 
+                  onClick={handleBulkAssign}
+                  disabled={!selectedTraining || selectedCaregivers.length === 0 || bulkAssignMutation.isPending}
+                  data-testid="button-confirm-assign"
+                >
+                  {bulkAssignMutation.isPending ? "Assigning..." : `Assign to ${selectedCaregivers.length} Caregiver${selectedCaregivers.length !== 1 ? 's' : ''}`}
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
 
         {/* Tab Navigation */}
         <div className="flex space-x-1 mb-6 bg-muted p-1 rounded-lg w-fit">
@@ -531,7 +709,7 @@ export default function Training() {
                       <div className="flex items-center gap-2">
                         <Users className="w-4 h-4 text-muted-foreground" />
                         <span className="font-medium">
-                          {caregiver ? `${caregiver.firstName} ${caregiver.lastName}` : "Unknown Caregiver"}
+                          {caregiver ? `${(caregiver as any).firstName || 'Unknown'} ${(caregiver as any).lastName || 'Caregiver'}` : "Unknown Caregiver"}
                         </span>
                       </div>
                       
