@@ -354,8 +354,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/caregivers", isAuthenticated, async (req: any, res) => {
     try {
-      // Extract user info from the request body
-      const { email, firstName, middleName, lastName, dateOfBirth, ...caregiverData } = req.body;
+      // Extract user info and client assignments from the request body
+      const { email, firstName, middleName, lastName, dateOfBirth, clientIds, ...caregiverData } = req.body;
       
       // Convert date strings to Date objects if they're strings
       const processedDateOfBirth = dateOfBirth && typeof dateOfBirth === 'string' ? new Date(dateOfBirth) : dateOfBirth;
@@ -372,7 +372,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         role: "caregiver"
       });
       
-      // Then create the caregiver record linked to the user
+      // Then create the caregiver record linked to the user (exclude clientIds from caregiver data)
       const validatedCaregiverData = insertCaregiverSchema.parse({
         ...caregiverData,
         hireDate: processedHireDate,
@@ -381,6 +381,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
       
       const caregiver = await storage.createCaregiver(validatedCaregiverData);
+      
+      // Assign clients to caregiver if provided
+      if (clientIds && Array.isArray(clientIds) && clientIds.length > 0) {
+        await storage.assignClientsToCaregiver(caregiver.id, clientIds);
+      }
       
       await storage.createAuditLog({
         userId: req.user.claims.sub,
@@ -393,7 +398,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           userFirstName: firstName, 
           userMiddleName: middleName,
           userLastName: lastName,
-          userDateOfBirth: dateOfBirth
+          userDateOfBirth: dateOfBirth,
+          assignedClients: clientIds
         },
         ipAddress: req.ip,
         userAgent: req.get("User-Agent"),

@@ -68,9 +68,12 @@ import {
   userCustomRoles,
   type UserCustomRole,
   type InsertUserCustomRole,
+  clientCaregiverAssignments,
+  type ClientCaregiverAssignment,
+  type InsertClientCaregiverAssignment,
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, desc, and, or, count, sql, like, gte, lte } from "drizzle-orm";
+import { eq, desc, asc, and, or, count, sql, like, gte, lte } from "drizzle-orm";
 
 export interface IStorage {
   // User operations
@@ -99,6 +102,12 @@ export interface IStorage {
   createCaregiver(caregiver: InsertCaregiver): Promise<Caregiver>;
   updateCaregiver(id: string, caregiver: Partial<InsertCaregiver>): Promise<Caregiver>;
   deleteCaregiver(id: string): Promise<void>;
+  
+  // Client-Caregiver assignment operations
+  assignClientsToCaregiver(caregiverId: string, clientIds: string[]): Promise<void>;
+  unassignClientsFromCaregiver(caregiverId: string, clientIds: string[]): Promise<void>;
+  getAssignedClientsByCaregiver(caregiverId: string): Promise<Client[]>;
+  getAssignedCaregiversByClient(clientId: string): Promise<Caregiver[]>;
 
   // Care plan operations
   getCarePlansByClient(clientId: string): Promise<CarePlan[]>;
@@ -350,6 +359,56 @@ export class DatabaseStorage implements IStorage {
 
   async deleteCaregiver(id: string): Promise<void> {
     await db.delete(caregivers).where(eq(caregivers.id, id));
+  }
+
+  // Client-Caregiver assignment operations
+  async assignClientsToCaregiver(caregiverId: string, clientIds: string[]): Promise<void> {
+    if (clientIds.length === 0) return;
+    
+    const assignments = clientIds.map(clientId => ({
+      caregiverId,
+      clientId,
+      assignedDate: new Date(),
+    }));
+    
+    await db.insert(clientCaregiverAssignments).values(assignments).onConflictDoNothing();
+  }
+
+  async unassignClientsFromCaregiver(caregiverId: string, clientIds: string[]): Promise<void> {
+    if (clientIds.length === 0) return;
+    
+    await db
+      .delete(clientCaregiverAssignments)
+      .where(
+        and(
+          eq(clientCaregiverAssignments.caregiverId, caregiverId),
+          or(...clientIds.map(clientId => eq(clientCaregiverAssignments.clientId, clientId)))
+        )
+      );
+  }
+
+  async getAssignedClientsByCaregiver(caregiverId: string): Promise<Client[]> {
+    const result = await db
+      .select({
+        client: clients,
+      })
+      .from(clientCaregiverAssignments)
+      .innerJoin(clients, eq(clientCaregiverAssignments.clientId, clients.id))
+      .where(eq(clientCaregiverAssignments.caregiverId, caregiverId));
+    
+    return result.map(row => row.client);
+  }
+
+  async getAssignedCaregiversByClient(clientId: string): Promise<Caregiver[]> {
+    const result = await db
+      .select({
+        caregiver: caregivers,
+      })
+      .from(clientCaregiverAssignments)
+      .innerJoin(caregivers, eq(clientCaregiverAssignments.caregiverId, caregivers.id))
+      .where(eq(clientCaregiverAssignments.clientId, clientId));
+    
+    return result.map(row => row.caregiver);
   }
 
   // Care plan operations

@@ -27,12 +27,13 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Save, X } from "lucide-react";
-import { insertCaregiverSchema, type Office } from "@shared/schema";
+import { insertCaregiverSchema, type Office, type Client } from "@shared/schema";
 
 const caregiverFormSchema = insertCaregiverSchema.extend({
   employeeId: z.string().min(1, "Employee ID is required"),
   hourlyWage: z.number().min(0, "Hourly wage must be 0 or greater"),
   officeId: z.string().min(1, "Office assignment is required"),
+  gender: z.enum(["male", "female", "non_binary", "prefer_not_to_say"]).optional(),
   // User information for login account
   email: z.string().email("Please enter a valid email address"),
   firstName: z.string().min(1, "First name is required"),
@@ -40,6 +41,8 @@ const caregiverFormSchema = insertCaregiverSchema.extend({
   lastName: z.string().min(1, "Last name is required"),
   dateOfBirth: z.date().optional(),
   hireDate: z.date().optional(),
+  // Client assignments
+  clientIds: z.array(z.string()).optional(),
 });
 
 type CaregiverFormData = z.infer<typeof caregiverFormSchema>;
@@ -57,12 +60,18 @@ export function AddCaregiverModal({ isOpen, onClose, onSubmit, isLoading }: AddC
     retry: false,
   });
 
+  const { data: clients = [] } = useQuery<Client[]>({
+    queryKey: ["/api/clients"],
+    retry: false,
+  });
+
   const form = useForm<CaregiverFormData>({
     resolver: zodResolver(caregiverFormSchema),
     defaultValues: {
       employeeId: "",
       hourlyWage: 0,
       officeId: "",
+      gender: undefined,
       isActive: true,
       email: "",
       firstName: "",
@@ -71,6 +80,7 @@ export function AddCaregiverModal({ isOpen, onClose, onSubmit, isLoading }: AddC
       dateOfBirth: undefined,
       startDate: undefined,
       hireDate: undefined,
+      clientIds: [],
     },
   });
 
@@ -201,6 +211,29 @@ export function AddCaregiverModal({ isOpen, onClose, onSubmit, isLoading }: AddC
                     </FormItem>
                   )}
                 />
+                <FormField
+                  control={form.control}
+                  name="gender"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Gender</FormLabel>
+                      <Select onValueChange={field.onChange} value={field.value || ""}>
+                        <FormControl>
+                          <SelectTrigger data-testid="select-gender">
+                            <SelectValue placeholder="Select gender" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="male">Male</SelectItem>
+                          <SelectItem value="female">Female</SelectItem>
+                          <SelectItem value="non_binary">Non-Binary</SelectItem>
+                          <SelectItem value="prefer_not_to_say">Prefer not to say</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
               </div>
 
               <FormField
@@ -308,6 +341,57 @@ export function AddCaregiverModal({ isOpen, onClose, onSubmit, isLoading }: AddC
                 />
               </div>
 
+            </div>
+
+            {/* Client Assignment Section */}
+            <div className="space-y-4">
+              <h4 className="font-semibold text-foreground">Client Assignment</h4>
+              
+              <FormField
+                control={form.control}
+                name="clientIds"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Assign Clients (Optional)</FormLabel>
+                    <div className="space-y-2">
+                      {clients.map((client) => (
+                        <div key={client.id} className="flex items-center space-x-2">
+                          <input
+                            type="checkbox"
+                            id={`client-${client.id}`}
+                            checked={field.value?.includes(client.id) || false}
+                            onChange={(e) => {
+                              const currentIds = field.value || [];
+                              if (e.target.checked) {
+                                field.onChange([...currentIds, client.id]);
+                              } else {
+                                field.onChange(currentIds.filter(id => id !== client.id));
+                              }
+                            }}
+                            data-testid={`checkbox-client-${client.id}`}
+                            className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                          />
+                          <label 
+                            htmlFor={`client-${client.id}`}
+                            className="text-sm text-foreground cursor-pointer"
+                          >
+                            {client.firstName} {client.lastName}
+                          </label>
+                        </div>
+                      ))}
+                      {clients.length === 0 && (
+                        <p className="text-sm text-muted-foreground italic">
+                          No clients available. Add clients first to assign them to this caregiver.
+                        </p>
+                      )}
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Select clients that this caregiver will be responsible for
+                    </p>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
             </div>
 
             {/* Submit Buttons */}

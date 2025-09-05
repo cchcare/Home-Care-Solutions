@@ -30,6 +30,9 @@ export const sessions = pgTable(
 // User roles enum - keeping base roles for system functionality
 export const roleEnum = pgEnum("role", ["super_admin", "admin", "office_admin", "supervisor", "caregiver", "family", "custom"]);
 
+// Gender enum for caregivers and clients
+export const genderEnum = pgEnum("gender", ["male", "female", "non_binary", "prefer_not_to_say"]);
+
 // Office/Location management
 export const offices = pgTable("offices", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -88,6 +91,7 @@ export const caregivers = pgTable("caregivers", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id").references(() => users.id),
   employeeId: varchar("employee_id").unique(),
+  gender: genderEnum("gender"),
   hireDate: timestamp("hire_date"),
   startDate: timestamp("start_date"),
   experienceYears: integer("experience_years"),
@@ -257,6 +261,21 @@ export const familyMembers = pgTable("family_members", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
+// Client-Caregiver assignment relationship
+export const clientCaregiverAssignments = pgTable("client_caregiver_assignments", {
+  clientId: varchar("client_id").notNull().references(() => clients.id),
+  caregiverId: varchar("caregiver_id").notNull().references(() => caregivers.id),
+  assignedDate: timestamp("assigned_date").defaultNow(),
+  endDate: timestamp("end_date"),
+  isPrimary: boolean("is_primary").default(false),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  // Composite primary key ensures unique client-caregiver relationships
+  pk: primaryKey({ columns: [table.clientId, table.caregiverId] }),
+}));
+
 // Client-Family relationship
 export const clientFamilyMembers = pgTable("client_family_members", {
   clientId: varchar("client_id").notNull().references(() => clients.id),
@@ -344,6 +363,7 @@ export const clientsRelations = relations(clients, ({ one, many }) => ({
     fields: [clients.officeId],
     references: [offices.id],
   }),
+  caregiverAssignments: many(clientCaregiverAssignments),
   carePlans: many(carePlans),
   progressNotes: many(progressNotes),
   documents: many(documents),
@@ -364,6 +384,7 @@ export const caregiversRelations = relations(caregivers, ({ one, many }) => ({
     references: [offices.id],
   }),
   clients: many(clients),
+  clientAssignments: many(clientCaregiverAssignments),
   certifications: many(certifications),
   progressNotes: many(progressNotes),
   documents: many(documents),
@@ -498,6 +519,17 @@ export const clientFamilyMembersRelations = relations(clientFamilyMembers, ({ on
   familyMember: one(familyMembers, {
     fields: [clientFamilyMembers.familyMemberId],
     references: [familyMembers.id],
+  }),
+}));
+
+export const clientCaregiverAssignmentsRelations = relations(clientCaregiverAssignments, ({ one }) => ({
+  client: one(clients, {
+    fields: [clientCaregiverAssignments.clientId],
+    references: [clients.id],
+  }),
+  caregiver: one(caregivers, {
+    fields: [clientCaregiverAssignments.caregiverId],
+    references: [caregivers.id],
   }),
 }));
 
@@ -683,6 +715,10 @@ export const insertClientFamilyMemberSchema = createInsertSchema(clientFamilyMem
 export type FamilyUpdate = typeof familyUpdates.$inferSelect;
 export type InsertFamilyUpdate = typeof familyUpdates.$inferInsert;
 export const insertFamilyUpdateSchema = createInsertSchema(familyUpdates);
+
+export type ClientCaregiverAssignment = typeof clientCaregiverAssignments.$inferSelect;
+export type InsertClientCaregiverAssignment = typeof clientCaregiverAssignments.$inferInsert;
+export const insertClientCaregiverAssignmentSchema = createInsertSchema(clientCaregiverAssignments);
 
 // Custom Roles and Permissions System
 export const customRoles = pgTable("custom_roles", {
