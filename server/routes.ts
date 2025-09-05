@@ -357,19 +357,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Extract user info from the request body
       const { email, firstName, middleName, lastName, dateOfBirth, ...caregiverData } = req.body;
       
+      // Convert date strings to Date objects if they're strings
+      const processedDateOfBirth = dateOfBirth && typeof dateOfBirth === 'string' ? new Date(dateOfBirth) : dateOfBirth;
+      const processedHireDate = caregiverData.hireDate && typeof caregiverData.hireDate === 'string' ? new Date(caregiverData.hireDate) : caregiverData.hireDate;
+      const processedStartDate = caregiverData.startDate && typeof caregiverData.startDate === 'string' ? new Date(caregiverData.startDate) : caregiverData.startDate;
+      
       // First create the user account for login
       const user = await storage.upsertUser({
         email,
         firstName,
         middleName,
         lastName,
-        dateOfBirth,
+        dateOfBirth: processedDateOfBirth,
         role: "caregiver"
       });
       
       // Then create the caregiver record linked to the user
       const validatedCaregiverData = insertCaregiverSchema.parse({
         ...caregiverData,
+        hireDate: processedHireDate,
+        startDate: processedStartDate,
         userId: user.id
       });
       
