@@ -35,12 +35,12 @@ export default function Documents() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  const { data: documents, isLoading } = useQuery({
+  const { data: documents = [], isLoading } = useQuery<Document[]>({
     queryKey: ["/api/documents"],
     retry: false,
   });
 
-  const { data: clients } = useQuery({
+  const { data: clients = [] } = useQuery({
     queryKey: ["/api/clients"],
     retry: false,
   });
