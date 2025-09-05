@@ -2,7 +2,7 @@
 
 ## Overview
 
-CareConnect is a comprehensive HIPAA-compliant home care agency management system built with React, TypeScript, Express, and PostgreSQL. The application streamlines operations for home care agencies by providing tools for client management, caregiver coordination, compliance tracking, document management, and regulatory oversight. It features a modern web interface with secure authentication, role-based access control, and robust data storage capabilities designed specifically for healthcare environments.
+Home Care is a comprehensive HIPAA-compliant home care agency management system built with React, TypeScript, Express, and PostgreSQL. The application streamlines operations for home care agencies by providing tools for client management, caregiver coordination, compliance tracking, document management, and regulatory oversight. It features a modern web interface with secure authentication, role-based access control, and robust data storage capabilities designed specifically for healthcare environments.
 
 ## User Preferences
 
