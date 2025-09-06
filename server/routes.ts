@@ -192,7 +192,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       let clients;
       
       if (search) {
-        clients = await storage.searchClients(search as string);
+        // Validate search parameter to prevent injection attacks
+        if (typeof search !== 'string' || search.length > 100 || search.trim().length === 0) {
+          return res.status(400).json({ message: "Invalid search parameter" });
+        }
+        
+        // Sanitize search input (remove potentially dangerous characters)
+        const sanitizedSearch = search.replace(/[<>\"'%;()&+]/g, '');
+        
+        clients = await storage.searchClients(sanitizedSearch);
       } else {
         clients = await storage.getAllClients();
       }
