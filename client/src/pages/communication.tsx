@@ -191,7 +191,7 @@ export default function Communication() {
       externalId: true
     })),
     defaultValues: {
-      recipientId: null,
+      recipientId: "",
       subject: "",
       content: "",
       priority: "normal" as const,
@@ -315,7 +315,7 @@ export default function Communication() {
     
     // For external communications (email/SMS), don't send recipientId
     if (values.communicationType === 'email' || values.communicationType === 'sms') {
-      cleanedValues.recipientId = null;
+      delete cleanedValues.recipientId; // Remove the field entirely
     }
     
     // For internal messages, don't send external recipient fields
@@ -766,10 +766,10 @@ export default function Communication() {
                         setCommunicationType(value as any);
                         // Reset recipient fields when switching types
                         if (value === 'email') {
-                          form.setValue('recipientId', null);
+                          form.setValue('recipientId', '');
                           form.setValue('recipientPhone', '');
                         } else if (value === 'sms') {
-                          form.setValue('recipientId', null);
+                          form.setValue('recipientId', '');
                           form.setValue('recipientEmail', '');
                         } else if (value === 'internal') {
                           form.setValue('recipientEmail', '');
