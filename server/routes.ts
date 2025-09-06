@@ -1086,11 +1086,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       // Only allow updating certain fields for self-profile
-      const allowedFields = { 
-        firstName: true, 
-        lastName: true, 
-        profileImageUrl: true 
-      };
+      const allowedFields = new Set(['firstName', 'lastName', 'profileImageUrl']);
       
       const sanitizedData: any = {};
       Object.keys(req.body).forEach(key => {
@@ -1098,7 +1094,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (key === '__proto__' || key === 'constructor' || key === 'prototype') {
           return;
         }
-        if (Object.prototype.hasOwnProperty.call(allowedFields, key)) {
+        if (allowedFields.has(key)) {
           sanitizedData[key] = req.body[key];
         }
       });
