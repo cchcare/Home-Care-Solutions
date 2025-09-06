@@ -505,13 +505,13 @@ export default function Communication() {
           subtitle="Internal messaging and notifications"
         />
         
-        {/* Header */}
-        <header className="bg-card border-b border-border h-16 flex items-center justify-between px-6 flex-shrink-0">
+        {/* Action Bar */}
+        <div className="bg-background border-b border-border px-6 py-3 flex items-center justify-between flex-shrink-0">
           <div className="flex items-center space-x-4">
-            <MessageCircle className="w-6 h-6 text-primary" />
-            <div>
-              <h1 className="text-lg font-semibold text-foreground">Messages</h1>
-            </div>
+            <MessageCircle className="w-5 h-5 text-primary" />
+            <span className="text-sm text-muted-foreground">
+              {activeTab === "channel" ? "Team Communication" : "Personal Messages"}
+            </span>
           </div>
           {activeTab !== "channel" && (
             <Button onClick={() => setShowComposeModal(true)} data-testid="button-compose-message">
@@ -519,7 +519,7 @@ export default function Communication() {
               Compose Message
             </Button>
           )}
-        </header>
+        </div>
 
         {/* Content */}
         <div className="flex-1 overflow-auto p-6 bg-background">
