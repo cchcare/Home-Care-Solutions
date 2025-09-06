@@ -301,7 +301,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Invalid data format" });
       }
 
-      const results = {
+      interface BulkImportError {
+        row: number;
+        error: string;
+        // Don't include sensitive data in error responses
+      }
+      
+      const results: {
+        totalRows: number;
+        successfulImports: number;
+        errors: BulkImportError[];
+      } = {
         totalRows: data.length,
         successfulImports: 0,
         errors: []
@@ -330,10 +340,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
           
           results.successfulImports++;
         } catch (error: any) {
+          // Sanitize error message to avoid exposing sensitive data
+          const sanitizedError = error.message?.includes('duplicate') ? 'Record already exists' : 
+                                error.message?.includes('validation') ? 'Invalid data format' :
+                                'Failed to import record';
           results.errors.push({
             row: i + 1,
-            error: error.message || "Unknown error",
-            data: data[i]
+            error: sanitizedError
           });
         }
       }
@@ -439,7 +452,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Invalid data format" });
       }
 
-      const results = {
+      interface BulkImportError {
+        row: number;
+        error: string;
+        // Don't include sensitive data in error responses
+      }
+      
+      const results: {
+        totalRows: number;
+        successfulImports: number;
+        errors: BulkImportError[];
+      } = {
         totalRows: data.length,
         successfulImports: 0,
         errors: []
@@ -490,10 +513,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
           
           results.successfulImports++;
         } catch (error: any) {
+          // Sanitize error message to avoid exposing sensitive data
+          const sanitizedError = error.message?.includes('duplicate') ? 'Record already exists' : 
+                                error.message?.includes('validation') ? 'Invalid data format' :
+                                'Failed to import record';
           results.errors.push({
             row: i + 1,
-            error: error.message || "Unknown error",
-            data: data[i]
+            error: sanitizedError
           });
         }
       }
