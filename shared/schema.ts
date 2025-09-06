@@ -222,7 +222,7 @@ export const deliveryStatusEnum = pgEnum("delivery_status", ["pending", "sent", 
 export const messages = pgTable("messages", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   senderId: varchar("sender_id").references(() => users.id),
-  recipientId: varchar("recipient_id").references(() => users.id),
+  recipientId: varchar("recipient_id").references(() => users.id), // nullable for external communications
   subject: varchar("subject"),
   content: text("content").notNull(),
   isRead: boolean("is_read").default(false),

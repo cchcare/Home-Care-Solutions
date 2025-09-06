@@ -191,7 +191,7 @@ export default function Communication() {
       externalId: true
     })),
     defaultValues: {
-      recipientId: "",
+      recipientId: null,
       subject: "",
       content: "",
       priority: "normal" as const,
@@ -310,7 +310,21 @@ export default function Communication() {
   });
 
   const onSubmit = (values: any) => {
-    sendMessageMutation.mutate(values);
+    // Clean up the values based on communication type
+    const cleanedValues = { ...values };
+    
+    // For external communications (email/SMS), don't send recipientId
+    if (values.communicationType === 'email' || values.communicationType === 'sms') {
+      cleanedValues.recipientId = null;
+    }
+    
+    // For internal messages, don't send external recipient fields
+    if (values.communicationType === 'internal') {
+      cleanedValues.recipientEmail = '';
+      cleanedValues.recipientPhone = '';
+    }
+    
+    sendMessageMutation.mutate(cleanedValues);
   };
 
   const handleMarkRead = (messageId: string) => {
@@ -752,9 +766,14 @@ export default function Communication() {
                         setCommunicationType(value as any);
                         // Reset recipient fields when switching types
                         if (value === 'email') {
-                          form.setValue('recipientId', '');
+                          form.setValue('recipientId', null);
+                          form.setValue('recipientPhone', '');
                         } else if (value === 'sms') {
-                          form.setValue('recipientId', '');
+                          form.setValue('recipientId', null);
+                          form.setValue('recipientEmail', '');
+                        } else if (value === 'internal') {
+                          form.setValue('recipientEmail', '');
+                          form.setValue('recipientPhone', '');
                         }
                       }} defaultValue={field.value}>
                         <FormControl>
