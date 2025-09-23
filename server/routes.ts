@@ -1119,19 +1119,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "User ID not found" });
       }
       
-      // Only allow updating certain fields for self-profile
-      const allowedFields = new Set(['firstName', 'lastName', 'profileImageUrl']);
-      
+      // Only allow updating specific profile fields with explicit property access
       const sanitizedData: any = {};
-      Object.keys(req.body).forEach(key => {
-        // Prevent prototype pollution by blocking dangerous keys
-        if (key === '__proto__' || key === 'constructor' || key === 'prototype') {
-          return;
-        }
-        if (allowedFields.has(key)) {
-          sanitizedData[key] = req.body[key];
-        }
-      });
+      if (req.body.firstName !== undefined) {
+        sanitizedData.firstName = req.body.firstName;
+      }
+      if (req.body.lastName !== undefined) {
+        sanitizedData.lastName = req.body.lastName;
+      }
+      if (req.body.profileImageUrl !== undefined) {
+        sanitizedData.profileImageUrl = req.body.profileImageUrl;
+      }
       
       const validatedData = insertUserSchema.partial().omit({ 
         id: true, 
