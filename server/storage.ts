@@ -796,6 +796,15 @@ export class DatabaseStorage implements IStorage {
     return newTraining;
   }
 
+  async updateTraining(id: string, training: Partial<InsertTraining>): Promise<Training> {
+    const [updated] = await db
+      .update(trainings)
+      .set({ ...training, updatedAt: new Date() })
+      .where(eq(trainings.id, id))
+      .returning();
+    return updated;
+  }
+
   // Training record operations
   async getAllTrainingRecords(): Promise<TrainingRecord[]> {
     return await db.select().from(trainingRecords).orderBy(desc(trainingRecords.createdAt));

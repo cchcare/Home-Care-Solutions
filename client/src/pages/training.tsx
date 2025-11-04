@@ -85,6 +85,8 @@ const statusColors = {
 export default function Training() {
   const [searchTerm, setSearchTerm] = useState("");
   const [showAddModal, setShowAddModal] = useState(false);
+  const [showViewModal, setShowViewModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
   const [showAssignModal, setShowAssignModal] = useState(false);
   const [selectedTraining, setSelectedTraining] = useState<Training | null>(null);
   const [selectedCaregivers, setSelectedCaregivers] = useState<string[]>([]);
@@ -108,6 +110,20 @@ export default function Training() {
   });
 
   const form = useForm({
+    resolver: zodResolver(insertTrainingSchema.omit({ id: true, createdAt: true, updatedAt: true })),
+    defaultValues: {
+      title: "",
+      description: "",
+      trainingType: "orientation" as const,
+      durationHours: 1,
+      expirationMonths: 12,
+      isRequired: false,
+      materialUrl: "",
+      officeId: ""
+    },
+  });
+
+  const editForm = useForm({
     resolver: zodResolver(insertTrainingSchema.omit({ id: true, createdAt: true, updatedAt: true })),
     defaultValues: {
       title: "",
@@ -193,6 +209,41 @@ export default function Training() {
     },
   });
 
+  const updateTrainingMutation = useMutation({
+    mutationFn: async ({ id, data }: { id: string; data: any }) => {
+      const response = await apiRequest("PUT", `/api/trainings/${id}`, data);
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/trainings"] });
+      setShowEditModal(false);
+      setSelectedTraining(null);
+      editForm.reset();
+      toast({
+        title: "Success",
+        description: "Training program updated successfully",
+      });
+    },
+    onError: (error) => {
+      if (isUnauthorizedError(error as Error)) {
+        toast({
+          title: "Unauthorized",
+          description: "You are logged out. Logging in again...",
+          variant: "destructive",
+        });
+        setTimeout(() => {
+          window.location.href = "/api/login";
+        }, 500);
+        return;
+      }
+      toast({
+        title: "Error",
+        description: "Failed to update training program",
+        variant: "destructive",
+      });
+    },
+  });
+
   const handleGetUploadParameters = async () => {
     const response = await apiRequest("POST", "/api/objects/upload");
     const data = await response.json();
@@ -214,6 +265,42 @@ export default function Training() {
 
   const onSubmit = (data: any) => {
     createTrainingMutation.mutate(data);
+  };
+
+  const onEditSubmit = (data: any) => {
+    if (selectedTraining) {
+      updateTrainingMutation.mutate({ id: selectedTraining.id, data });
+    }
+  };
+
+  const handleViewTraining = (training: Training) => {
+    setSelectedTraining(training);
+    setShowViewModal(true);
+  };
+
+  const handleEditTraining = (training: Training) => {
+    setSelectedTraining(training);
+    editForm.reset({
+      title: training.title,
+      description: training.description || "",
+      trainingType: training.trainingType as any,
+      durationHours: training.durationHours || 1,
+      expirationMonths: training.expirationMonths || 12,
+      isRequired: training.isRequired || false,
+      materialUrl: training.materialUrl || "",
+      officeId: training.officeId || ""
+    });
+    setShowEditModal(true);
+  };
+
+  const handleEditFileUploadComplete = (result: any) => {
+    if (result.successful?.[0]?.uploadURL) {
+      editForm.setValue("materialUrl", result.successful[0].uploadURL);
+      toast({
+        title: "Success",
+        description: "Training material uploaded successfully",
+      });
+    }
   };
 
   const handleSelectAllCaregivers = () => {
@@ -493,6 +580,254 @@ export default function Training() {
           </Button>
           </div>
         </div>
+
+        {/* View Training Dialog */}
+        <Dialog open={showViewModal} onOpenChange={setShowViewModal}>
+          <DialogContent className="max-w-2xl">
+            <DialogHeader>
+              <DialogTitle>Training Details</DialogTitle>
+              <DialogDescription>
+                View training program information
+              </DialogDescription>
+            </DialogHeader>
+            
+            {selectedTraining && (
+              <div className="space-y-4">
+                <div>
+                  <label className="text-sm font-medium text-muted-foreground">Title</label>
+                  <p className="text-base mt-1">{selectedTraining.title}</p>
+                </div>
+                
+                <div>
+                  <label className="text-sm font-medium text-muted-foreground">Description</label>
+                  <p className="text-base mt-1">{selectedTraining.description || "No description"}</p>
+                </div>
+                
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-sm font-medium text-muted-foreground">Training Type</label>
+                    <p className="text-base mt-1">{trainingTypeLabels[selectedTraining.trainingType as keyof typeof trainingTypeLabels]}</p>
+                  </div>
+                  
+                  <div>
+                    <label className="text-sm font-medium text-muted-foreground">Duration</label>
+                    <p className="text-base mt-1">{selectedTraining.durationHours} hour{selectedTraining.durationHours !== 1 ? 's' : ''}</p>
+                  </div>
+                </div>
+                
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-sm font-medium text-muted-foreground">Expires After</label>
+                    <p className="text-base mt-1">{selectedTraining.expirationMonths} months</p>
+                  </div>
+                  
+                  <div>
+                    <label className="text-sm font-medium text-muted-foreground">Required</label>
+                    <p className="text-base mt-1">{selectedTraining.isRequired ? "Yes" : "No"}</p>
+                  </div>
+                </div>
+                
+                {selectedTraining.materialUrl && (
+                  <div>
+                    <label className="text-sm font-medium text-muted-foreground">Training Materials</label>
+                    <p className="text-sm text-blue-600 mt-1">Materials attached</p>
+                  </div>
+                )}
+                
+                <div className="flex justify-end space-x-2 pt-4">
+                  <Button
+                    variant="outline"
+                    onClick={() => setShowViewModal(false)}
+                    data-testid="button-close-view"
+                  >
+                    Close
+                  </Button>
+                  <Button
+                    onClick={() => {
+                      setShowViewModal(false);
+                      handleEditTraining(selectedTraining);
+                    }}
+                    data-testid="button-edit-from-view"
+                  >
+                    <Edit className="w-4 h-4 mr-2" />
+                    Edit
+                  </Button>
+                </div>
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
+
+        {/* Edit Training Dialog */}
+        <Dialog open={showEditModal} onOpenChange={setShowEditModal}>
+          <DialogContent className="max-w-2xl">
+            <DialogHeader>
+              <DialogTitle>Edit Training Program</DialogTitle>
+              <DialogDescription>
+                Update training program details
+              </DialogDescription>
+            </DialogHeader>
+            
+            <Form {...editForm}>
+              <form onSubmit={editForm.handleSubmit(onEditSubmit)} className="space-y-4">
+                <FormField
+                  control={editForm.control}
+                  name="title"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Training Title</FormLabel>
+                      <FormControl>
+                        <Input placeholder="HIPAA Compliance Training" {...field} data-testid="input-edit-title" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                
+                <FormField
+                  control={editForm.control}
+                  name="description"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Description</FormLabel>
+                      <FormControl>
+                        <Textarea 
+                          placeholder="Detailed description of the training program..." 
+                          {...field} 
+                          data-testid="textarea-edit-description"
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <div className="grid grid-cols-2 gap-4">
+                  <FormField
+                    control={editForm.control}
+                    name="trainingType"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Training Type</FormLabel>
+                        <Select onValueChange={field.onChange} value={field.value}>
+                          <FormControl>
+                            <SelectTrigger data-testid="select-edit-type">
+                              <SelectValue placeholder="Select type" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            {Object.entries(trainingTypeLabels).map(([value, label]) => (
+                              <SelectItem key={value} value={value}>
+                                {label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  
+                  <FormField
+                    control={editForm.control}
+                    name="durationHours"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Duration (Hours)</FormLabel>
+                        <FormControl>
+                          <Input 
+                            type="number" 
+                            placeholder="2" 
+                            {...field} 
+                            onChange={(e) => field.onChange(parseInt(e.target.value))}
+                            data-testid="input-edit-duration"
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+
+                <FormField
+                  control={editForm.control}
+                  name="expirationMonths"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Expires After (Months)</FormLabel>
+                      <FormControl>
+                        <Input 
+                          type="number" 
+                          placeholder="12" 
+                          {...field} 
+                          onChange={(e) => field.onChange(parseInt(e.target.value))}
+                          data-testid="input-edit-expiration"
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={editForm.control}
+                  name="isRequired"
+                  render={({ field }) => (
+                    <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
+                      <div className="space-y-0.5">
+                        <FormLabel className="text-base">Required Training</FormLabel>
+                        <div className="text-sm text-muted-foreground">
+                          Mark as mandatory for all caregivers
+                        </div>
+                      </div>
+                      <FormControl>
+                        <Switch
+                          checked={field.value}
+                          onCheckedChange={field.onChange}
+                          data-testid="switch-edit-required"
+                        />
+                      </FormControl>
+                    </FormItem>
+                  )}
+                />
+
+                <div className="flex items-center gap-4">
+                  <ObjectUploader
+                    maxNumberOfFiles={5}
+                    maxFileSize={100485760}
+                    onGetUploadParameters={handleGetUploadParameters}
+                    onComplete={handleEditFileUploadComplete}
+                    buttonClassName="w-auto"
+                  >
+                    <Upload className="w-4 h-4 mr-2" />
+                    Upload Training Materials
+                  </ObjectUploader>
+                  {editForm.watch("materialUrl") && (
+                    <span className="text-sm text-green-600">Materials uploaded</span>
+                  )}
+                </div>
+                
+                <div className="flex justify-end space-x-2 pt-4">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => {
+                      setShowEditModal(false);
+                      setSelectedTraining(null);
+                      editForm.reset();
+                    }}
+                    data-testid="button-cancel-edit"
+                  >
+                    Cancel
+                  </Button>
+                  <Button type="submit" disabled={updateTrainingMutation.isPending} data-testid="button-save-edit">
+                    {updateTrainingMutation.isPending ? "Updating..." : "Update Training"}
+                  </Button>
+                </div>
+              </form>
+            </Form>
+          </DialogContent>
+        </Dialog>
         
         {/* Training Assignment Dialog */}
         <Dialog open={showAssignModal} onOpenChange={setShowAssignModal}>
@@ -666,7 +1001,7 @@ export default function Training() {
                     <Button
                       size="sm"
                       variant="outline"
-                      onClick={() => setSelectedTraining(training)}
+                      onClick={() => handleViewTraining(training)}
                       data-testid={`button-view-training-${training.id}`}
                     >
                       <Eye className="w-4 h-4" />
@@ -674,6 +1009,7 @@ export default function Training() {
                     <Button
                       size="sm"
                       variant="outline"
+                      onClick={() => handleEditTraining(training)}
                       data-testid={`button-edit-training-${training.id}`}
                     >
                       <Edit className="w-4 h-4" />

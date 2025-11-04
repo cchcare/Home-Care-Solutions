@@ -947,6 +947,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.put("/api/trainings/:id", isAuthenticated, async (req, res) => {
+    try {
+      const validatedData = insertTrainingSchema.partial().omit({ id: true, createdAt: true, updatedAt: true }).parse(req.body);
+      const training = await storage.updateTraining(req.params.id, validatedData);
+      res.json(training);
+    } catch (error) {
+      console.error("Error updating training:", error);
+      res.status(400).json({ message: "Failed to update training" });
+    }
+  });
+
   app.get("/api/training-records", isAuthenticated, async (req, res) => {
     try {
       const records = await storage.getAllTrainingRecords();
