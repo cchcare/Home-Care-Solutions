@@ -34,6 +34,10 @@ import {
   insertClientScheduleSchema,
   insertScheduleChangeLogSchema,
   insertEvvDataSchema,
+  insertMcoTypeSchema,
+  insertMcoSchema,
+  insertSystemSettingSchema,
+  insertEntityFieldConfigSchema,
 } from "@shared/schema";
 import { ObjectStorageService, ObjectNotFoundError } from "./objectStorage";
 import { ObjectPermission } from "./objectAcl";
@@ -2459,6 +2463,408 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error extracting client data from document:", error);
       res.status(500).json({ message: "Failed to extract data from document. Please ensure the document is readable." });
+    }
+  });
+
+  // ==================== ADMIN SETTINGS ROUTES ====================
+
+  // MCO Types routes
+  app.get("/api/admin/mco-types", isAuthenticated, async (req, res) => {
+    try {
+      const mcoTypes = await storage.getAllMcoTypes();
+      res.json(mcoTypes);
+    } catch (error) {
+      console.error("Error fetching MCO types:", error);
+      res.status(500).json({ message: "Failed to fetch MCO types" });
+    }
+  });
+
+  app.get("/api/admin/mco-types/:id", isAuthenticated, async (req, res) => {
+    try {
+      const mcoType = await storage.getMcoType(req.params.id);
+      if (!mcoType) {
+        return res.status(404).json({ message: "MCO type not found" });
+      }
+      res.json(mcoType);
+    } catch (error) {
+      console.error("Error fetching MCO type:", error);
+      res.status(500).json({ message: "Failed to fetch MCO type" });
+    }
+  });
+
+  app.post("/api/admin/mco-types", isAuthenticated, async (req: any, res) => {
+    try {
+      const validatedData = insertMcoTypeSchema.parse(req.body);
+      const mcoType = await storage.createMcoType(validatedData);
+      
+      await storage.createAuditLog({
+        userId: req.user.claims.sub,
+        action: "create",
+        entityType: "mco_type",
+        entityId: mcoType.id,
+        newValues: mcoType,
+        ipAddress: req.ip,
+        userAgent: req.get("User-Agent"),
+      });
+      
+      res.status(201).json(mcoType);
+    } catch (error) {
+      console.error("Error creating MCO type:", error);
+      res.status(400).json({ message: "Failed to create MCO type" });
+    }
+  });
+
+  app.put("/api/admin/mco-types/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const oldMcoType = await storage.getMcoType(req.params.id);
+      const validatedData = insertMcoTypeSchema.partial().parse(req.body);
+      const mcoType = await storage.updateMcoType(req.params.id, validatedData);
+      
+      await storage.createAuditLog({
+        userId: req.user.claims.sub,
+        action: "update",
+        entityType: "mco_type",
+        entityId: mcoType.id,
+        oldValues: oldMcoType,
+        newValues: mcoType,
+        ipAddress: req.ip,
+        userAgent: req.get("User-Agent"),
+      });
+      
+      res.json(mcoType);
+    } catch (error) {
+      console.error("Error updating MCO type:", error);
+      res.status(400).json({ message: "Failed to update MCO type" });
+    }
+  });
+
+  app.delete("/api/admin/mco-types/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const mcoType = await storage.getMcoType(req.params.id);
+      if (!mcoType) {
+        return res.status(404).json({ message: "MCO type not found" });
+      }
+      
+      // Check if any MCOs are linked to this type
+      const linkedMcos = await storage.getMcosByType(req.params.id);
+      if (linkedMcos.length > 0) {
+        return res.status(400).json({ 
+          message: "Cannot delete MCO type. There are MCOs linked to this type. Please delete or reassign them first." 
+        });
+      }
+      
+      await storage.deleteMcoType(req.params.id);
+      
+      await storage.createAuditLog({
+        userId: req.user.claims.sub,
+        action: "delete",
+        entityType: "mco_type",
+        entityId: req.params.id,
+        oldValues: mcoType,
+        ipAddress: req.ip,
+        userAgent: req.get("User-Agent"),
+      });
+      
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting MCO type:", error);
+      res.status(500).json({ message: "Failed to delete MCO type" });
+    }
+  });
+
+  // MCOs routes
+  app.get("/api/admin/mcos", isAuthenticated, async (req, res) => {
+    try {
+      const mcos = await storage.getAllMcos();
+      res.json(mcos);
+    } catch (error) {
+      console.error("Error fetching MCOs:", error);
+      res.status(500).json({ message: "Failed to fetch MCOs" });
+    }
+  });
+
+  app.get("/api/admin/mcos/:id", isAuthenticated, async (req, res) => {
+    try {
+      const mco = await storage.getMco(req.params.id);
+      if (!mco) {
+        return res.status(404).json({ message: "MCO not found" });
+      }
+      res.json(mco);
+    } catch (error) {
+      console.error("Error fetching MCO:", error);
+      res.status(500).json({ message: "Failed to fetch MCO" });
+    }
+  });
+
+  app.post("/api/admin/mcos", isAuthenticated, async (req: any, res) => {
+    try {
+      const validatedData = insertMcoSchema.parse(req.body);
+      const mco = await storage.createMco(validatedData);
+      
+      await storage.createAuditLog({
+        userId: req.user.claims.sub,
+        action: "create",
+        entityType: "mco",
+        entityId: mco.id,
+        newValues: mco,
+        ipAddress: req.ip,
+        userAgent: req.get("User-Agent"),
+      });
+      
+      res.status(201).json(mco);
+    } catch (error) {
+      console.error("Error creating MCO:", error);
+      res.status(400).json({ message: "Failed to create MCO" });
+    }
+  });
+
+  app.put("/api/admin/mcos/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const oldMco = await storage.getMco(req.params.id);
+      const validatedData = insertMcoSchema.partial().parse(req.body);
+      const mco = await storage.updateMco(req.params.id, validatedData);
+      
+      await storage.createAuditLog({
+        userId: req.user.claims.sub,
+        action: "update",
+        entityType: "mco",
+        entityId: mco.id,
+        oldValues: oldMco,
+        newValues: mco,
+        ipAddress: req.ip,
+        userAgent: req.get("User-Agent"),
+      });
+      
+      res.json(mco);
+    } catch (error) {
+      console.error("Error updating MCO:", error);
+      res.status(400).json({ message: "Failed to update MCO" });
+    }
+  });
+
+  app.delete("/api/admin/mcos/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const mco = await storage.getMco(req.params.id);
+      if (!mco) {
+        return res.status(404).json({ message: "MCO not found" });
+      }
+      
+      await storage.deleteMco(req.params.id);
+      
+      await storage.createAuditLog({
+        userId: req.user.claims.sub,
+        action: "delete",
+        entityType: "mco",
+        entityId: req.params.id,
+        oldValues: mco,
+        ipAddress: req.ip,
+        userAgent: req.get("User-Agent"),
+      });
+      
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting MCO:", error);
+      res.status(500).json({ message: "Failed to delete MCO" });
+    }
+  });
+
+  // System Settings routes
+  app.get("/api/admin/settings", isAuthenticated, async (req, res) => {
+    try {
+      const settings = await storage.getAllSystemSettings();
+      res.json(settings);
+    } catch (error) {
+      console.error("Error fetching system settings:", error);
+      res.status(500).json({ message: "Failed to fetch system settings" });
+    }
+  });
+
+  app.get("/api/admin/settings/:key", isAuthenticated, async (req, res) => {
+    try {
+      const setting = await storage.getSystemSetting(req.params.key);
+      if (!setting) {
+        return res.status(404).json({ message: "Setting not found" });
+      }
+      res.json(setting);
+    } catch (error) {
+      console.error("Error fetching system setting:", error);
+      res.status(500).json({ message: "Failed to fetch system setting" });
+    }
+  });
+
+  app.post("/api/admin/settings", isAuthenticated, async (req: any, res) => {
+    try {
+      const validatedData = insertSystemSettingSchema.parse(req.body);
+      const setting = await storage.createSystemSetting(validatedData);
+      
+      await storage.createAuditLog({
+        userId: req.user.claims.sub,
+        action: "create",
+        entityType: "system_setting",
+        entityId: setting.id,
+        newValues: setting,
+        ipAddress: req.ip,
+        userAgent: req.get("User-Agent"),
+      });
+      
+      res.status(201).json(setting);
+    } catch (error) {
+      console.error("Error creating system setting:", error);
+      res.status(400).json({ message: "Failed to create system setting" });
+    }
+  });
+
+  app.put("/api/admin/settings/:key", isAuthenticated, async (req: any, res) => {
+    try {
+      const oldSetting = await storage.getSystemSetting(req.params.key);
+      const validatedData = insertSystemSettingSchema.partial().parse(req.body);
+      const setting = await storage.updateSystemSetting(req.params.key, validatedData);
+      
+      await storage.createAuditLog({
+        userId: req.user.claims.sub,
+        action: "update",
+        entityType: "system_setting",
+        entityId: setting.id,
+        oldValues: oldSetting,
+        newValues: setting,
+        ipAddress: req.ip,
+        userAgent: req.get("User-Agent"),
+      });
+      
+      res.json(setting);
+    } catch (error) {
+      console.error("Error updating system setting:", error);
+      res.status(400).json({ message: "Failed to update system setting" });
+    }
+  });
+
+  app.delete("/api/admin/settings/:key", isAuthenticated, async (req: any, res) => {
+    try {
+      const setting = await storage.getSystemSetting(req.params.key);
+      if (!setting) {
+        return res.status(404).json({ message: "Setting not found" });
+      }
+      
+      await storage.deleteSystemSetting(req.params.key);
+      
+      await storage.createAuditLog({
+        userId: req.user.claims.sub,
+        action: "delete",
+        entityType: "system_setting",
+        entityId: setting.id,
+        oldValues: setting,
+        ipAddress: req.ip,
+        userAgent: req.get("User-Agent"),
+      });
+      
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting system setting:", error);
+      res.status(500).json({ message: "Failed to delete system setting" });
+    }
+  });
+
+  // Entity Field Configs routes
+  app.get("/api/admin/field-configs", isAuthenticated, async (req, res) => {
+    try {
+      const entityType = req.query.entityType as 'client' | 'caregiver' | undefined;
+      let configs;
+      
+      if (entityType) {
+        configs = await storage.getEntityFieldConfigsByType(entityType);
+      } else {
+        configs = await storage.getAllEntityFieldConfigs();
+      }
+      
+      res.json(configs);
+    } catch (error) {
+      console.error("Error fetching entity field configs:", error);
+      res.status(500).json({ message: "Failed to fetch field configurations" });
+    }
+  });
+
+  app.get("/api/admin/field-configs/:id", isAuthenticated, async (req, res) => {
+    try {
+      const config = await storage.getEntityFieldConfig(req.params.id);
+      if (!config) {
+        return res.status(404).json({ message: "Field configuration not found" });
+      }
+      res.json(config);
+    } catch (error) {
+      console.error("Error fetching entity field config:", error);
+      res.status(500).json({ message: "Failed to fetch field configuration" });
+    }
+  });
+
+  app.post("/api/admin/field-configs", isAuthenticated, async (req: any, res) => {
+    try {
+      const validatedData = insertEntityFieldConfigSchema.parse(req.body);
+      const config = await storage.createEntityFieldConfig(validatedData);
+      
+      await storage.createAuditLog({
+        userId: req.user.claims.sub,
+        action: "create",
+        entityType: "entity_field_config",
+        entityId: config.id,
+        newValues: config,
+        ipAddress: req.ip,
+        userAgent: req.get("User-Agent"),
+      });
+      
+      res.status(201).json(config);
+    } catch (error) {
+      console.error("Error creating entity field config:", error);
+      res.status(400).json({ message: "Failed to create field configuration" });
+    }
+  });
+
+  app.put("/api/admin/field-configs/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const oldConfig = await storage.getEntityFieldConfig(req.params.id);
+      const validatedData = insertEntityFieldConfigSchema.partial().parse(req.body);
+      const config = await storage.updateEntityFieldConfig(req.params.id, validatedData);
+      
+      await storage.createAuditLog({
+        userId: req.user.claims.sub,
+        action: "update",
+        entityType: "entity_field_config",
+        entityId: config.id,
+        oldValues: oldConfig,
+        newValues: config,
+        ipAddress: req.ip,
+        userAgent: req.get("User-Agent"),
+      });
+      
+      res.json(config);
+    } catch (error) {
+      console.error("Error updating entity field config:", error);
+      res.status(400).json({ message: "Failed to update field configuration" });
+    }
+  });
+
+  app.delete("/api/admin/field-configs/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const config = await storage.getEntityFieldConfig(req.params.id);
+      if (!config) {
+        return res.status(404).json({ message: "Field configuration not found" });
+      }
+      
+      await storage.deleteEntityFieldConfig(req.params.id);
+      
+      await storage.createAuditLog({
+        userId: req.user.claims.sub,
+        action: "delete",
+        entityType: "entity_field_config",
+        entityId: req.params.id,
+        oldValues: config,
+        ipAddress: req.ip,
+        userAgent: req.get("User-Agent"),
+      });
+      
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting entity field config:", error);
+      res.status(500).json({ message: "Failed to delete field configuration" });
     }
   });
 

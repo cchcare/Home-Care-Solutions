@@ -89,6 +89,18 @@ import {
   aiDetectedIssues,
   type AiDetectedIssue,
   type InsertAiDetectedIssue,
+  mcoTypes,
+  type McoType,
+  type InsertMcoType,
+  mcos,
+  type Mco,
+  type InsertMco,
+  systemSettings,
+  type SystemSetting,
+  type InsertSystemSetting,
+  entityFieldConfigs,
+  type EntityFieldConfig,
+  type InsertEntityFieldConfig,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, asc, and, or, count, sql, like, gte, lte } from "drizzle-orm";
@@ -320,6 +332,36 @@ export interface IStorage {
     solved: number;
     unsolved: number;
   }[]>;
+
+  // MCO Type operations
+  getAllMcoTypes(): Promise<McoType[]>;
+  getMcoType(id: string): Promise<McoType | undefined>;
+  createMcoType(mcoType: InsertMcoType): Promise<McoType>;
+  updateMcoType(id: string, mcoType: Partial<InsertMcoType>): Promise<McoType>;
+  deleteMcoType(id: string): Promise<void>;
+
+  // MCO operations
+  getAllMcos(): Promise<Mco[]>;
+  getMco(id: string): Promise<Mco | undefined>;
+  getMcosByType(typeId: string): Promise<Mco[]>;
+  createMco(mco: InsertMco): Promise<Mco>;
+  updateMco(id: string, mco: Partial<InsertMco>): Promise<Mco>;
+  deleteMco(id: string): Promise<void>;
+
+  // System Settings operations
+  getAllSystemSettings(): Promise<SystemSetting[]>;
+  getSystemSetting(key: string): Promise<SystemSetting | undefined>;
+  createSystemSetting(setting: InsertSystemSetting): Promise<SystemSetting>;
+  updateSystemSetting(key: string, setting: Partial<InsertSystemSetting>): Promise<SystemSetting>;
+  deleteSystemSetting(key: string): Promise<void>;
+
+  // Entity Field Config operations
+  getAllEntityFieldConfigs(): Promise<EntityFieldConfig[]>;
+  getEntityFieldConfigsByType(entityType: 'client' | 'caregiver'): Promise<EntityFieldConfig[]>;
+  getEntityFieldConfig(id: string): Promise<EntityFieldConfig | undefined>;
+  createEntityFieldConfig(config: InsertEntityFieldConfig): Promise<EntityFieldConfig>;
+  updateEntityFieldConfig(id: string, config: Partial<InsertEntityFieldConfig>): Promise<EntityFieldConfig>;
+  deleteEntityFieldConfig(id: string): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1531,6 +1573,128 @@ export class DatabaseStorage implements IStorage {
     }
     
     return stats;
+  }
+
+  // MCO Type operations
+  async getAllMcoTypes(): Promise<McoType[]> {
+    return await db.select().from(mcoTypes).orderBy(asc(mcoTypes.name));
+  }
+
+  async getMcoType(id: string): Promise<McoType | undefined> {
+    const [mcoType] = await db.select().from(mcoTypes).where(eq(mcoTypes.id, id));
+    return mcoType;
+  }
+
+  async createMcoType(mcoType: InsertMcoType): Promise<McoType> {
+    const [newMcoType] = await db.insert(mcoTypes).values(mcoType).returning();
+    return newMcoType;
+  }
+
+  async updateMcoType(id: string, mcoType: Partial<InsertMcoType>): Promise<McoType> {
+    const [updatedMcoType] = await db
+      .update(mcoTypes)
+      .set({ ...mcoType, updatedAt: new Date() })
+      .where(eq(mcoTypes.id, id))
+      .returning();
+    return updatedMcoType;
+  }
+
+  async deleteMcoType(id: string): Promise<void> {
+    await db.delete(mcoTypes).where(eq(mcoTypes.id, id));
+  }
+
+  // MCO operations
+  async getAllMcos(): Promise<Mco[]> {
+    return await db.select().from(mcos).orderBy(asc(mcos.name));
+  }
+
+  async getMco(id: string): Promise<Mco | undefined> {
+    const [mco] = await db.select().from(mcos).where(eq(mcos.id, id));
+    return mco;
+  }
+
+  async getMcosByType(typeId: string): Promise<Mco[]> {
+    return await db.select().from(mcos).where(eq(mcos.typeId, typeId)).orderBy(asc(mcos.name));
+  }
+
+  async createMco(mco: InsertMco): Promise<Mco> {
+    const [newMco] = await db.insert(mcos).values(mco).returning();
+    return newMco;
+  }
+
+  async updateMco(id: string, mco: Partial<InsertMco>): Promise<Mco> {
+    const [updatedMco] = await db
+      .update(mcos)
+      .set({ ...mco, updatedAt: new Date() })
+      .where(eq(mcos.id, id))
+      .returning();
+    return updatedMco;
+  }
+
+  async deleteMco(id: string): Promise<void> {
+    await db.delete(mcos).where(eq(mcos.id, id));
+  }
+
+  // System Settings operations
+  async getAllSystemSettings(): Promise<SystemSetting[]> {
+    return await db.select().from(systemSettings).orderBy(asc(systemSettings.key));
+  }
+
+  async getSystemSetting(key: string): Promise<SystemSetting | undefined> {
+    const [setting] = await db.select().from(systemSettings).where(eq(systemSettings.key, key));
+    return setting;
+  }
+
+  async createSystemSetting(setting: InsertSystemSetting): Promise<SystemSetting> {
+    const [newSetting] = await db.insert(systemSettings).values(setting).returning();
+    return newSetting;
+  }
+
+  async updateSystemSetting(key: string, setting: Partial<InsertSystemSetting>): Promise<SystemSetting> {
+    const [updatedSetting] = await db
+      .update(systemSettings)
+      .set({ ...setting, updatedAt: new Date() })
+      .where(eq(systemSettings.key, key))
+      .returning();
+    return updatedSetting;
+  }
+
+  async deleteSystemSetting(key: string): Promise<void> {
+    await db.delete(systemSettings).where(eq(systemSettings.key, key));
+  }
+
+  // Entity Field Config operations
+  async getAllEntityFieldConfigs(): Promise<EntityFieldConfig[]> {
+    return await db.select().from(entityFieldConfigs).orderBy(asc(entityFieldConfigs.displayOrder));
+  }
+
+  async getEntityFieldConfigsByType(entityType: 'client' | 'caregiver'): Promise<EntityFieldConfig[]> {
+    return await db.select().from(entityFieldConfigs)
+      .where(eq(entityFieldConfigs.entityType, entityType))
+      .orderBy(asc(entityFieldConfigs.displayOrder));
+  }
+
+  async getEntityFieldConfig(id: string): Promise<EntityFieldConfig | undefined> {
+    const [config] = await db.select().from(entityFieldConfigs).where(eq(entityFieldConfigs.id, id));
+    return config;
+  }
+
+  async createEntityFieldConfig(config: InsertEntityFieldConfig): Promise<EntityFieldConfig> {
+    const [newConfig] = await db.insert(entityFieldConfigs).values(config).returning();
+    return newConfig;
+  }
+
+  async updateEntityFieldConfig(id: string, config: Partial<InsertEntityFieldConfig>): Promise<EntityFieldConfig> {
+    const [updatedConfig] = await db
+      .update(entityFieldConfigs)
+      .set({ ...config, updatedAt: new Date() })
+      .where(eq(entityFieldConfigs.id, id))
+      .returning();
+    return updatedConfig;
+  }
+
+  async deleteEntityFieldConfig(id: string): Promise<void> {
+    await db.delete(entityFieldConfigs).where(eq(entityFieldConfigs.id, id));
   }
 }
 

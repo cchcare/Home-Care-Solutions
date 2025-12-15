@@ -81,6 +81,7 @@ export const clients = pgTable("clients", {
   primaryPhysician: varchar("primary_physician"),
   primaryCaregiverId: varchar("primary_caregiver_id"),
   officeId: varchar("office_id").references(() => offices.id),
+  mcoId: varchar("mco_id"),
   status: varchar("status").default("active"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
@@ -932,3 +933,93 @@ export const evvDataRelations = relations(evvData, ({ one }) => ({
 export type EvvData = typeof evvData.$inferSelect;
 export type InsertEvvData = typeof evvData.$inferInsert;
 export const insertEvvDataSchema = createInsertSchema(evvData);
+
+// ==================== ADMIN SETTINGS TABLES ====================
+
+// MCO Types - Categories of Managed Care Organizations
+export const mcoTypes = pgTable("mco_types", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: varchar("name").notNull().unique(),
+  description: text("description"),
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const mcoTypesRelations = relations(mcoTypes, ({ many }) => ({
+  mcos: many(mcos),
+}));
+
+// MCOs - Managed Care Organizations for billing
+export const mcos = pgTable("mcos", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: varchar("name").notNull(),
+  typeId: varchar("type_id").references(() => mcoTypes.id),
+  payerId: varchar("payer_id"),
+  contactName: varchar("contact_name"),
+  contactEmail: varchar("contact_email"),
+  contactPhone: varchar("contact_phone"),
+  address: text("address"),
+  billingRequirements: text("billing_requirements"),
+  notes: text("notes"),
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const mcosRelations = relations(mcos, ({ one }) => ({
+  type: one(mcoTypes, {
+    fields: [mcos.typeId],
+    references: [mcoTypes.id],
+  }),
+}));
+
+// System Settings - Key/value configuration
+export const systemSettings = pgTable("system_settings", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  key: varchar("key").notNull().unique(),
+  value: jsonb("value"),
+  description: text("description"),
+  scope: varchar("scope").default("global"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Entity Field Configurations - Customizable fields for clients/caregivers
+export const entityTypeEnum = pgEnum("entity_type", ["client", "caregiver"]);
+export const fieldTypeEnum = pgEnum("field_type", ["text", "number", "date", "select", "boolean", "textarea"]);
+
+export const entityFieldConfigs = pgTable("entity_field_configs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  entityType: entityTypeEnum("entity_type").notNull(),
+  fieldKey: varchar("field_key").notNull(),
+  label: varchar("label").notNull(),
+  fieldType: fieldTypeEnum("field_type").notNull(),
+  isRequired: boolean("is_required").default(false),
+  isEnabled: boolean("is_enabled").default(true),
+  displayOrder: integer("display_order").default(0),
+  options: jsonb("options"),
+  validationRules: jsonb("validation_rules"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Type exports for MCO Types
+export type McoType = typeof mcoTypes.$inferSelect;
+export type InsertMcoType = typeof mcoTypes.$inferInsert;
+export const insertMcoTypeSchema = createInsertSchema(mcoTypes).omit({ id: true, createdAt: true, updatedAt: true });
+
+// Type exports for MCOs
+export type Mco = typeof mcos.$inferSelect;
+export type InsertMco = typeof mcos.$inferInsert;
+export const insertMcoSchema = createInsertSchema(mcos).omit({ id: true, createdAt: true, updatedAt: true });
+
+// Type exports for System Settings
+export type SystemSetting = typeof systemSettings.$inferSelect;
+export type InsertSystemSetting = typeof systemSettings.$inferInsert;
+export const insertSystemSettingSchema = createInsertSchema(systemSettings).omit({ id: true, createdAt: true, updatedAt: true });
+
+// Type exports for Entity Field Configs
+export type EntityFieldConfig = typeof entityFieldConfigs.$inferSelect;
+export type InsertEntityFieldConfig = typeof entityFieldConfigs.$inferInsert;
+export const insertEntityFieldConfigSchema = createInsertSchema(entityFieldConfigs).omit({ id: true, createdAt: true, updatedAt: true });
