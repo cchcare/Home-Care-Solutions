@@ -860,3 +860,43 @@ export const insertClientScheduleSchema = createInsertSchema(clientSchedules);
 export type ScheduleChangeLog = typeof scheduleChangeLog.$inferSelect;
 export type InsertScheduleChangeLog = typeof scheduleChangeLog.$inferInsert;
 export const insertScheduleChangeLogSchema = createInsertSchema(scheduleChangeLog);
+
+// AI Issue Detection System
+export const aiIssueSeverityEnum = pgEnum("ai_issue_severity", ["low", "medium", "high", "critical"]);
+export const aiIssueStatusEnum = pgEnum("ai_issue_status", ["open", "in_progress", "resolved", "dismissed"]);
+export const aiIssueCategoryEnum = pgEnum("ai_issue_category", [
+  "compliance", 
+  "data_quality", 
+  "scheduling", 
+  "certification", 
+  "documentation", 
+  "incident_pattern",
+  "care_plan",
+  "other"
+]);
+
+export const aiDetectedIssues = pgTable("ai_detected_issues", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  category: aiIssueCategoryEnum("category").notNull(),
+  severity: aiIssueSeverityEnum("severity").notNull(),
+  status: aiIssueStatusEnum("status").default("open"),
+  title: varchar("title").notNull(),
+  description: text("description").notNull(),
+  affectedEntityType: varchar("affected_entity_type"), // client, caregiver, task, etc.
+  affectedEntityId: varchar("affected_entity_id"),
+  suggestedAction: text("suggested_action"),
+  autoFixAvailable: boolean("auto_fix_available").default(false),
+  autoFixApplied: boolean("auto_fix_applied").default(false),
+  resolvedBy: varchar("resolved_by").references(() => users.id),
+  resolvedAt: timestamp("resolved_at"),
+  resolutionNotes: text("resolution_notes"),
+  aiConfidence: numeric("ai_confidence", { precision: 5, scale: 2 }), // 0-100
+  rawAiResponse: jsonb("raw_ai_response"), // store full AI response for audit
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Type exports for AI issues
+export type AiDetectedIssue = typeof aiDetectedIssues.$inferSelect;
+export type InsertAiDetectedIssue = typeof aiDetectedIssues.$inferInsert;
+export const insertAiDetectedIssueSchema = createInsertSchema(aiDetectedIssues);

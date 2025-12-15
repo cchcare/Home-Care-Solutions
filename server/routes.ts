@@ -2079,6 +2079,82 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // AI Issue Detection Routes
+  app.get("/api/ai-issues", isAuthenticated, async (req, res) => {
+    try {
+      const issues = await storage.getAllAiDetectedIssues();
+      res.json(issues);
+    } catch (error) {
+      console.error("Error fetching AI detected issues:", error);
+      res.status(500).json({ message: "Failed to fetch AI detected issues" });
+    }
+  });
+
+  app.post("/api/ai-issues/scan", isAuthenticated, async (req: any, res) => {
+    try {
+      const { aiIssueService } = await import("./aiService");
+      const newIssues = await aiIssueService.scanForIssues();
+      res.json({ 
+        message: `Scan completed. Found ${newIssues.length} new issues.`,
+        issuesFound: newIssues.length,
+        issues: newIssues
+      });
+    } catch (error) {
+      console.error("Error scanning for issues:", error);
+      res.status(500).json({ message: "Failed to scan for issues" });
+    }
+  });
+
+  app.post("/api/ai-issues/:id/resolve", isAuthenticated, async (req: any, res) => {
+    try {
+      const { aiIssueService } = await import("./aiService");
+      await aiIssueService.resolveIssue(req.params.id, req.user.claims.sub, req.body.resolutionNotes);
+      const issue = await storage.getAiDetectedIssue(req.params.id);
+      res.json(issue);
+    } catch (error) {
+      console.error("Error resolving issue:", error);
+      res.status(500).json({ message: "Failed to resolve issue" });
+    }
+  });
+
+  app.post("/api/ai-issues/:id/dismiss", isAuthenticated, async (req: any, res) => {
+    try {
+      const { aiIssueService } = await import("./aiService");
+      await aiIssueService.dismissIssue(req.params.id, req.user.claims.sub, req.body.reason);
+      const issue = await storage.getAiDetectedIssue(req.params.id);
+      res.json(issue);
+    } catch (error) {
+      console.error("Error dismissing issue:", error);
+      res.status(500).json({ message: "Failed to dismiss issue" });
+    }
+  });
+
+  app.post("/api/ai-issues/:id/auto-fix", isAuthenticated, async (req: any, res) => {
+    try {
+      const { aiIssueService } = await import("./aiService");
+      const result = await aiIssueService.applyAutoFix(req.params.id, req.user.claims.sub);
+      if (result.success) {
+        const issue = await storage.getAiDetectedIssue(req.params.id);
+        res.json({ ...result, issue });
+      } else {
+        res.status(400).json(result);
+      }
+    } catch (error) {
+      console.error("Error applying auto-fix:", error);
+      res.status(500).json({ message: "Failed to apply auto-fix" });
+    }
+  });
+
+  app.delete("/api/ai-issues/:id", isAuthenticated, async (req, res) => {
+    try {
+      await storage.deleteAiDetectedIssue(req.params.id);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting AI issue:", error);
+      res.status(500).json({ message: "Failed to delete AI issue" });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }

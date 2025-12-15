@@ -83,6 +83,9 @@ import {
   scheduleChangeLog,
   type ScheduleChangeLog,
   type InsertScheduleChangeLog,
+  aiDetectedIssues,
+  type AiDetectedIssue,
+  type InsertAiDetectedIssue,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, asc, and, or, count, sql, like, gte, lte } from "drizzle-orm";
@@ -281,6 +284,14 @@ export interface IStorage {
   // Schedule change logging
   createScheduleChangeLog(log: InsertScheduleChangeLog): Promise<ScheduleChangeLog>;
   getScheduleChangeLogs(scheduleId: string): Promise<ScheduleChangeLog[]>;
+
+  // AI Issue Detection operations
+  getAllAiDetectedIssues(): Promise<AiDetectedIssue[]>;
+  getAiDetectedIssue(id: string): Promise<AiDetectedIssue | undefined>;
+  createAiDetectedIssue(issue: InsertAiDetectedIssue): Promise<AiDetectedIssue>;
+  updateAiDetectedIssue(id: string, issue: Partial<InsertAiDetectedIssue>): Promise<AiDetectedIssue>;
+  deleteAiDetectedIssue(id: string): Promise<void>;
+  getAllComplianceItems(): Promise<ComplianceItem[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1324,6 +1335,37 @@ export class DatabaseStorage implements IStorage {
     return await db.select().from(scheduleChangeLog)
       .where(eq(scheduleChangeLog.scheduleId, scheduleId))
       .orderBy(desc(scheduleChangeLog.createdAt));
+  }
+
+  // AI Issue Detection operations
+  async getAllAiDetectedIssues(): Promise<AiDetectedIssue[]> {
+    return await db.select().from(aiDetectedIssues).orderBy(desc(aiDetectedIssues.createdAt));
+  }
+
+  async getAiDetectedIssue(id: string): Promise<AiDetectedIssue | undefined> {
+    const [issue] = await db.select().from(aiDetectedIssues).where(eq(aiDetectedIssues.id, id));
+    return issue;
+  }
+
+  async createAiDetectedIssue(issue: InsertAiDetectedIssue): Promise<AiDetectedIssue> {
+    const [newIssue] = await db.insert(aiDetectedIssues).values(issue).returning();
+    return newIssue;
+  }
+
+  async updateAiDetectedIssue(id: string, issue: Partial<InsertAiDetectedIssue>): Promise<AiDetectedIssue> {
+    const [updatedIssue] = await db.update(aiDetectedIssues)
+      .set({ ...issue, updatedAt: new Date() })
+      .where(eq(aiDetectedIssues.id, id))
+      .returning();
+    return updatedIssue;
+  }
+
+  async deleteAiDetectedIssue(id: string): Promise<void> {
+    await db.delete(aiDetectedIssues).where(eq(aiDetectedIssues.id, id));
+  }
+
+  async getAllComplianceItems(): Promise<ComplianceItem[]> {
+    return await db.select().from(complianceItems).orderBy(desc(complianceItems.createdAt));
   }
 }
 
