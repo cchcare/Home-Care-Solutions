@@ -387,6 +387,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const processedHireDate = caregiverData.hireDate && typeof caregiverData.hireDate === 'string' ? new Date(caregiverData.hireDate) : caregiverData.hireDate;
       const processedStartDate = caregiverData.startDate && typeof caregiverData.startDate === 'string' ? new Date(caregiverData.startDate) : caregiverData.startDate;
       
+      // Convert hourlyWage to string if it's a number (numeric type expects string)
+      if (caregiverData.hourlyWage !== undefined && typeof caregiverData.hourlyWage === 'number') {
+        caregiverData.hourlyWage = String(caregiverData.hourlyWage);
+      }
+      
       // First create the user account for login
       const user = await storage.upsertUser({
         email,
