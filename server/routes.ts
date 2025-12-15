@@ -240,7 +240,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/clients", isAuthenticated, async (req: any, res) => {
     try {
-      const validatedData = insertClientSchema.parse(req.body);
+      // Convert date strings to Date objects
+      const processedBody = {
+        ...req.body,
+        dateOfBirth: req.body.dateOfBirth && typeof req.body.dateOfBirth === 'string' ? new Date(req.body.dateOfBirth) : req.body.dateOfBirth,
+      };
+      const validatedData = insertClientSchema.parse(processedBody);
       const client = await storage.createClient(validatedData);
       
       // Log audit trail
@@ -264,7 +269,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put("/api/clients/:id", isAuthenticated, async (req: any, res) => {
     try {
       const oldClient = await storage.getClient(req.params.id);
-      const validatedData = insertClientSchema.partial().parse(req.body);
+      // Convert date strings to Date objects
+      const processedBody = {
+        ...req.body,
+        dateOfBirth: req.body.dateOfBirth && typeof req.body.dateOfBirth === 'string' ? new Date(req.body.dateOfBirth) : req.body.dateOfBirth,
+      };
+      const validatedData = insertClientSchema.partial().parse(processedBody);
       const client = await storage.updateClient(req.params.id, validatedData);
       
       // Log audit trail
@@ -342,8 +352,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         try {
           const clientData = data[i];
           
+          // Convert date strings to Date objects
+          const processedClientData = {
+            ...clientData,
+            dateOfBirth: clientData.dateOfBirth && typeof clientData.dateOfBirth === 'string' ? new Date(clientData.dateOfBirth) : clientData.dateOfBirth,
+          };
+          
           // Validate the data
-          const validatedData = insertClientSchema.parse(clientData);
+          const validatedData = insertClientSchema.parse(processedClientData);
           
           // Create the client
           const client = await storage.createClient(validatedData);
