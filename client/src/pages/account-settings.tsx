@@ -26,7 +26,10 @@ import {
   AlertCircle,
   Calendar,
   Eye,
-  EyeOff
+  EyeOff,
+  Camera,
+  Upload,
+  Loader2
 } from "lucide-react";
 import { format } from "date-fns";
 
@@ -44,6 +47,7 @@ export default function AccountSettingsPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [showSensitiveInfo, setShowSensitiveInfo] = useState(false);
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
 
   // Redirect if not authenticated
   useEffect(() => {
@@ -142,6 +146,72 @@ export default function AccountSettingsPage() {
 
   const onSubmit = (data: AccountSettingsFormData) => {
     updateProfileMutation.mutate(data);
+  };
+
+  const handleImageUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    // Validate file type
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/gif'];
+    if (!allowedTypes.includes(file.type)) {
+      toast({
+        title: "Invalid file type",
+        description: "Please upload a JPEG, PNG, or GIF image",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Validate file size (max 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      toast({
+        title: "File too large",
+        description: "Please upload an image smaller than 5MB",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsUploadingImage(true);
+    
+    try {
+      const formData = new FormData();
+      formData.append('profileImage', file);
+      
+      const response = await fetch('/api/profile/upload-image', {
+        method: 'POST',
+        body: formData,
+        credentials: 'include',
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Failed to upload image');
+      }
+      
+      const data = await response.json();
+      
+      // Update the form and refetch user data
+      form.setValue('profileImageUrl', data.profileImageUrl);
+      queryClient.invalidateQueries({ queryKey: ['/api/auth/user'] });
+      
+      toast({
+        title: "Success",
+        description: "Profile picture updated successfully",
+      });
+    } catch (error: any) {
+      console.error('Error uploading image:', error);
+      toast({
+        title: "Upload failed",
+        description: error.message || "Failed to upload profile picture",
+        variant: "destructive",
+      });
+    } finally {
+      setIsUploadingImage(false);
+      // Reset file input
+      event.target.value = '';
+    }
   };
 
   const getRoleColor = (role: string) => {
@@ -244,19 +314,43 @@ export default function AccountSettingsPage() {
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="text-center">
-                    <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-3">
-                      {currentUser.profileImageUrl ? (
-                        <img 
-                          src={currentUser.profileImageUrl} 
-                          alt="Profile"
-                          className="w-20 h-20 rounded-full object-cover"
-                        />
-                      ) : (
-                        <span className="text-2xl font-semibold text-gray-500">
-                          {currentUser.firstName?.[0]}{currentUser.lastName?.[0]}
-                        </span>
-                      )}
+                    <div className="relative inline-block">
+                      <div className="w-24 h-24 bg-gray-100 rounded-full flex items-center justify-center mx-auto overflow-hidden">
+                        {currentUser.profileImageUrl ? (
+                          <img 
+                            src={currentUser.profileImageUrl} 
+                            alt="Profile"
+                            className="w-24 h-24 rounded-full object-cover"
+                            data-testid="img-profile-picture"
+                          />
+                        ) : (
+                          <span className="text-2xl font-semibold text-gray-500">
+                            {currentUser.firstName?.[0]}{currentUser.lastName?.[0]}
+                          </span>
+                        )}
+                      </div>
+                      <label 
+                        htmlFor="profile-image-upload" 
+                        className="absolute bottom-0 right-0 w-8 h-8 bg-primary rounded-full flex items-center justify-center cursor-pointer hover:bg-primary/90 transition-colors shadow-md"
+                        data-testid="button-upload-profile-image"
+                      >
+                        {isUploadingImage ? (
+                          <Loader2 className="w-4 h-4 text-primary-foreground animate-spin" />
+                        ) : (
+                          <Camera className="w-4 h-4 text-primary-foreground" />
+                        )}
+                      </label>
+                      <input
+                        id="profile-image-upload"
+                        type="file"
+                        accept="image/jpeg,image/png,image/gif"
+                        onChange={handleImageUpload}
+                        className="hidden"
+                        disabled={isUploadingImage}
+                        data-testid="input-profile-image-upload"
+                      />
                     </div>
+                    <p className="text-xs text-muted-foreground mt-2">Click camera icon to upload</p>
                     <h3 className="font-semibold text-lg">
                       {currentUser.firstName && currentUser.lastName 
                         ? `${currentUser.firstName} ${currentUser.lastName}` 

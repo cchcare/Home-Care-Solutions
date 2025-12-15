@@ -1066,6 +1066,67 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Profile image upload route
+  app.post("/api/profile/upload-image", isAuthenticated, upload.single("profileImage"), async (req: any, res) => {
+    try {
+      const userId = req.user?.claims?.sub;
+      if (!userId) {
+        return res.status(400).json({ message: "User ID not found" });
+      }
+      
+      if (!req.file) {
+        return res.status(400).json({ message: "No image file provided" });
+      }
+      
+      // Check if it's an image file
+      const allowedImageTypes = /jpeg|jpg|png|gif/;
+      const extname = allowedImageTypes.test(path.extname(req.file.originalname).toLowerCase());
+      const mimetype = allowedImageTypes.test(req.file.mimetype);
+      
+      if (!mimetype || !extname) {
+        // Remove the uploaded file
+        fs.unlinkSync(req.file.path);
+        return res.status(400).json({ message: "Only image files (JPEG, PNG, GIF) are allowed" });
+      }
+      
+      // Generate a unique filename
+      const uniqueFilename = `profile_${userId}_${Date.now()}${path.extname(req.file.originalname)}`;
+      const newPath = path.join("uploads", "profiles", uniqueFilename);
+      
+      // Ensure profiles directory exists
+      const profilesDir = path.join("uploads", "profiles");
+      if (!fs.existsSync(profilesDir)) {
+        fs.mkdirSync(profilesDir, { recursive: true });
+      }
+      
+      // Move file to profiles directory
+      fs.renameSync(req.file.path, newPath);
+      
+      // Generate the URL for the profile image
+      const profileImageUrl = `/api/profile-images/${uniqueFilename}`;
+      
+      // Update user profile with the new image URL
+      await storage.updateUser(userId, { profileImageUrl });
+      
+      res.json({ profileImageUrl });
+    } catch (error) {
+      console.error("Error uploading profile image:", error);
+      res.status(500).json({ message: "Failed to upload profile image" });
+    }
+  });
+  
+  // Serve profile images
+  app.get("/api/profile-images/:filename", (req, res) => {
+    const filename = req.params.filename;
+    const filePath = path.join("uploads", "profiles", filename);
+    
+    if (fs.existsSync(filePath)) {
+      res.sendFile(path.resolve(filePath));
+    } else {
+      res.status(404).json({ message: "Image not found" });
+    }
+  });
+
   // Users route (for communication functionality)
   app.get("/api/users", isAuthenticated, async (req, res) => {
     try {
