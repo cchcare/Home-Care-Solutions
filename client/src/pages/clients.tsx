@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import type { Client } from "@shared/schema";
 import { ExcelImport } from "@/components/excel-import";
+import { ExcelExport } from "@/components/excel-export";
 
 export default function Clients() {
   const [searchTerm, setSearchTerm] = useState("");
@@ -135,6 +136,7 @@ export default function Clients() {
             <div className="flex-1" />
           </div>
           <div className="flex items-center space-x-2">
+            <ExcelExport type="clients" data={clients || []} disabled={isLoading} />
             <ExcelImport type="clients" onImportComplete={() => {
               queryClient.invalidateQueries({ queryKey: ["/api/clients"] });
               queryClient.invalidateQueries({ queryKey: ["/api/dashboard/metrics"] });
@@ -171,14 +173,6 @@ export default function Clients() {
                   >
                     <Users className="w-4 h-4 mr-2" />
                     Filter
-                  </Button>
-                  <Button 
-                    variant="outline"
-                    onClick={() => toast({ title: "Export", description: "Client export coming soon" })}
-                    data-testid="button-export-all-clients"
-                  >
-                    <Download className="w-4 h-4 mr-2" />
-                    Export
                   </Button>
                 </div>
               </CardContent>

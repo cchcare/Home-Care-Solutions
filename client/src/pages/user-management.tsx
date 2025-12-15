@@ -15,7 +15,9 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { insertUserSchema, type User } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
-import { Users, Plus, Edit, Trash2, Search, UserCheck, Shield, Eye, User as UserIcon } from "lucide-react";
+import { Users, Plus, Edit, Trash2, Search, UserCheck, Shield, Eye, User as UserIcon, Download, Upload } from "lucide-react";
+import { ExcelImport } from "@/components/excel-import";
+import { ExcelExport } from "@/components/excel-export";
 import { format } from "date-fns";
 import { z } from "zod";
 import { useAuth } from "@/hooks/useAuth";
@@ -230,13 +232,18 @@ export default function UserManagementPage() {
             Manage user accounts, roles, and permissions
           </p>
         </div>
-        <Dialog open={open} onOpenChange={setOpen}>
-          <DialogTrigger asChild>
-            <Button data-testid="button-create-user">
-              <Plus className="mr-2 h-4 w-4" />
-              Add User
-            </Button>
-          </DialogTrigger>
+        <div className="flex items-center space-x-2">
+          <ExcelExport type="users" data={users} disabled={isLoading} />
+          <ExcelImport type="users" onImportComplete={() => {
+            queryClient.invalidateQueries({ queryKey: ["/api/users"] });
+          }} />
+          <Dialog open={open} onOpenChange={setOpen}>
+            <DialogTrigger asChild>
+              <Button data-testid="button-create-user">
+                <Plus className="mr-2 h-4 w-4" />
+                Add User
+              </Button>
+            </DialogTrigger>
           <DialogContent className="max-w-2xl">
             <DialogHeader>
               <DialogTitle>
@@ -380,6 +387,7 @@ export default function UserManagementPage() {
             </Form>
           </DialogContent>
         </Dialog>
+        </div>
       </div>
 
       {/* Filters */}

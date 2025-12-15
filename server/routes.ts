@@ -1186,6 +1186,80 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Users bulk import
+  app.post("/api/users/bulk-import", isAuthenticated, requireAdminOrSupervisor, async (req: any, res) => {
+    try {
+      const { data } = req.body;
+      
+      if (!Array.isArray(data) || data.length === 0) {
+        return res.status(400).json({ message: "Invalid data format" });
+      }
+
+      interface BulkImportError {
+        row: number;
+        error: string;
+      }
+      
+      const results: {
+        totalRows: number;
+        successfulImports: number;
+        errors: BulkImportError[];
+      } = {
+        totalRows: data.length,
+        successfulImports: 0,
+        errors: []
+      };
+
+      for (let i = 0; i < data.length; i++) {
+        try {
+          const userData = data[i];
+          
+          // Process date fields
+          if (userData.dateOfBirth && typeof userData.dateOfBirth === 'string') {
+            userData.dateOfBirth = new Date(userData.dateOfBirth);
+          }
+          
+          // Handle isActive field
+          if (userData.isActive !== undefined) {
+            userData.isActive = userData.isActive === 'Yes' || userData.isActive === 'true' || userData.isActive === true;
+          }
+          
+          // Validate the data
+          const validatedData = insertUserSchema.omit({ id: true, createdAt: true, updatedAt: true }).parse(userData);
+          
+          // Create the user
+          const user = await storage.createUser(validatedData);
+          
+          // Log audit trail
+          await storage.createAuditLog({
+            userId: req.user.claims.sub,
+            action: "bulk_import_create",
+            entityType: "user",
+            entityId: user.id,
+            newValues: { email: user.email, role: user.role },
+            ipAddress: req.ip,
+            userAgent: req.get("User-Agent"),
+          });
+          
+          results.successfulImports++;
+        } catch (error: any) {
+          const sanitizedError = error.message?.includes('duplicate') ? 'Record already exists' : 
+                                error.message?.includes('validation') ? 'Invalid data format' :
+                                'Failed to import record';
+          results.errors.push({
+            row: i + 1,
+            error: sanitizedError
+          });
+        }
+      }
+
+      res.json(results);
+    } catch (error) {
+      console.error("Error during bulk user import:", error);
+      res.status(500).json({ message: "Failed to import users" });
+    }
+  });
+
   // Reports API endpoints
   app.get("/api/training-records", isAuthenticated, async (req, res) => {
     try {

@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import type { Caregiver } from "@shared/schema";
 import { ExcelImport } from "@/components/excel-import";
+import { ExcelExport } from "@/components/excel-export";
 
 export default function Caregivers() {
   const [searchTerm, setSearchTerm] = useState("");
@@ -89,6 +90,7 @@ export default function Caregivers() {
             <div className="flex-1" />
           </div>
           <div className="flex items-center space-x-2">
+            <ExcelExport type="caregivers" data={caregivers} disabled={isLoading} />
             <ExcelImport type="caregivers" onImportComplete={() => {
               queryClient.invalidateQueries({ queryKey: ["/api/caregivers"] });
               queryClient.invalidateQueries({ queryKey: ["/api/dashboard/metrics"] });

@@ -18,7 +18,7 @@ import { Upload, FileSpreadsheet, AlertCircle, CheckCircle, X } from "lucide-rea
 import * as XLSX from "xlsx";
 
 interface ExcelImportProps {
-  type: "clients" | "caregivers";
+  type: "clients" | "caregivers" | "users";
   onImportComplete?: () => void;
 }
 
@@ -59,6 +59,15 @@ const COLUMN_MAPPINGS = {
     specializations: ["Specializations", "specializations", "Skills"],
     certifications: ["Certifications", "certifications"],
     yearsOfExperience: ["Years of Experience", "years_of_experience", "yearsOfExperience", "Experience"],
+    isActive: ["Active", "is_active", "isActive", "Status"]
+  },
+  users: {
+    email: ["Email", "email", "Email Address", "email_address"],
+    firstName: ["First Name", "first_name", "firstName"],
+    middleName: ["Middle Name", "middle_name", "middleName"],
+    lastName: ["Last Name", "last_name", "lastName"],
+    dateOfBirth: ["Date of Birth", "DOB", "date_of_birth", "dateOfBirth"],
+    role: ["Role", "role", "User Role", "user_role"],
     isActive: ["Active", "is_active", "isActive", "Status"]
   }
 };
