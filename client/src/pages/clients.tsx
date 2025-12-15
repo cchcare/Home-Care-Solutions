@@ -9,6 +9,7 @@ import { Sidebar } from "@/components/sidebar";
 import { TopBar } from "@/components/topbar";
 import { AddClientModal } from "@/components/add-client-modal";
 import { ClientProfileModal } from "@/components/client-profile-modal";
+import { OcrUploadDialog } from "@/components/ocr-upload-dialog";
 import { apiRequest } from "@/lib/queryClient";
 import { isUnauthorizedError } from "@/lib/authUtils";
 import { 
@@ -19,7 +20,8 @@ import {
   Edit, 
   Users,
   Phone,
-  Calendar
+  Calendar,
+  Scan
 } from "lucide-react";
 import type { Client } from "@shared/schema";
 import { ExcelImport } from "@/components/excel-import";
@@ -28,6 +30,8 @@ import { ExcelExport } from "@/components/excel-export";
 export default function Clients() {
   const [searchTerm, setSearchTerm] = useState("");
   const [showAddModal, setShowAddModal] = useState(false);
+  const [showOcrDialog, setShowOcrDialog] = useState(false);
+  const [ocrExtractedData, setOcrExtractedData] = useState<any>(null);
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -141,6 +145,10 @@ export default function Clients() {
               queryClient.invalidateQueries({ queryKey: ["/api/clients"] });
               queryClient.invalidateQueries({ queryKey: ["/api/dashboard/metrics"] });
             }} />
+            <Button variant="outline" onClick={() => setShowOcrDialog(true)} data-testid="button-scan-client">
+              <Scan className="w-4 h-4 mr-2" />
+              Scan Document
+            </Button>
             <Button onClick={() => setShowAddModal(true)} data-testid="button-add-client">
               <Plus className="w-4 h-4 mr-2" />
               Add Client
@@ -334,9 +342,13 @@ export default function Clients() {
       {/* Modals */}
       <AddClientModal 
         isOpen={showAddModal}
-        onClose={() => setShowAddModal(false)}
+        onClose={() => {
+          setShowAddModal(false);
+          setOcrExtractedData(null);
+        }}
         onSubmit={handleAddClient}
         isLoading={createClientMutation.isPending}
+        initialData={ocrExtractedData}
       />
 
       <ClientProfileModal 
@@ -345,6 +357,21 @@ export default function Clients() {
         onClose={() => setSelectedClient(null)}
         onUpdate={handleUpdateClient}
         isLoading={updateClientMutation.isPending}
+      />
+
+      <OcrUploadDialog
+        isOpen={showOcrDialog}
+        onClose={() => setShowOcrDialog(false)}
+        type="client"
+        onDataExtracted={(data) => {
+          setOcrExtractedData(data);
+          setShowOcrDialog(false);
+          setShowAddModal(true);
+          toast({
+            title: "Data Extracted",
+            description: "Document scanned successfully. Please review and complete the form.",
+          });
+        }}
       />
     </div>
   );

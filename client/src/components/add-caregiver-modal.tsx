@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -52,9 +53,10 @@ interface AddCaregiverModalProps {
   onClose: () => void;
   onSubmit: (data: CaregiverFormData) => void;
   isLoading: boolean;
+  initialData?: Partial<CaregiverFormData>;
 }
 
-export function AddCaregiverModal({ isOpen, onClose, onSubmit, isLoading }: AddCaregiverModalProps) {
+export function AddCaregiverModal({ isOpen, onClose, onSubmit, isLoading, initialData }: AddCaregiverModalProps) {
   const { data: offices = [] } = useQuery<Office[]>({
     queryKey: ["/api/offices"],
     retry: false,
@@ -83,6 +85,26 @@ export function AddCaregiverModal({ isOpen, onClose, onSubmit, isLoading }: AddC
       clientIds: [],
     },
   });
+
+  useEffect(() => {
+    if (initialData && isOpen) {
+      form.reset({
+        employeeId: initialData.employeeId || "",
+        hourlyWage: initialData.hourlyWage || 0,
+        officeId: initialData.officeId || "",
+        gender: initialData.gender,
+        isActive: initialData.isActive ?? true,
+        email: initialData.email || "",
+        firstName: initialData.firstName || "",
+        middleName: initialData.middleName || "",
+        lastName: initialData.lastName || "",
+        dateOfBirth: initialData.dateOfBirth,
+        startDate: initialData.startDate,
+        hireDate: initialData.hireDate,
+        clientIds: initialData.clientIds || [],
+      });
+    }
+  }, [initialData, isOpen, form]);
 
   const handleSubmit = (data: CaregiverFormData) => {
     // Convert date strings to Date objects for the backend

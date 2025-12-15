@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Sidebar } from "@/components/sidebar";
 import { TopBar } from "@/components/topbar";
 import { AddCaregiverModal } from "@/components/add-caregiver-modal";
+import { OcrUploadDialog } from "@/components/ocr-upload-dialog";
 import { apiRequest } from "@/lib/queryClient";
 import { isUnauthorizedError } from "@/lib/authUtils";
 import { 
@@ -18,7 +19,8 @@ import {
   Award,
   AlertCircle,
   Eye,
-  Edit
+  Edit,
+  Scan
 } from "lucide-react";
 import type { Caregiver } from "@shared/schema";
 import { ExcelImport } from "@/components/excel-import";
@@ -27,6 +29,8 @@ import { ExcelExport } from "@/components/excel-export";
 export default function Caregivers() {
   const [searchTerm, setSearchTerm] = useState("");
   const [showAddModal, setShowAddModal] = useState(false);
+  const [showOcrDialog, setShowOcrDialog] = useState(false);
+  const [ocrExtractedData, setOcrExtractedData] = useState<any>(null);
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -95,6 +99,10 @@ export default function Caregivers() {
               queryClient.invalidateQueries({ queryKey: ["/api/caregivers"] });
               queryClient.invalidateQueries({ queryKey: ["/api/dashboard/metrics"] });
             }} />
+            <Button variant="outline" onClick={() => setShowOcrDialog(true)} data-testid="button-scan-caregiver">
+              <Scan className="w-4 h-4 mr-2" />
+              Scan Document
+            </Button>
             <Button onClick={() => setShowAddModal(true)} data-testid="button-add-caregiver">
               <Plus className="w-4 h-4 mr-2" />
               Add Caregiver
@@ -290,9 +298,28 @@ export default function Caregivers() {
       {/* Modals */}
       <AddCaregiverModal 
         isOpen={showAddModal}
-        onClose={() => setShowAddModal(false)}
+        onClose={() => {
+          setShowAddModal(false);
+          setOcrExtractedData(null);
+        }}
         onSubmit={(data) => createCaregiverMutation.mutate(data)}
         isLoading={createCaregiverMutation.isPending}
+        initialData={ocrExtractedData}
+      />
+
+      <OcrUploadDialog
+        isOpen={showOcrDialog}
+        onClose={() => setShowOcrDialog(false)}
+        type="caregiver"
+        onDataExtracted={(data) => {
+          setOcrExtractedData(data);
+          setShowOcrDialog(false);
+          setShowAddModal(true);
+          toast({
+            title: "Data Extracted",
+            description: "Document scanned successfully. Please review and complete the form.",
+          });
+        }}
       />
     </div>
   );

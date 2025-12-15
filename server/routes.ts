@@ -2343,6 +2343,97 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // OCR Document Extraction Routes
+  const { extractCaregiverFromPdf, extractClientFromPdf, extractFromImageFile } = await import("./ocr-service");
+
+  app.post("/api/ocr/extract-caregiver", isAuthenticated, upload.single("document"), async (req: any, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ message: "No document uploaded" });
+      }
+
+      const filePath = req.file.path;
+      const fileType = req.file.mimetype;
+      
+      let extractedData;
+      
+      if (fileType === "application/pdf") {
+        extractedData = await extractCaregiverFromPdf(filePath);
+      } else if (fileType.startsWith("image/")) {
+        extractedData = await extractFromImageFile(filePath, "caregiver");
+      } else {
+        return res.status(400).json({ message: "Unsupported file type. Please upload a PDF or image file." });
+      }
+
+      // Cleanup uploaded file
+      try {
+        const fs = await import("fs");
+        fs.unlinkSync(filePath);
+      } catch (e) {
+        console.error("Failed to cleanup uploaded file:", e);
+      }
+
+      await storage.createAuditLog({
+        userId: req.user.claims.sub,
+        action: "ocr_extract",
+        entityType: "caregiver",
+        entityId: null,
+        newValues: { extractedFields: Object.keys(extractedData).filter(k => (extractedData as any)[k] !== null) },
+        ipAddress: req.ip,
+        userAgent: req.get("User-Agent"),
+      });
+
+      res.json(extractedData);
+    } catch (error) {
+      console.error("Error extracting caregiver data from document:", error);
+      res.status(500).json({ message: "Failed to extract data from document. Please ensure the document is readable." });
+    }
+  });
+
+  app.post("/api/ocr/extract-client", isAuthenticated, upload.single("document"), async (req: any, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ message: "No document uploaded" });
+      }
+
+      const filePath = req.file.path;
+      const fileType = req.file.mimetype;
+      
+      let extractedData;
+      
+      if (fileType === "application/pdf") {
+        extractedData = await extractClientFromPdf(filePath);
+      } else if (fileType.startsWith("image/")) {
+        extractedData = await extractFromImageFile(filePath, "client");
+      } else {
+        return res.status(400).json({ message: "Unsupported file type. Please upload a PDF or image file." });
+      }
+
+      // Cleanup uploaded file
+      try {
+        const fs = await import("fs");
+        fs.unlinkSync(filePath);
+      } catch (e) {
+        console.error("Failed to cleanup uploaded file:", e);
+      }
+
+      await storage.createAuditLog({
+        userId: req.user.claims.sub,
+        action: "ocr_extract",
+        entityType: "client",
+        entityId: null,
+        newValues: { extractedFields: Object.keys(extractedData).filter(k => (extractedData as any)[k] !== null) },
+        ipAddress: req.ip,
+        userAgent: req.get("User-Agent"),
+      });
+
+      res.json(extractedData);
+    } catch (error) {
+      console.error("Error extracting client data from document:", error);
+      res.status(500).json({ message: "Failed to extract data from document. Please ensure the document is readable." });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -52,9 +52,10 @@ interface AddClientModalProps {
   onClose: () => void;
   onSubmit: (data: ClientFormData) => void;
   isLoading: boolean;
+  initialData?: Partial<ClientFormData>;
 }
 
-export function AddClientModal({ isOpen, onClose, onSubmit, isLoading }: AddClientModalProps) {
+export function AddClientModal({ isOpen, onClose, onSubmit, isLoading, initialData }: AddClientModalProps) {
   const { data: offices = [] } = useQuery<Office[]>({
     queryKey: ["/api/offices"],
     retry: false,
@@ -77,6 +78,25 @@ export function AddClientModal({ isOpen, onClose, onSubmit, isLoading }: AddClie
       hipaaAcknowledged: false,
     },
   });
+
+  useEffect(() => {
+    if (initialData && isOpen) {
+      form.reset({
+        firstName: initialData.firstName || "",
+        lastName: initialData.lastName || "",
+        phone: initialData.phone || "",
+        address: initialData.address || "",
+        emergencyContactName: initialData.emergencyContactName || "",
+        emergencyContactPhone: initialData.emergencyContactPhone || "",
+        emergencyContactRelation: initialData.emergencyContactRelation || "",
+        primaryDiagnosis: initialData.primaryDiagnosis || "",
+        allergies: initialData.allergies || "",
+        primaryPhysician: initialData.primaryPhysician || "",
+        officeId: initialData.officeId || "",
+        hipaaAcknowledged: false,
+      });
+    }
+  }, [initialData, isOpen, form]);
 
   const handleSubmit = (data: ClientFormData) => {
     const { hipaaAcknowledged, ...clientData } = data;
