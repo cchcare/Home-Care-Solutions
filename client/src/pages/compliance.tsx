@@ -12,7 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { insertComplianceItemSchema, type ComplianceItem, type Caregiver } from "@shared/schema";
+import { insertComplianceItemSchema, insertEvvDataSchema, type ComplianceItem, type Caregiver, type EvvData } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { z } from "zod";
@@ -27,8 +27,12 @@ import {
   UserCheck,
   FileText,
   Download,
-  Plus
+  Plus,
+  Activity,
+  TrendingUp,
+  Trash2
 } from "lucide-react";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 const complianceFormSchema = insertComplianceItemSchema.extend({
   dueDate: z.string().min(1, "Due date is required"),
@@ -37,11 +41,25 @@ const complianceFormSchema = insertComplianceItemSchema.extend({
 
 type ComplianceFormData = z.infer<typeof complianceFormSchema>;
 
+const evvFormSchema = z.object({
+  month: z.coerce.number().min(1).max(12),
+  year: z.coerce.number().min(2020).max(2100),
+  mco: z.string().min(1, "MCO is required"),
+  percentage: z.coerce.number().min(0).max(100),
+  totalVisits: z.coerce.number().min(0).optional(),
+  evvCompliantVisits: z.coerce.number().min(0).optional(),
+  notes: z.string().optional(),
+});
+
+type EvvFormData = z.infer<typeof evvFormSchema>;
+
 export default function Compliance() {
   const [searchTerm, setSearchTerm] = useState("");
   const [open, setOpen] = useState(false);
+  const [evvDialogOpen, setEvvDialogOpen] = useState(false);
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [typeFilter, setTypeFilter] = useState<string>("all");
+  const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -52,6 +70,11 @@ export default function Compliance() {
 
   const { data: complianceItems = [], isLoading: complianceLoading } = useQuery<ComplianceItem[]>({
     queryKey: ["/api/compliance"],
+    retry: false,
+  });
+
+  const { data: evvData = [], isLoading: evvLoading } = useQuery<EvvData[]>({
+    queryKey: ["/api/evv-data"],
     retry: false,
   });
 
@@ -106,6 +129,100 @@ export default function Compliance() {
 
   const onSubmit = (data: ComplianceFormData) => {
     createComplianceMutation.mutate(data);
+  };
+
+  const createEvvMutation = useMutation({
+    mutationFn: async (data: EvvFormData) => {
+      const response = await fetch("/api/evv-data", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(data),
+      });
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || "Failed to create EVV data");
+      }
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/evv-data"] });
+      setEvvDialogOpen(false);
+      evvForm.reset();
+      toast({
+        title: "Success",
+        description: "EVV data added successfully",
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Error",
+        description: "Failed to add EVV data",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const deleteEvvMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const response = await fetch(`/api/evv-data/${id}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      if (!response.ok) {
+        throw new Error("Failed to delete EVV data");
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/evv-data"] });
+      toast({
+        title: "Success",
+        description: "EVV data deleted successfully",
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Error",
+        description: "Failed to delete EVV data",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const evvForm = useForm<EvvFormData>({
+    resolver: zodResolver(evvFormSchema),
+    defaultValues: {
+      month: new Date().getMonth() + 1,
+      year: new Date().getFullYear(),
+      mco: "",
+      percentage: 0,
+      totalVisits: 0,
+      evvCompliantVisits: 0,
+      notes: "",
+    },
+  });
+
+  const onEvvSubmit = (data: EvvFormData) => {
+    createEvvMutation.mutate(data);
+  };
+
+  const monthNames = [
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December"
+  ];
+
+  const filteredEvvData = evvData.filter(item => item.year === selectedYear);
+
+  const getEvvStatusColor = (percentage: number) => {
+    if (percentage >= 90) return "text-green-600";
+    if (percentage >= 70) return "text-yellow-600";
+    return "text-red-600";
+  };
+
+  const getEvvStatusBadge = (percentage: number) => {
+    if (percentage >= 90) return <Badge variant="default" className="bg-green-100 text-green-800">Compliant</Badge>;
+    if (percentage >= 70) return <Badge variant="secondary" className="bg-yellow-100 text-yellow-800">At Risk</Badge>;
+    return <Badge variant="destructive">Non-Compliant</Badge>;
   };
 
   // Calculate compliance statistics from actual data
@@ -557,6 +674,282 @@ export default function Compliance() {
                       </div>
                     </div>
                   ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* EVV Tracking Section */}
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-2">
+                  <Activity className="w-5 h-5 text-primary" />
+                  <CardTitle>EVV Compliance Tracking</CardTitle>
+                </div>
+                <div className="flex items-center gap-4">
+                  <Select value={String(selectedYear)} onValueChange={(v) => setSelectedYear(Number(v))}>
+                    <SelectTrigger className="w-32" data-testid="select-evv-year">
+                      <SelectValue placeholder="Select year" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {[2023, 2024, 2025, 2026].map((year) => (
+                        <SelectItem key={year} value={String(year)}>{year}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Dialog open={evvDialogOpen} onOpenChange={setEvvDialogOpen}>
+                    <DialogTrigger asChild>
+                      <Button data-testid="button-add-evv">
+                        <Plus className="mr-2 h-4 w-4" />
+                        Add EVV Data
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent className="max-w-md">
+                      <DialogHeader>
+                        <DialogTitle>Add EVV Data</DialogTitle>
+                        <DialogDescription>
+                          Enter EVV compliance data for a specific month and MCO.
+                        </DialogDescription>
+                      </DialogHeader>
+                      <Form {...evvForm}>
+                        <form onSubmit={evvForm.handleSubmit(onEvvSubmit)} className="space-y-4">
+                          <div className="grid grid-cols-2 gap-4">
+                            <FormField
+                              control={evvForm.control}
+                              name="month"
+                              render={({ field }) => (
+                                <FormItem>
+                                  <FormLabel>Month</FormLabel>
+                                  <Select 
+                                    onValueChange={(v) => field.onChange(Number(v))} 
+                                    defaultValue={String(field.value)}
+                                  >
+                                    <FormControl>
+                                      <SelectTrigger data-testid="select-evv-month">
+                                        <SelectValue placeholder="Select month" />
+                                      </SelectTrigger>
+                                    </FormControl>
+                                    <SelectContent>
+                                      {monthNames.map((name, idx) => (
+                                        <SelectItem key={idx} value={String(idx + 1)}>{name}</SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                  <FormMessage />
+                                </FormItem>
+                              )}
+                            />
+                            <FormField
+                              control={evvForm.control}
+                              name="year"
+                              render={({ field }) => (
+                                <FormItem>
+                                  <FormLabel>Year</FormLabel>
+                                  <Select 
+                                    onValueChange={(v) => field.onChange(Number(v))} 
+                                    defaultValue={String(field.value)}
+                                  >
+                                    <FormControl>
+                                      <SelectTrigger data-testid="select-evv-form-year">
+                                        <SelectValue placeholder="Select year" />
+                                      </SelectTrigger>
+                                    </FormControl>
+                                    <SelectContent>
+                                      {[2023, 2024, 2025, 2026].map((year) => (
+                                        <SelectItem key={year} value={String(year)}>{year}</SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                  <FormMessage />
+                                </FormItem>
+                              )}
+                            />
+                          </div>
+
+                          <FormField
+                            control={evvForm.control}
+                            name="mco"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>MCO (Managed Care Organization)</FormLabel>
+                                <FormControl>
+                                  <Input 
+                                    placeholder="Enter MCO name" 
+                                    {...field} 
+                                    data-testid="input-evv-mco"
+                                  />
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+
+                          <FormField
+                            control={evvForm.control}
+                            name="percentage"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>EVV Compliance Percentage</FormLabel>
+                                <FormControl>
+                                  <Input 
+                                    type="number" 
+                                    min={0} 
+                                    max={100} 
+                                    step={0.1}
+                                    placeholder="Enter percentage (0-100)" 
+                                    {...field}
+                                    onChange={(e) => field.onChange(Number(e.target.value))}
+                                    data-testid="input-evv-percentage"
+                                  />
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+
+                          <div className="grid grid-cols-2 gap-4">
+                            <FormField
+                              control={evvForm.control}
+                              name="totalVisits"
+                              render={({ field }) => (
+                                <FormItem>
+                                  <FormLabel>Total Visits</FormLabel>
+                                  <FormControl>
+                                    <Input 
+                                      type="number" 
+                                      min={0}
+                                      placeholder="0" 
+                                      {...field}
+                                      onChange={(e) => field.onChange(Number(e.target.value))}
+                                      data-testid="input-evv-total-visits"
+                                    />
+                                  </FormControl>
+                                  <FormMessage />
+                                </FormItem>
+                              )}
+                            />
+                            <FormField
+                              control={evvForm.control}
+                              name="evvCompliantVisits"
+                              render={({ field }) => (
+                                <FormItem>
+                                  <FormLabel>Compliant Visits</FormLabel>
+                                  <FormControl>
+                                    <Input 
+                                      type="number" 
+                                      min={0}
+                                      placeholder="0" 
+                                      {...field}
+                                      onChange={(e) => field.onChange(Number(e.target.value))}
+                                      data-testid="input-evv-compliant-visits"
+                                    />
+                                  </FormControl>
+                                  <FormMessage />
+                                </FormItem>
+                              )}
+                            />
+                          </div>
+
+                          <FormField
+                            control={evvForm.control}
+                            name="notes"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>Notes (Optional)</FormLabel>
+                                <FormControl>
+                                  <Textarea 
+                                    placeholder="Additional notes..." 
+                                    {...field} 
+                                    data-testid="input-evv-notes"
+                                  />
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+
+                          <div className="flex justify-end space-x-2">
+                            <Button type="button" variant="outline" onClick={() => setEvvDialogOpen(false)}>
+                              Cancel
+                            </Button>
+                            <Button type="submit" disabled={createEvvMutation.isPending} data-testid="button-submit-evv">
+                              {createEvvMutation.isPending ? "Adding..." : "Add EVV Data"}
+                            </Button>
+                          </div>
+                        </form>
+                      </Form>
+                    </DialogContent>
+                  </Dialog>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {evvLoading ? (
+                <div className="text-center py-8">
+                  <p className="text-muted-foreground">Loading EVV data...</p>
+                </div>
+              ) : filteredEvvData.length === 0 ? (
+                <div className="text-center py-8">
+                  <TrendingUp className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
+                  <p className="text-muted-foreground">No EVV data found for {selectedYear}.</p>
+                  <p className="text-sm text-muted-foreground">Add EVV compliance data to track monthly performance.</p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b">
+                        <th className="text-left py-3 px-4 font-medium text-muted-foreground">Month</th>
+                        <th className="text-left py-3 px-4 font-medium text-muted-foreground">MCO</th>
+                        <th className="text-left py-3 px-4 font-medium text-muted-foreground">Percentage</th>
+                        <th className="text-left py-3 px-4 font-medium text-muted-foreground">Visits</th>
+                        <th className="text-left py-3 px-4 font-medium text-muted-foreground">Status</th>
+                        <th className="text-left py-3 px-4 font-medium text-muted-foreground">Notes</th>
+                        <th className="text-right py-3 px-4 font-medium text-muted-foreground">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredEvvData
+                        .sort((a, b) => a.month - b.month)
+                        .map((item) => (
+                          <tr key={item.id} className="border-b hover:bg-muted/50" data-testid={`row-evv-${item.id}`}>
+                            <td className="py-3 px-4">
+                              <div className="flex items-center gap-2">
+                                <Calendar className="w-4 h-4 text-muted-foreground" />
+                                <span>{monthNames[item.month - 1]}</span>
+                              </div>
+                            </td>
+                            <td className="py-3 px-4 font-medium">{item.mco}</td>
+                            <td className="py-3 px-4">
+                              <span className={`text-lg font-bold ${getEvvStatusColor(Number(item.percentage))}`}>
+                                {item.percentage}%
+                              </span>
+                            </td>
+                            <td className="py-3 px-4 text-sm text-muted-foreground">
+                              {item.evvCompliantVisits || 0}/{item.totalVisits || 0}
+                            </td>
+                            <td className="py-3 px-4">
+                              {getEvvStatusBadge(Number(item.percentage))}
+                            </td>
+                            <td className="py-3 px-4 text-sm text-muted-foreground max-w-xs truncate">
+                              {item.notes || "-"}
+                            </td>
+                            <td className="py-3 px-4 text-right">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => deleteEvvMutation.mutate(item.id)}
+                                disabled={deleteEvvMutation.isPending}
+                                data-testid={`button-delete-evv-${item.id}`}
+                              >
+                                <Trash2 className="w-4 h-4 text-destructive" />
+                              </Button>
+                            </td>
+                          </tr>
+                        ))}
+                    </tbody>
+                  </table>
                 </div>
               )}
             </CardContent>

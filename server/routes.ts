@@ -33,6 +33,7 @@ import {
   insertMasterWeekSlotSchema,
   insertClientScheduleSchema,
   insertScheduleChangeLogSchema,
+  insertEvvDataSchema,
 } from "@shared/schema";
 import { ObjectStorageService, ObjectNotFoundError } from "./objectStorage";
 import { ObjectPermission } from "./objectAcl";
@@ -2213,6 +2214,120 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error deleting AI issue:", error);
       res.status(500).json({ message: "Failed to delete AI issue" });
+    }
+  });
+
+  // EVV Data routes
+  app.get("/api/evv-data", isAuthenticated, async (req, res) => {
+    try {
+      const { month, year } = req.query;
+      let evvDataItems;
+      
+      if (month && year) {
+        evvDataItems = await storage.getEvvDataByMonthYear(
+          parseInt(month as string, 10),
+          parseInt(year as string, 10)
+        );
+      } else {
+        evvDataItems = await storage.getAllEvvData();
+      }
+      
+      res.json(evvDataItems);
+    } catch (error) {
+      console.error("Error fetching EVV data:", error);
+      res.status(500).json({ message: "Failed to fetch EVV data" });
+    }
+  });
+
+  app.get("/api/evv-data/:id", isAuthenticated, async (req, res) => {
+    try {
+      const evvDataItem = await storage.getEvvData(req.params.id);
+      if (!evvDataItem) {
+        return res.status(404).json({ message: "EVV data not found" });
+      }
+      res.json(evvDataItem);
+    } catch (error) {
+      console.error("Error fetching EVV data:", error);
+      res.status(500).json({ message: "Failed to fetch EVV data" });
+    }
+  });
+
+  app.post("/api/evv-data", isAuthenticated, async (req: any, res) => {
+    try {
+      const validatedData = insertEvvDataSchema.parse({
+        ...req.body,
+        createdBy: req.user.claims.sub,
+      });
+      const evvDataItem = await storage.createEvvData(validatedData);
+      
+      await storage.createAuditLog({
+        userId: req.user.claims.sub,
+        action: "create",
+        entityType: "evv_data",
+        entityId: evvDataItem.id,
+        newValues: evvDataItem,
+        ipAddress: req.ip,
+        userAgent: req.get("User-Agent"),
+      });
+      
+      res.status(201).json(evvDataItem);
+    } catch (error) {
+      console.error("Error creating EVV data:", error);
+      res.status(400).json({ message: "Failed to create EVV data" });
+    }
+  });
+
+  app.put("/api/evv-data/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const oldEvvData = await storage.getEvvData(req.params.id);
+      if (!oldEvvData) {
+        return res.status(404).json({ message: "EVV data not found" });
+      }
+      
+      const validatedData = insertEvvDataSchema.partial().parse(req.body);
+      const evvDataItem = await storage.updateEvvData(req.params.id, validatedData);
+      
+      await storage.createAuditLog({
+        userId: req.user.claims.sub,
+        action: "update",
+        entityType: "evv_data",
+        entityId: evvDataItem.id,
+        oldValues: oldEvvData,
+        newValues: evvDataItem,
+        ipAddress: req.ip,
+        userAgent: req.get("User-Agent"),
+      });
+      
+      res.json(evvDataItem);
+    } catch (error) {
+      console.error("Error updating EVV data:", error);
+      res.status(400).json({ message: "Failed to update EVV data" });
+    }
+  });
+
+  app.delete("/api/evv-data/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const evvDataItem = await storage.getEvvData(req.params.id);
+      if (!evvDataItem) {
+        return res.status(404).json({ message: "EVV data not found" });
+      }
+      
+      await storage.deleteEvvData(req.params.id);
+      
+      await storage.createAuditLog({
+        userId: req.user.claims.sub,
+        action: "delete",
+        entityType: "evv_data",
+        entityId: req.params.id,
+        oldValues: evvDataItem,
+        ipAddress: req.ip,
+        userAgent: req.get("User-Agent"),
+      });
+      
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting EVV data:", error);
+      res.status(500).json({ message: "Failed to delete EVV data" });
     }
   });
 
