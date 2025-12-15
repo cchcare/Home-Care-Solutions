@@ -21,8 +21,19 @@ import {
   Heart,
   Search,
   Bell,
-  Settings
+  Settings,
+  User,
+  Key,
+  LogOut,
+  ChevronDown
 } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { AiIssuesPanel } from "@/components/ai-issues-panel";
 
 export default function Dashboard() {
@@ -124,18 +135,55 @@ export default function Dashboard() {
             </button>
 
             {/* User Menu */}
-            <button 
-              className="flex items-center space-x-2 p-2 rounded-lg hover:bg-muted" 
-              onClick={() => toast({ title: "User Settings", description: "User settings coming soon" })}
-              data-testid="button-user-menu"
-            >
-              <div className="w-8 h-8 bg-primary rounded-full flex items-center justify-center">
-                <span className="text-primary-foreground text-sm font-medium">
-                  {user?.firstName?.[0] || 'U'}{user?.lastName?.[0] || 'U'}
-                </span>
-              </div>
-              <Settings className="w-4 h-4 text-muted-foreground" />
-            </button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button 
+                  className="flex items-center space-x-2 p-2 rounded-lg hover:bg-muted" 
+                  data-testid="button-user-menu"
+                >
+                  <div className="w-8 h-8 bg-primary rounded-full flex items-center justify-center">
+                    <span className="text-primary-foreground text-sm font-medium">
+                      {user?.firstName?.[0] || 'U'}{user?.lastName?.[0] || 'U'}
+                    </span>
+                  </div>
+                  <ChevronDown className="w-4 h-4 text-muted-foreground" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-56">
+                <div className="px-2 py-1.5">
+                  <p className="text-sm font-medium">{user?.firstName} {user?.lastName}</p>
+                  <p className="text-xs text-muted-foreground">{user?.email || 'User'}</p>
+                </div>
+                <DropdownMenuSeparator />
+                <Link href="/account-settings">
+                  <DropdownMenuItem data-testid="menu-item-my-account">
+                    <User className="mr-2 h-4 w-4" />
+                    My Account
+                  </DropdownMenuItem>
+                </Link>
+                <Link href="/account-settings">
+                  <DropdownMenuItem data-testid="menu-item-settings">
+                    <Settings className="mr-2 h-4 w-4" />
+                    Settings
+                  </DropdownMenuItem>
+                </Link>
+                <Link href="/account-settings">
+                  <DropdownMenuItem data-testid="menu-item-change-password">
+                    <Key className="mr-2 h-4 w-4" />
+                    Change Password
+                  </DropdownMenuItem>
+                </Link>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem 
+                  onClick={() => window.location.href = "/api/logout"}
+                  className="text-destructive focus:text-destructive"
+                  data-testid="menu-item-logout"
+                >
+                  <LogOut className="mr-2 h-4 w-4" />
+                  Log Out
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </header>
 
