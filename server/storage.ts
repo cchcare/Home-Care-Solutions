@@ -73,6 +73,9 @@ import {
   type InsertClientCaregiverAssignment,
   masterWeekTemplates,
   type MasterWeekTemplate,
+  evvData,
+  type EvvData,
+  type InsertEvvData,
   type InsertMasterWeekTemplate,
   masterWeekSlots,
   type MasterWeekSlot,
@@ -292,6 +295,14 @@ export interface IStorage {
   updateAiDetectedIssue(id: string, issue: Partial<InsertAiDetectedIssue>): Promise<AiDetectedIssue>;
   deleteAiDetectedIssue(id: string): Promise<void>;
   getAllComplianceItems(): Promise<ComplianceItem[]>;
+
+  // EVV Data operations
+  getAllEvvData(): Promise<EvvData[]>;
+  getEvvData(id: string): Promise<EvvData | undefined>;
+  getEvvDataByMonthYear(month: number, year: number): Promise<EvvData[]>;
+  createEvvData(data: InsertEvvData): Promise<EvvData>;
+  updateEvvData(id: string, data: Partial<InsertEvvData>): Promise<EvvData>;
+  deleteEvvData(id: string): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1366,6 +1377,38 @@ export class DatabaseStorage implements IStorage {
 
   async getAllComplianceItems(): Promise<ComplianceItem[]> {
     return await db.select().from(complianceItems).orderBy(desc(complianceItems.createdAt));
+  }
+
+  // EVV Data operations
+  async getAllEvvData(): Promise<EvvData[]> {
+    return await db.select().from(evvData).orderBy(desc(evvData.year), desc(evvData.month));
+  }
+
+  async getEvvData(id: string): Promise<EvvData | undefined> {
+    const [data] = await db.select().from(evvData).where(eq(evvData.id, id));
+    return data;
+  }
+
+  async getEvvDataByMonthYear(month: number, year: number): Promise<EvvData[]> {
+    return await db.select().from(evvData)
+      .where(and(eq(evvData.month, month), eq(evvData.year, year)));
+  }
+
+  async createEvvData(data: InsertEvvData): Promise<EvvData> {
+    const [newData] = await db.insert(evvData).values(data).returning();
+    return newData;
+  }
+
+  async updateEvvData(id: string, data: Partial<InsertEvvData>): Promise<EvvData> {
+    const [updatedData] = await db.update(evvData)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(evvData.id, id))
+      .returning();
+    return updatedData;
+  }
+
+  async deleteEvvData(id: string): Promise<void> {
+    await db.delete(evvData).where(eq(evvData.id, id));
   }
 }
 

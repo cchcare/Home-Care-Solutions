@@ -900,3 +900,35 @@ export const aiDetectedIssues = pgTable("ai_detected_issues", {
 export type AiDetectedIssue = typeof aiDetectedIssues.$inferSelect;
 export type InsertAiDetectedIssue = typeof aiDetectedIssues.$inferInsert;
 export const insertAiDetectedIssueSchema = createInsertSchema(aiDetectedIssues);
+
+// EVV (Electronic Visit Verification) Data Tracking
+export const evvData = pgTable("evv_data", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  month: integer("month").notNull(), // 1-12
+  year: integer("year").notNull(),
+  mco: varchar("mco").notNull(), // Managed Care Organization name
+  percentage: numeric("percentage", { precision: 5, scale: 2 }).notNull(), // EVV compliance percentage
+  totalVisits: integer("total_visits"), // Total scheduled visits
+  evvCompliantVisits: integer("evv_compliant_visits"), // Visits with proper EVV
+  notes: text("notes"),
+  officeId: varchar("office_id").references(() => offices.id),
+  createdBy: varchar("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const evvDataRelations = relations(evvData, ({ one }) => ({
+  office: one(offices, {
+    fields: [evvData.officeId],
+    references: [offices.id],
+  }),
+  createdByUser: one(users, {
+    fields: [evvData.createdBy],
+    references: [users.id],
+  }),
+}));
+
+// Type exports for EVV data
+export type EvvData = typeof evvData.$inferSelect;
+export type InsertEvvData = typeof evvData.$inferInsert;
+export const insertEvvDataSchema = createInsertSchema(evvData);
