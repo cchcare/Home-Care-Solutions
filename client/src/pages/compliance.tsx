@@ -30,7 +30,8 @@ import {
   Plus,
   Activity,
   TrendingUp,
-  Trash2
+  Trash2,
+  ClipboardList
 } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
@@ -75,6 +76,26 @@ export default function Compliance() {
 
   const { data: evvData = [], isLoading: evvLoading } = useQuery<EvvData[]>({
     queryKey: ["/api/evv-data"],
+    retry: false,
+  });
+
+  const { data: incidentStats = [], isLoading: incidentStatsLoading } = useQuery<{
+    month: number;
+    year: number;
+    total: number;
+    solved: number;
+    unsolved: number;
+  }[]>({
+    queryKey: ["/api/incidents/stats", selectedYear],
+    queryFn: async () => {
+      const response = await fetch(`/api/incidents/stats?year=${selectedYear}`, {
+        credentials: "include",
+      });
+      if (!response.ok) {
+        throw new Error("Failed to fetch incident statistics");
+      }
+      return response.json();
+    },
     retry: false,
   });
 
@@ -951,6 +972,129 @@ export default function Compliance() {
                     </tbody>
                   </table>
                 </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Incident Report Statistics Section */}
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-2">
+                  <ClipboardList className="w-5 h-5 text-primary" />
+                  <CardTitle>Incident Report Statistics</CardTitle>
+                </div>
+                <Select value={String(selectedYear)} onValueChange={(v) => setSelectedYear(Number(v))}>
+                  <SelectTrigger className="w-32" data-testid="select-incident-year">
+                    <SelectValue placeholder="Select year" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {[2023, 2024, 2025, 2026].map((year) => (
+                      <SelectItem key={year} value={String(year)}>{year}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {incidentStatsLoading ? (
+                <div className="text-center py-8">
+                  <p className="text-muted-foreground">Loading incident statistics...</p>
+                </div>
+              ) : (
+                <>
+                  {/* Summary Cards */}
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                    <Card className="bg-muted/50">
+                      <CardContent className="p-4">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-sm text-muted-foreground">Total Incidents</p>
+                            <p className="text-2xl font-bold text-foreground" data-testid="text-total-incidents">
+                              {incidentStats.reduce((sum, s) => sum + s.total, 0)}
+                            </p>
+                          </div>
+                          <ClipboardList className="w-8 h-8 text-muted-foreground" />
+                        </div>
+                      </CardContent>
+                    </Card>
+                    <Card className="bg-green-50 dark:bg-green-950/20">
+                      <CardContent className="p-4">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-sm text-muted-foreground">Solved</p>
+                            <p className="text-2xl font-bold text-green-600" data-testid="text-solved-incidents">
+                              {incidentStats.reduce((sum, s) => sum + s.solved, 0)}
+                            </p>
+                          </div>
+                          <CheckCircle className="w-8 h-8 text-green-600" />
+                        </div>
+                      </CardContent>
+                    </Card>
+                    <Card className="bg-yellow-50 dark:bg-yellow-950/20">
+                      <CardContent className="p-4">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-sm text-muted-foreground">Unsolved</p>
+                            <p className="text-2xl font-bold text-yellow-600" data-testid="text-unsolved-incidents">
+                              {incidentStats.reduce((sum, s) => sum + s.unsolved, 0)}
+                            </p>
+                          </div>
+                          <Clock className="w-8 h-8 text-yellow-600" />
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </div>
+
+                  {/* Monthly Breakdown Table */}
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead>
+                        <tr className="border-b">
+                          <th className="text-left py-3 px-4 font-medium text-muted-foreground">Month</th>
+                          <th className="text-center py-3 px-4 font-medium text-muted-foreground">Total</th>
+                          <th className="text-center py-3 px-4 font-medium text-muted-foreground">Solved</th>
+                          <th className="text-center py-3 px-4 font-medium text-muted-foreground">Unsolved</th>
+                          <th className="text-center py-3 px-4 font-medium text-muted-foreground">Resolution Rate</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {incidentStats.map((stat) => {
+                          const resolutionRate = stat.total > 0 ? Math.round((stat.solved / stat.total) * 100) : 0;
+                          return (
+                            <tr key={stat.month} className="border-b hover:bg-muted/50" data-testid={`row-incident-${stat.month}`}>
+                              <td className="py-3 px-4">
+                                <div className="flex items-center gap-2">
+                                  <Calendar className="w-4 h-4 text-muted-foreground" />
+                                  <span>{monthNames[stat.month - 1]}</span>
+                                </div>
+                              </td>
+                              <td className="py-3 px-4 text-center font-medium">{stat.total}</td>
+                              <td className="py-3 px-4 text-center">
+                                <span className="text-green-600 font-medium">{stat.solved}</span>
+                              </td>
+                              <td className="py-3 px-4 text-center">
+                                <span className="text-yellow-600 font-medium">{stat.unsolved}</span>
+                              </td>
+                              <td className="py-3 px-4 text-center">
+                                {stat.total > 0 ? (
+                                  <Badge 
+                                    variant={resolutionRate >= 80 ? "default" : resolutionRate >= 50 ? "secondary" : "destructive"}
+                                    className={resolutionRate >= 80 ? "bg-green-100 text-green-800" : ""}
+                                  >
+                                    {resolutionRate}%
+                                  </Badge>
+                                ) : (
+                                  <span className="text-muted-foreground">-</span>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
               )}
             </CardContent>
           </Card>

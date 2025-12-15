@@ -311,6 +311,15 @@ export interface IStorage {
     evvPercentage: number;
     clientCount: number;
   }[]>;
+
+  // Incident report statistics by month
+  getIncidentStatsByMonth(year?: number): Promise<{
+    month: number;
+    year: number;
+    total: number;
+    solved: number;
+    unsolved: number;
+  }[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1476,6 +1485,48 @@ export class DatabaseStorage implements IStorage {
         activeDcwCount: Number(dcwResult[0]?.count) || 0,
         evvPercentage: avgEvvPercentage,
         clientCount: Number(clientResult[0]?.count) || 0,
+      });
+    }
+    
+    return stats;
+  }
+
+  // Incident report statistics by month
+  async getIncidentStatsByMonth(year?: number): Promise<{
+    month: number;
+    year: number;
+    total: number;
+    solved: number;
+    unsolved: number;
+  }[]> {
+    const targetYear = year || new Date().getFullYear();
+    const stats: { month: number; year: number; total: number; solved: number; unsolved: number; }[] = [];
+    
+    for (let month = 1; month <= 12; month++) {
+      const monthStart = new Date(targetYear, month - 1, 1);
+      const monthEnd = new Date(targetYear, month, 0, 23, 59, 59);
+      
+      // Get all incidents for this month
+      const incidents = await db
+        .select()
+        .from(incidentReports)
+        .where(
+          and(
+            gte(incidentReports.incidentDate, monthStart),
+            lte(incidentReports.incidentDate, monthEnd)
+          )
+        );
+      
+      // Count solved (resolved, closed) and unsolved (open, under_investigation)
+      const solved = incidents.filter(i => i.status === 'resolved' || i.status === 'closed').length;
+      const unsolved = incidents.filter(i => i.status === 'open' || i.status === 'under_investigation').length;
+      
+      stats.push({
+        month,
+        year: targetYear,
+        total: incidents.length,
+        solved,
+        unsolved,
       });
     }
     

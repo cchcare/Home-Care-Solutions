@@ -668,6 +668,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Incident report statistics by month
+  app.get("/api/incidents/stats", isAuthenticated, async (req, res) => {
+    try {
+      const year = req.query.year ? parseInt(req.query.year as string) : undefined;
+      const stats = await storage.getIncidentStatsByMonth(year);
+      res.json(stats);
+    } catch (error) {
+      console.error("Error fetching incident statistics:", error);
+      res.status(500).json({ message: "Failed to fetch incident statistics" });
+    }
+  });
+
   // Task routes
   app.get("/api/tasks", isAuthenticated, async (req: any, res) => {
     try {
