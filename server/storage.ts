@@ -118,15 +118,15 @@ export interface IStorage {
   deleteOffice(id: string): Promise<void>;
 
   // Client operations
-  getAllClients(): Promise<Client[]>;
+  getAllClients(officeId?: string): Promise<Client[]>;
   getClient(id: string): Promise<Client | undefined>;
   createClient(client: InsertClient): Promise<Client>;
   updateClient(id: string, client: Partial<InsertClient>): Promise<Client>;
   deleteClient(id: string): Promise<void>;
-  searchClients(searchTerm: string): Promise<Client[]>;
+  searchClients(searchTerm: string, officeId?: string): Promise<Client[]>;
 
   // Caregiver operations
-  getAllCaregivers(): Promise<Caregiver[]>;
+  getAllCaregivers(officeId?: string): Promise<Caregiver[]>;
   getCaregiver(id: string): Promise<Caregiver | undefined>;
   getCaregiverByUserId(userId: string): Promise<Caregiver | undefined>;
   createCaregiver(caregiver: InsertCaregiver): Promise<Caregiver>;
@@ -192,7 +192,7 @@ export interface IStorage {
   updateComplianceItem(id: string, item: Partial<InsertComplianceItem>): Promise<ComplianceItem>;
 
   // Dashboard metrics
-  getDashboardMetrics(): Promise<{
+  getDashboardMetrics(officeId?: string): Promise<{
     activeClients: number;
     activeCaregivers: number;
     pendingTasks: number;
@@ -415,7 +415,10 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Client operations
-  async getAllClients(): Promise<Client[]> {
+  async getAllClients(officeId?: string): Promise<Client[]> {
+    if (officeId) {
+      return await db.select().from(clients).where(eq(clients.officeId, officeId)).orderBy(desc(clients.createdAt));
+    }
     return await db.select().from(clients).orderBy(desc(clients.createdAt));
   }
 
@@ -442,21 +445,31 @@ export class DatabaseStorage implements IStorage {
     await db.delete(clients).where(eq(clients.id, id));
   }
 
-  async searchClients(searchTerm: string): Promise<Client[]> {
+  async searchClients(searchTerm: string, officeId?: string): Promise<Client[]> {
+    const searchCondition = or(
+      like(clients.firstName, `%${searchTerm}%`),
+      like(clients.lastName, `%${searchTerm}%`),
+      like(clients.phone, `%${searchTerm}%`)
+    );
+    
+    if (officeId) {
+      return await db
+        .select()
+        .from(clients)
+        .where(and(searchCondition, eq(clients.officeId, officeId)));
+    }
+    
     return await db
       .select()
       .from(clients)
-      .where(
-        or(
-          like(clients.firstName, `%${searchTerm}%`),
-          like(clients.lastName, `%${searchTerm}%`),
-          like(clients.phone, `%${searchTerm}%`)
-        )
-      );
+      .where(searchCondition);
   }
 
   // Caregiver operations
-  async getAllCaregivers(): Promise<Caregiver[]> {
+  async getAllCaregivers(officeId?: string): Promise<Caregiver[]> {
+    if (officeId) {
+      return await db.select().from(caregivers).where(eq(caregivers.officeId, officeId)).orderBy(desc(caregivers.createdAt));
+    }
     return await db.select().from(caregivers).orderBy(desc(caregivers.createdAt));
   }
 
@@ -803,49 +816,94 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Dashboard metrics
-  async getDashboardMetrics(): Promise<{
+  async getDashboardMetrics(officeId?: string): Promise<{
     activeClients: number;
     activeCaregivers: number;
     pendingTasks: number;
     complianceRate: number;
     criticalAlerts: number;
   }> {
+    const clientCondition = officeId 
+      ? and(eq(clients.status, "active"), eq(clients.officeId, officeId))
+      : eq(clients.status, "active");
+    
     const [clientCount] = await db
       .select({ count: count() })
       .from(clients)
-      .where(eq(clients.status, "active"));
+      .where(clientCondition);
+
+    const caregiverCondition = officeId
+      ? and(eq(caregivers.isActive, true), eq(caregivers.officeId, officeId))
+      : eq(caregivers.isActive, true);
 
     const [caregiverCount] = await db
       .select({ count: count() })
       .from(caregivers)
-      .where(eq(caregivers.isActive, true));
+      .where(caregiverCondition);
 
-    const [taskCount] = await db
-      .select({ count: count() })
-      .from(tasks)
-      .where(eq(tasks.status, "pending"));
-
-    const [totalCompliance] = await db
-      .select({ count: count() })
-      .from(complianceItems);
-
-    const [compliantItems] = await db
-      .select({ count: count() })
-      .from(complianceItems)
-      .where(eq(complianceItems.status, "compliant"));
-
-    const [criticalTasks] = await db
-      .select({ count: count() })
-      .from(tasks)
-      .where(
-        and(
-          eq(tasks.priority, "critical"),
-          or(
-            eq(tasks.status, "pending"),
-            eq(tasks.status, "overdue")
+    // Filter tasks by office via client relationship
+    let taskCount: { count: number };
+    let criticalTasks: { count: number };
+    if (officeId) {
+      [taskCount] = await db
+        .select({ count: count() })
+        .from(tasks)
+        .innerJoin(clients, eq(tasks.clientId, clients.id))
+        .where(and(eq(tasks.status, "pending"), eq(clients.officeId, officeId)));
+      
+      [criticalTasks] = await db
+        .select({ count: count() })
+        .from(tasks)
+        .innerJoin(clients, eq(tasks.clientId, clients.id))
+        .where(
+          and(
+            eq(clients.officeId, officeId),
+            eq(tasks.priority, "critical"),
+            or(eq(tasks.status, "pending"), eq(tasks.status, "overdue"))
           )
-        )
-      );
+        );
+    } else {
+      [taskCount] = await db
+        .select({ count: count() })
+        .from(tasks)
+        .where(eq(tasks.status, "pending"));
+
+      [criticalTasks] = await db
+        .select({ count: count() })
+        .from(tasks)
+        .where(
+          and(
+            eq(tasks.priority, "critical"),
+            or(eq(tasks.status, "pending"), eq(tasks.status, "overdue"))
+          )
+        );
+    }
+
+    // Filter compliance items by office via caregiver relationship
+    let totalCompliance: { count: number };
+    let compliantItems: { count: number };
+    if (officeId) {
+      [totalCompliance] = await db
+        .select({ count: count() })
+        .from(complianceItems)
+        .innerJoin(caregivers, eq(complianceItems.caregiverId, caregivers.id))
+        .where(eq(caregivers.officeId, officeId));
+
+      [compliantItems] = await db
+        .select({ count: count() })
+        .from(complianceItems)
+        .innerJoin(caregivers, eq(complianceItems.caregiverId, caregivers.id))
+        .where(and(eq(complianceItems.status, "compliant"), eq(caregivers.officeId, officeId)));
+    } else {
+      [totalCompliance] = await db
+        .select({ count: count() })
+        .from(complianceItems);
+
+      [compliantItems] = await db
+        .select({ count: count() })
+        .from(complianceItems)
+        .where(eq(complianceItems.status, "compliant"));
+    }
 
     const complianceRate = totalCompliance.count > 0 
       ? Math.round((compliantItems.count / totalCompliance.count) * 100)

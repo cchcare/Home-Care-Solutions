@@ -10,6 +10,8 @@ import { TopBar } from "@/components/topbar";
 import { AddClientModal } from "@/components/add-client-modal";
 import { ClientProfileModal } from "@/components/client-profile-modal";
 import { OcrUploadDialog } from "@/components/ocr-upload-dialog";
+import { OfficeSelector } from "@/components/office-selector";
+import { useOffice } from "@/context/office-context";
 import { apiRequest } from "@/lib/queryClient";
 import { isUnauthorizedError } from "@/lib/authUtils";
 import { 
@@ -35,9 +37,13 @@ export default function Clients() {
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const { selectedOfficeId, setSelectedOfficeId } = useOffice();
+
+  const officeQuery = selectedOfficeId !== "all" ? `?officeId=${selectedOfficeId}` : "";
 
   const { data: clients = [], isLoading } = useQuery<Client[]>({
-    queryKey: ["/api/clients", searchTerm],
+    queryKey: ["/api/clients", selectedOfficeId, searchTerm],
+    queryFn: () => fetch(`/api/clients${officeQuery}`).then(r => r.json()),
     retry: false,
   });
 
@@ -137,7 +143,11 @@ export default function Clients() {
         {/* Header */}
         <header className="bg-card border-b border-border h-16 flex items-center justify-between px-6 flex-shrink-0">
           <div className="flex items-center space-x-4">
-            <div className="flex-1" />
+            <OfficeSelector
+              selectedOfficeId={selectedOfficeId === "all" ? undefined : selectedOfficeId}
+              onOfficeChange={setSelectedOfficeId}
+              showAllOption={true}
+            />
           </div>
           <div className="flex items-center space-x-2">
             <ExcelExport type="clients" data={clients || []} disabled={isLoading} />

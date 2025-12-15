@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import { useQuery } from "@tanstack/react-query";
@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Sidebar } from "@/components/sidebar";
 import { OfficeSelector } from "@/components/office-selector";
+import { useOffice } from "@/context/office-context";
 import { isUnauthorizedError } from "@/lib/authUtils";
 import { Link } from "wouter";
 import {
@@ -48,7 +49,7 @@ import { AiIssuesPanel } from "@/components/ai-issues-panel";
 export default function Dashboard() {
   const { toast } = useToast();
   const { isAuthenticated, isLoading, user } = useAuth();
-  const [selectedOfficeId, setSelectedOfficeId] = useState<string>("all");
+  const { selectedOfficeId, setSelectedOfficeId } = useOffice();
 
   // Redirect to login if not authenticated
   useEffect(() => {
@@ -65,13 +66,17 @@ export default function Dashboard() {
     }
   }, [isAuthenticated, isLoading, toast]);
 
+  const officeQuery = selectedOfficeId !== "all" ? `?officeId=${selectedOfficeId}` : "";
+
   const { data: metrics = {}, isLoading: metricsLoading } = useQuery<any>({
-    queryKey: ["/api/dashboard/metrics"],
+    queryKey: ["/api/dashboard/metrics", selectedOfficeId],
+    queryFn: () => fetch(`/api/dashboard/metrics${officeQuery}`).then(r => r.json()),
     retry: false,
   });
 
   const { data: clients = [], isLoading: clientsLoading } = useQuery<any[]>({
-    queryKey: ["/api/clients"],
+    queryKey: ["/api/clients", selectedOfficeId],
+    queryFn: () => fetch(`/api/clients${officeQuery}`).then(r => r.json()),
     retry: false,
   });
 

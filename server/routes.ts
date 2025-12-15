@@ -86,7 +86,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Dashboard metrics
   app.get("/api/dashboard/metrics", isAuthenticated, async (req, res) => {
     try {
-      const metrics = await storage.getDashboardMetrics();
+      const { officeId } = req.query;
+      const officeFilter = officeId && officeId !== 'all' ? String(officeId) : undefined;
+      const metrics = await storage.getDashboardMetrics(officeFilter);
       res.json(metrics);
     } catch (error) {
       console.error("Error fetching dashboard metrics:", error);
@@ -205,7 +207,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Client routes
   app.get("/api/clients", isAuthenticated, async (req, res) => {
     try {
-      const { search } = req.query;
+      const { search, officeId } = req.query;
+      const officeFilter = officeId && officeId !== 'all' ? String(officeId) : undefined;
       let clients;
       
       if (search) {
@@ -217,9 +220,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Sanitize search input (remove potentially dangerous characters)
         const sanitizedSearch = search.replace(/[<>\"'%;()&+]/g, '');
         
-        clients = await storage.searchClients(sanitizedSearch);
+        clients = await storage.searchClients(sanitizedSearch, officeFilter);
       } else {
-        clients = await storage.getAllClients();
+        clients = await storage.getAllClients(officeFilter);
       }
       
       res.json(clients);
@@ -402,7 +405,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Caregiver routes
   app.get("/api/caregivers", isAuthenticated, async (req, res) => {
     try {
-      const caregivers = await storage.getAllCaregivers();
+      const { officeId } = req.query;
+      const officeFilter = officeId && officeId !== 'all' ? String(officeId) : undefined;
+      const caregivers = await storage.getAllCaregivers(officeFilter);
       res.json(caregivers);
     } catch (error) {
       console.error("Error fetching caregivers:", error);
