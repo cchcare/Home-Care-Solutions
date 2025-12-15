@@ -9,6 +9,15 @@ import { Sidebar } from "@/components/sidebar";
 import { OfficeSelector } from "@/components/office-selector";
 import { isUnauthorizedError } from "@/lib/authUtils";
 import { Link } from "wouter";
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+} from "recharts";
 import { 
   Users, 
   UserCheck, 
@@ -80,6 +89,22 @@ export default function Dashboard() {
     queryKey: ["/api/documents"],
     retry: false,
   });
+
+  const { data: monthlyStats = [], isLoading: monthlyStatsLoading } = useQuery<{
+    month: number;
+    activeDcwCount: number;
+    evvPercentage: number;
+    clientCount: number;
+  }[]>({
+    queryKey: ["/api/dashboard/monthly-stats", new Date().getFullYear()],
+    retry: false,
+  });
+
+  const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const chartData = monthlyStats.map((stat) => ({
+    ...stat,
+    monthName: monthNames[stat.month - 1],
+  }));
 
   if (isLoading || !isAuthenticated) {
     return <div>Loading...</div>;
@@ -258,6 +283,75 @@ export default function Dashboard() {
                       <Shield className="w-6 h-6 text-accent" />
                     </div>
                   </div>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Monthly Statistics Charts */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6" data-testid="charts-monthly-stats">
+              {/* Active DCW Count by Month */}
+              <Card data-testid="card-chart-dcw-count">
+                <CardHeader className="border-b border-border">
+                  <CardTitle className="text-base">Active DCW Count by Month</CardTitle>
+                </CardHeader>
+                <CardContent className="p-4">
+                  {monthlyStatsLoading ? (
+                    <div className="h-[200px] flex items-center justify-center text-muted-foreground">Loading...</div>
+                  ) : (
+                    <ResponsiveContainer width="100%" height={200}>
+                      <LineChart data={chartData}>
+                        <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                        <XAxis dataKey="monthName" tick={{ fontSize: 12 }} className="text-muted-foreground" />
+                        <YAxis tick={{ fontSize: 12 }} className="text-muted-foreground" />
+                        <Tooltip contentStyle={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))' }} />
+                        <Line type="monotone" dataKey="activeDcwCount" stroke="hsl(var(--primary))" strokeWidth={2} dot={{ fill: 'hsl(var(--primary))' }} name="DCW Count" />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* EVV Percentage by Month */}
+              <Card data-testid="card-chart-evv-percentage">
+                <CardHeader className="border-b border-border">
+                  <CardTitle className="text-base">EVV Percentage by Month</CardTitle>
+                </CardHeader>
+                <CardContent className="p-4">
+                  {monthlyStatsLoading ? (
+                    <div className="h-[200px] flex items-center justify-center text-muted-foreground">Loading...</div>
+                  ) : (
+                    <ResponsiveContainer width="100%" height={200}>
+                      <LineChart data={chartData}>
+                        <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                        <XAxis dataKey="monthName" tick={{ fontSize: 12 }} className="text-muted-foreground" />
+                        <YAxis tick={{ fontSize: 12 }} domain={[0, 100]} className="text-muted-foreground" />
+                        <Tooltip contentStyle={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))' }} formatter={(value) => [`${value}%`, 'EVV %']} />
+                        <Line type="monotone" dataKey="evvPercentage" stroke="hsl(var(--accent))" strokeWidth={2} dot={{ fill: 'hsl(var(--accent))' }} name="EVV %" />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* Client Count by Month */}
+              <Card data-testid="card-chart-client-count">
+                <CardHeader className="border-b border-border">
+                  <CardTitle className="text-base">Client Count by Month</CardTitle>
+                </CardHeader>
+                <CardContent className="p-4">
+                  {monthlyStatsLoading ? (
+                    <div className="h-[200px] flex items-center justify-center text-muted-foreground">Loading...</div>
+                  ) : (
+                    <ResponsiveContainer width="100%" height={200}>
+                      <LineChart data={chartData}>
+                        <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                        <XAxis dataKey="monthName" tick={{ fontSize: 12 }} className="text-muted-foreground" />
+                        <YAxis tick={{ fontSize: 12 }} className="text-muted-foreground" />
+                        <Tooltip contentStyle={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))' }} />
+                        <Line type="monotone" dataKey="clientCount" stroke="hsl(var(--chart-3, #22c55e))" strokeWidth={2} dot={{ fill: 'hsl(var(--chart-3, #22c55e))' }} name="Clients" />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  )}
                 </CardContent>
               </Card>
             </div>

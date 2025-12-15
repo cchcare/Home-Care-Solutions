@@ -303,6 +303,14 @@ export interface IStorage {
   createEvvData(data: InsertEvvData): Promise<EvvData>;
   updateEvvData(id: string, data: Partial<InsertEvvData>): Promise<EvvData>;
   deleteEvvData(id: string): Promise<void>;
+
+  // Monthly dashboard statistics
+  getMonthlyStats(year: number): Promise<{
+    month: number;
+    activeDcwCount: number;
+    evvPercentage: number;
+    clientCount: number;
+  }[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1409,6 +1417,69 @@ export class DatabaseStorage implements IStorage {
 
   async deleteEvvData(id: string): Promise<void> {
     await db.delete(evvData).where(eq(evvData.id, id));
+  }
+
+  // Monthly dashboard statistics
+  async getMonthlyStats(year: number): Promise<{
+    month: number;
+    activeDcwCount: number;
+    evvPercentage: number;
+    clientCount: number;
+  }[]> {
+    const stats = [];
+    
+    for (let month = 1; month <= 12; month++) {
+      const monthEnd = new Date(year, month, 0, 23, 59, 59);
+      
+      // Count active caregivers (DCWs) - those created before or during this month and still active
+      const dcwResult = await db
+        .select({ count: count() })
+        .from(caregivers)
+        .where(
+          and(
+            lte(caregivers.createdAt, monthEnd),
+            eq(caregivers.isActive, true)
+          )
+        );
+      
+      // Count active clients - those created before or during this month and active
+      const clientResult = await db
+        .select({ count: count() })
+        .from(clients)
+        .where(
+          and(
+            lte(clients.createdAt, monthEnd),
+            eq(clients.status, "active")
+          )
+        );
+      
+      // Get average EVV percentage for this month from evv_data table
+      const evvResult = await db
+        .select({ percentage: evvData.percentage })
+        .from(evvData)
+        .where(
+          and(
+            eq(evvData.month, month),
+            eq(evvData.year, year)
+          )
+        );
+      
+      // Calculate average EVV percentage if there are multiple MCOs
+      let avgEvvPercentage = 0;
+      if (evvResult.length > 0) {
+        const total = evvResult.reduce((sum, row) => sum + Number(row.percentage || 0), 0);
+        avgEvvPercentage = Math.round(total / evvResult.length);
+      }
+      
+      stats.push({
+        month,
+        activeDcwCount: Number(dcwResult[0]?.count) || 0,
+        evvPercentage: avgEvvPercentage,
+        clientCount: Number(clientResult[0]?.count) || 0,
+      });
+    }
+    
+    return stats;
   }
 }
 

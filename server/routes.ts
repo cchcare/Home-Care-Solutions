@@ -90,6 +90,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Monthly dashboard statistics for charts
+  app.get("/api/dashboard/monthly-stats", isAuthenticated, async (req, res) => {
+    try {
+      const year = parseInt(req.query.year as string) || new Date().getFullYear();
+      const stats = await storage.getMonthlyStats(year);
+      res.json(stats);
+    } catch (error) {
+      console.error("Error fetching monthly stats:", error);
+      res.status(500).json({ message: "Failed to fetch monthly statistics" });
+    }
+  });
+
   // Office routes
   app.get("/api/offices", isAuthenticated, async (req, res) => {
     try {
