@@ -23,6 +23,7 @@ import {
   Bell,
   Settings
 } from "lucide-react";
+import { AiIssuesPanel } from "@/components/ai-issues-panel";
 
 export default function Dashboard() {
   const { toast } = useToast();
@@ -212,6 +213,9 @@ export default function Dashboard() {
                 </CardContent>
               </Card>
             </div>
+
+            {/* AI Issue Detection Panel */}
+            <AiIssuesPanel />
 
             {/* Recent Activity & Quick Actions Row */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
