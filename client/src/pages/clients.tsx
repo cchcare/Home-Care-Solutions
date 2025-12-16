@@ -25,6 +25,7 @@ import {
   Calendar,
   Scan
 } from "lucide-react";
+import { useLocation } from "wouter";
 import type { Client } from "@shared/schema";
 import { ExcelImport } from "@/components/excel-import";
 import { ExcelExport } from "@/components/excel-export";
@@ -38,6 +39,7 @@ export default function Clients() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { selectedOfficeId, setSelectedOfficeId } = useOffice();
+  const [, navigate] = useLocation();
 
   const officeQuery = selectedOfficeId !== "all" ? `?officeId=${selectedOfficeId}` : "";
 
@@ -321,12 +323,17 @@ export default function Clients() {
                                 <Button 
                                   variant="ghost" 
                                   size="sm" 
-                                  onClick={() => setSelectedClient(client)}
+                                  onClick={() => navigate(`/clients/${client.id}`)}
                                   data-testid={`button-view-client-details-${client.id}`}
                                 >
                                   <Eye className="w-4 h-4" />
                                 </Button>
-                                <Button variant="ghost" size="sm" data-testid={`button-edit-client-details-${client.id}`}>
+                                <Button 
+                                  variant="ghost" 
+                                  size="sm" 
+                                  onClick={() => navigate(`/clients/${client.id}`)}
+                                  data-testid={`button-edit-client-details-${client.id}`}
+                                >
                                   <Edit className="w-4 h-4" />
                                 </Button>
                               </div>

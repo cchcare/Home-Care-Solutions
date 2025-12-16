@@ -9,7 +9,9 @@ import NotFound from "@/pages/not-found";
 import Landing from "@/pages/landing";
 import Dashboard from "@/pages/dashboard";
 import Clients from "@/pages/clients";
+import ClientProfile from "@/pages/client-profile";
 import Caregivers from "@/pages/caregivers";
+import CaregiverProfile from "@/pages/caregiver-profile";
 import Offices from "@/pages/offices";
 import Compliance from "@/pages/compliance";
 import Documents from "@/pages/documents";
@@ -49,7 +51,9 @@ function Router() {
           <Route path="/" component={Dashboard} />
           <Route path="/family-portal" component={FamilyPortal} />
           <Route path="/clients" component={Clients} />
+          <Route path="/clients/:id" component={ClientProfile} />
           <Route path="/caregivers" component={Caregivers} />
+          <Route path="/caregivers/:id" component={CaregiverProfile} />
           <Route path="/offices" component={Offices} />
           <Route path="/compliance" component={Compliance} />
           <Route path="/documents" component={Documents} />

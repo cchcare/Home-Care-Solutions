@@ -415,6 +415,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.get("/api/caregivers/:id", isAuthenticated, async (req, res) => {
+    try {
+      const caregiver = await storage.getCaregiver(req.params.id);
+      if (!caregiver) {
+        return res.status(404).json({ message: "Caregiver not found" });
+      }
+      res.json(caregiver);
+    } catch (error) {
+      console.error("Error fetching caregiver:", error);
+      res.status(500).json({ message: "Failed to fetch caregiver" });
+    }
+  });
+
   app.post("/api/caregivers", isAuthenticated, async (req: any, res) => {
     try {
       // Extract user info and client assignments from the request body
@@ -665,6 +678,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error fetching documents:", error);
       res.status(500).json({ message: "Failed to fetch documents" });
+    }
+  });
+
+  app.get("/api/caregivers/:caregiverId/documents", isAuthenticated, async (req, res) => {
+    try {
+      const documents = await storage.getDocumentsByCaregiver(req.params.caregiverId);
+      res.json(documents);
+    } catch (error) {
+      console.error("Error fetching caregiver documents:", error);
+      res.status(500).json({ message: "Failed to fetch caregiver documents" });
+    }
+  });
+
+  app.get("/api/clients/:clientId/documents", isAuthenticated, async (req, res) => {
+    try {
+      const documents = await storage.getDocumentsByClient(req.params.clientId);
+      res.json(documents);
+    } catch (error) {
+      console.error("Error fetching client documents:", error);
+      res.status(500).json({ message: "Failed to fetch client documents" });
+    }
+  });
+
+  app.get("/api/clients/:clientId/caregivers", isAuthenticated, async (req, res) => {
+    try {
+      const caregivers = await storage.getAssignedCaregiversByClient(req.params.clientId);
+      res.json(caregivers);
+    } catch (error) {
+      console.error("Error fetching assigned caregivers:", error);
+      res.status(500).json({ message: "Failed to fetch assigned caregivers" });
     }
   });
 

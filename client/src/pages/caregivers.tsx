@@ -13,6 +13,7 @@ import { OfficeSelector } from "@/components/office-selector";
 import { useOffice } from "@/context/office-context";
 import { apiRequest } from "@/lib/queryClient";
 import { isUnauthorizedError } from "@/lib/authUtils";
+import { useLocation } from "wouter";
 import { 
   Plus, 
   Search, 
@@ -36,6 +37,7 @@ export default function Caregivers() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { selectedOfficeId, setSelectedOfficeId } = useOffice();
+  const [, navigate] = useLocation();
 
   const officeQuery = selectedOfficeId !== "all" ? `?officeId=${selectedOfficeId}` : "";
 
@@ -272,7 +274,7 @@ export default function Caregivers() {
                                 <Button 
                                   variant="ghost" 
                                   size="sm"
-                                  onClick={() => toast({ title: "Caregiver Details", description: `Viewing details for Employee #${caregiver.employeeId}` })}
+                                  onClick={() => navigate(`/caregivers/${caregiver.id}`)}
                                   data-testid={`button-view-caregiver-${caregiver.id}`}
                                 >
                                   <Eye className="w-4 h-4" />
@@ -280,7 +282,7 @@ export default function Caregivers() {
                                 <Button 
                                   variant="ghost" 
                                   size="sm"
-                                  onClick={() => toast({ title: "Edit Caregiver", description: `Editing Employee #${caregiver.employeeId}` })}
+                                  onClick={() => navigate(`/caregivers/${caregiver.id}`)}
                                   data-testid={`button-edit-caregiver-${caregiver.id}`}
                                 >
                                   <Edit className="w-4 h-4" />
