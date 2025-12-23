@@ -289,7 +289,12 @@ export default function BillingPayroll() {
     
     if (sortedRuns.length > 0) {
       const lastRun = sortedRuns[0];
-      const lastPeriodEnd = new Date(lastRun.payPeriodEnd);
+      const endDateValue = lastRun.payPeriodEnd as unknown;
+      const lastPeriodEndStr = typeof endDateValue === 'string' 
+        ? endDateValue.split('T')[0] 
+        : format(new Date(endDateValue as Date), "yyyy-MM-dd");
+      const [year, month, day] = lastPeriodEndStr.split('-').map(Number);
+      const lastPeriodEnd = new Date(year, month - 1, day);
       const nextPeriodStart = addDays(lastPeriodEnd, 1);
       const nextPeriodEnd = addDays(nextPeriodStart, 13);
       const nextPaycheckDate = addDays(nextPeriodEnd, 5);
