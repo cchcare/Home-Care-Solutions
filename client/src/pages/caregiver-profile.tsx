@@ -44,6 +44,8 @@ import {
 } from "lucide-react";
 import type { Caregiver, User as UserType, Document, Office } from "@shared/schema";
 
+type EnrichedCaregiver = Caregiver & { firstName?: string | null; lastName?: string | null; email?: string | null };
+
 const DOCUMENT_CATEGORIES = [
   { value: "id_card", label: "ID Card" },
   { value: "drivers_license", label: "Driver's License" },
@@ -67,7 +69,7 @@ export default function CaregiverProfile() {
   const [uploadCategory, setUploadCategory] = useState("other");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
 
-  const { data: caregiver, isLoading: caregiverLoading } = useQuery<Caregiver>({
+  const { data: caregiver, isLoading: caregiverLoading } = useQuery<EnrichedCaregiver>({
     queryKey: ["/api/caregivers", caregiverId],
     queryFn: () => fetch(`/api/caregivers/${caregiverId}`).then(r => r.json()),
     enabled: !!caregiverId,
@@ -78,6 +80,12 @@ export default function CaregiverProfile() {
     queryFn: () => fetch(`/api/users/${caregiver?.userId}`).then(r => r.json()),
     enabled: !!caregiver?.userId,
   });
+
+  const caregiverName = caregiver?.firstName && caregiver?.lastName 
+    ? `${caregiver.firstName} ${caregiver.lastName}` 
+    : user?.firstName && user?.lastName 
+      ? `${user.firstName} ${user.lastName}` 
+      : "Caregiver";
 
   const { data: office } = useQuery<Office>({
     queryKey: ["/api/offices", caregiver?.officeId],
@@ -214,7 +222,7 @@ export default function CaregiverProfile() {
       <main className="flex-1 flex flex-col overflow-hidden">
         <TopBar 
           title="Caregiver Profile"
-          subtitle={`${user?.firstName || ""} ${user?.lastName || ""}`}
+          subtitle={caregiverName}
         />
         
         <header className="bg-card border-b border-border h-16 flex items-center justify-between px-6 flex-shrink-0">
@@ -262,7 +270,7 @@ export default function CaregiverProfile() {
                   <div className="space-y-1">
                     <Label className="text-muted-foreground text-sm">Full Name</Label>
                     <p className="font-medium" data-testid="text-caregiver-name">
-                      {user?.firstName} {user?.middleName} {user?.lastName}
+                      {caregiver?.firstName || user?.firstName} {user?.middleName} {caregiver?.lastName || user?.lastName}
                     </p>
                   </div>
                   
@@ -286,7 +294,7 @@ export default function CaregiverProfile() {
                       <Mail className="w-3 h-3" /> Email
                     </Label>
                     <p className="font-medium" data-testid="text-caregiver-email">
-                      {user?.email || "N/A"}
+                      {caregiver?.email || user?.email || "N/A"}
                     </p>
                   </div>
                   

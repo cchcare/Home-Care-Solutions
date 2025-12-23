@@ -402,13 +402,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // User routes
+  app.get("/api/users/:id", isAuthenticated, async (req, res) => {
+    try {
+      const user = await storage.getUser(req.params.id);
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
+      }
+      res.json(user);
+    } catch (error) {
+      console.error("Error fetching user:", error);
+      res.status(500).json({ message: "Failed to fetch user" });
+    }
+  });
+
   // Caregiver routes
   app.get("/api/caregivers", isAuthenticated, async (req, res) => {
     try {
       const { officeId } = req.query;
       const officeFilter = officeId && officeId !== 'all' ? String(officeId) : undefined;
       const caregivers = await storage.getAllCaregivers(officeFilter);
-      res.json(caregivers);
+      
+      // Enrich caregivers with user data (firstName, lastName)
+      const enrichedCaregivers = await Promise.all(
+        caregivers.map(async (caregiver) => {
+          if (caregiver.userId) {
+            const user = await storage.getUser(caregiver.userId);
+            return {
+              ...caregiver,
+              firstName: user?.firstName || null,
+              lastName: user?.lastName || null,
+              email: user?.email || null,
+            };
+          }
+          return { ...caregiver, firstName: null, lastName: null, email: null };
+        })
+      );
+      
+      res.json(enrichedCaregivers);
     } catch (error) {
       console.error("Error fetching caregivers:", error);
       res.status(500).json({ message: "Failed to fetch caregivers" });
@@ -421,7 +452,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!caregiver) {
         return res.status(404).json({ message: "Caregiver not found" });
       }
-      res.json(caregiver);
+      
+      // Enrich caregiver with user data
+      let enrichedCaregiver = { ...caregiver, firstName: null as string | null, lastName: null as string | null, email: null as string | null };
+      if (caregiver.userId) {
+        const user = await storage.getUser(caregiver.userId);
+        enrichedCaregiver = {
+          ...caregiver,
+          firstName: user?.firstName || null,
+          lastName: user?.lastName || null,
+          email: user?.email || null,
+        };
+      }
+      
+      res.json(enrichedCaregiver);
     } catch (error) {
       console.error("Error fetching caregiver:", error);
       res.status(500).json({ message: "Failed to fetch caregiver" });

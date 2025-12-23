@@ -26,6 +26,8 @@ import {
   Scan
 } from "lucide-react";
 import type { Caregiver } from "@shared/schema";
+
+type EnrichedCaregiver = Caregiver & { firstName?: string | null; lastName?: string | null; email?: string | null };
 import { ExcelImport } from "@/components/excel-import";
 import { ExcelExport } from "@/components/excel-export";
 
@@ -41,7 +43,7 @@ export default function Caregivers() {
 
   const officeQuery = selectedOfficeId !== "all" ? `?officeId=${selectedOfficeId}` : "";
 
-  const { data: caregivers = [], isLoading } = useQuery<Caregiver[]>({
+  const { data: caregivers = [], isLoading } = useQuery<EnrichedCaregiver[]>({
     queryKey: ["/api/caregivers", selectedOfficeId],
     queryFn: () => fetch(`/api/caregivers${officeQuery}`).then(r => r.json()),
     retry: false,
@@ -230,7 +232,7 @@ export default function Caregivers() {
                           </td>
                         </tr>
                       ) : filteredCaregivers.length > 0 ? (
-                        filteredCaregivers.map((caregiver: Caregiver) => (
+                        filteredCaregivers.map((caregiver: EnrichedCaregiver) => (
                           <tr key={caregiver.id} className="hover:bg-muted/25 transition-colors" data-testid={`row-caregiver-${caregiver.id}`}>
                             <td className="p-4">
                               <div className="flex items-center space-x-3">
@@ -243,9 +245,12 @@ export default function Caregivers() {
                                     onClick={() => navigate(`/caregivers/${caregiver.id}`)}
                                     data-testid={`text-caregiver-name-${caregiver.id}`}
                                   >
-                                    Employee #{caregiver.employeeId}
+                                    {caregiver.firstName && caregiver.lastName 
+                                      ? `${caregiver.firstName} ${caregiver.lastName}` 
+                                      : `Employee #${caregiver.employeeId || 'N/A'}`}
                                   </p>
                                   <p className="text-sm text-muted-foreground">
+                                    {caregiver.employeeId && `ID: ${caregiver.employeeId} • `}
                                     Hired: {caregiver.hireDate ? new Date(caregiver.hireDate).toLocaleDateString() : "Not provided"}
                                   </p>
                                 </div>
