@@ -54,7 +54,16 @@ import {
   Eye,
   X,
   Edit,
-  Save
+  Save,
+  Shield,
+  UserCheck,
+  ClipboardList,
+  Star,
+  CheckCircle,
+  History,
+  MoreHorizontal,
+  Wallet,
+  UserPlus
 } from "lucide-react";
 import type { Client, Document, Office, Mco, User as UserType, ClientCommunication, OfficeMcoBillingRate, ClientSchedule, MasterWeekTemplate, MasterWeekSlot, Caregiver } from "@shared/schema";
 
@@ -72,6 +81,23 @@ const DOCUMENT_CATEGORIES = [
 
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
+const CLIENT_MENU_ITEMS = [
+  { id: "general", label: "General", icon: Heart },
+  { id: "mcos", label: "MCOs/Insurance", icon: Shield },
+  { id: "spend-down", label: "Spend Down", icon: Wallet },
+  { id: "referral", label: "Referral Member Info", icon: UserPlus },
+  { id: "profile", label: "Profile", icon: User },
+  { id: "eligibility", label: "Eligibility Check", icon: CheckCircle },
+  { id: "auth-orders", label: "Auth/Orders", icon: ClipboardList },
+  { id: "special-requests", label: "Special Requests", icon: Star },
+  { id: "master-week", label: "Master Week", icon: CalendarDays },
+  { id: "calendar", label: "Calendar", icon: Calendar },
+  { id: "visits", label: "Visits", icon: Clock },
+  { id: "poc", label: "POC", icon: FileText },
+  { id: "caregiver-history", label: "Caregiver History", icon: History },
+  { id: "others", label: "Others", icon: MoreHorizontal },
+];
+
 export default function ClientProfile() {
   const [, params] = useRoute("/clients/:id");
   const clientId = params?.id;
@@ -85,6 +111,7 @@ export default function ClientProfile() {
   const [showMasterWeekEditor, setShowMasterWeekEditor] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [editFormData, setEditFormData] = useState<Partial<Client>>({});
+  const [activeSection, setActiveSection] = useState("general");
 
   const { data: client, isLoading: clientLoading } = useQuery<Client>({
     queryKey: ["/api/clients", clientId],
@@ -392,29 +419,37 @@ export default function ClientProfile() {
           </div>
         </header>
 
-        <div className="flex-1 overflow-auto p-6 bg-background">
-          <div className="max-w-6xl mx-auto">
-            <Tabs defaultValue="general" className="w-full">
-              <TabsList className="mb-6">
-                <TabsTrigger value="general" data-testid="tab-general">
-                  <User className="w-4 h-4 mr-2" />
-                  General
-                </TabsTrigger>
-                <TabsTrigger value="billing" data-testid="tab-billing">
-                  <DollarSign className="w-4 h-4 mr-2" />
-                  Billing
-                </TabsTrigger>
-                <TabsTrigger value="schedule" data-testid="tab-schedule">
-                  <CalendarDays className="w-4 h-4 mr-2" />
-                  Schedule
-                </TabsTrigger>
-                <TabsTrigger value="documents" data-testid="tab-documents">
-                  <FileText className="w-4 h-4 mr-2" />
-                  Documents
-                </TabsTrigger>
-              </TabsList>
+        <div className="flex-1 flex overflow-hidden">
+          {/* Left Sidebar Menu */}
+          <aside className="w-56 border-r border-border bg-card flex-shrink-0 overflow-y-auto">
+            <nav className="p-2 space-y-1">
+              {CLIENT_MENU_ITEMS.map((item) => {
+                const IconComponent = item.icon;
+                return (
+                  <button
+                    key={item.id}
+                    onClick={() => setActiveSection(item.id)}
+                    className={`w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors ${
+                      activeSection === item.id
+                        ? "bg-primary text-primary-foreground"
+                        : "hover:bg-muted text-muted-foreground hover:text-foreground"
+                    }`}
+                    data-testid={`menu-${item.id}`}
+                  >
+                    <IconComponent className="w-4 h-4 flex-shrink-0" />
+                    <span className="truncate">{item.label}</span>
+                  </button>
+                );
+              })}
+            </nav>
+          </aside>
 
-              <TabsContent value="general" className="space-y-6">
+          {/* Main Content Area */}
+          <div className="flex-1 overflow-auto p-6 bg-background">
+            <div className="max-w-5xl">
+              {/* General Section */}
+              {activeSection === "general" && (
+                <div className="space-y-6">
                 <Card>
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2">
@@ -816,9 +851,12 @@ export default function ClientProfile() {
                     </div>
                   </CardContent>
                 </Card>
-              </TabsContent>
+                </div>
+              )}
 
-              <TabsContent value="billing" className="space-y-6">
+              {/* MCOs/Insurance Section */}
+              {activeSection === "mcos" && (
+                <div className="space-y-6">
                 <Card>
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2">
@@ -876,9 +914,12 @@ export default function ClientProfile() {
                     )}
                   </CardContent>
                 </Card>
-              </TabsContent>
+                </div>
+              )}
 
-              <TabsContent value="schedule" className="space-y-6">
+              {/* Calendar Section */}
+              {activeSection === "calendar" && (
+                <div className="space-y-6">
                 <Card>
                   <CardHeader className="flex flex-row items-center justify-between">
                     <div>
@@ -1027,87 +1068,138 @@ export default function ClientProfile() {
                     </CardContent>
                   </Card>
                 )}
-              </TabsContent>
+                </div>
+              )}
 
-              <TabsContent value="documents" className="space-y-6">
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                      <FileText className="w-5 h-5" />
-                      Documents
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="mb-6 p-4 border rounded-lg bg-muted/50">
-                      <h4 className="font-medium mb-3">Upload New Document</h4>
-                      <div className="flex flex-wrap gap-4 items-end">
-                        <div className="flex-1 min-w-[200px]">
-                          <Label>Document Category</Label>
-                          <Select value={uploadCategory} onValueChange={setUploadCategory}>
-                            <SelectTrigger data-testid="select-document-category">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {DOCUMENT_CATEGORIES.map(cat => (
-                                <SelectItem key={cat.value} value={cat.value}>
-                                  {cat.label}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-                        <div className="flex-1 min-w-[200px]">
-                          <Label>Select File</Label>
-                          <Input 
-                            type="file" 
-                            onChange={(e) => setSelectedFile(e.target.files?.[0] || null)}
-                            data-testid="input-document-file"
-                          />
-                        </div>
-                        <Button 
-                          onClick={handleFileUpload} 
-                          disabled={!selectedFile || uploadMutation.isPending}
-                          data-testid="button-upload-document"
-                        >
-                          <Upload className="w-4 h-4 mr-2" />
-                          {uploadMutation.isPending ? "Uploading..." : "Upload"}
-                        </Button>
+              {/* Master Week Section */}
+              {activeSection === "master-week" && (
+                <div className="space-y-6">
+                  <Card>
+                    <CardHeader className="flex flex-row items-center justify-between">
+                      <div>
+                        <CardTitle className="flex items-center gap-2">
+                          <CalendarDays className="w-5 h-5" />
+                          Master Week Template
+                        </CardTitle>
+                        <CardDescription>Define the standard weekly schedule for this client</CardDescription>
                       </div>
-                    </div>
-
-                    <Tabs defaultValue="all" className="w-full">
-                      <TabsList className="flex-wrap h-auto">
-                        <TabsTrigger value="all">All ({documents.length})</TabsTrigger>
-                        {DOCUMENT_CATEGORIES.filter(cat => groupedDocuments[cat.value]?.length > 0).map(cat => (
-                          <TabsTrigger key={cat.value} value={cat.value}>
-                            {cat.label} ({groupedDocuments[cat.value]?.length || 0})
-                          </TabsTrigger>
-                        ))}
-                      </TabsList>
-                      
-                      <TabsContent value="all" className="mt-4">
-                        {documents.length === 0 ? (
-                          <p className="text-muted-foreground text-center py-8">No documents uploaded yet</p>
-                        ) : (
-                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                            {documents.map(doc => (
-                              <DocumentCard 
-                                key={doc.id} 
-                                document={doc} 
-                                onDelete={() => deleteMutation.mutate(doc.id)} 
-                              />
+                      <Button
+                        onClick={() => createMasterWeekMutation.mutate({ name: "Default Schedule" })}
+                        disabled={createMasterWeekMutation.isPending || masterWeekTemplates.length > 0}
+                        data-testid="button-create-master-week"
+                      >
+                        <Plus className="w-4 h-4 mr-2" />
+                        Create Template
+                      </Button>
+                    </CardHeader>
+                    <CardContent>
+                      {masterWeekTemplates.length === 0 ? (
+                        <p className="text-muted-foreground text-center py-8">No master week template defined. Click "Create Template" to get started.</p>
+                      ) : (
+                        <div>
+                          <div className="grid grid-cols-7 gap-2">
+                            {DAY_NAMES.map((day, index) => (
+                              <div key={day} className="border rounded-lg p-3">
+                                <h4 className="font-medium text-center mb-2">{day}</h4>
+                                <div className="text-center text-xs text-muted-foreground">
+                                  Day {index}
+                                </div>
+                              </div>
                             ))}
                           </div>
-                        )}
-                      </TabsContent>
-                      
-                      {DOCUMENT_CATEGORIES.map(cat => (
-                        <TabsContent key={cat.value} value={cat.value} className="mt-4">
-                          {(groupedDocuments[cat.value]?.length || 0) === 0 ? (
-                            <p className="text-muted-foreground text-center py-8">No {cat.label.toLowerCase()} documents</p>
+                          <p className="text-sm text-muted-foreground mt-4 text-center">
+                            Template: {masterWeekTemplates[0]?.name}
+                          </p>
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
+
+              {/* Visits Section */}
+              {activeSection === "visits" && (
+                <div className="space-y-6">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2">
+                        <Clock className="w-5 h-5" />
+                        Visits
+                      </CardTitle>
+                      <CardDescription>View and manage client visits</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <p className="text-muted-foreground text-center py-8">Visits tracking coming soon</p>
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
+
+              {/* POC Section */}
+              {activeSection === "poc" && (
+                <div className="space-y-6">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2">
+                        <FileText className="w-5 h-5" />
+                        Plan of Care (POC)
+                      </CardTitle>
+                      <CardDescription>Manage client's plan of care documents</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="mb-6 p-4 border rounded-lg bg-muted/50">
+                        <h4 className="font-medium mb-3">Upload New Document</h4>
+                        <div className="flex flex-wrap gap-4 items-end">
+                          <div className="flex-1 min-w-[200px]">
+                            <Label>Document Category</Label>
+                            <Select value={uploadCategory} onValueChange={setUploadCategory}>
+                              <SelectTrigger data-testid="select-document-category">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {DOCUMENT_CATEGORIES.map(cat => (
+                                  <SelectItem key={cat.value} value={cat.value}>
+                                    {cat.label}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div className="flex-1 min-w-[200px]">
+                            <Label>Select File</Label>
+                            <Input 
+                              type="file" 
+                              onChange={(e) => setSelectedFile(e.target.files?.[0] || null)}
+                              data-testid="input-document-file"
+                            />
+                          </div>
+                          <Button 
+                            onClick={handleFileUpload} 
+                            disabled={!selectedFile || uploadMutation.isPending}
+                            data-testid="button-upload-document"
+                          >
+                            <Upload className="w-4 h-4 mr-2" />
+                            {uploadMutation.isPending ? "Uploading..." : "Upload"}
+                          </Button>
+                        </div>
+                      </div>
+
+                      <Tabs defaultValue="all" className="w-full">
+                        <TabsList className="flex-wrap h-auto">
+                          <TabsTrigger value="all">All ({documents.length})</TabsTrigger>
+                          {DOCUMENT_CATEGORIES.filter(cat => groupedDocuments[cat.value]?.length > 0).map(cat => (
+                            <TabsTrigger key={cat.value} value={cat.value}>
+                              {cat.label} ({groupedDocuments[cat.value]?.length || 0})
+                            </TabsTrigger>
+                          ))}
+                        </TabsList>
+                        
+                        <TabsContent value="all" className="mt-4">
+                          {documents.length === 0 ? (
+                            <p className="text-muted-foreground text-center py-8">No documents uploaded yet</p>
                           ) : (
                             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                              {groupedDocuments[cat.value]?.map(doc => (
+                              {documents.map(doc => (
                                 <DocumentCard 
                                   key={doc.id} 
                                   document={doc} 
@@ -1117,12 +1209,190 @@ export default function ClientProfile() {
                             </div>
                           )}
                         </TabsContent>
-                      ))}
-                    </Tabs>
-                  </CardContent>
-                </Card>
-              </TabsContent>
-            </Tabs>
+                        
+                        {DOCUMENT_CATEGORIES.map(cat => (
+                          <TabsContent key={cat.value} value={cat.value} className="mt-4">
+                            {(groupedDocuments[cat.value]?.length || 0) === 0 ? (
+                              <p className="text-muted-foreground text-center py-8">No {cat.label.toLowerCase()} documents</p>
+                            ) : (
+                              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                {groupedDocuments[cat.value]?.map(doc => (
+                                  <DocumentCard 
+                                    key={doc.id} 
+                                    document={doc} 
+                                    onDelete={() => deleteMutation.mutate(doc.id)} 
+                                  />
+                                ))}
+                              </div>
+                            )}
+                          </TabsContent>
+                        ))}
+                      </Tabs>
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
+
+              {/* Spend Down Section */}
+              {activeSection === "spend-down" && (
+                <div className="space-y-6">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2">
+                        <Wallet className="w-5 h-5" />
+                        Spend Down
+                      </CardTitle>
+                      <CardDescription>Track client spend down information</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <p className="text-muted-foreground text-center py-8">Spend down tracking coming soon</p>
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
+
+              {/* Referral Member Info Section */}
+              {activeSection === "referral" && (
+                <div className="space-y-6">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2">
+                        <UserPlus className="w-5 h-5" />
+                        Referral Member Info
+                      </CardTitle>
+                      <CardDescription>Manage referral and member information</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <p className="text-muted-foreground text-center py-8">Referral member information coming soon</p>
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
+
+              {/* Profile Section */}
+              {activeSection === "profile" && (
+                <div className="space-y-6">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2">
+                        <User className="w-5 h-5" />
+                        Client Profile
+                      </CardTitle>
+                      <CardDescription>View and edit client profile details</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <p className="text-muted-foreground text-center py-8">Full profile details coming soon</p>
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
+
+              {/* Eligibility Check Section */}
+              {activeSection === "eligibility" && (
+                <div className="space-y-6">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2">
+                        <CheckCircle className="w-5 h-5" />
+                        Eligibility Check
+                      </CardTitle>
+                      <CardDescription>Check client eligibility status</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <p className="text-muted-foreground text-center py-8">Eligibility check coming soon</p>
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
+
+              {/* Auth/Orders Section */}
+              {activeSection === "auth-orders" && (
+                <div className="space-y-6">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2">
+                        <ClipboardList className="w-5 h-5" />
+                        Authorizations & Orders
+                      </CardTitle>
+                      <CardDescription>Manage client authorizations and orders</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <p className="text-muted-foreground text-center py-8">Authorizations and orders management coming soon</p>
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
+
+              {/* Special Requests Section */}
+              {activeSection === "special-requests" && (
+                <div className="space-y-6">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2">
+                        <Star className="w-5 h-5" />
+                        Special Requests
+                      </CardTitle>
+                      <CardDescription>Manage special requests for this client</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <p className="text-muted-foreground text-center py-8">Special requests management coming soon</p>
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
+
+              {/* Caregiver History Section */}
+              {activeSection === "caregiver-history" && (
+                <div className="space-y-6">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2">
+                        <History className="w-5 h-5" />
+                        Caregiver History
+                      </CardTitle>
+                      <CardDescription>View history of caregivers assigned to this client</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      {caregivers.length === 0 ? (
+                        <p className="text-muted-foreground text-center py-8">No caregivers assigned yet</p>
+                      ) : (
+                        <div className="space-y-3">
+                          {caregivers.map((cg) => (
+                            <div key={cg.id} className="p-3 border rounded-lg flex items-center justify-between">
+                              <div>
+                                <p className="font-medium">{(cg as any).firstName} {(cg as any).lastName}</p>
+                                <p className="text-sm text-muted-foreground">Employee ID: {cg.employeeId || "N/A"}</p>
+                              </div>
+                              <Badge variant={cg.isActive ? "default" : "secondary"}>
+                                {cg.isActive ? "Active" : "Inactive"}
+                              </Badge>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
+
+              {/* Others Section */}
+              {activeSection === "others" && (
+                <div className="space-y-6">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2">
+                        <MoreHorizontal className="w-5 h-5" />
+                        Other Information
+                      </CardTitle>
+                      <CardDescription>Additional client information and notes</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <p className="text-muted-foreground text-center py-8">Additional features coming soon</p>
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </main>
