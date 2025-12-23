@@ -101,6 +101,12 @@ import {
   entityFieldConfigs,
   type EntityFieldConfig,
   type InsertEntityFieldConfig,
+  clientCommunications,
+  type ClientCommunication,
+  type InsertClientCommunication,
+  officeMcoBillingRates,
+  type OfficeMcoBillingRate,
+  type InsertOfficeMcoBillingRate,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, asc, and, or, count, sql, like, gte, lte } from "drizzle-orm";
@@ -363,6 +369,22 @@ export interface IStorage {
   createEntityFieldConfig(config: InsertEntityFieldConfig): Promise<EntityFieldConfig>;
   updateEntityFieldConfig(id: string, config: Partial<InsertEntityFieldConfig>): Promise<EntityFieldConfig>;
   deleteEntityFieldConfig(id: string): Promise<void>;
+
+  // Client Communications operations
+  getClientCommunications(clientId: string): Promise<ClientCommunication[]>;
+  createClientCommunication(communication: InsertClientCommunication): Promise<ClientCommunication>;
+  updateClientCommunication(id: string, communication: Partial<InsertClientCommunication>): Promise<ClientCommunication>;
+  deleteClientCommunication(id: string): Promise<void>;
+
+  // Office MCO Billing Rate operations
+  getOfficeMcoBillingRates(officeId: string, mcoId?: string): Promise<OfficeMcoBillingRate[]>;
+  getOfficeMcoBillingRate(id: string): Promise<OfficeMcoBillingRate | undefined>;
+  createOfficeMcoBillingRate(rate: InsertOfficeMcoBillingRate): Promise<OfficeMcoBillingRate>;
+  updateOfficeMcoBillingRate(id: string, rate: Partial<InsertOfficeMcoBillingRate>): Promise<OfficeMcoBillingRate>;
+  deleteOfficeMcoBillingRate(id: string): Promise<void>;
+
+  // Schedule rollover operations
+  rolloverSchedules(clientId: string, days?: number): Promise<ClientSchedule[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1762,6 +1784,116 @@ export class DatabaseStorage implements IStorage {
 
   async deleteEntityFieldConfig(id: string): Promise<void> {
     await db.delete(entityFieldConfigs).where(eq(entityFieldConfigs.id, id));
+  }
+
+  // Client Communications operations
+  async getClientCommunications(clientId: string): Promise<ClientCommunication[]> {
+    return await db.select().from(clientCommunications)
+      .where(eq(clientCommunications.clientId, clientId))
+      .orderBy(desc(clientCommunications.createdAt));
+  }
+
+  async createClientCommunication(communication: InsertClientCommunication): Promise<ClientCommunication> {
+    const [newCommunication] = await db.insert(clientCommunications).values(communication).returning();
+    return newCommunication;
+  }
+
+  async updateClientCommunication(id: string, communication: Partial<InsertClientCommunication>): Promise<ClientCommunication> {
+    const [updatedCommunication] = await db
+      .update(clientCommunications)
+      .set({ ...communication, updatedAt: new Date() })
+      .where(eq(clientCommunications.id, id))
+      .returning();
+    return updatedCommunication;
+  }
+
+  async deleteClientCommunication(id: string): Promise<void> {
+    await db.delete(clientCommunications).where(eq(clientCommunications.id, id));
+  }
+
+  // Office MCO Billing Rate operations
+  async getOfficeMcoBillingRates(officeId: string, mcoId?: string): Promise<OfficeMcoBillingRate[]> {
+    if (mcoId) {
+      return await db.select().from(officeMcoBillingRates)
+        .where(and(
+          eq(officeMcoBillingRates.officeId, officeId),
+          eq(officeMcoBillingRates.mcoId, mcoId)
+        ))
+        .orderBy(asc(officeMcoBillingRates.serviceCode));
+    }
+    return await db.select().from(officeMcoBillingRates)
+      .where(eq(officeMcoBillingRates.officeId, officeId))
+      .orderBy(asc(officeMcoBillingRates.serviceCode));
+  }
+
+  async getOfficeMcoBillingRate(id: string): Promise<OfficeMcoBillingRate | undefined> {
+    const [rate] = await db.select().from(officeMcoBillingRates).where(eq(officeMcoBillingRates.id, id));
+    return rate;
+  }
+
+  async createOfficeMcoBillingRate(rate: InsertOfficeMcoBillingRate): Promise<OfficeMcoBillingRate> {
+    const [newRate] = await db.insert(officeMcoBillingRates).values(rate).returning();
+    return newRate;
+  }
+
+  async updateOfficeMcoBillingRate(id: string, rate: Partial<InsertOfficeMcoBillingRate>): Promise<OfficeMcoBillingRate> {
+    const [updatedRate] = await db
+      .update(officeMcoBillingRates)
+      .set({ ...rate, updatedAt: new Date() })
+      .where(eq(officeMcoBillingRates.id, id))
+      .returning();
+    return updatedRate;
+  }
+
+  async deleteOfficeMcoBillingRate(id: string): Promise<void> {
+    await db.delete(officeMcoBillingRates).where(eq(officeMcoBillingRates.id, id));
+  }
+
+  // Schedule rollover operations
+  async rolloverSchedules(clientId: string, days: number = 30): Promise<ClientSchedule[]> {
+    const templates = await this.getMasterWeekTemplatesByClient(clientId);
+    if (templates.length === 0) {
+      return [];
+    }
+
+    const activeTemplate = templates.find(t => t.isDefault) || templates[0];
+    const slots = await this.getMasterWeekSlots(activeTemplate.id);
+    
+    if (slots.length === 0) {
+      return [];
+    }
+
+    const existingSchedules = await this.getClientSchedules(clientId);
+    const latestSchedule = existingSchedules.sort((a, b) => 
+      new Date(b.scheduledDate).getTime() - new Date(a.scheduledDate).getTime()
+    )[0];
+
+    const startDate = latestSchedule 
+      ? new Date(new Date(latestSchedule.scheduledDate).getTime() + 24 * 60 * 60 * 1000)
+      : new Date();
+    
+    const endDate = new Date(startDate.getTime() + days * 24 * 60 * 60 * 1000);
+    const newSchedules: ClientSchedule[] = [];
+
+    for (let date = new Date(startDate); date < endDate; date.setDate(date.getDate() + 1)) {
+      const dayOfWeek = date.getDay();
+      const daySlots = slots.filter(s => s.dayOfWeek === dayOfWeek);
+
+      for (const slot of daySlots) {
+        const schedule = await this.createClientSchedule({
+          clientId,
+          caregiverId: slot.caregiverId,
+          scheduledDate: new Date(date),
+          startTime: slot.startTime,
+          endTime: slot.endTime,
+          status: 'scheduled',
+          masterWeekSlotId: slot.id,
+        });
+        newSchedules.push(schedule);
+      }
+    }
+
+    return newSchedules;
   }
 }
 
