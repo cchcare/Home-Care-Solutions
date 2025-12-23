@@ -1469,6 +1469,19 @@ export default function BillingPayroll() {
                             padding: 2px 1px !important;
                             line-height: 1.1 !important;
                           }
+                          .print-holidays {
+                            margin-top: 6px !important;
+                            padding: 4px !important;
+                            font-size: 7pt !important;
+                          }
+                          .print-holidays h4 {
+                            font-size: 8pt !important;
+                            margin-bottom: 3px !important;
+                          }
+                          .print-holidays .grid {
+                            grid-template-columns: repeat(5, 1fr) !important;
+                            gap: 2px !important;
+                          }
                           .print-schedule { display: none !important; }
                         }
                       `}</style>
@@ -1577,6 +1590,19 @@ export default function BillingPayroll() {
                                 </div>
                               );
                             })}
+                          </div>
+                          
+                          <div className="mt-4 border rounded-lg p-3 print-holidays">
+                            <h4 className="font-medium mb-2 text-center">US Federal Holidays - {selectedYear}</h4>
+                            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2 text-sm">
+                              {getUSHolidays(selectedYear).map((holiday, idx) => (
+                                <div key={idx} className="flex items-center gap-2">
+                                  <div className="w-3 h-3 rounded bg-red-500 flex-shrink-0"></div>
+                                  <span className="font-medium">{format(holiday.date, 'MMM d')}</span>
+                                  <span className="text-muted-foreground">- {holiday.name}</span>
+                                </div>
+                              ))}
+                            </div>
                           </div>
                         </>
                       )}
