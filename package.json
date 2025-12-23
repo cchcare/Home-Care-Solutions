@@ -46,7 +46,6 @@
     "@tanstack/react-query": "^5.60.5",
     "@types/memoizee": "^0.4.12",
     "@types/multer": "^2.0.0",
-    "@types/xlsx": "^0.0.35",
     "@uppy/aws-s3": "^5.0.0",
     "@uppy/core": "^5.0.1",
     "@uppy/dashboard": "^5.0.1",
@@ -59,6 +58,7 @@
     "drizzle-orm": "^0.39.1",
     "drizzle-zod": "^0.7.0",
     "embla-carousel-react": "^8.6.0",
+    "exceljs": "^4.4.0",
     "express": "^4.21.2",
     "express-session": "^1.18.1",
     "framer-motion": "^11.13.1",
@@ -90,7 +90,6 @@
     "vaul": "^1.1.2",
     "wouter": "^3.3.5",
     "ws": "^8.18.0",
-    "xlsx": "^0.18.5",
     "zod": "^3.24.2",
     "zod-validation-error": "^3.4.0"
   },

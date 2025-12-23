@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { Download } from "lucide-react";
-import * as XLSX from "xlsx";
+import ExcelJS from "exceljs";
 
 interface ExcelExportProps {
   type: "clients" | "caregivers" | "users";
@@ -70,9 +70,18 @@ export function ExcelExport({ type, data, disabled = false }: ExcelExportProps) 
     try {
       const columns = EXPORT_COLUMNS[type];
       
-      const exportData = data.map((item) => {
+      const workbook = new ExcelJS.Workbook();
+      const worksheet = workbook.addWorksheet(type.charAt(0).toUpperCase() + type.slice(1));
+
+      worksheet.columns = columns.map(({ key, header }) => ({
+        header,
+        key,
+        width: Math.max(header.length, 15),
+      }));
+
+      data.forEach((item) => {
         const row: Record<string, any> = {};
-        columns.forEach(({ key, header }) => {
+        columns.forEach(({ key }) => {
           let value = item[key];
           
           if (value === null || value === undefined) {
@@ -90,22 +99,21 @@ export function ExcelExport({ type, data, disabled = false }: ExcelExportProps) 
             }
           }
           
-          row[header] = value;
+          row[key] = value;
         });
-        return row;
+        worksheet.addRow(row);
       });
 
-      const worksheet = XLSX.utils.json_to_sheet(exportData);
-      const workbook = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(workbook, worksheet, type.charAt(0).toUpperCase() + type.slice(1));
-
-      const columnWidths = columns.map(({ header }) => ({
-        wch: Math.max(header.length, 15),
-      }));
-      worksheet["!cols"] = columnWidths;
-
       const filename = `${type}_export_${new Date().toISOString().split("T")[0]}.xlsx`;
-      XLSX.writeFile(workbook, filename);
+      
+      const buffer = await workbook.xlsx.writeBuffer();
+      const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      link.click();
+      URL.revokeObjectURL(url);
 
       toast({
         title: "Export Successful",

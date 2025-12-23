@@ -15,7 +15,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import { Upload, FileSpreadsheet, AlertCircle, CheckCircle, X } from "lucide-react";
-import * as XLSX from "xlsx";
+import ExcelJS from "exceljs";
 
 interface ExcelImportProps {
   type: "clients" | "caregivers" | "users";
@@ -72,6 +72,11 @@ const COLUMN_MAPPINGS = {
   }
 };
 
+function excelDateToJSDate(excelDate: number): Date {
+  const baseDate = new Date(1899, 11, 30);
+  return new Date(baseDate.getTime() + excelDate * 86400000);
+}
+
 export function ExcelImport({ type, onImportComplete }: ExcelImportProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -115,14 +120,74 @@ export function ExcelImport({ type, onImportComplete }: ExcelImportProps) {
     },
   });
 
-  const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const parseExcelFile = async (file: File): Promise<any[]> => {
+    const workbook = new ExcelJS.Workbook();
+    const arrayBuffer = await file.arrayBuffer();
+    await workbook.xlsx.load(arrayBuffer);
+    
+    const worksheet = workbook.worksheets[0];
+    if (!worksheet) {
+      throw new Error("No worksheet found in the file");
+    }
+
+    const headers: string[] = [];
+    const rows: any[][] = [];
+
+    worksheet.eachRow((row, rowNumber) => {
+      const rowValues = row.values as any[];
+      const values = rowValues.slice(1);
+      
+      if (rowNumber === 1) {
+        values.forEach((cell) => {
+          headers.push(cell?.toString() || "");
+        });
+      } else {
+        rows.push(values);
+      }
+    });
+
+    const mappedData = rows.map((row) => {
+      const obj: any = {};
+      headers.forEach((header, headerIndex) => {
+        const mappedKey = findMappedKey(header, COLUMN_MAPPINGS[type]);
+        if (mappedKey && row[headerIndex] !== undefined && row[headerIndex] !== '') {
+          let value = row[headerIndex];
+          
+          if (mappedKey.includes('Date') || mappedKey === 'dateOfBirth' || mappedKey === 'hireDate') {
+            if (typeof value === 'number') {
+              const date = excelDateToJSDate(value);
+              value = date.toISOString().split('T')[0];
+            } else if (value instanceof Date) {
+              value = value.toISOString().split('T')[0];
+            } else if (typeof value === 'string') {
+              const date = new Date(value);
+              if (!isNaN(date.getTime())) {
+                value = date.toISOString().split('T')[0];
+              }
+            }
+          } else if (mappedKey === 'isActive') {
+            value = value === 'Active' || value === 'true' || value === true || value === 1;
+          } else if (mappedKey === 'hourlyRate' || mappedKey === 'yearsOfExperience') {
+            value = parseFloat(value) || 0;
+          }
+          
+          obj[mappedKey] = value;
+        }
+      });
+      return obj;
+    }).filter(obj => Object.keys(obj).length > 0);
+
+    return mappedData;
+  };
+
+  const handleFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
 
-    if (!file.name.endsWith('.xlsx') && !file.name.endsWith('.xls')) {
+    if (!file.name.endsWith('.xlsx')) {
       toast({
         title: "Invalid File Type",
-        description: "Please select an Excel file (.xlsx or .xls)",
+        description: "Please select an Excel file (.xlsx format only)",
         variant: "destructive",
       });
       return;
@@ -130,63 +195,17 @@ export function ExcelImport({ type, onImportComplete }: ExcelImportProps) {
 
     setSelectedFile(file);
     
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      try {
-        const data = new Uint8Array(e.target?.result as ArrayBuffer);
-        const workbook = XLSX.read(data, { type: 'array' });
-        const sheetName = workbook.SheetNames[0];
-        const worksheet = workbook.Sheets[sheetName];
-        const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
-        
-        // Convert to objects with proper column mapping
-        const headers = jsonData[0] as string[];
-        const rows = jsonData.slice(1) as any[][];
-        
-        const mappedData = rows.map((row, index) => {
-          const obj: any = {};
-          headers.forEach((header, headerIndex) => {
-            const mappedKey = findMappedKey(header, COLUMN_MAPPINGS[type]);
-            if (mappedKey && row[headerIndex] !== undefined && row[headerIndex] !== '') {
-              let value = row[headerIndex];
-              
-              // Handle special data types
-              if (mappedKey.includes('Date') || mappedKey === 'dateOfBirth' || mappedKey === 'hireDate') {
-                if (typeof value === 'number') {
-                  // Excel date serial number
-                  value = XLSX.SSF.parse_date_code(value);
-                  value = new Date(value.y, value.m - 1, value.d).toISOString().split('T')[0];
-                } else if (typeof value === 'string') {
-                  // Try to parse string date
-                  const date = new Date(value);
-                  if (!isNaN(date.getTime())) {
-                    value = date.toISOString().split('T')[0];
-                  }
-                }
-              } else if (mappedKey === 'isActive') {
-                value = value === 'Active' || value === 'true' || value === true || value === 1;
-              } else if (mappedKey === 'hourlyRate' || mappedKey === 'yearsOfExperience') {
-                value = parseFloat(value) || 0;
-              }
-              
-              obj[mappedKey] = value;
-            }
-          });
-          return obj;
-        }).filter(obj => Object.keys(obj).length > 0); // Remove empty rows
-        
-        setPreviewData(mappedData.slice(0, 5)); // Show first 5 rows for preview
-        setStep("preview");
-      } catch (error) {
-        toast({
-          title: "File Parse Error",
-          description: "Failed to parse Excel file. Please check the format.",
-          variant: "destructive",
-        });
-      }
-    };
-    
-    reader.readAsArrayBuffer(file);
+    try {
+      const mappedData = await parseExcelFile(file);
+      setPreviewData(mappedData.slice(0, 5));
+      setStep("preview");
+    } catch (error) {
+      toast({
+        title: "File Parse Error",
+        description: "Failed to parse Excel file. Please check the format.",
+        variant: "destructive",
+      });
+    }
   };
 
   const findMappedKey = (header: string, mappings: any): string | null => {
@@ -200,61 +219,19 @@ export function ExcelImport({ type, onImportComplete }: ExcelImportProps) {
     return null;
   };
 
-  const handleImport = () => {
+  const handleImport = async () => {
     if (!selectedFile) return;
     
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      try {
-        const data = new Uint8Array(e.target?.result as ArrayBuffer);
-        const workbook = XLSX.read(data, { type: 'array' });
-        const sheetName = workbook.SheetNames[0];
-        const worksheet = workbook.Sheets[sheetName];
-        const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
-        
-        const headers = jsonData[0] as string[];
-        const rows = jsonData.slice(1) as any[][];
-        
-        const mappedData = rows.map((row) => {
-          const obj: any = {};
-          headers.forEach((header, headerIndex) => {
-            const mappedKey = findMappedKey(header, COLUMN_MAPPINGS[type]);
-            if (mappedKey && row[headerIndex] !== undefined && row[headerIndex] !== '') {
-              let value = row[headerIndex];
-              
-              if (mappedKey.includes('Date') || mappedKey === 'dateOfBirth' || mappedKey === 'hireDate') {
-                if (typeof value === 'number') {
-                  value = XLSX.SSF.parse_date_code(value);
-                  value = new Date(value.y, value.m - 1, value.d).toISOString().split('T')[0];
-                } else if (typeof value === 'string') {
-                  const date = new Date(value);
-                  if (!isNaN(date.getTime())) {
-                    value = date.toISOString().split('T')[0];
-                  }
-                }
-              } else if (mappedKey === 'isActive') {
-                value = value === 'Active' || value === 'true' || value === true || value === 1;
-              } else if (mappedKey === 'hourlyRate' || mappedKey === 'yearsOfExperience') {
-                value = parseFloat(value) || 0;
-              }
-              
-              obj[mappedKey] = value;
-            }
-          });
-          return obj;
-        }).filter(obj => Object.keys(obj).length > 0);
-        
-        importMutation.mutate(mappedData);
-      } catch (error) {
-        toast({
-          title: "Import Error",
-          description: "Failed to process the Excel file.",
-          variant: "destructive",
-        });
-      }
-    };
-    
-    reader.readAsArrayBuffer(selectedFile);
+    try {
+      const mappedData = await parseExcelFile(selectedFile);
+      importMutation.mutate(mappedData);
+    } catch (error) {
+      toast({
+        title: "Import Error",
+        description: "Failed to process the Excel file.",
+        variant: "destructive",
+      });
+    }
   };
 
   const resetDialog = () => {
@@ -295,13 +272,13 @@ export function ExcelImport({ type, onImportComplete }: ExcelImportProps) {
               <Label htmlFor="excel-file" className="cursor-pointer">
                 <div className="space-y-2">
                   <p className="text-sm font-medium">Click to select Excel file</p>
-                  <p className="text-xs text-muted-foreground">Supports .xlsx and .xls files</p>
+                  <p className="text-xs text-muted-foreground">Supports .xlsx files</p>
                 </div>
               </Label>
               <Input
                 id="excel-file"
                 type="file"
-                accept=".xlsx,.xls"
+                accept=".xlsx"
                 onChange={handleFileSelect}
                 className="hidden"
                 ref={fileInputRef}
