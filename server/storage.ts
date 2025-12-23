@@ -119,6 +119,9 @@ import {
   payrollLineItems,
   type PayrollLineItem,
   type InsertPayrollLineItem,
+  payrollHolidays,
+  type PayrollHoliday,
+  type InsertPayrollHoliday,
   paSurveyChecklistItems,
   type PaSurveyChecklistItem,
   type InsertPaSurveyChecklistItem,
@@ -2002,6 +2005,78 @@ export class DatabaseStorage implements IStorage {
 
   async deletePayrollLineItem(id: string): Promise<void> {
     await db.delete(payrollLineItems).where(eq(payrollLineItems.id, id));
+  }
+
+  // ==================== PAYROLL HOLIDAYS ====================
+  async getPayrollHolidays(officeId: string, year?: number): Promise<PayrollHoliday[]> {
+    if (year) {
+      return await db.select().from(payrollHolidays)
+        .where(and(eq(payrollHolidays.officeId, officeId), eq(payrollHolidays.year, year)))
+        .orderBy(payrollHolidays.date);
+    }
+    return await db.select().from(payrollHolidays)
+      .where(eq(payrollHolidays.officeId, officeId))
+      .orderBy(payrollHolidays.date);
+  }
+
+  async createPayrollHoliday(data: InsertPayrollHoliday): Promise<PayrollHoliday> {
+    const [holiday] = await db.insert(payrollHolidays).values(data).returning();
+    return holiday;
+  }
+
+  async updatePayrollHoliday(id: string, data: Partial<InsertPayrollHoliday>): Promise<PayrollHoliday> {
+    const [holiday] = await db.update(payrollHolidays).set(data).where(eq(payrollHolidays.id, id)).returning();
+    return holiday;
+  }
+
+  async deletePayrollHoliday(id: string): Promise<void> {
+    await db.delete(payrollHolidays).where(eq(payrollHolidays.id, id));
+  }
+
+  async initializeDefaultHolidays(officeId: string, year: number): Promise<PayrollHoliday[]> {
+    const existing = await this.getPayrollHolidays(officeId, year);
+    if (existing.length > 0) return existing;
+    
+    const getUSHolidays = (yr: number): { date: Date; name: string }[] => {
+      const holidays: { date: Date; name: string }[] = [];
+      holidays.push({ date: new Date(yr, 0, 1), name: "New Year's Day" });
+      const janFirst = new Date(yr, 0, 1);
+      let mlkDay = new Date(yr, 0, 15 + ((8 - janFirst.getDay()) % 7));
+      holidays.push({ date: mlkDay, name: "MLK Jr. Day" });
+      const febFirst = new Date(yr, 1, 1);
+      let presidentsDay = new Date(yr, 1, 15 + ((8 - febFirst.getDay()) % 7));
+      holidays.push({ date: presidentsDay, name: "Presidents' Day" });
+      let memorialDay = new Date(yr, 4, 31);
+      while (memorialDay.getDay() !== 1) memorialDay.setDate(memorialDay.getDate() - 1);
+      holidays.push({ date: memorialDay, name: "Memorial Day" });
+      holidays.push({ date: new Date(yr, 6, 4), name: "Independence Day" });
+      const sepFirst = new Date(yr, 8, 1);
+      let laborDay = new Date(yr, 8, 1 + ((8 - sepFirst.getDay()) % 7));
+      holidays.push({ date: laborDay, name: "Labor Day" });
+      const octFirst = new Date(yr, 9, 1);
+      let columbusDay = new Date(yr, 9, 8 + ((8 - octFirst.getDay()) % 7));
+      holidays.push({ date: columbusDay, name: "Columbus Day" });
+      holidays.push({ date: new Date(yr, 10, 11), name: "Veterans Day" });
+      const novFirst = new Date(yr, 10, 1);
+      let thanksgiving = new Date(yr, 10, 22 + ((11 - novFirst.getDay()) % 7));
+      holidays.push({ date: thanksgiving, name: "Thanksgiving" });
+      holidays.push({ date: new Date(yr, 11, 25), name: "Christmas Day" });
+      return holidays;
+    };
+    
+    const defaultHolidays = getUSHolidays(year);
+    const createdHolidays: PayrollHoliday[] = [];
+    for (const h of defaultHolidays) {
+      const holiday = await this.createPayrollHoliday({
+        officeId,
+        name: h.name,
+        date: h.date,
+        isDefault: true,
+        year,
+      });
+      createdHolidays.push(holiday);
+    }
+    return createdHolidays;
   }
 
   // ==================== PA SURVEY CHECKLIST ====================

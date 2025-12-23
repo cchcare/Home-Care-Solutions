@@ -3373,6 +3373,64 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ==================== PAYROLL HOLIDAYS ROUTES ====================
+  app.get("/api/payroll-holidays", isAuthenticated, async (req, res) => {
+    try {
+      const officeId = req.query.officeId as string;
+      const year = req.query.year ? parseInt(req.query.year as string) : undefined;
+      if (!officeId) {
+        return res.status(400).json({ message: "Office ID is required" });
+      }
+      if (year) {
+        await storage.initializeDefaultHolidays(officeId, year);
+      }
+      const holidays = await storage.getPayrollHolidays(officeId, year);
+      res.json(holidays);
+    } catch (error) {
+      console.error("Error fetching payroll holidays:", error);
+      res.status(500).json({ message: "Failed to fetch holidays" });
+    }
+  });
+
+  app.post("/api/payroll-holidays", isAuthenticated, async (req, res) => {
+    try {
+      const data = {
+        ...req.body,
+        date: req.body.date ? new Date(req.body.date) : null,
+        isDefault: false,
+      };
+      const holiday = await storage.createPayrollHoliday(data);
+      res.status(201).json(holiday);
+    } catch (error) {
+      console.error("Error creating payroll holiday:", error);
+      res.status(400).json({ message: "Failed to create holiday" });
+    }
+  });
+
+  app.put("/api/payroll-holidays/:id", isAuthenticated, async (req, res) => {
+    try {
+      const data = {
+        ...req.body,
+        date: req.body.date ? new Date(req.body.date) : undefined,
+      };
+      const holiday = await storage.updatePayrollHoliday(req.params.id, data);
+      res.json(holiday);
+    } catch (error) {
+      console.error("Error updating payroll holiday:", error);
+      res.status(400).json({ message: "Failed to update holiday" });
+    }
+  });
+
+  app.delete("/api/payroll-holidays/:id", isAuthenticated, async (req, res) => {
+    try {
+      await storage.deletePayrollHoliday(req.params.id);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting payroll holiday:", error);
+      res.status(500).json({ message: "Failed to delete holiday" });
+    }
+  });
+
   // ==================== PA SURVEY CHECKLIST ROUTES ====================
   app.get("/api/pa-survey/checklist", isAuthenticated, async (req, res) => {
     try {
