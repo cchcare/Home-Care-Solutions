@@ -138,6 +138,18 @@ export default function ClientProfile() {
     enabled: !!client?.officeId && !!client?.mcoId,
   });
 
+  const { data: officeMcos = [] } = useQuery<Mco[]>({
+    queryKey: ["/api/offices", client?.officeId, "mcos"],
+    queryFn: () => fetch(`/api/offices/${client?.officeId}/mcos`).then(r => r.json()),
+    enabled: !!client?.officeId,
+  });
+
+  const { data: allMcoRates = [] } = useQuery<OfficeMcoBillingRate[]>({
+    queryKey: ["/api/offices", client?.officeId, "mco-rates"],
+    queryFn: () => fetch(`/api/offices/${client?.officeId}/mco-rates`).then(r => r.json()),
+    enabled: !!client?.officeId,
+  });
+
   const { data: schedules = [] } = useQuery<ClientSchedule[]>({
     queryKey: ["/api/clients", clientId, "schedules"],
     queryFn: () => fetch(`/api/clients/${clientId}/schedules`).then(r => r.json()),
@@ -262,6 +274,8 @@ export default function ClientProfile() {
         allergies: client.allergies || "",
         medications: client.medications || "",
         status: client.status,
+        officeId: client.officeId || "",
+        mcoId: client.mcoId || "",
       });
       setIsEditing(true);
     }
@@ -435,9 +449,27 @@ export default function ClientProfile() {
                       </div>
                       <div className="space-y-1">
                         <Label className="text-muted-foreground text-sm">MCO</Label>
-                        <p className="font-medium" data-testid="text-client-mco">
-                          {mco?.name || "N/A"}
-                        </p>
+                        {isEditing ? (
+                          <Select
+                            value={editFormData.mcoId || ""}
+                            onValueChange={(value) => setEditFormData({ ...editFormData, mcoId: value })}
+                          >
+                            <SelectTrigger data-testid="select-client-mco">
+                              <SelectValue placeholder="Select MCO" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {officeMcos.map((m) => (
+                                <SelectItem key={m.id} value={m.id}>
+                                  {m.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        ) : (
+                          <p className="font-medium" data-testid="text-client-mco">
+                            {mco?.name || "N/A"}
+                          </p>
+                        )}
                       </div>
                       <div className="space-y-1">
                         <Label className="text-muted-foreground text-sm">Member ID</Label>
