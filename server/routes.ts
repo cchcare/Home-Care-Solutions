@@ -3158,6 +3158,51 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ==================== OFFICE MCO BILLING RATES ROUTES ====================
+  app.get("/api/offices/:officeId/mco-rates", isAuthenticated, async (req, res) => {
+    try {
+      const mcoId = req.query.mcoId as string | undefined;
+      const rates = await storage.getOfficeMcoBillingRates(req.params.officeId, mcoId);
+      res.json(rates);
+    } catch (error) {
+      console.error("Error fetching MCO rates:", error);
+      res.status(500).json({ message: "Failed to fetch MCO rates" });
+    }
+  });
+
+  app.post("/api/offices/:officeId/mco-rates", isAuthenticated, async (req, res) => {
+    try {
+      const rate = await storage.createOfficeMcoBillingRate({
+        ...req.body,
+        officeId: req.params.officeId,
+      });
+      res.status(201).json(rate);
+    } catch (error) {
+      console.error("Error creating MCO rate:", error);
+      res.status(400).json({ message: "Failed to create MCO rate" });
+    }
+  });
+
+  app.put("/api/offices/:officeId/mco-rates/:id", isAuthenticated, async (req, res) => {
+    try {
+      const rate = await storage.updateOfficeMcoBillingRate(req.params.id, req.body);
+      res.json(rate);
+    } catch (error) {
+      console.error("Error updating MCO rate:", error);
+      res.status(400).json({ message: "Failed to update MCO rate" });
+    }
+  });
+
+  app.delete("/api/offices/:officeId/mco-rates/:id", isAuthenticated, async (req, res) => {
+    try {
+      await storage.deleteOfficeMcoBillingRate(req.params.id);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting MCO rate:", error);
+      res.status(500).json({ message: "Failed to delete MCO rate" });
+    }
+  });
+
   // ==================== PAYROLL RUNS ROUTES ====================
   app.get("/api/payroll", isAuthenticated, async (req, res) => {
     try {
