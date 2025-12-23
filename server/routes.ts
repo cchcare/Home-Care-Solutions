@@ -3608,6 +3608,460 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ==================== CAREGIVER PROFILE ROUTES ====================
+
+  // Caregiver Notes
+  app.get("/api/caregivers/:caregiverId/notes", isAuthenticated, async (req, res) => {
+    try {
+      const notes = await storage.getCaregiverNotes(req.params.caregiverId);
+      res.json(notes);
+    } catch (error) {
+      console.error("Error fetching caregiver notes:", error);
+      res.status(500).json({ message: "Failed to fetch caregiver notes" });
+    }
+  });
+
+  app.post("/api/caregivers/:caregiverId/notes", isAuthenticated, async (req: any, res) => {
+    try {
+      const note = await storage.createCaregiverNote({
+        ...req.body,
+        caregiverId: req.params.caregiverId,
+        authorId: req.user.claims.sub,
+      });
+      res.status(201).json(note);
+    } catch (error) {
+      console.error("Error creating caregiver note:", error);
+      res.status(400).json({ message: "Failed to create caregiver note" });
+    }
+  });
+
+  app.put("/api/caregiver-notes/:id", isAuthenticated, async (req, res) => {
+    try {
+      const note = await storage.updateCaregiverNote(req.params.id, req.body);
+      res.json(note);
+    } catch (error) {
+      console.error("Error updating caregiver note:", error);
+      res.status(400).json({ message: "Failed to update caregiver note" });
+    }
+  });
+
+  app.delete("/api/caregiver-notes/:id", isAuthenticated, async (req, res) => {
+    try {
+      await storage.deleteCaregiverNote(req.params.id);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting caregiver note:", error);
+      res.status(500).json({ message: "Failed to delete caregiver note" });
+    }
+  });
+
+  // Caregiver Preferences
+  app.get("/api/caregivers/:caregiverId/preferences", isAuthenticated, async (req, res) => {
+    try {
+      const preferences = await storage.getCaregiverPreferences(req.params.caregiverId);
+      res.json(preferences);
+    } catch (error) {
+      console.error("Error fetching caregiver preferences:", error);
+      res.status(500).json({ message: "Failed to fetch caregiver preferences" });
+    }
+  });
+
+  app.post("/api/caregivers/:caregiverId/preferences", isAuthenticated, async (req, res) => {
+    try {
+      const preference = await storage.createCaregiverPreference({
+        ...req.body,
+        caregiverId: req.params.caregiverId,
+      });
+      res.status(201).json(preference);
+    } catch (error) {
+      console.error("Error creating caregiver preference:", error);
+      res.status(400).json({ message: "Failed to create caregiver preference" });
+    }
+  });
+
+  app.put("/api/caregiver-preferences/:id", isAuthenticated, async (req, res) => {
+    try {
+      const preference = await storage.updateCaregiverPreference(req.params.id, req.body);
+      res.json(preference);
+    } catch (error) {
+      console.error("Error updating caregiver preference:", error);
+      res.status(400).json({ message: "Failed to update caregiver preference" });
+    }
+  });
+
+  app.delete("/api/caregiver-preferences/:id", isAuthenticated, async (req, res) => {
+    try {
+      await storage.deleteCaregiverPreference(req.params.id);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting caregiver preference:", error);
+      res.status(500).json({ message: "Failed to delete caregiver preference" });
+    }
+  });
+
+  // Caregiver Absences
+  app.get("/api/caregivers/:caregiverId/absences", isAuthenticated, async (req, res) => {
+    try {
+      const absences = await storage.getCaregiverAbsences(req.params.caregiverId);
+      res.json(absences);
+    } catch (error) {
+      console.error("Error fetching caregiver absences:", error);
+      res.status(500).json({ message: "Failed to fetch caregiver absences" });
+    }
+  });
+
+  app.post("/api/caregivers/:caregiverId/absences", isAuthenticated, async (req, res) => {
+    try {
+      const absence = await storage.createCaregiverAbsence({
+        ...req.body,
+        caregiverId: req.params.caregiverId,
+      });
+      res.status(201).json(absence);
+    } catch (error) {
+      console.error("Error creating caregiver absence:", error);
+      res.status(400).json({ message: "Failed to create caregiver absence" });
+    }
+  });
+
+  app.put("/api/caregiver-absences/:id", isAuthenticated, async (req, res) => {
+    try {
+      const absence = await storage.updateCaregiverAbsence(req.params.id, req.body);
+      res.json(absence);
+    } catch (error) {
+      console.error("Error updating caregiver absence:", error);
+      res.status(400).json({ message: "Failed to update caregiver absence" });
+    }
+  });
+
+  app.delete("/api/caregiver-absences/:id", isAuthenticated, async (req, res) => {
+    try {
+      await storage.deleteCaregiverAbsence(req.params.id);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting caregiver absence:", error);
+      res.status(500).json({ message: "Failed to delete caregiver absence" });
+    }
+  });
+
+  // Caregiver Availability
+  app.get("/api/caregivers/:caregiverId/availability", isAuthenticated, async (req, res) => {
+    try {
+      const availability = await storage.getCaregiverAvailability(req.params.caregiverId);
+      res.json(availability);
+    } catch (error) {
+      console.error("Error fetching caregiver availability:", error);
+      res.status(500).json({ message: "Failed to fetch caregiver availability" });
+    }
+  });
+
+  app.post("/api/caregivers/:caregiverId/availability", isAuthenticated, async (req, res) => {
+    try {
+      const availability = await storage.createCaregiverAvailability({
+        ...req.body,
+        caregiverId: req.params.caregiverId,
+      });
+      res.status(201).json(availability);
+    } catch (error) {
+      console.error("Error creating caregiver availability:", error);
+      res.status(400).json({ message: "Failed to create caregiver availability" });
+    }
+  });
+
+  app.put("/api/caregiver-availability/:id", isAuthenticated, async (req, res) => {
+    try {
+      const availability = await storage.updateCaregiverAvailability(req.params.id, req.body);
+      res.json(availability);
+    } catch (error) {
+      console.error("Error updating caregiver availability:", error);
+      res.status(400).json({ message: "Failed to update caregiver availability" });
+    }
+  });
+
+  app.delete("/api/caregiver-availability/:id", isAuthenticated, async (req, res) => {
+    try {
+      await storage.deleteCaregiverAvailability(req.params.id);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting caregiver availability:", error);
+      res.status(500).json({ message: "Failed to delete caregiver availability" });
+    }
+  });
+
+  // Caregiver Payroll Info
+  app.get("/api/caregivers/:caregiverId/payroll-info", isAuthenticated, async (req, res) => {
+    try {
+      const info = await storage.getCaregiverPayrollInfo(req.params.caregiverId);
+      res.json(info || null);
+    } catch (error) {
+      console.error("Error fetching caregiver payroll info:", error);
+      res.status(500).json({ message: "Failed to fetch caregiver payroll info" });
+    }
+  });
+
+  app.post("/api/caregivers/:caregiverId/payroll-info", isAuthenticated, async (req, res) => {
+    try {
+      const info = await storage.upsertCaregiverPayrollInfo({
+        ...req.body,
+        caregiverId: req.params.caregiverId,
+      });
+      res.status(201).json(info);
+    } catch (error) {
+      console.error("Error saving caregiver payroll info:", error);
+      res.status(400).json({ message: "Failed to save caregiver payroll info" });
+    }
+  });
+
+  // Caregiver Expenses
+  app.get("/api/caregivers/:caregiverId/expenses", isAuthenticated, async (req, res) => {
+    try {
+      const expenses = await storage.getCaregiverExpenses(req.params.caregiverId);
+      res.json(expenses);
+    } catch (error) {
+      console.error("Error fetching caregiver expenses:", error);
+      res.status(500).json({ message: "Failed to fetch caregiver expenses" });
+    }
+  });
+
+  app.post("/api/caregivers/:caregiverId/expenses", isAuthenticated, async (req, res) => {
+    try {
+      const expense = await storage.createCaregiverExpense({
+        ...req.body,
+        caregiverId: req.params.caregiverId,
+      });
+      res.status(201).json(expense);
+    } catch (error) {
+      console.error("Error creating caregiver expense:", error);
+      res.status(400).json({ message: "Failed to create caregiver expense" });
+    }
+  });
+
+  app.put("/api/caregiver-expenses/:id", isAuthenticated, async (req, res) => {
+    try {
+      const expense = await storage.updateCaregiverExpense(req.params.id, req.body);
+      res.json(expense);
+    } catch (error) {
+      console.error("Error updating caregiver expense:", error);
+      res.status(400).json({ message: "Failed to update caregiver expense" });
+    }
+  });
+
+  app.delete("/api/caregiver-expenses/:id", isAuthenticated, async (req, res) => {
+    try {
+      await storage.deleteCaregiverExpense(req.params.id);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting caregiver expense:", error);
+      res.status(500).json({ message: "Failed to delete caregiver expense" });
+    }
+  });
+
+  // Caregiver Paychecks
+  app.get("/api/caregivers/:caregiverId/paychecks", isAuthenticated, async (req, res) => {
+    try {
+      const paychecks = await storage.getCaregiverPaychecks(req.params.caregiverId);
+      res.json(paychecks);
+    } catch (error) {
+      console.error("Error fetching caregiver paychecks:", error);
+      res.status(500).json({ message: "Failed to fetch caregiver paychecks" });
+    }
+  });
+
+  app.post("/api/caregivers/:caregiverId/paychecks", isAuthenticated, async (req, res) => {
+    try {
+      const paycheck = await storage.createCaregiverPaycheck({
+        ...req.body,
+        caregiverId: req.params.caregiverId,
+      });
+      res.status(201).json(paycheck);
+    } catch (error) {
+      console.error("Error creating caregiver paycheck:", error);
+      res.status(400).json({ message: "Failed to create caregiver paycheck" });
+    }
+  });
+
+  app.put("/api/caregiver-paychecks/:id", isAuthenticated, async (req, res) => {
+    try {
+      const paycheck = await storage.updateCaregiverPaycheck(req.params.id, req.body);
+      res.json(paycheck);
+    } catch (error) {
+      console.error("Error updating caregiver paycheck:", error);
+      res.status(400).json({ message: "Failed to update caregiver paycheck" });
+    }
+  });
+
+  // Caregiver Rates
+  app.get("/api/caregivers/:caregiverId/rates", isAuthenticated, async (req, res) => {
+    try {
+      const rates = await storage.getCaregiverRates(req.params.caregiverId);
+      res.json(rates);
+    } catch (error) {
+      console.error("Error fetching caregiver rates:", error);
+      res.status(500).json({ message: "Failed to fetch caregiver rates" });
+    }
+  });
+
+  app.post("/api/caregivers/:caregiverId/rates", isAuthenticated, async (req, res) => {
+    try {
+      const rate = await storage.createCaregiverRate({
+        ...req.body,
+        caregiverId: req.params.caregiverId,
+      });
+      res.status(201).json(rate);
+    } catch (error) {
+      console.error("Error creating caregiver rate:", error);
+      res.status(400).json({ message: "Failed to create caregiver rate" });
+    }
+  });
+
+  app.put("/api/caregiver-rates/:id", isAuthenticated, async (req, res) => {
+    try {
+      const rate = await storage.updateCaregiverRate(req.params.id, req.body);
+      res.json(rate);
+    } catch (error) {
+      console.error("Error updating caregiver rate:", error);
+      res.status(400).json({ message: "Failed to update caregiver rate" });
+    }
+  });
+
+  app.delete("/api/caregiver-rates/:id", isAuthenticated, async (req, res) => {
+    try {
+      await storage.deleteCaregiverRate(req.params.id);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting caregiver rate:", error);
+      res.status(500).json({ message: "Failed to delete caregiver rate" });
+    }
+  });
+
+  // Caregiver In-Services
+  app.get("/api/caregivers/:caregiverId/in-services", isAuthenticated, async (req, res) => {
+    try {
+      const inServices = await storage.getCaregiverInServices(req.params.caregiverId);
+      res.json(inServices);
+    } catch (error) {
+      console.error("Error fetching caregiver in-services:", error);
+      res.status(500).json({ message: "Failed to fetch caregiver in-services" });
+    }
+  });
+
+  app.post("/api/caregivers/:caregiverId/in-services", isAuthenticated, async (req, res) => {
+    try {
+      const inService = await storage.createCaregiverInService({
+        ...req.body,
+        caregiverId: req.params.caregiverId,
+      });
+      res.status(201).json(inService);
+    } catch (error) {
+      console.error("Error creating caregiver in-service:", error);
+      res.status(400).json({ message: "Failed to create caregiver in-service" });
+    }
+  });
+
+  app.put("/api/caregiver-in-services/:id", isAuthenticated, async (req, res) => {
+    try {
+      const inService = await storage.updateCaregiverInService(req.params.id, req.body);
+      res.json(inService);
+    } catch (error) {
+      console.error("Error updating caregiver in-service:", error);
+      res.status(400).json({ message: "Failed to update caregiver in-service" });
+    }
+  });
+
+  app.delete("/api/caregiver-in-services/:id", isAuthenticated, async (req, res) => {
+    try {
+      await storage.deleteCaregiverInService(req.params.id);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting caregiver in-service:", error);
+      res.status(500).json({ message: "Failed to delete caregiver in-service" });
+    }
+  });
+
+  // Caregiver Office Moves
+  app.get("/api/caregivers/:caregiverId/office-moves", isAuthenticated, async (req, res) => {
+    try {
+      const moves = await storage.getCaregiverOfficeMoves(req.params.caregiverId);
+      res.json(moves);
+    } catch (error) {
+      console.error("Error fetching caregiver office moves:", error);
+      res.status(500).json({ message: "Failed to fetch caregiver office moves" });
+    }
+  });
+
+  app.post("/api/caregivers/:caregiverId/office-moves", isAuthenticated, async (req: any, res) => {
+    try {
+      const move = await storage.createCaregiverOfficeMove({
+        ...req.body,
+        caregiverId: req.params.caregiverId,
+        approvedBy: req.user.claims.sub,
+      });
+      res.status(201).json(move);
+    } catch (error) {
+      console.error("Error creating caregiver office move:", error);
+      res.status(400).json({ message: "Failed to create caregiver office move" });
+    }
+  });
+
+  app.put("/api/caregiver-office-moves/:id", isAuthenticated, async (req, res) => {
+    try {
+      const move = await storage.updateCaregiverOfficeMove(req.params.id, req.body);
+      res.json(move);
+    } catch (error) {
+      console.error("Error updating caregiver office move:", error);
+      res.status(400).json({ message: "Failed to update caregiver office move" });
+    }
+  });
+
+  // Caregiver Schedules
+  app.get("/api/caregivers/:caregiverId/schedules", isAuthenticated, async (req, res) => {
+    try {
+      const { startDate, endDate } = req.query;
+      const schedules = await storage.getCaregiverSchedules(
+        req.params.caregiverId,
+        startDate ? new Date(startDate as string) : undefined,
+        endDate ? new Date(endDate as string) : undefined
+      );
+      res.json(schedules);
+    } catch (error) {
+      console.error("Error fetching caregiver schedules:", error);
+      res.status(500).json({ message: "Failed to fetch caregiver schedules" });
+    }
+  });
+
+  app.post("/api/caregivers/:caregiverId/schedules", isAuthenticated, async (req: any, res) => {
+    try {
+      const schedule = await storage.createCaregiverSchedule({
+        ...req.body,
+        caregiverId: req.params.caregiverId,
+        createdBy: req.user.claims.sub,
+      });
+      res.status(201).json(schedule);
+    } catch (error) {
+      console.error("Error creating caregiver schedule:", error);
+      res.status(400).json({ message: "Failed to create caregiver schedule" });
+    }
+  });
+
+  app.put("/api/caregiver-schedules/:id", isAuthenticated, async (req, res) => {
+    try {
+      const schedule = await storage.updateCaregiverSchedule(req.params.id, req.body);
+      res.json(schedule);
+    } catch (error) {
+      console.error("Error updating caregiver schedule:", error);
+      res.status(400).json({ message: "Failed to update caregiver schedule" });
+    }
+  });
+
+  app.delete("/api/caregiver-schedules/:id", isAuthenticated, async (req, res) => {
+    try {
+      await storage.deleteCaregiverSchedule(req.params.id);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting caregiver schedule:", error);
+      res.status(500).json({ message: "Failed to delete caregiver schedule" });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }
