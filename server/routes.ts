@@ -3227,10 +3227,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/offices/:officeId/mco-rates", isAuthenticated, async (req, res) => {
     try {
-      const rate = await storage.createOfficeMcoBillingRate({
+      const data = {
         ...req.body,
         officeId: req.params.officeId,
-      });
+        effectiveDate: req.body.effectiveDate ? new Date(req.body.effectiveDate) : null,
+        endDate: req.body.endDate ? new Date(req.body.endDate) : null,
+      };
+      const rate = await storage.createOfficeMcoBillingRate(data);
       res.status(201).json(rate);
     } catch (error) {
       console.error("Error creating MCO rate:", error);
@@ -3240,7 +3243,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.put("/api/offices/:officeId/mco-rates/:id", isAuthenticated, async (req, res) => {
     try {
-      const rate = await storage.updateOfficeMcoBillingRate(req.params.id, req.body);
+      const data = {
+        ...req.body,
+        effectiveDate: req.body.effectiveDate ? new Date(req.body.effectiveDate) : undefined,
+        endDate: req.body.endDate ? new Date(req.body.endDate) : undefined,
+      };
+      const rate = await storage.updateOfficeMcoBillingRate(req.params.id, data);
       res.json(rate);
     } catch (error) {
       console.error("Error updating MCO rate:", error);
