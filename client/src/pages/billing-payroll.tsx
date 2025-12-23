@@ -47,6 +47,14 @@ import type { Office, BillingRecord, PayrollRun, OfficePayrollConfig, Mco, Offic
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
+const parseLocalDate = (dateValue: unknown): Date => {
+  if (!dateValue) return new Date();
+  const dateStr = typeof dateValue === 'string' ? dateValue : String(dateValue);
+  const cleanStr = dateStr.split('T')[0];
+  const [year, month, day] = cleanStr.split('-').map(Number);
+  return new Date(year, month - 1, day);
+};
+
 const billingFormSchema = z.object({
   clientId: z.string().min(1, "Client is required"),
   caregiverId: z.string().optional(),
@@ -304,17 +312,12 @@ export default function BillingPayroll() {
 
   const getNextBiweeklyDates = () => {
     const sortedRuns = [...payrollRuns].sort((a, b) => 
-      new Date(b.payPeriodEnd).getTime() - new Date(a.payPeriodEnd).getTime()
+      parseLocalDate(b.payPeriodEnd).getTime() - parseLocalDate(a.payPeriodEnd).getTime()
     );
     
     if (sortedRuns.length > 0) {
       const lastRun = sortedRuns[0];
-      const endDateValue = lastRun.payPeriodEnd as unknown;
-      const lastPeriodEndStr = typeof endDateValue === 'string' 
-        ? endDateValue.split('T')[0] 
-        : format(new Date(endDateValue as Date), "yyyy-MM-dd");
-      const [year, month, day] = lastPeriodEndStr.split('-').map(Number);
-      const lastPeriodEnd = new Date(year, month - 1, day);
+      const lastPeriodEnd = parseLocalDate(lastRun.payPeriodEnd);
       const nextPeriodStart = addDays(lastPeriodEnd, 1);
       const nextPeriodEnd = addDays(nextPeriodStart, 13);
       const nextPaycheckDate = addDays(nextPeriodEnd, 5);
@@ -349,24 +352,10 @@ export default function BillingPayroll() {
 
   const handleEditPayrollRun = (run: PayrollRun) => {
     setEditingPayrollRun(run);
-    const startVal = run.payPeriodStart as unknown;
-    const endVal = run.payPeriodEnd as unknown;
-    const paycheckVal = run.paycheckDate as unknown;
-    
-    const startStr = typeof startVal === 'string' 
-      ? startVal.split('T')[0] 
-      : format(new Date(startVal as Date), "yyyy-MM-dd");
-    const endStr = typeof endVal === 'string' 
-      ? endVal.split('T')[0] 
-      : format(new Date(endVal as Date), "yyyy-MM-dd");
-    const paycheckStr = typeof paycheckVal === 'string' 
-      ? paycheckVal.split('T')[0] 
-      : format(new Date(paycheckVal as Date), "yyyy-MM-dd");
-    
     payrollForm.reset({
-      payPeriodStart: startStr,
-      payPeriodEnd: endStr,
-      paycheckDate: paycheckStr,
+      payPeriodStart: format(parseLocalDate(run.payPeriodStart), "yyyy-MM-dd"),
+      payPeriodEnd: format(parseLocalDate(run.payPeriodEnd), "yyyy-MM-dd"),
+      paycheckDate: format(parseLocalDate(run.paycheckDate), "yyyy-MM-dd"),
       notes: run.notes || "",
     });
     setShowPayrollDialog(true);
@@ -1046,12 +1035,12 @@ export default function BillingPayroll() {
                                 <td className="p-3">
                                   {run.payPeriodStart && run.payPeriodEnd ? (
                                     <>
-                                      {format(new Date(run.payPeriodStart), "MMM d")} - {format(new Date(run.payPeriodEnd), "MMM d, yyyy")}
+                                      {format(parseLocalDate(run.payPeriodStart), "MMM d")} - {format(parseLocalDate(run.payPeriodEnd), "MMM d, yyyy")}
                                     </>
                                   ) : "-"}
                                 </td>
                                 <td className="p-3 font-medium">
-                                  {run.paycheckDate ? format(new Date(run.paycheckDate), "MMM d, yyyy") : "-"}
+                                  {run.paycheckDate ? format(parseLocalDate(run.paycheckDate), "MMM d, yyyy") : "-"}
                                 </td>
                                 <td className="p-3">{run.employeeCount || 0}</td>
                                 <td className="p-3">${run.totalGross || "0.00"}</td>
@@ -1419,24 +1408,24 @@ export default function BillingPayroll() {
                               
                               const payPeriodStarts = payrollRuns
                                 .filter(run => {
-                                  const d = new Date(run.payPeriodStart);
+                                  const d = parseLocalDate(run.payPeriodStart);
                                   return d.getFullYear() === selectedYear && d.getMonth() === monthIndex;
                                 })
-                                .map(run => new Date(run.payPeriodStart).getDate());
+                                .map(run => parseLocalDate(run.payPeriodStart).getDate());
                               
                               const payPeriodEnds = payrollRuns
                                 .filter(run => {
-                                  const d = new Date(run.payPeriodEnd);
+                                  const d = parseLocalDate(run.payPeriodEnd);
                                   return d.getFullYear() === selectedYear && d.getMonth() === monthIndex;
                                 })
-                                .map(run => new Date(run.payPeriodEnd).getDate());
+                                .map(run => parseLocalDate(run.payPeriodEnd).getDate());
                               
                               const paycheckDates = payrollRuns
                                 .filter(run => {
-                                  const d = new Date(run.paycheckDate);
+                                  const d = parseLocalDate(run.paycheckDate);
                                   return d.getFullYear() === selectedYear && d.getMonth() === monthIndex;
                                 })
-                                .map(run => new Date(run.paycheckDate).getDate());
+                                .map(run => parseLocalDate(run.paycheckDate).getDate());
                               
                               return (
                                 <div key={month} className="border rounded-lg p-2">
@@ -1486,7 +1475,7 @@ export default function BillingPayroll() {
                       {actualOfficeId && (
                         <div className="mt-6 border-t pt-4">
                           <h4 className="font-medium mb-3 text-lg">Payroll Dates Schedule</h4>
-                          {payrollRuns.filter(run => new Date(run.payPeriodStart).getFullYear() === selectedYear).length === 0 ? (
+                          {payrollRuns.filter(run => parseLocalDate(run.payPeriodStart).getFullYear() === selectedYear).length === 0 ? (
                             <p className="text-muted-foreground text-center py-4">No payroll runs scheduled for {selectedYear}. Create a payroll run in the Payroll tab.</p>
                           ) : (
                             <div className="overflow-x-auto">
@@ -1516,24 +1505,24 @@ export default function BillingPayroll() {
                                 </thead>
                                 <tbody className="divide-y">
                                   {payrollRuns
-                                    .filter(run => new Date(run.payPeriodStart).getFullYear() === selectedYear)
-                                    .sort((a, b) => new Date(a.payPeriodStart).getTime() - new Date(b.payPeriodStart).getTime())
+                                    .filter(run => parseLocalDate(run.payPeriodStart).getFullYear() === selectedYear)
+                                    .sort((a, b) => parseLocalDate(a.payPeriodStart).getTime() - parseLocalDate(b.payPeriodStart).getTime())
                                     .map((run, index) => (
                                       <tr key={run.id} className="hover:bg-muted/50">
                                         <td className="p-2 text-muted-foreground">{index + 1}</td>
                                         <td className="p-2">
                                           <Badge className="bg-green-500 hover:bg-green-600">
-                                            {format(new Date(run.payPeriodStart), "EEEE, MMM d, yyyy")}
+                                            {format(parseLocalDate(run.payPeriodStart), "EEEE, MMM d, yyyy")}
                                           </Badge>
                                         </td>
                                         <td className="p-2">
                                           <Badge className="bg-blue-500 hover:bg-blue-600">
-                                            {format(new Date(run.payPeriodEnd), "EEEE, MMM d, yyyy")}
+                                            {format(parseLocalDate(run.payPeriodEnd), "EEEE, MMM d, yyyy")}
                                           </Badge>
                                         </td>
                                         <td className="p-2">
                                           <Badge className="bg-purple-500 hover:bg-purple-600">
-                                            {format(new Date(run.paycheckDate), "EEEE, MMM d, yyyy")}
+                                            {format(parseLocalDate(run.paycheckDate), "EEEE, MMM d, yyyy")}
                                           </Badge>
                                         </td>
                                       </tr>
@@ -1543,7 +1532,7 @@ export default function BillingPayroll() {
                             </div>
                           )}
                           <p className="text-sm text-muted-foreground mt-3">
-                            Total payroll periods: {payrollRuns.filter(run => new Date(run.payPeriodStart).getFullYear() === selectedYear).length}
+                            Total payroll periods: {payrollRuns.filter(run => parseLocalDate(run.payPeriodStart).getFullYear() === selectedYear).length}
                           </p>
                         </div>
                       )}
