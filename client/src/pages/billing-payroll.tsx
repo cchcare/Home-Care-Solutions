@@ -55,6 +55,45 @@ const parseLocalDate = (dateValue: unknown): Date => {
   return new Date(year, month - 1, day);
 };
 
+const getUSHolidays = (year: number): { date: Date; name: string }[] => {
+  const holidays: { date: Date; name: string }[] = [];
+  
+  holidays.push({ date: new Date(year, 0, 1), name: "New Year's Day" });
+  
+  const janFirst = new Date(year, 0, 1);
+  let mlkDay = new Date(year, 0, 15 + ((8 - janFirst.getDay()) % 7));
+  holidays.push({ date: mlkDay, name: "MLK Jr. Day" });
+  
+  const febFirst = new Date(year, 1, 1);
+  let presidentsDay = new Date(year, 1, 15 + ((8 - febFirst.getDay()) % 7));
+  holidays.push({ date: presidentsDay, name: "Presidents' Day" });
+  
+  const mayFirst = new Date(year, 4, 1);
+  let memorialDay = new Date(year, 4, 31);
+  while (memorialDay.getDay() !== 1) memorialDay.setDate(memorialDay.getDate() - 1);
+  holidays.push({ date: memorialDay, name: "Memorial Day" });
+  
+  holidays.push({ date: new Date(year, 6, 4), name: "Independence Day" });
+  
+  const sepFirst = new Date(year, 8, 1);
+  let laborDay = new Date(year, 8, 1 + ((8 - sepFirst.getDay()) % 7));
+  holidays.push({ date: laborDay, name: "Labor Day" });
+  
+  const octFirst = new Date(year, 9, 1);
+  let columbusDay = new Date(year, 9, 8 + ((8 - octFirst.getDay()) % 7));
+  holidays.push({ date: columbusDay, name: "Columbus Day" });
+  
+  holidays.push({ date: new Date(year, 10, 11), name: "Veterans Day" });
+  
+  const novFirst = new Date(year, 10, 1);
+  let thanksgiving = new Date(year, 10, 22 + ((11 - novFirst.getDay()) % 7));
+  holidays.push({ date: thanksgiving, name: "Thanksgiving" });
+  
+  holidays.push({ date: new Date(year, 11, 25), name: "Christmas Day" });
+  
+  return holidays;
+};
+
 const billingFormSchema = z.object({
   clientId: z.string().min(1, "Client is required"),
   caregiverId: z.string().optional(),
@@ -1456,6 +1495,10 @@ export default function BillingPayroll() {
                               <div className="w-4 h-4 rounded bg-purple-500 legend-dot"></div>
                               <span className="text-sm">Paycheck Date</span>
                             </div>
+                            <div className="flex items-center gap-2">
+                              <div className="w-4 h-4 rounded bg-red-500 legend-dot"></div>
+                              <span className="text-sm">Holiday</span>
+                            </div>
                           </div>
                           
                           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 print-calendar-grid">
@@ -1463,6 +1506,14 @@ export default function BillingPayroll() {
                               const firstDayOfMonth = new Date(selectedYear, monthIndex, 1);
                               const daysInMonth = getDaysInMonth(firstDayOfMonth);
                               const startingDayOfWeek = getDay(firstDayOfMonth);
+                              
+                              const holidays = getUSHolidays(selectedYear);
+                              const monthHolidays = holidays
+                                .filter(h => h.date.getMonth() === monthIndex)
+                                .reduce((acc, h) => {
+                                  acc[h.date.getDate()] = h.name;
+                                  return acc;
+                                }, {} as Record<number, string>);
                               
                               const payPeriodStarts = payrollRuns
                                 .filter(run => {
@@ -1502,21 +1553,21 @@ export default function BillingPayroll() {
                                       const isStart = payPeriodStarts.includes(day);
                                       const isEnd = payPeriodEnds.includes(day);
                                       const isPaycheck = paycheckDates.includes(day);
+                                      const isHoliday = day in monthHolidays;
+                                      const holidayName = monthHolidays[day];
                                       
                                       let bgClass = "";
-                                      if (isPaycheck) bgClass = "bg-purple-500 text-white";
-                                      else if (isEnd) bgClass = "bg-blue-500 text-white";
-                                      else if (isStart) bgClass = "bg-green-500 text-white";
+                                      let title = "";
+                                      if (isPaycheck) { bgClass = "bg-purple-500 text-white"; title = "Paycheck Date"; }
+                                      else if (isEnd) { bgClass = "bg-blue-500 text-white"; title = "Pay Period End"; }
+                                      else if (isStart) { bgClass = "bg-green-500 text-white"; title = "Pay Period Start"; }
+                                      else if (isHoliday) { bgClass = "bg-red-500 text-white"; title = holidayName; }
                                       
                                       return (
                                         <div 
                                           key={day} 
                                           className={`text-center p-1 rounded print-day ${bgClass}`}
-                                          title={
-                                            isPaycheck ? "Paycheck Date" : 
-                                            isEnd ? "Pay Period End" : 
-                                            isStart ? "Pay Period Start" : ""
-                                          }
+                                          title={title}
                                         >
                                           {day}
                                         </div>
