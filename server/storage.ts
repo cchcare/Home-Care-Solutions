@@ -128,6 +128,39 @@ import {
   officePaSurveyStatuses,
   type OfficePaSurveyStatus,
   type InsertOfficePaSurveyStatus,
+  caregiverNotes,
+  type CaregiverNote,
+  type InsertCaregiverNote,
+  caregiverPreferences,
+  type CaregiverPreference,
+  type InsertCaregiverPreference,
+  caregiverAbsences,
+  type CaregiverAbsence,
+  type InsertCaregiverAbsence,
+  caregiverAvailability,
+  type CaregiverAvailability,
+  type InsertCaregiverAvailability,
+  caregiverPayrollInfo,
+  type CaregiverPayrollInfo,
+  type InsertCaregiverPayrollInfo,
+  caregiverExpenses,
+  type CaregiverExpense,
+  type InsertCaregiverExpense,
+  caregiverPaychecks,
+  type CaregiverPaycheck,
+  type InsertCaregiverPaycheck,
+  caregiverRates,
+  type CaregiverRate,
+  type InsertCaregiverRate,
+  caregiverInServices,
+  type CaregiverInService,
+  type InsertCaregiverInService,
+  caregiverOfficeMoves,
+  type CaregiverOfficeMove,
+  type InsertCaregiverOfficeMove,
+  caregiverSchedules,
+  type CaregiverSchedule,
+  type InsertCaregiverSchedule,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, asc, and, or, count, sql, like, gte, lte } from "drizzle-orm";
@@ -407,6 +440,68 @@ export interface IStorage {
 
   // Schedule rollover operations
   rolloverSchedules(clientId: string, days?: number): Promise<ClientSchedule[]>;
+
+  // Caregiver Notes operations
+  getCaregiverNotes(caregiverId: string): Promise<CaregiverNote[]>;
+  createCaregiverNote(note: InsertCaregiverNote): Promise<CaregiverNote>;
+  updateCaregiverNote(id: string, note: Partial<InsertCaregiverNote>): Promise<CaregiverNote>;
+  deleteCaregiverNote(id: string): Promise<void>;
+
+  // Caregiver Preferences operations
+  getCaregiverPreferences(caregiverId: string): Promise<CaregiverPreference[]>;
+  createCaregiverPreference(preference: InsertCaregiverPreference): Promise<CaregiverPreference>;
+  updateCaregiverPreference(id: string, preference: Partial<InsertCaregiverPreference>): Promise<CaregiverPreference>;
+  deleteCaregiverPreference(id: string): Promise<void>;
+
+  // Caregiver Absences operations
+  getCaregiverAbsences(caregiverId: string): Promise<CaregiverAbsence[]>;
+  createCaregiverAbsence(absence: InsertCaregiverAbsence): Promise<CaregiverAbsence>;
+  updateCaregiverAbsence(id: string, absence: Partial<InsertCaregiverAbsence>): Promise<CaregiverAbsence>;
+  deleteCaregiverAbsence(id: string): Promise<void>;
+
+  // Caregiver Availability operations
+  getCaregiverAvailability(caregiverId: string): Promise<CaregiverAvailability[]>;
+  createCaregiverAvailability(availability: InsertCaregiverAvailability): Promise<CaregiverAvailability>;
+  updateCaregiverAvailability(id: string, availability: Partial<InsertCaregiverAvailability>): Promise<CaregiverAvailability>;
+  deleteCaregiverAvailability(id: string): Promise<void>;
+
+  // Caregiver Payroll Info operations
+  getCaregiverPayrollInfo(caregiverId: string): Promise<CaregiverPayrollInfo | undefined>;
+  upsertCaregiverPayrollInfo(info: InsertCaregiverPayrollInfo): Promise<CaregiverPayrollInfo>;
+
+  // Caregiver Expenses operations
+  getCaregiverExpenses(caregiverId: string): Promise<CaregiverExpense[]>;
+  createCaregiverExpense(expense: InsertCaregiverExpense): Promise<CaregiverExpense>;
+  updateCaregiverExpense(id: string, expense: Partial<InsertCaregiverExpense>): Promise<CaregiverExpense>;
+  deleteCaregiverExpense(id: string): Promise<void>;
+
+  // Caregiver Paychecks operations
+  getCaregiverPaychecks(caregiverId: string): Promise<CaregiverPaycheck[]>;
+  createCaregiverPaycheck(paycheck: InsertCaregiverPaycheck): Promise<CaregiverPaycheck>;
+  updateCaregiverPaycheck(id: string, paycheck: Partial<InsertCaregiverPaycheck>): Promise<CaregiverPaycheck>;
+
+  // Caregiver Rates operations
+  getCaregiverRates(caregiverId: string): Promise<CaregiverRate[]>;
+  createCaregiverRate(rate: InsertCaregiverRate): Promise<CaregiverRate>;
+  updateCaregiverRate(id: string, rate: Partial<InsertCaregiverRate>): Promise<CaregiverRate>;
+  deleteCaregiverRate(id: string): Promise<void>;
+
+  // Caregiver In-Service operations
+  getCaregiverInServices(caregiverId: string): Promise<CaregiverInService[]>;
+  createCaregiverInService(inService: InsertCaregiverInService): Promise<CaregiverInService>;
+  updateCaregiverInService(id: string, inService: Partial<InsertCaregiverInService>): Promise<CaregiverInService>;
+  deleteCaregiverInService(id: string): Promise<void>;
+
+  // Caregiver Office Moves operations
+  getCaregiverOfficeMoves(caregiverId: string): Promise<CaregiverOfficeMove[]>;
+  createCaregiverOfficeMove(move: InsertCaregiverOfficeMove): Promise<CaregiverOfficeMove>;
+  updateCaregiverOfficeMove(id: string, move: Partial<InsertCaregiverOfficeMove>): Promise<CaregiverOfficeMove>;
+
+  // Caregiver Schedules operations
+  getCaregiverSchedules(caregiverId: string, startDate?: Date, endDate?: Date): Promise<CaregiverSchedule[]>;
+  createCaregiverSchedule(schedule: InsertCaregiverSchedule): Promise<CaregiverSchedule>;
+  updateCaregiverSchedule(id: string, schedule: Partial<InsertCaregiverSchedule>): Promise<CaregiverSchedule>;
+  deleteCaregiverSchedule(id: string): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -2177,6 +2272,215 @@ export class DatabaseStorage implements IStorage {
     for (const item of defaultItems) {
       await this.createPaSurveyChecklistItem(item);
     }
+  }
+
+  // ==================== CAREGIVER PROFILE OPERATIONS ====================
+
+  // Caregiver Notes
+  async getCaregiverNotes(caregiverId: string): Promise<CaregiverNote[]> {
+    return await db.select().from(caregiverNotes).where(eq(caregiverNotes.caregiverId, caregiverId)).orderBy(desc(caregiverNotes.createdAt));
+  }
+
+  async createCaregiverNote(note: InsertCaregiverNote): Promise<CaregiverNote> {
+    const [created] = await db.insert(caregiverNotes).values(note).returning();
+    return created;
+  }
+
+  async updateCaregiverNote(id: string, note: Partial<InsertCaregiverNote>): Promise<CaregiverNote> {
+    const [updated] = await db.update(caregiverNotes).set({ ...note, updatedAt: new Date() }).where(eq(caregiverNotes.id, id)).returning();
+    return updated;
+  }
+
+  async deleteCaregiverNote(id: string): Promise<void> {
+    await db.delete(caregiverNotes).where(eq(caregiverNotes.id, id));
+  }
+
+  // Caregiver Preferences
+  async getCaregiverPreferences(caregiverId: string): Promise<CaregiverPreference[]> {
+    return await db.select().from(caregiverPreferences).where(eq(caregiverPreferences.caregiverId, caregiverId)).orderBy(asc(caregiverPreferences.priority));
+  }
+
+  async createCaregiverPreference(preference: InsertCaregiverPreference): Promise<CaregiverPreference> {
+    const [created] = await db.insert(caregiverPreferences).values(preference).returning();
+    return created;
+  }
+
+  async updateCaregiverPreference(id: string, preference: Partial<InsertCaregiverPreference>): Promise<CaregiverPreference> {
+    const [updated] = await db.update(caregiverPreferences).set({ ...preference, updatedAt: new Date() }).where(eq(caregiverPreferences.id, id)).returning();
+    return updated;
+  }
+
+  async deleteCaregiverPreference(id: string): Promise<void> {
+    await db.delete(caregiverPreferences).where(eq(caregiverPreferences.id, id));
+  }
+
+  // Caregiver Absences
+  async getCaregiverAbsences(caregiverId: string): Promise<CaregiverAbsence[]> {
+    return await db.select().from(caregiverAbsences).where(eq(caregiverAbsences.caregiverId, caregiverId)).orderBy(desc(caregiverAbsences.startDate));
+  }
+
+  async createCaregiverAbsence(absence: InsertCaregiverAbsence): Promise<CaregiverAbsence> {
+    const [created] = await db.insert(caregiverAbsences).values(absence).returning();
+    return created;
+  }
+
+  async updateCaregiverAbsence(id: string, absence: Partial<InsertCaregiverAbsence>): Promise<CaregiverAbsence> {
+    const [updated] = await db.update(caregiverAbsences).set({ ...absence, updatedAt: new Date() }).where(eq(caregiverAbsences.id, id)).returning();
+    return updated;
+  }
+
+  async deleteCaregiverAbsence(id: string): Promise<void> {
+    await db.delete(caregiverAbsences).where(eq(caregiverAbsences.id, id));
+  }
+
+  // Caregiver Availability
+  async getCaregiverAvailability(caregiverId: string): Promise<CaregiverAvailability[]> {
+    return await db.select().from(caregiverAvailability).where(eq(caregiverAvailability.caregiverId, caregiverId)).orderBy(asc(caregiverAvailability.dayOfWeek));
+  }
+
+  async createCaregiverAvailability(availability: InsertCaregiverAvailability): Promise<CaregiverAvailability> {
+    const [created] = await db.insert(caregiverAvailability).values(availability).returning();
+    return created;
+  }
+
+  async updateCaregiverAvailability(id: string, availability: Partial<InsertCaregiverAvailability>): Promise<CaregiverAvailability> {
+    const [updated] = await db.update(caregiverAvailability).set({ ...availability, updatedAt: new Date() }).where(eq(caregiverAvailability.id, id)).returning();
+    return updated;
+  }
+
+  async deleteCaregiverAvailability(id: string): Promise<void> {
+    await db.delete(caregiverAvailability).where(eq(caregiverAvailability.id, id));
+  }
+
+  // Caregiver Payroll Info
+  async getCaregiverPayrollInfo(caregiverId: string): Promise<CaregiverPayrollInfo | undefined> {
+    const [info] = await db.select().from(caregiverPayrollInfo).where(eq(caregiverPayrollInfo.caregiverId, caregiverId));
+    return info;
+  }
+
+  async upsertCaregiverPayrollInfo(info: InsertCaregiverPayrollInfo): Promise<CaregiverPayrollInfo> {
+    const existing = await this.getCaregiverPayrollInfo(info.caregiverId);
+    if (existing) {
+      const [updated] = await db.update(caregiverPayrollInfo).set({ ...info, updatedAt: new Date() }).where(eq(caregiverPayrollInfo.id, existing.id)).returning();
+      return updated;
+    }
+    const [created] = await db.insert(caregiverPayrollInfo).values(info).returning();
+    return created;
+  }
+
+  // Caregiver Expenses
+  async getCaregiverExpenses(caregiverId: string): Promise<CaregiverExpense[]> {
+    return await db.select().from(caregiverExpenses).where(eq(caregiverExpenses.caregiverId, caregiverId)).orderBy(desc(caregiverExpenses.expenseDate));
+  }
+
+  async createCaregiverExpense(expense: InsertCaregiverExpense): Promise<CaregiverExpense> {
+    const [created] = await db.insert(caregiverExpenses).values(expense).returning();
+    return created;
+  }
+
+  async updateCaregiverExpense(id: string, expense: Partial<InsertCaregiverExpense>): Promise<CaregiverExpense> {
+    const [updated] = await db.update(caregiverExpenses).set({ ...expense, updatedAt: new Date() }).where(eq(caregiverExpenses.id, id)).returning();
+    return updated;
+  }
+
+  async deleteCaregiverExpense(id: string): Promise<void> {
+    await db.delete(caregiverExpenses).where(eq(caregiverExpenses.id, id));
+  }
+
+  // Caregiver Paychecks
+  async getCaregiverPaychecks(caregiverId: string): Promise<CaregiverPaycheck[]> {
+    return await db.select().from(caregiverPaychecks).where(eq(caregiverPaychecks.caregiverId, caregiverId)).orderBy(desc(caregiverPaychecks.payDate));
+  }
+
+  async createCaregiverPaycheck(paycheck: InsertCaregiverPaycheck): Promise<CaregiverPaycheck> {
+    const [created] = await db.insert(caregiverPaychecks).values(paycheck).returning();
+    return created;
+  }
+
+  async updateCaregiverPaycheck(id: string, paycheck: Partial<InsertCaregiverPaycheck>): Promise<CaregiverPaycheck> {
+    const [updated] = await db.update(caregiverPaychecks).set({ ...paycheck, updatedAt: new Date() }).where(eq(caregiverPaychecks.id, id)).returning();
+    return updated;
+  }
+
+  // Caregiver Rates
+  async getCaregiverRates(caregiverId: string): Promise<CaregiverRate[]> {
+    return await db.select().from(caregiverRates).where(eq(caregiverRates.caregiverId, caregiverId)).orderBy(desc(caregiverRates.createdAt));
+  }
+
+  async createCaregiverRate(rate: InsertCaregiverRate): Promise<CaregiverRate> {
+    const [created] = await db.insert(caregiverRates).values(rate).returning();
+    return created;
+  }
+
+  async updateCaregiverRate(id: string, rate: Partial<InsertCaregiverRate>): Promise<CaregiverRate> {
+    const [updated] = await db.update(caregiverRates).set({ ...rate, updatedAt: new Date() }).where(eq(caregiverRates.id, id)).returning();
+    return updated;
+  }
+
+  async deleteCaregiverRate(id: string): Promise<void> {
+    await db.delete(caregiverRates).where(eq(caregiverRates.id, id));
+  }
+
+  // Caregiver In-Service
+  async getCaregiverInServices(caregiverId: string): Promise<CaregiverInService[]> {
+    return await db.select().from(caregiverInServices).where(eq(caregiverInServices.caregiverId, caregiverId)).orderBy(desc(caregiverInServices.trainingDate));
+  }
+
+  async createCaregiverInService(inService: InsertCaregiverInService): Promise<CaregiverInService> {
+    const [created] = await db.insert(caregiverInServices).values(inService).returning();
+    return created;
+  }
+
+  async updateCaregiverInService(id: string, inService: Partial<InsertCaregiverInService>): Promise<CaregiverInService> {
+    const [updated] = await db.update(caregiverInServices).set({ ...inService, updatedAt: new Date() }).where(eq(caregiverInServices.id, id)).returning();
+    return updated;
+  }
+
+  async deleteCaregiverInService(id: string): Promise<void> {
+    await db.delete(caregiverInServices).where(eq(caregiverInServices.id, id));
+  }
+
+  // Caregiver Office Moves
+  async getCaregiverOfficeMoves(caregiverId: string): Promise<CaregiverOfficeMove[]> {
+    return await db.select().from(caregiverOfficeMoves).where(eq(caregiverOfficeMoves.caregiverId, caregiverId)).orderBy(desc(caregiverOfficeMoves.moveDate));
+  }
+
+  async createCaregiverOfficeMove(move: InsertCaregiverOfficeMove): Promise<CaregiverOfficeMove> {
+    const [created] = await db.insert(caregiverOfficeMoves).values(move).returning();
+    return created;
+  }
+
+  async updateCaregiverOfficeMove(id: string, move: Partial<InsertCaregiverOfficeMove>): Promise<CaregiverOfficeMove> {
+    const [updated] = await db.update(caregiverOfficeMoves).set({ ...move, updatedAt: new Date() }).where(eq(caregiverOfficeMoves.id, id)).returning();
+    return updated;
+  }
+
+  // Caregiver Schedules
+  async getCaregiverSchedules(caregiverId: string, startDate?: Date, endDate?: Date): Promise<CaregiverSchedule[]> {
+    if (startDate && endDate) {
+      return await db.select().from(caregiverSchedules)
+        .where(and(
+          eq(caregiverSchedules.caregiverId, caregiverId),
+          gte(caregiverSchedules.scheduledDate, startDate),
+          lte(caregiverSchedules.scheduledDate, endDate)
+        ))
+        .orderBy(asc(caregiverSchedules.scheduledDate));
+    }
+    return await db.select().from(caregiverSchedules).where(eq(caregiverSchedules.caregiverId, caregiverId)).orderBy(asc(caregiverSchedules.scheduledDate));
+  }
+
+  async createCaregiverSchedule(schedule: InsertCaregiverSchedule): Promise<CaregiverSchedule> {
+    const [created] = await db.insert(caregiverSchedules).values(schedule).returning();
+    return created;
+  }
+
+  async updateCaregiverSchedule(id: string, schedule: Partial<InsertCaregiverSchedule>): Promise<CaregiverSchedule> {
+    const [updated] = await db.update(caregiverSchedules).set({ ...schedule, updatedAt: new Date() }).where(eq(caregiverSchedules.id, id)).returning();
+    return updated;
+  }
+
+  async deleteCaregiverSchedule(id: string): Promise<void> {
+    await db.delete(caregiverSchedules).where(eq(caregiverSchedules.id, id));
   }
 }
 
