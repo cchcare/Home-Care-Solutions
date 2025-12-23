@@ -1623,3 +1623,23 @@ export const insertCaregiverOfficeMoveSchema = createInsertSchema(caregiverOffic
 export type CaregiverSchedule = typeof caregiverSchedules.$inferSelect;
 export type InsertCaregiverSchedule = typeof caregiverSchedules.$inferInsert;
 export const insertCaregiverScheduleSchema = createInsertSchema(caregiverSchedules).omit({ id: true, createdAt: true, updatedAt: true });
+
+// Client MCO assignments - tracks MCO history with start/discharge dates
+export const clientMcos = pgTable("client_mcos", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  clientId: varchar("client_id").references(() => clients.id).notNull(),
+  mcoId: varchar("mco_id").references(() => mcos.id).notNull(),
+  memberId: varchar("member_id"),
+  startDate: timestamp("start_date").notNull(),
+  dischargeDate: timestamp("discharge_date"),
+  dischargeReason: varchar("discharge_reason"),
+  dischargeNotes: text("discharge_notes"),
+  isPrimary: boolean("is_primary").default(false),
+  status: varchar("status").default("active"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export type ClientMco = typeof clientMcos.$inferSelect;
+export type InsertClientMco = typeof clientMcos.$inferInsert;
+export const insertClientMcoSchema = createInsertSchema(clientMcos).omit({ id: true, createdAt: true, updatedAt: true });

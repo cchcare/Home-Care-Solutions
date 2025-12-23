@@ -161,6 +161,9 @@ import {
   caregiverSchedules,
   type CaregiverSchedule,
   type InsertCaregiverSchedule,
+  clientMcos,
+  type ClientMco,
+  type InsertClientMco,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, asc, and, or, count, sql, like, gte, lte } from "drizzle-orm";
@@ -502,6 +505,13 @@ export interface IStorage {
   createCaregiverSchedule(schedule: InsertCaregiverSchedule): Promise<CaregiverSchedule>;
   updateCaregiverSchedule(id: string, schedule: Partial<InsertCaregiverSchedule>): Promise<CaregiverSchedule>;
   deleteCaregiverSchedule(id: string): Promise<void>;
+
+  // Client MCO operations
+  getClientMcosByClient(clientId: string): Promise<ClientMco[]>;
+  getClientMco(id: string): Promise<ClientMco | undefined>;
+  createClientMco(mco: InsertClientMco): Promise<ClientMco>;
+  updateClientMco(id: string, mco: Partial<InsertClientMco>): Promise<ClientMco>;
+  deleteClientMco(id: string): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -2481,6 +2491,30 @@ export class DatabaseStorage implements IStorage {
 
   async deleteCaregiverSchedule(id: string): Promise<void> {
     await db.delete(caregiverSchedules).where(eq(caregiverSchedules.id, id));
+  }
+
+  // Client MCO operations
+  async getClientMcosByClient(clientId: string): Promise<ClientMco[]> {
+    return await db.select().from(clientMcos).where(eq(clientMcos.clientId, clientId)).orderBy(desc(clientMcos.startDate));
+  }
+
+  async getClientMco(id: string): Promise<ClientMco | undefined> {
+    const [mco] = await db.select().from(clientMcos).where(eq(clientMcos.id, id));
+    return mco;
+  }
+
+  async createClientMco(mco: InsertClientMco): Promise<ClientMco> {
+    const [created] = await db.insert(clientMcos).values(mco).returning();
+    return created;
+  }
+
+  async updateClientMco(id: string, mco: Partial<InsertClientMco>): Promise<ClientMco> {
+    const [updated] = await db.update(clientMcos).set({ ...mco, updatedAt: new Date() }).where(eq(clientMcos.id, id)).returning();
+    return updated;
+  }
+
+  async deleteClientMco(id: string): Promise<void> {
+    await db.delete(clientMcos).where(eq(clientMcos.id, id));
   }
 }
 
