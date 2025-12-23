@@ -24,7 +24,7 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
-import { format, parseISO, isValid, startOfMonth, endOfMonth, subMonths, addDays } from "date-fns";
+import { format, parseISO, isValid, startOfMonth, endOfMonth, subMonths, addDays, getDaysInMonth, getDay } from "date-fns";
 import { 
   DollarSign, 
   Calendar, 
@@ -1320,47 +1320,115 @@ export default function BillingPayroll() {
 
                       {!actualOfficeId ? (
                         <p className="text-center text-muted-foreground py-8">Please select an office to view the payroll calendar</p>
-                      ) : payrollDates.length === 0 ? (
-                        <p className="text-center text-muted-foreground py-8">No payroll dates configured. Use the Payroll Settings button to add dates.</p>
                       ) : (
-                        <div className="grid grid-cols-3 md:grid-cols-4 gap-4">
-                          {MONTHS.map((month, index) => {
-                            const monthDates = payrollDates.filter(d => d.getMonth() === index);
-                            return (
-                              <div key={month} className="border rounded-lg p-3">
-                                <h4 className="font-medium text-center mb-2 text-primary">{month}</h4>
-                                <div className="space-y-1">
-                                  {monthDates.length === 0 ? (
-                                    <p className="text-xs text-muted-foreground text-center">-</p>
-                                  ) : (
-                                    monthDates.map(date => (
-                                      <div 
-                                        key={date.toISOString()} 
-                                        className="text-sm text-center bg-primary/10 rounded px-2 py-1"
-                                      >
-                                        {format(date, "MMM d")}
+                        <>
+                          <div className="flex flex-wrap gap-4 mb-4 justify-center">
+                            <div className="flex items-center gap-2">
+                              <div className="w-4 h-4 rounded bg-green-500"></div>
+                              <span className="text-sm">Pay Period Start</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <div className="w-4 h-4 rounded bg-blue-500"></div>
+                              <span className="text-sm">Pay Period End</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <div className="w-4 h-4 rounded bg-purple-500"></div>
+                              <span className="text-sm">Paycheck Date</span>
+                            </div>
+                          </div>
+                          
+                          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                            {MONTHS.map((month, monthIndex) => {
+                              const firstDayOfMonth = new Date(selectedYear, monthIndex, 1);
+                              const daysInMonth = getDaysInMonth(firstDayOfMonth);
+                              const startingDayOfWeek = getDay(firstDayOfMonth);
+                              
+                              const payPeriodStarts = payrollRuns
+                                .filter(run => {
+                                  const d = new Date(run.payPeriodStart);
+                                  return d.getFullYear() === selectedYear && d.getMonth() === monthIndex;
+                                })
+                                .map(run => new Date(run.payPeriodStart).getDate());
+                              
+                              const payPeriodEnds = payrollRuns
+                                .filter(run => {
+                                  const d = new Date(run.payPeriodEnd);
+                                  return d.getFullYear() === selectedYear && d.getMonth() === monthIndex;
+                                })
+                                .map(run => new Date(run.payPeriodEnd).getDate());
+                              
+                              const paycheckDates = payrollRuns
+                                .filter(run => {
+                                  const d = new Date(run.paycheckDate);
+                                  return d.getFullYear() === selectedYear && d.getMonth() === monthIndex;
+                                })
+                                .map(run => new Date(run.paycheckDate).getDate());
+                              
+                              return (
+                                <div key={month} className="border rounded-lg p-2">
+                                  <h4 className="font-medium text-center mb-2 text-primary">{month}</h4>
+                                  <div className="grid grid-cols-7 gap-0.5 text-xs">
+                                    {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((day, i) => (
+                                      <div key={i} className="text-center font-medium text-muted-foreground p-1">
+                                        {day}
                                       </div>
-                                    ))
-                                  )}
+                                    ))}
+                                    {Array.from({ length: startingDayOfWeek }).map((_, i) => (
+                                      <div key={`empty-${i}`} className="p-1"></div>
+                                    ))}
+                                    {Array.from({ length: daysInMonth }).map((_, i) => {
+                                      const day = i + 1;
+                                      const isStart = payPeriodStarts.includes(day);
+                                      const isEnd = payPeriodEnds.includes(day);
+                                      const isPaycheck = paycheckDates.includes(day);
+                                      
+                                      let bgClass = "";
+                                      if (isPaycheck) bgClass = "bg-purple-500 text-white";
+                                      else if (isEnd) bgClass = "bg-blue-500 text-white";
+                                      else if (isStart) bgClass = "bg-green-500 text-white";
+                                      
+                                      return (
+                                        <div 
+                                          key={day} 
+                                          className={`text-center p-1 rounded ${bgClass}`}
+                                          title={
+                                            isPaycheck ? "Paycheck Date" : 
+                                            isEnd ? "Pay Period End" : 
+                                            isStart ? "Pay Period Start" : ""
+                                          }
+                                        >
+                                          {day}
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
                                 </div>
-                              </div>
-                            );
-                          })}
-                        </div>
+                              );
+                            })}
+                          </div>
+                        </>
                       )}
 
-                      {payrollDates.length > 0 && (
+                      {payrollRuns.length > 0 && (
                         <div className="mt-6 border-t pt-4">
-                          <h4 className="font-medium mb-2">All Payroll Dates for {selectedYear}</h4>
-                          <div className="flex flex-wrap gap-2">
-                            {payrollDates.map(date => (
-                              <Badge key={date.toISOString()} variant="outline">
-                                {format(date, "EEEE, MMMM d, yyyy")}
-                              </Badge>
-                            ))}
+                          <h4 className="font-medium mb-2">All Payroll Runs for {selectedYear}</h4>
+                          <div className="space-y-2">
+                            {payrollRuns
+                              .filter(run => new Date(run.payPeriodStart).getFullYear() === selectedYear)
+                              .sort((a, b) => new Date(a.payPeriodStart).getTime() - new Date(b.payPeriodStart).getTime())
+                              .map(run => (
+                                <div key={run.id} className="flex flex-wrap gap-2 items-center text-sm">
+                                  <Badge className="bg-green-500">{format(new Date(run.payPeriodStart), "MMM d")}</Badge>
+                                  <span>to</span>
+                                  <Badge className="bg-blue-500">{format(new Date(run.payPeriodEnd), "MMM d")}</Badge>
+                                  <span className="text-muted-foreground">|</span>
+                                  <span>Pay:</span>
+                                  <Badge className="bg-purple-500">{format(new Date(run.paycheckDate), "MMM d, yyyy")}</Badge>
+                                </div>
+                              ))}
                           </div>
                           <p className="text-sm text-muted-foreground mt-2">
-                            Total payroll dates: {payrollDates.length}
+                            Total payroll runs: {payrollRuns.filter(run => new Date(run.payPeriodStart).getFullYear() === selectedYear).length}
                           </p>
                         </div>
                       )}
