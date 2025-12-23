@@ -1361,7 +1361,7 @@ export default function BillingPayroll() {
                       </Select>
                       <Button variant="outline" onClick={handlePrint} data-testid="button-print-calendar">
                         <Printer className="w-4 h-4 mr-2" />
-                        Print
+                        Print / Export PDF
                       </Button>
                     </div>
                   </CardHeader>
@@ -1369,14 +1369,72 @@ export default function BillingPayroll() {
                     <div ref={printRef} className="print-area">
                       <style>{`
                         @media print {
+                          @page {
+                            size: 8.5in 11in;
+                            margin: 0.25in;
+                          }
                           body * { visibility: hidden; }
                           .print-area, .print-area * { visibility: visible; }
-                          .print-area { position: absolute; left: 0; top: 0; width: 100%; }
+                          .print-area { 
+                            position: absolute; 
+                            left: 0; 
+                            top: 0; 
+                            width: 8in !important;
+                            padding: 0 !important;
+                            margin: 0 !important;
+                          }
                           .no-print { display: none !important; }
+                          .print-header { 
+                            margin-bottom: 8px !important; 
+                            padding-bottom: 4px !important;
+                          }
+                          .print-header h2 { 
+                            font-size: 16pt !important; 
+                            margin: 0 !important;
+                          }
+                          .print-header p { 
+                            font-size: 11pt !important; 
+                            margin: 2px 0 0 0 !important;
+                          }
+                          .print-legend { 
+                            margin-bottom: 6px !important; 
+                            gap: 12px !important;
+                          }
+                          .print-legend span { 
+                            font-size: 8pt !important; 
+                          }
+                          .print-legend .legend-dot { 
+                            width: 10px !important; 
+                            height: 10px !important; 
+                          }
+                          .print-calendar-grid { 
+                            grid-template-columns: repeat(4, 1fr) !important; 
+                            gap: 6px !important;
+                          }
+                          .print-month { 
+                            border: 1px solid #ccc !important; 
+                            padding: 4px !important;
+                            border-radius: 4px !important;
+                            break-inside: avoid !important;
+                          }
+                          .print-month h4 { 
+                            font-size: 9pt !important; 
+                            margin-bottom: 3px !important;
+                          }
+                          .print-day-header { 
+                            font-size: 6pt !important; 
+                            padding: 1px !important;
+                          }
+                          .print-day { 
+                            font-size: 7pt !important; 
+                            padding: 2px 1px !important;
+                            line-height: 1.1 !important;
+                          }
+                          .print-schedule { display: none !important; }
                         }
                       `}</style>
                       
-                      <div className="text-center mb-6 print:mb-4">
+                      <div className="text-center mb-6 print:mb-2 print-header">
                         <h2 className="text-2xl font-bold">{payrollConfig?.companyName || selectedOffice?.name || "Company Name"}</h2>
                         <p className="text-lg text-muted-foreground">Payroll Calendar {selectedYear}</p>
                       </div>
@@ -1385,22 +1443,22 @@ export default function BillingPayroll() {
                         <p className="text-center text-muted-foreground py-8">Please select an office to view the payroll calendar</p>
                       ) : (
                         <>
-                          <div className="flex flex-wrap gap-4 mb-4 justify-center">
+                          <div className="flex flex-wrap gap-4 mb-4 justify-center print-legend">
                             <div className="flex items-center gap-2">
-                              <div className="w-4 h-4 rounded bg-green-500"></div>
+                              <div className="w-4 h-4 rounded bg-green-500 legend-dot"></div>
                               <span className="text-sm">Pay Period Start</span>
                             </div>
                             <div className="flex items-center gap-2">
-                              <div className="w-4 h-4 rounded bg-blue-500"></div>
+                              <div className="w-4 h-4 rounded bg-blue-500 legend-dot"></div>
                               <span className="text-sm">Pay Period End</span>
                             </div>
                             <div className="flex items-center gap-2">
-                              <div className="w-4 h-4 rounded bg-purple-500"></div>
+                              <div className="w-4 h-4 rounded bg-purple-500 legend-dot"></div>
                               <span className="text-sm">Paycheck Date</span>
                             </div>
                           </div>
                           
-                          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 print-calendar-grid">
                             {MONTHS.map((month, monthIndex) => {
                               const firstDayOfMonth = new Date(selectedYear, monthIndex, 1);
                               const daysInMonth = getDaysInMonth(firstDayOfMonth);
@@ -1428,16 +1486,16 @@ export default function BillingPayroll() {
                                 .map(run => parseLocalDate(run.paycheckDate).getDate());
                               
                               return (
-                                <div key={month} className="border rounded-lg p-2">
+                                <div key={month} className="border rounded-lg p-2 print-month">
                                   <h4 className="font-medium text-center mb-2 text-primary">{month}</h4>
                                   <div className="grid grid-cols-7 gap-0.5 text-xs">
                                     {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((day, i) => (
-                                      <div key={i} className="text-center font-medium text-muted-foreground p-1">
+                                      <div key={i} className="text-center font-medium text-muted-foreground p-1 print-day-header">
                                         {day}
                                       </div>
                                     ))}
                                     {Array.from({ length: startingDayOfWeek }).map((_, i) => (
-                                      <div key={`empty-${i}`} className="p-1"></div>
+                                      <div key={`empty-${i}`} className="p-1 print-day"></div>
                                     ))}
                                     {Array.from({ length: daysInMonth }).map((_, i) => {
                                       const day = i + 1;
@@ -1453,7 +1511,7 @@ export default function BillingPayroll() {
                                       return (
                                         <div 
                                           key={day} 
-                                          className={`text-center p-1 rounded ${bgClass}`}
+                                          className={`text-center p-1 rounded print-day ${bgClass}`}
                                           title={
                                             isPaycheck ? "Paycheck Date" : 
                                             isEnd ? "Pay Period End" : 
@@ -1473,7 +1531,7 @@ export default function BillingPayroll() {
                       )}
 
                       {actualOfficeId && (
-                        <div className="mt-6 border-t pt-4">
+                        <div className="mt-6 border-t pt-4 print-schedule">
                           <h4 className="font-medium mb-3 text-lg">Payroll Dates Schedule</h4>
                           {payrollRuns.filter(run => parseLocalDate(run.payPeriodStart).getFullYear() === selectedYear).length === 0 ? (
                             <p className="text-muted-foreground text-center py-4">No payroll runs scheduled for {selectedYear}. Create a payroll run in the Payroll tab.</p>
