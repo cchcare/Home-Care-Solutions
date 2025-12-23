@@ -1121,6 +1121,24 @@ export const officePayrollConfigsRelations = relations(officePayrollConfigs, ({ 
   }),
 }));
 
+// Payroll Holidays - Custom and managed holidays for payroll calendar
+export const payrollHolidays = pgTable("payroll_holidays", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  officeId: varchar("office_id").references(() => offices.id).notNull(),
+  name: varchar("name").notNull(),
+  date: timestamp("date").notNull(),
+  isDefault: boolean("is_default").default(false), // true for US federal holidays
+  year: integer("year").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const payrollHolidaysRelations = relations(payrollHolidays, ({ one }) => ({
+  office: one(offices, {
+    fields: [payrollHolidays.officeId],
+    references: [offices.id],
+  }),
+}));
+
 // Payroll Runs - Each payroll cycle
 export const payrollRuns = pgTable("payroll_runs", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -1276,6 +1294,10 @@ export const officePaSurveyStatusesRelations = relations(officePaSurveyStatuses,
 export type OfficePayrollConfig = typeof officePayrollConfigs.$inferSelect;
 export type InsertOfficePayrollConfig = typeof officePayrollConfigs.$inferInsert;
 export const insertOfficePayrollConfigSchema = createInsertSchema(officePayrollConfigs).omit({ id: true, createdAt: true, updatedAt: true });
+
+export type PayrollHoliday = typeof payrollHolidays.$inferSelect;
+export type InsertPayrollHoliday = typeof payrollHolidays.$inferInsert;
+export const insertPayrollHolidaySchema = createInsertSchema(payrollHolidays).omit({ id: true, createdAt: true });
 
 export type PayrollRun = typeof payrollRuns.$inferSelect;
 export type InsertPayrollRun = typeof payrollRuns.$inferInsert;
