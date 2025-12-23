@@ -711,6 +711,166 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Client Communications routes
+  app.get("/api/clients/:clientId/communications", isAuthenticated, async (req, res) => {
+    try {
+      const communications = await storage.getClientCommunications(req.params.clientId);
+      res.json(communications);
+    } catch (error) {
+      console.error("Error fetching client communications:", error);
+      res.status(500).json({ message: "Failed to fetch communications" });
+    }
+  });
+
+  app.post("/api/clients/:clientId/communications", isAuthenticated, async (req: any, res) => {
+    try {
+      const communication = await storage.createClientCommunication({
+        ...req.body,
+        clientId: req.params.clientId,
+        authorUserId: req.user.claims.sub,
+      });
+      res.status(201).json(communication);
+    } catch (error) {
+      console.error("Error creating client communication:", error);
+      res.status(500).json({ message: "Failed to create communication" });
+    }
+  });
+
+  app.delete("/api/communications/:id", isAuthenticated, async (req, res) => {
+    try {
+      await storage.deleteClientCommunication(req.params.id);
+      res.json({ message: "Communication deleted successfully" });
+    } catch (error) {
+      console.error("Error deleting communication:", error);
+      res.status(500).json({ message: "Failed to delete communication" });
+    }
+  });
+
+  // Office MCO Billing Rate routes
+  app.get("/api/offices/:officeId/billing-rates", isAuthenticated, async (req, res) => {
+    try {
+      const mcoId = req.query.mcoId as string | undefined;
+      const rates = await storage.getOfficeMcoBillingRates(req.params.officeId, mcoId);
+      res.json(rates);
+    } catch (error) {
+      console.error("Error fetching billing rates:", error);
+      res.status(500).json({ message: "Failed to fetch billing rates" });
+    }
+  });
+
+  app.post("/api/offices/:officeId/billing-rates", isAuthenticated, async (req: any, res) => {
+    try {
+      const rate = await storage.createOfficeMcoBillingRate({
+        ...req.body,
+        officeId: req.params.officeId,
+      });
+      res.status(201).json(rate);
+    } catch (error) {
+      console.error("Error creating billing rate:", error);
+      res.status(500).json({ message: "Failed to create billing rate" });
+    }
+  });
+
+  app.put("/api/billing-rates/:id", isAuthenticated, async (req, res) => {
+    try {
+      const rate = await storage.updateOfficeMcoBillingRate(req.params.id, req.body);
+      res.json(rate);
+    } catch (error) {
+      console.error("Error updating billing rate:", error);
+      res.status(500).json({ message: "Failed to update billing rate" });
+    }
+  });
+
+  app.delete("/api/billing-rates/:id", isAuthenticated, async (req, res) => {
+    try {
+      await storage.deleteOfficeMcoBillingRate(req.params.id);
+      res.json({ message: "Billing rate deleted successfully" });
+    } catch (error) {
+      console.error("Error deleting billing rate:", error);
+      res.status(500).json({ message: "Failed to delete billing rate" });
+    }
+  });
+
+  // Client Schedule routes
+  app.get("/api/clients/:clientId/schedules", isAuthenticated, async (req, res) => {
+    try {
+      const schedules = await storage.getClientSchedules(req.params.clientId);
+      res.json(schedules);
+    } catch (error) {
+      console.error("Error fetching client schedules:", error);
+      res.status(500).json({ message: "Failed to fetch schedules" });
+    }
+  });
+
+  app.post("/api/clients/:clientId/schedules/rollover", isAuthenticated, async (req, res) => {
+    try {
+      const days = req.body.days || 30;
+      const schedules = await storage.rolloverSchedules(req.params.clientId, days);
+      res.status(201).json(schedules);
+    } catch (error) {
+      console.error("Error rolling over schedules:", error);
+      res.status(500).json({ message: "Failed to rollover schedules" });
+    }
+  });
+
+  // Master Week Template routes for clients
+  app.get("/api/clients/:clientId/master-week", isAuthenticated, async (req, res) => {
+    try {
+      const templates = await storage.getMasterWeekTemplatesByClient(req.params.clientId);
+      res.json(templates);
+    } catch (error) {
+      console.error("Error fetching master week templates:", error);
+      res.status(500).json({ message: "Failed to fetch master week templates" });
+    }
+  });
+
+  app.post("/api/clients/:clientId/master-week", isAuthenticated, async (req: any, res) => {
+    try {
+      const template = await storage.createMasterWeekTemplate({
+        ...req.body,
+        clientId: req.params.clientId,
+        createdBy: req.user.claims.sub,
+      });
+      res.status(201).json(template);
+    } catch (error) {
+      console.error("Error creating master week template:", error);
+      res.status(500).json({ message: "Failed to create master week template" });
+    }
+  });
+
+  app.get("/api/master-week/:templateId/slots", isAuthenticated, async (req, res) => {
+    try {
+      const slots = await storage.getMasterWeekSlots(req.params.templateId);
+      res.json(slots);
+    } catch (error) {
+      console.error("Error fetching master week slots:", error);
+      res.status(500).json({ message: "Failed to fetch master week slots" });
+    }
+  });
+
+  app.post("/api/master-week/:templateId/slots", isAuthenticated, async (req, res) => {
+    try {
+      const slot = await storage.createMasterWeekSlot({
+        ...req.body,
+        templateId: req.params.templateId,
+      });
+      res.status(201).json(slot);
+    } catch (error) {
+      console.error("Error creating master week slot:", error);
+      res.status(500).json({ message: "Failed to create master week slot" });
+    }
+  });
+
+  app.delete("/api/master-week/slots/:slotId", isAuthenticated, async (req, res) => {
+    try {
+      await storage.deleteMasterWeekSlot(req.params.slotId);
+      res.json({ message: "Slot deleted successfully" });
+    } catch (error) {
+      console.error("Error deleting master week slot:", error);
+      res.status(500).json({ message: "Failed to delete slot" });
+    }
+  });
+
   // Incident report routes
   app.get("/api/incident-reports", isAuthenticated, async (req, res) => {
     try {

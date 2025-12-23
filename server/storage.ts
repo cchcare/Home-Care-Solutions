@@ -1523,10 +1523,6 @@ export class DatabaseStorage implements IStorage {
     await db.delete(aiDetectedIssues).where(eq(aiDetectedIssues.id, id));
   }
 
-  async getAllComplianceItems(): Promise<ComplianceItem[]> {
-    return await db.select().from(complianceItems).orderBy(desc(complianceItems.createdAt));
-  }
-
   // EVV Data operations
   async getAllEvvData(): Promise<EvvData[]> {
     return await db.select().from(evvData).orderBy(desc(evvData.year), desc(evvData.month));
@@ -1856,7 +1852,7 @@ export class DatabaseStorage implements IStorage {
       return [];
     }
 
-    const activeTemplate = templates.find(t => t.isDefault) || templates[0];
+    const activeTemplate = templates[0];
     const slots = await this.getMasterWeekSlots(activeTemplate.id);
     
     if (slots.length === 0) {
