@@ -249,6 +249,7 @@ export default function ClientProfile() {
         address: client.address || "",
         dateOfBirth: client.dateOfBirth,
         memberId: client.memberId || "",
+        serviceStartDate: client.serviceStartDate,
         emergencyContactName: client.emergencyContactName || "",
         emergencyContactPhone: client.emergencyContactPhone || "",
         emergencyContactRelation: client.emergencyContactRelation || "",
@@ -256,6 +257,7 @@ export default function ClientProfile() {
         primaryPhysician: client.primaryPhysician || "",
         allergies: client.allergies || "",
         medications: client.medications || "",
+        status: client.status,
       });
       setIsEditing(true);
     }
@@ -408,9 +410,18 @@ export default function ClientProfile() {
                         <Label className="text-muted-foreground text-sm flex items-center gap-1">
                           <Calendar className="w-3 h-3" /> Service Start Date
                         </Label>
-                        <p className="font-medium" data-testid="text-service-start-date">
-                          {client.serviceStartDate ? format(new Date(client.serviceStartDate), "MMM d, yyyy") : "N/A"}
-                        </p>
+                        {isEditing ? (
+                          <Input
+                            type="date"
+                            value={editFormData.serviceStartDate ? new Date(editFormData.serviceStartDate).toISOString().split('T')[0] : ""}
+                            onChange={(e) => setEditFormData({ ...editFormData, serviceStartDate: e.target.value ? new Date(e.target.value) : undefined })}
+                            data-testid="input-service-start-date"
+                          />
+                        ) : (
+                          <p className="font-medium" data-testid="text-service-start-date">
+                            {client.serviceStartDate ? format(new Date(client.serviceStartDate), "MMM d, yyyy") : "N/A"}
+                          </p>
+                        )}
                       </div>
                       <div className="space-y-1">
                         <Label className="text-muted-foreground text-sm">Coordinator</Label>

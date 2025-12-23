@@ -155,10 +155,13 @@ export default function CaregiverProfile() {
     if (caregiver) {
       setEditFormData({
         employeeId: caregiver.employeeId || "",
-        hourlyWage: caregiver.hourlyWage ?? undefined,
+        hourlyWage: caregiver.hourlyWage || undefined,
         experienceYears: caregiver.experienceYears ?? undefined,
         gender: caregiver.gender,
         isActive: caregiver.isActive,
+        hireDate: caregiver.hireDate,
+        startDate: caregiver.startDate,
+        specializations: caregiver.specializations || [],
       });
       setIsEditing(true);
     }
@@ -261,9 +264,22 @@ export default function CaregiverProfile() {
                   <User className="w-5 h-5" />
                   Personal Information
                 </CardTitle>
-                <Badge variant={caregiver.isActive ? "default" : "secondary"}>
-                  {caregiver.isActive ? "Active" : "Inactive"}
-                </Badge>
+                {isEditing ? (
+                  <div className="flex items-center gap-2">
+                    <Label className="text-sm">Active</Label>
+                    <input
+                      type="checkbox"
+                      checked={editFormData.isActive ?? caregiver.isActive ?? false}
+                      onChange={(e) => setEditFormData({ ...editFormData, isActive: e.target.checked })}
+                      className="h-4 w-4"
+                      data-testid="checkbox-is-active"
+                    />
+                  </div>
+                ) : (
+                  <Badge variant={caregiver.isActive ? "default" : "secondary"}>
+                    {caregiver.isActive ? "Active" : "Inactive"}
+                  </Badge>
+                )}
               </CardHeader>
               <CardContent>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -309,9 +325,26 @@ export default function CaregiverProfile() {
                   
                   <div className="space-y-1">
                     <Label className="text-muted-foreground text-sm">Gender</Label>
-                    <p className="font-medium capitalize" data-testid="text-caregiver-gender">
-                      {caregiver.gender?.replace(/_/g, " ") || "N/A"}
-                    </p>
+                    {isEditing ? (
+                      <Select
+                        value={editFormData.gender || ""}
+                        onValueChange={(value) => setEditFormData({ ...editFormData, gender: value as "male" | "female" | "non_binary" | "prefer_not_to_say" })}
+                      >
+                        <SelectTrigger data-testid="select-gender">
+                          <SelectValue placeholder="Select gender" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="male">Male</SelectItem>
+                          <SelectItem value="female">Female</SelectItem>
+                          <SelectItem value="non_binary">Non-Binary</SelectItem>
+                          <SelectItem value="prefer_not_to_say">Prefer Not to Say</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <p className="font-medium capitalize" data-testid="text-caregiver-gender">
+                        {caregiver.gender?.replace(/_/g, " ") || "N/A"}
+                      </p>
+                    )}
                   </div>
                   
                   <div className="space-y-1">
@@ -325,16 +358,34 @@ export default function CaregiverProfile() {
                   
                   <div className="space-y-1">
                     <Label className="text-muted-foreground text-sm">Hire Date</Label>
-                    <p className="font-medium" data-testid="text-hire-date">
-                      {caregiver.hireDate ? format(new Date(caregiver.hireDate), "MMM d, yyyy") : "N/A"}
-                    </p>
+                    {isEditing ? (
+                      <Input
+                        type="date"
+                        value={editFormData.hireDate ? new Date(editFormData.hireDate).toISOString().split('T')[0] : ""}
+                        onChange={(e) => setEditFormData({ ...editFormData, hireDate: e.target.value ? new Date(e.target.value) : undefined })}
+                        data-testid="input-hire-date"
+                      />
+                    ) : (
+                      <p className="font-medium" data-testid="text-hire-date">
+                        {caregiver.hireDate ? format(new Date(caregiver.hireDate), "MMM d, yyyy") : "N/A"}
+                      </p>
+                    )}
                   </div>
                   
                   <div className="space-y-1">
                     <Label className="text-muted-foreground text-sm">Start Date</Label>
-                    <p className="font-medium" data-testid="text-start-date">
-                      {caregiver.startDate ? format(new Date(caregiver.startDate), "MMM d, yyyy") : "N/A"}
-                    </p>
+                    {isEditing ? (
+                      <Input
+                        type="date"
+                        value={editFormData.startDate ? new Date(editFormData.startDate).toISOString().split('T')[0] : ""}
+                        onChange={(e) => setEditFormData({ ...editFormData, startDate: e.target.value ? new Date(e.target.value) : undefined })}
+                        data-testid="input-start-date"
+                      />
+                    ) : (
+                      <p className="font-medium" data-testid="text-start-date">
+                        {caregiver.startDate ? format(new Date(caregiver.startDate), "MMM d, yyyy") : "N/A"}
+                      </p>
+                    )}
                   </div>
                   
                   <div className="space-y-1">
@@ -360,7 +411,7 @@ export default function CaregiverProfile() {
                         type="number"
                         step="0.01"
                         value={editFormData.hourlyWage ?? ""}
-                        onChange={(e) => setEditFormData({ ...editFormData, hourlyWage: e.target.value ? parseFloat(e.target.value) : undefined })}
+                        onChange={(e) => setEditFormData({ ...editFormData, hourlyWage: e.target.value || undefined })}
                         data-testid="input-hourly-wage"
                       />
                     ) : (
@@ -372,15 +423,27 @@ export default function CaregiverProfile() {
                   
                   <div className="space-y-1 md:col-span-2">
                     <Label className="text-muted-foreground text-sm">Specializations</Label>
-                    <div className="flex flex-wrap gap-2" data-testid="text-specializations">
-                      {caregiver.specializations?.length ? (
-                        caregiver.specializations.map((spec, i) => (
-                          <Badge key={i} variant="outline">{spec}</Badge>
-                        ))
-                      ) : (
-                        <span className="text-muted-foreground">None specified</span>
-                      )}
-                    </div>
+                    {isEditing ? (
+                      <Input
+                        value={Array.isArray(editFormData.specializations) ? editFormData.specializations.join(", ") : ""}
+                        onChange={(e) => setEditFormData({ 
+                          ...editFormData, 
+                          specializations: e.target.value.split(",").map(s => s.trim()).filter(s => s.length > 0)
+                        })}
+                        placeholder="Enter specializations separated by commas"
+                        data-testid="input-specializations"
+                      />
+                    ) : (
+                      <div className="flex flex-wrap gap-2" data-testid="text-specializations">
+                        {caregiver.specializations?.length ? (
+                          caregiver.specializations.map((spec, i) => (
+                            <Badge key={i} variant="outline">{spec}</Badge>
+                          ))
+                        ) : (
+                          <span className="text-muted-foreground">None specified</span>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
               </CardContent>
