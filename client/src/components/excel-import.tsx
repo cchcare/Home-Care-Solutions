@@ -20,6 +20,7 @@ import ExcelJS from "exceljs";
 interface ExcelImportProps {
   type: "clients" | "caregivers" | "users";
   onImportComplete?: () => void;
+  officeId?: string;
 }
 
 interface ImportResult {
@@ -77,7 +78,7 @@ function excelDateToJSDate(excelDate: number): Date {
   return new Date(baseDate.getTime() + excelDate * 86400000);
 }
 
-export function ExcelImport({ type, onImportComplete }: ExcelImportProps) {
+export function ExcelImport({ type, onImportComplete, officeId }: ExcelImportProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewData, setPreviewData] = useState<any[]>([]);
@@ -89,7 +90,10 @@ export function ExcelImport({ type, onImportComplete }: ExcelImportProps) {
 
   const importMutation = useMutation({
     mutationFn: async (data: any[]) => {
-      const response = await apiRequest("POST", `/api/${type}/bulk-import`, { data });
+      const dataWithOffice = officeId 
+        ? data.map(item => ({ ...item, officeId }))
+        : data;
+      const response = await apiRequest("POST", `/api/${type}/bulk-import`, { data: dataWithOffice });
       return response.json();
     },
     onSuccess: (result: ImportResult) => {

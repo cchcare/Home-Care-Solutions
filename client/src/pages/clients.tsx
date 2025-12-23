@@ -153,10 +153,14 @@ export default function Clients() {
           </div>
           <div className="flex items-center space-x-2">
             <ExcelExport type="clients" data={clients || []} disabled={isLoading} />
-            <ExcelImport type="clients" onImportComplete={() => {
-              queryClient.invalidateQueries({ queryKey: ["/api/clients"] });
-              queryClient.invalidateQueries({ queryKey: ["/api/dashboard/metrics"] });
-            }} />
+            <ExcelImport 
+              type="clients" 
+              officeId={selectedOfficeId !== "all" ? selectedOfficeId : undefined}
+              onImportComplete={() => {
+                queryClient.invalidateQueries({ queryKey: ["/api/clients"] });
+                queryClient.invalidateQueries({ queryKey: ["/api/dashboard/metrics"] });
+              }} 
+            />
             <Button variant="outline" onClick={() => setShowOcrDialog(true)} data-testid="button-scan-client">
               <Scan className="w-4 h-4 mr-2" />
               Scan Document

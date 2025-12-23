@@ -109,10 +109,14 @@ export default function Caregivers() {
           </div>
           <div className="flex items-center space-x-2">
             <ExcelExport type="caregivers" data={caregivers} disabled={isLoading} />
-            <ExcelImport type="caregivers" onImportComplete={() => {
-              queryClient.invalidateQueries({ queryKey: ["/api/caregivers"] });
-              queryClient.invalidateQueries({ queryKey: ["/api/dashboard/metrics"] });
-            }} />
+            <ExcelImport 
+              type="caregivers" 
+              officeId={selectedOfficeId !== "all" ? selectedOfficeId : undefined}
+              onImportComplete={() => {
+                queryClient.invalidateQueries({ queryKey: ["/api/caregivers"] });
+                queryClient.invalidateQueries({ queryKey: ["/api/dashboard/metrics"] });
+              }} 
+            />
             <Button variant="outline" onClick={() => setShowOcrDialog(true)} data-testid="button-scan-caregiver">
               <Scan className="w-4 h-4 mr-2" />
               Scan Document

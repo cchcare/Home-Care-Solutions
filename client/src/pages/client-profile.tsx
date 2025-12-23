@@ -98,6 +98,10 @@ export default function ClientProfile() {
     enabled: !!client?.officeId,
   });
 
+  const { data: offices = [] } = useQuery<Office[]>({
+    queryKey: ["/api/offices"],
+  });
+
   const { data: mco } = useQuery<Mco>({
     queryKey: ["/api/mcos", client?.mcoId],
     queryFn: () => fetch(`/api/mcos/${client?.mcoId}`).then(r => r.json()),
@@ -544,9 +548,27 @@ export default function ClientProfile() {
                         <Label className="text-muted-foreground text-sm flex items-center gap-1">
                           <Building className="w-3 h-3" /> Office Location
                         </Label>
-                        <p className="font-medium" data-testid="text-client-office">
-                          {office?.name || "N/A"}
-                        </p>
+                        {isEditing ? (
+                          <Select
+                            value={editFormData.officeId || ""}
+                            onValueChange={(value) => setEditFormData({ ...editFormData, officeId: value })}
+                          >
+                            <SelectTrigger data-testid="select-client-office">
+                              <SelectValue placeholder="Select office" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {offices.map((o) => (
+                                <SelectItem key={o.id} value={o.id}>
+                                  {o.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        ) : (
+                          <p className="font-medium" data-testid="text-client-office">
+                            {office?.name || "N/A"}
+                          </p>
+                        )}
                       </div>
                     </div>
                   </CardContent>
