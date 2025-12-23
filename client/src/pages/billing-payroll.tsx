@@ -24,7 +24,7 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
-import { format, parseISO, isValid, startOfMonth, endOfMonth, subMonths } from "date-fns";
+import { format, parseISO, isValid, startOfMonth, endOfMonth, subMonths, addDays } from "date-fns";
 import { 
   DollarSign, 
   Calendar, 
@@ -281,6 +281,45 @@ export default function BillingPayroll() {
       notes: "",
     },
   });
+
+  const getNextBiweeklyDates = () => {
+    const sortedRuns = [...payrollRuns].sort((a, b) => 
+      new Date(b.payPeriodEnd).getTime() - new Date(a.payPeriodEnd).getTime()
+    );
+    
+    if (sortedRuns.length > 0) {
+      const lastRun = sortedRuns[0];
+      const lastPeriodEnd = new Date(lastRun.payPeriodEnd);
+      const nextPeriodStart = addDays(lastPeriodEnd, 1);
+      const nextPeriodEnd = addDays(nextPeriodStart, 13);
+      const nextPaycheckDate = addDays(nextPeriodEnd, 5);
+      
+      return {
+        payPeriodStart: format(nextPeriodStart, "yyyy-MM-dd"),
+        payPeriodEnd: format(nextPeriodEnd, "yyyy-MM-dd"),
+        paycheckDate: format(nextPaycheckDate, "yyyy-MM-dd"),
+        notes: "",
+      };
+    }
+    
+    const today = new Date();
+    const periodStart = today;
+    const periodEnd = addDays(periodStart, 13);
+    const paycheckDate = addDays(periodEnd, 5);
+    
+    return {
+      payPeriodStart: format(periodStart, "yyyy-MM-dd"),
+      payPeriodEnd: format(periodEnd, "yyyy-MM-dd"),
+      paycheckDate: format(paycheckDate, "yyyy-MM-dd"),
+      notes: "",
+    };
+  };
+
+  const handleOpenPayrollDialog = () => {
+    const nextDates = getNextBiweeklyDates();
+    payrollForm.reset(nextDates);
+    setShowPayrollDialog(true);
+  };
 
   const mcoRateForm = useForm({
     resolver: zodResolver(mcoRateFormSchema),
@@ -850,12 +889,10 @@ export default function BillingPayroll() {
                     </div>
                     {actualOfficeId && (
                       <Dialog open={showPayrollDialog} onOpenChange={setShowPayrollDialog}>
-                        <DialogTrigger asChild>
-                          <Button data-testid="button-create-payroll">
-                            <Plus className="w-4 h-4 mr-2" />
-                            Create Payroll Run
-                          </Button>
-                        </DialogTrigger>
+                        <Button onClick={handleOpenPayrollDialog} data-testid="button-create-payroll">
+                          <Plus className="w-4 h-4 mr-2" />
+                          Create Payroll Run
+                        </Button>
                         <DialogContent className="max-w-lg">
                           <DialogHeader>
                             <DialogTitle>Create Payroll Run</DialogTitle>
