@@ -1324,3 +1324,302 @@ export const insertPaSurveyChecklistItemSchema = createInsertSchema(paSurveyChec
 export type OfficePaSurveyStatus = typeof officePaSurveyStatuses.$inferSelect;
 export type InsertOfficePaSurveyStatus = typeof officePaSurveyStatuses.$inferInsert;
 export const insertOfficePaSurveyStatusSchema = createInsertSchema(officePaSurveyStatuses).omit({ id: true, createdAt: true, updatedAt: true });
+
+// ==================== CAREGIVER PROFILE TABLES ====================
+
+// Caregiver Notes - Notes section
+export const caregiverNotes = pgTable("caregiver_notes", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  caregiverId: varchar("caregiver_id").references(() => caregivers.id).notNull(),
+  authorId: varchar("author_id").references(() => users.id),
+  noteType: varchar("note_type").default("general"), // general, performance, disciplinary, commendation
+  subject: varchar("subject"),
+  content: text("content").notNull(),
+  isPrivate: boolean("is_private").default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Caregiver Preferences - Preferences section
+export const caregiverPreferences = pgTable("caregiver_preferences", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  caregiverId: varchar("caregiver_id").references(() => caregivers.id).notNull(),
+  preferenceType: varchar("preference_type").notNull(), // work_area, client_type, schedule, language, etc.
+  preferenceValue: text("preference_value").notNull(),
+  priority: integer("priority").default(1), // 1=high, 2=medium, 3=low
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Caregiver Absences/Restrictions - Absence/Restriction section
+export const caregiverAbsences = pgTable("caregiver_absences", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  caregiverId: varchar("caregiver_id").references(() => caregivers.id).notNull(),
+  absenceType: varchar("absence_type").notNull(), // vacation, sick, personal, fmla, restriction, unavailable
+  startDate: timestamp("start_date").notNull(),
+  endDate: timestamp("end_date"),
+  isAllDay: boolean("is_all_day").default(true),
+  startTime: varchar("start_time"), // HH:MM if not all day
+  endTime: varchar("end_time"), // HH:MM if not all day
+  reason: text("reason"),
+  status: varchar("status").default("approved"), // pending, approved, denied
+  approvedBy: varchar("approved_by").references(() => users.id),
+  approvedAt: timestamp("approved_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Caregiver Availability - Availability section
+export const caregiverAvailability = pgTable("caregiver_availability", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  caregiverId: varchar("caregiver_id").references(() => caregivers.id).notNull(),
+  dayOfWeek: integer("day_of_week").notNull(), // 0=Sunday, 6=Saturday
+  startTime: varchar("start_time").notNull(), // HH:MM format
+  endTime: varchar("end_time").notNull(), // HH:MM format
+  isAvailable: boolean("is_available").default(true),
+  effectiveFrom: timestamp("effective_from"),
+  effectiveTo: timestamp("effective_to"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Caregiver Payroll Info - Payroll Info section
+export const caregiverPayrollInfo = pgTable("caregiver_payroll_info", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  caregiverId: varchar("caregiver_id").references(() => caregivers.id).notNull(),
+  paymentMethod: varchar("payment_method").default("direct_deposit"), // direct_deposit, check, paycard
+  bankName: varchar("bank_name"),
+  accountType: varchar("account_type"), // checking, savings
+  accountNumberLast4: varchar("account_number_last4"),
+  routingNumberLast4: varchar("routing_number_last4"),
+  taxFilingStatus: varchar("tax_filing_status"), // single, married_filing_jointly, married_filing_separately, head_of_household
+  federalWithholding: integer("federal_withholding").default(0),
+  stateWithholding: integer("state_withholding").default(0),
+  additionalWithholding: numeric("additional_withholding", { precision: 10, scale: 2 }),
+  ssn_last4: varchar("ssn_last4"),
+  w4OnFile: boolean("w4_on_file").default(false),
+  i9OnFile: boolean("i9_on_file").default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Caregiver Expenses - Expenses section
+export const caregiverExpenses = pgTable("caregiver_expenses", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  caregiverId: varchar("caregiver_id").references(() => caregivers.id).notNull(),
+  expenseDate: timestamp("expense_date").notNull(),
+  expenseType: varchar("expense_type").notNull(), // mileage, supplies, training, uniform, other
+  amount: numeric("amount", { precision: 10, scale: 2 }).notNull(),
+  description: text("description"),
+  clientId: varchar("client_id").references(() => clients.id), // if expense is client-related
+  receiptDocumentId: varchar("receipt_document_id").references(() => documents.id),
+  status: varchar("status").default("pending"), // pending, approved, denied, paid
+  approvedBy: varchar("approved_by").references(() => users.id),
+  approvedAt: timestamp("approved_at"),
+  paidAt: timestamp("paid_at"),
+  mileage: numeric("mileage", { precision: 10, scale: 2 }), // for mileage expenses
+  mileageRate: numeric("mileage_rate", { precision: 10, scale: 4 }), // per mile rate
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Caregiver Paychecks - Pay Check section
+export const caregiverPaychecks = pgTable("caregiver_paychecks", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  caregiverId: varchar("caregiver_id").references(() => caregivers.id).notNull(),
+  payrollRunId: varchar("payroll_run_id").references(() => payrollRuns.id),
+  payPeriodStart: timestamp("pay_period_start").notNull(),
+  payPeriodEnd: timestamp("pay_period_end").notNull(),
+  payDate: timestamp("pay_date").notNull(),
+  regularHours: numeric("regular_hours", { precision: 10, scale: 2 }).default("0"),
+  overtimeHours: numeric("overtime_hours", { precision: 10, scale: 2 }).default("0"),
+  holidayHours: numeric("holiday_hours", { precision: 10, scale: 2 }).default("0"),
+  grossPay: numeric("gross_pay", { precision: 10, scale: 2 }).notNull(),
+  federalTax: numeric("federal_tax", { precision: 10, scale: 2 }).default("0"),
+  stateTax: numeric("state_tax", { precision: 10, scale: 2 }).default("0"),
+  socialSecurity: numeric("social_security", { precision: 10, scale: 2 }).default("0"),
+  medicare: numeric("medicare", { precision: 10, scale: 2 }).default("0"),
+  otherDeductions: numeric("other_deductions", { precision: 10, scale: 2 }).default("0"),
+  netPay: numeric("net_pay", { precision: 10, scale: 2 }).notNull(),
+  status: varchar("status").default("pending"), // pending, processed, paid
+  checkNumber: varchar("check_number"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Caregiver Rates - Rates section (different from base hourly wage)
+export const caregiverRates = pgTable("caregiver_rates", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  caregiverId: varchar("caregiver_id").references(() => caregivers.id).notNull(),
+  serviceType: varchar("service_type").notNull(), // personal_care, companion, respite, live_in, etc.
+  rate: numeric("rate", { precision: 10, scale: 2 }).notNull(),
+  rateType: varchar("rate_type").default("hourly"), // hourly, daily, per_visit
+  effectiveFrom: timestamp("effective_from"),
+  effectiveTo: timestamp("effective_to"),
+  clientId: varchar("client_id").references(() => clients.id), // if rate is client-specific
+  mcoId: varchar("mco_id").references(() => mcos.id), // if rate is MCO-specific
+  isActive: boolean("is_active").default(true),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Caregiver In-Service Records - In Service section
+export const caregiverInServices = pgTable("caregiver_in_services", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  caregiverId: varchar("caregiver_id").references(() => caregivers.id).notNull(),
+  trainingId: varchar("training_id").references(() => trainings.id),
+  title: varchar("title").notNull(),
+  description: text("description"),
+  trainingDate: timestamp("training_date").notNull(),
+  hours: numeric("hours", { precision: 5, scale: 2 }),
+  instructor: varchar("instructor"),
+  location: varchar("location"),
+  status: varchar("status").default("completed"), // scheduled, completed, incomplete, cancelled
+  certificateNumber: varchar("certificate_number"),
+  expirationDate: timestamp("expiration_date"),
+  documentId: varchar("document_id").references(() => documents.id), // certificate document
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Caregiver Office Moves - Office Move section
+export const caregiverOfficeMoves = pgTable("caregiver_office_moves", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  caregiverId: varchar("caregiver_id").references(() => caregivers.id).notNull(),
+  fromOfficeId: varchar("from_office_id").references(() => offices.id),
+  toOfficeId: varchar("to_office_id").references(() => offices.id).notNull(),
+  moveDate: timestamp("move_date").notNull(),
+  reason: text("reason"),
+  approvedBy: varchar("approved_by").references(() => users.id),
+  status: varchar("status").default("completed"), // pending, approved, completed, cancelled
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Caregiver Schedules - Calendar section (linking to client schedules)
+export const caregiverSchedules = pgTable("caregiver_schedules", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  caregiverId: varchar("caregiver_id").references(() => caregivers.id).notNull(),
+  clientId: varchar("client_id").references(() => clients.id),
+  scheduledDate: timestamp("scheduled_date").notNull(),
+  startTime: varchar("start_time").notNull(),
+  endTime: varchar("end_time").notNull(),
+  serviceType: varchar("service_type"),
+  status: varchar("status").default("scheduled"), // scheduled, confirmed, in_progress, completed, cancelled, no_show
+  clockInTime: timestamp("clock_in_time"),
+  clockOutTime: timestamp("clock_out_time"),
+  notes: text("notes"),
+  createdBy: varchar("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Relations for caregiver profile tables
+export const caregiverNotesRelations = relations(caregiverNotes, ({ one }) => ({
+  caregiver: one(caregivers, { fields: [caregiverNotes.caregiverId], references: [caregivers.id] }),
+  author: one(users, { fields: [caregiverNotes.authorId], references: [users.id] }),
+}));
+
+export const caregiverPreferencesRelations = relations(caregiverPreferences, ({ one }) => ({
+  caregiver: one(caregivers, { fields: [caregiverPreferences.caregiverId], references: [caregivers.id] }),
+}));
+
+export const caregiverAbsencesRelations = relations(caregiverAbsences, ({ one }) => ({
+  caregiver: one(caregivers, { fields: [caregiverAbsences.caregiverId], references: [caregivers.id] }),
+  approvedByUser: one(users, { fields: [caregiverAbsences.approvedBy], references: [users.id] }),
+}));
+
+export const caregiverAvailabilityRelations = relations(caregiverAvailability, ({ one }) => ({
+  caregiver: one(caregivers, { fields: [caregiverAvailability.caregiverId], references: [caregivers.id] }),
+}));
+
+export const caregiverPayrollInfoRelations = relations(caregiverPayrollInfo, ({ one }) => ({
+  caregiver: one(caregivers, { fields: [caregiverPayrollInfo.caregiverId], references: [caregivers.id] }),
+}));
+
+export const caregiverExpensesRelations = relations(caregiverExpenses, ({ one }) => ({
+  caregiver: one(caregivers, { fields: [caregiverExpenses.caregiverId], references: [caregivers.id] }),
+  client: one(clients, { fields: [caregiverExpenses.clientId], references: [clients.id] }),
+  receipt: one(documents, { fields: [caregiverExpenses.receiptDocumentId], references: [documents.id] }),
+  approvedByUser: one(users, { fields: [caregiverExpenses.approvedBy], references: [users.id] }),
+}));
+
+export const caregiverPaychecksRelations = relations(caregiverPaychecks, ({ one }) => ({
+  caregiver: one(caregivers, { fields: [caregiverPaychecks.caregiverId], references: [caregivers.id] }),
+  payrollRun: one(payrollRuns, { fields: [caregiverPaychecks.payrollRunId], references: [payrollRuns.id] }),
+}));
+
+export const caregiverRatesRelations = relations(caregiverRates, ({ one }) => ({
+  caregiver: one(caregivers, { fields: [caregiverRates.caregiverId], references: [caregivers.id] }),
+  client: one(clients, { fields: [caregiverRates.clientId], references: [clients.id] }),
+  mco: one(mcos, { fields: [caregiverRates.mcoId], references: [mcos.id] }),
+}));
+
+export const caregiverInServicesRelations = relations(caregiverInServices, ({ one }) => ({
+  caregiver: one(caregivers, { fields: [caregiverInServices.caregiverId], references: [caregivers.id] }),
+  training: one(trainings, { fields: [caregiverInServices.trainingId], references: [trainings.id] }),
+  document: one(documents, { fields: [caregiverInServices.documentId], references: [documents.id] }),
+}));
+
+export const caregiverOfficeMovesRelations = relations(caregiverOfficeMoves, ({ one }) => ({
+  caregiver: one(caregivers, { fields: [caregiverOfficeMoves.caregiverId], references: [caregivers.id] }),
+  fromOffice: one(offices, { fields: [caregiverOfficeMoves.fromOfficeId], references: [offices.id] }),
+  toOffice: one(offices, { fields: [caregiverOfficeMoves.toOfficeId], references: [offices.id] }),
+  approvedByUser: one(users, { fields: [caregiverOfficeMoves.approvedBy], references: [users.id] }),
+}));
+
+export const caregiverSchedulesRelations = relations(caregiverSchedules, ({ one }) => ({
+  caregiver: one(caregivers, { fields: [caregiverSchedules.caregiverId], references: [caregivers.id] }),
+  client: one(clients, { fields: [caregiverSchedules.clientId], references: [clients.id] }),
+  createdByUser: one(users, { fields: [caregiverSchedules.createdBy], references: [users.id] }),
+}));
+
+// Type exports for Caregiver Profile tables
+export type CaregiverNote = typeof caregiverNotes.$inferSelect;
+export type InsertCaregiverNote = typeof caregiverNotes.$inferInsert;
+export const insertCaregiverNoteSchema = createInsertSchema(caregiverNotes).omit({ id: true, createdAt: true, updatedAt: true });
+
+export type CaregiverPreference = typeof caregiverPreferences.$inferSelect;
+export type InsertCaregiverPreference = typeof caregiverPreferences.$inferInsert;
+export const insertCaregiverPreferenceSchema = createInsertSchema(caregiverPreferences).omit({ id: true, createdAt: true, updatedAt: true });
+
+export type CaregiverAbsence = typeof caregiverAbsences.$inferSelect;
+export type InsertCaregiverAbsence = typeof caregiverAbsences.$inferInsert;
+export const insertCaregiverAbsenceSchema = createInsertSchema(caregiverAbsences).omit({ id: true, createdAt: true, updatedAt: true });
+
+export type CaregiverAvailability = typeof caregiverAvailability.$inferSelect;
+export type InsertCaregiverAvailability = typeof caregiverAvailability.$inferInsert;
+export const insertCaregiverAvailabilitySchema = createInsertSchema(caregiverAvailability).omit({ id: true, createdAt: true, updatedAt: true });
+
+export type CaregiverPayrollInfo = typeof caregiverPayrollInfo.$inferSelect;
+export type InsertCaregiverPayrollInfo = typeof caregiverPayrollInfo.$inferInsert;
+export const insertCaregiverPayrollInfoSchema = createInsertSchema(caregiverPayrollInfo).omit({ id: true, createdAt: true, updatedAt: true });
+
+export type CaregiverExpense = typeof caregiverExpenses.$inferSelect;
+export type InsertCaregiverExpense = typeof caregiverExpenses.$inferInsert;
+export const insertCaregiverExpenseSchema = createInsertSchema(caregiverExpenses).omit({ id: true, createdAt: true, updatedAt: true });
+
+export type CaregiverPaycheck = typeof caregiverPaychecks.$inferSelect;
+export type InsertCaregiverPaycheck = typeof caregiverPaychecks.$inferInsert;
+export const insertCaregiverPaycheckSchema = createInsertSchema(caregiverPaychecks).omit({ id: true, createdAt: true, updatedAt: true });
+
+export type CaregiverRate = typeof caregiverRates.$inferSelect;
+export type InsertCaregiverRate = typeof caregiverRates.$inferInsert;
+export const insertCaregiverRateSchema = createInsertSchema(caregiverRates).omit({ id: true, createdAt: true, updatedAt: true });
+
+export type CaregiverInService = typeof caregiverInServices.$inferSelect;
+export type InsertCaregiverInService = typeof caregiverInServices.$inferInsert;
+export const insertCaregiverInServiceSchema = createInsertSchema(caregiverInServices).omit({ id: true, createdAt: true, updatedAt: true });
+
+export type CaregiverOfficeMove = typeof caregiverOfficeMoves.$inferSelect;
+export type InsertCaregiverOfficeMove = typeof caregiverOfficeMoves.$inferInsert;
+export const insertCaregiverOfficeMoveSchema = createInsertSchema(caregiverOfficeMoves).omit({ id: true, createdAt: true, updatedAt: true });
+
+export type CaregiverSchedule = typeof caregiverSchedules.$inferSelect;
+export type InsertCaregiverSchedule = typeof caregiverSchedules.$inferInsert;
+export const insertCaregiverScheduleSchema = createInsertSchema(caregiverSchedules).omit({ id: true, createdAt: true, updatedAt: true });
