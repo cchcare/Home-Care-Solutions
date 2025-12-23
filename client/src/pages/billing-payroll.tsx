@@ -37,7 +37,7 @@ const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "
 
 export default function BillingPayroll() {
   const queryClient = useQueryClient();
-  const [selectedOfficeId, setSelectedOfficeId] = useState<string>("");
+  const [selectedOfficeId, setSelectedOfficeId] = useState<string>("all");
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [showConfigDialog, setShowConfigDialog] = useState(false);
   const [payrollFrequency, setPayrollFrequency] = useState("biweekly");
@@ -49,29 +49,31 @@ export default function BillingPayroll() {
     queryKey: ["/api/offices"],
   });
 
+  const actualOfficeId = selectedOfficeId === "all" ? "" : selectedOfficeId;
+
   const { data: billingRecords = [] } = useQuery<BillingRecord[]>({
-    queryKey: ["/api/billing", selectedOfficeId],
-    queryFn: () => fetch(`/api/billing${selectedOfficeId ? `?officeId=${selectedOfficeId}` : ""}`).then(r => r.json()),
+    queryKey: ["/api/billing", actualOfficeId],
+    queryFn: () => fetch(`/api/billing${actualOfficeId ? `?officeId=${actualOfficeId}` : ""}`).then(r => r.json()),
   });
 
   const { data: payrollRuns = [] } = useQuery<PayrollRun[]>({
-    queryKey: ["/api/payroll", selectedOfficeId],
-    queryFn: () => fetch(`/api/payroll${selectedOfficeId ? `?officeId=${selectedOfficeId}` : ""}`).then(r => r.json()),
+    queryKey: ["/api/payroll", actualOfficeId],
+    queryFn: () => fetch(`/api/payroll${actualOfficeId ? `?officeId=${actualOfficeId}` : ""}`).then(r => r.json()),
   });
 
   const { data: payrollConfig } = useQuery<OfficePayrollConfig | null>({
-    queryKey: ["/api/offices", selectedOfficeId, "payroll-config"],
-    queryFn: () => selectedOfficeId ? fetch(`/api/offices/${selectedOfficeId}/payroll-config`).then(r => r.json()) : null,
-    enabled: !!selectedOfficeId,
+    queryKey: ["/api/offices", actualOfficeId, "payroll-config"],
+    queryFn: () => actualOfficeId ? fetch(`/api/offices/${actualOfficeId}/payroll-config`).then(r => r.json()) : null,
+    enabled: !!actualOfficeId,
   });
 
   const saveConfigMutation = useMutation({
     mutationFn: async (data: any) => {
-      const response = await apiRequest("POST", `/api/offices/${selectedOfficeId}/payroll-config`, data);
+      const response = await apiRequest("POST", `/api/offices/${actualOfficeId}/payroll-config`, data);
       return response.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/offices", selectedOfficeId, "payroll-config"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/offices", actualOfficeId, "payroll-config"] });
       setShowConfigDialog(false);
     },
   });
@@ -150,7 +152,7 @@ export default function BillingPayroll() {
                       <SelectValue placeholder="All Offices" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">All Offices</SelectItem>
+                      <SelectItem value="all">All Offices</SelectItem>
                       {offices.map(office => (
                         <SelectItem key={office.id} value={office.id}>
                           {office.name}
