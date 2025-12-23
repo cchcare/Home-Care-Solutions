@@ -61,7 +61,6 @@ export function Sidebar() {
       { name: "Dashboard", href: "/", icon: LayoutDashboard },
       { name: "Client Management", href: "/clients", icon: Users },
       { name: "Caregiver Management", href: "/caregivers", icon: UserCheck },
-      { name: "Office Management", href: "/offices", icon: Building2 },
       { name: "Training & Resources", href: "/training", icon: GraduationCap },
       { name: "Incident Reports", href: "/incidents", icon: AlertTriangle },
       { name: "Compliance", href: "/compliance", icon: Shield },
@@ -80,6 +79,8 @@ export function Sidebar() {
           { name: "User Management", href: "/user-management", icon: UserCog },
           { name: "Super Admin", href: "/super-admin", icon: ShieldCheck },
           { name: "Role & Access Control", href: "/role-wizard", icon: Key },
+          { name: "Office Management", href: "/offices", icon: Building2 },
+          { name: "MCO Setup", href: "/admin-settings", icon: Settings },
         ]
       });
     }
