@@ -83,6 +83,9 @@ export const clients = pgTable("clients", {
   officeId: varchar("office_id").references(() => offices.id),
   mcoId: varchar("mco_id"),
   status: varchar("status").default("active"),
+  serviceStartDate: timestamp("service_start_date"),
+  coordinatorId: varchar("coordinator_id").references(() => users.id),
+  memberId: varchar("member_id"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -1003,6 +1006,72 @@ export const entityFieldConfigs = pgTable("entity_field_configs", {
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
+
+// Client Communications - Messages between office and client
+export const clientCommunications = pgTable("client_communications", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  clientId: varchar("client_id").references(() => clients.id).notNull(),
+  officeId: varchar("office_id").references(() => offices.id),
+  authorUserId: varchar("author_user_id").references(() => users.id),
+  message: text("message").notNull(),
+  communicationType: varchar("communication_type").default("note"), // note, call, email, visit
+  isRead: boolean("is_read").default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const clientCommunicationsRelations = relations(clientCommunications, ({ one }) => ({
+  client: one(clients, {
+    fields: [clientCommunications.clientId],
+    references: [clients.id],
+  }),
+  office: one(offices, {
+    fields: [clientCommunications.officeId],
+    references: [offices.id],
+  }),
+  author: one(users, {
+    fields: [clientCommunications.authorUserId],
+    references: [users.id],
+  }),
+}));
+
+// Office MCO Billing Rates - Rates set by MCO at office level
+export const officeMcoBillingRates = pgTable("office_mco_billing_rates", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  officeId: varchar("office_id").references(() => offices.id).notNull(),
+  mcoId: varchar("mco_id").references(() => mcos.id).notNull(),
+  serviceCode: varchar("service_code").notNull(),
+  serviceName: varchar("service_name"),
+  rate: numeric("rate", { precision: 10, scale: 2 }).notNull(),
+  rateType: varchar("rate_type").default("hourly"), // hourly, per_visit, daily
+  effectiveFrom: timestamp("effective_from"),
+  effectiveTo: timestamp("effective_to"),
+  isActive: boolean("is_active").default(true),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const officeMcoBillingRatesRelations = relations(officeMcoBillingRates, ({ one }) => ({
+  office: one(offices, {
+    fields: [officeMcoBillingRates.officeId],
+    references: [offices.id],
+  }),
+  mco: one(mcos, {
+    fields: [officeMcoBillingRates.mcoId],
+    references: [mcos.id],
+  }),
+}));
+
+// Type exports for Client Communications
+export type ClientCommunication = typeof clientCommunications.$inferSelect;
+export type InsertClientCommunication = typeof clientCommunications.$inferInsert;
+export const insertClientCommunicationSchema = createInsertSchema(clientCommunications).omit({ id: true, createdAt: true, updatedAt: true });
+
+// Type exports for Office MCO Billing Rates
+export type OfficeMcoBillingRate = typeof officeMcoBillingRates.$inferSelect;
+export type InsertOfficeMcoBillingRate = typeof officeMcoBillingRates.$inferInsert;
+export const insertOfficeMcoBillingRateSchema = createInsertSchema(officeMcoBillingRates).omit({ id: true, createdAt: true, updatedAt: true });
 
 // Type exports for MCO Types
 export type McoType = typeof mcoTypes.$inferSelect;
