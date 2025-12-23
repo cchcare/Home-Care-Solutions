@@ -24,7 +24,8 @@ import {
   ChevronRight,
   ShieldCheck,
   UserCog,
-  Key
+  Key,
+  DollarSign
 } from "lucide-react";
 
 interface NavItem {
@@ -68,6 +69,7 @@ export function Sidebar() {
       { name: "Tasks & Workflows", href: "/tasks", icon: ClipboardList },
       { name: "Forms & Documents", href: "/documents", icon: FileText },
       { name: "Analytics & Reports", href: "/reports", icon: BarChart3 },
+      { name: "Billing & Payroll", href: "/billing-payroll", icon: DollarSign },
     ];
 
     if ((user as any)?.role === "admin" || (user as any)?.role === "supervisor" || (user as any)?.role === "super_admin") {
@@ -198,21 +200,21 @@ export function Sidebar() {
                           const isActive = isActiveRoute(child.href);
                           
                           return (
-                            <Link key={child.name} href={child.href || "#"}>
-                              <a
-                                className={`
-                                  flex items-center space-x-3 p-2.5 pl-4 rounded-lg text-sm font-medium transition-colors
-                                  ${isActive 
-                                    ? 'bg-sidebar-primary text-sidebar-primary-foreground' 
-                                    : 'text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground'
-                                  }
-                                `}
-                                onClick={() => isMobile && setIsOpen(false)}
-                                data-testid={`nav-link-${child.name.toLowerCase().replace(/\s+/g, '-')}`}
-                              >
-                                <ChildIcon className="w-4 h-4" />
-                                <span>{child.name}</span>
-                              </a>
+                            <Link 
+                              key={child.name} 
+                              href={child.href || "#"}
+                              className={`
+                                flex items-center space-x-3 p-2.5 pl-4 rounded-lg text-sm font-medium transition-colors
+                                ${isActive 
+                                  ? 'bg-sidebar-primary text-sidebar-primary-foreground' 
+                                  : 'text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground'
+                                }
+                              `}
+                              onClick={() => isMobile && setIsOpen(false)}
+                              data-testid={`nav-link-${child.name.toLowerCase().replace(/\s+/g, '-')}`}
+                            >
+                              <ChildIcon className="w-4 h-4" />
+                              <span>{child.name}</span>
                             </Link>
                           );
                         })}
@@ -225,21 +227,21 @@ export function Sidebar() {
               const isActive = isActiveRoute(item.href);
               
               return (
-                <Link key={item.name} href={item.href || "#"}>
-                  <a
-                    className={`
-                      flex items-center space-x-3 p-3 rounded-lg font-medium transition-colors
-                      ${isActive 
-                        ? 'bg-sidebar-primary text-sidebar-primary-foreground' 
-                        : 'text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground'
-                      }
-                    `}
-                    onClick={() => isMobile && setIsOpen(false)}
-                    data-testid={`nav-link-${item.name.toLowerCase().replace(/\s+/g, '-')}`}
-                  >
-                    <Icon className="w-5 h-5" />
-                    <span>{item.name}</span>
-                  </a>
+                <Link 
+                  key={item.name} 
+                  href={item.href || "#"}
+                  className={`
+                    flex items-center space-x-3 p-3 rounded-lg font-medium transition-colors
+                    ${isActive 
+                      ? 'bg-sidebar-primary text-sidebar-primary-foreground' 
+                      : 'text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground'
+                    }
+                  `}
+                  onClick={() => isMobile && setIsOpen(false)}
+                  data-testid={`nav-link-${item.name.toLowerCase().replace(/\s+/g, '-')}`}
+                >
+                  <Icon className="w-5 h-5" />
+                  <span>{item.name}</span>
                 </Link>
               );
             })}

@@ -1092,3 +1092,208 @@ export const insertSystemSettingSchema = createInsertSchema(systemSettings).omit
 export type EntityFieldConfig = typeof entityFieldConfigs.$inferSelect;
 export type InsertEntityFieldConfig = typeof entityFieldConfigs.$inferInsert;
 export const insertEntityFieldConfigSchema = createInsertSchema(entityFieldConfigs).omit({ id: true, createdAt: true, updatedAt: true });
+
+// ==================== BILLING & PAYROLL TABLES ====================
+
+// Payroll frequency enum
+export const payrollFrequencyEnum = pgEnum("payroll_frequency", ["weekly", "biweekly", "semi_monthly", "monthly"]);
+export const payrollStatusEnum = pgEnum("payroll_status", ["draft", "approved", "paid", "cancelled"]);
+export const billingStatusEnum = pgEnum("billing_status", ["pending", "invoiced", "paid", "overdue", "cancelled"]);
+
+// Office Payroll Configuration - Admin sets payroll dates per office
+export const officePayrollConfigs = pgTable("office_payroll_configs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  officeId: varchar("office_id").references(() => offices.id).notNull().unique(),
+  payrollFrequency: payrollFrequencyEnum("payroll_frequency").default("biweekly"),
+  defaultPaycheckDay: integer("default_paycheck_day"), // Day of month (1-31) or day of week (0-6)
+  customPayrollDates: jsonb("custom_payroll_dates"), // Array of specific dates for the year
+  companyName: varchar("company_name"),
+  companyLogo: varchar("company_logo"), // URL to logo
+  lastGeneratedAt: timestamp("last_generated_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const officePayrollConfigsRelations = relations(officePayrollConfigs, ({ one }) => ({
+  office: one(offices, {
+    fields: [officePayrollConfigs.officeId],
+    references: [offices.id],
+  }),
+}));
+
+// Payroll Runs - Each payroll cycle
+export const payrollRuns = pgTable("payroll_runs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  officeId: varchar("office_id").references(() => offices.id).notNull(),
+  payPeriodStart: timestamp("pay_period_start").notNull(),
+  payPeriodEnd: timestamp("pay_period_end").notNull(),
+  paycheckDate: timestamp("paycheck_date").notNull(),
+  status: payrollStatusEnum("status").default("draft"),
+  totalGross: numeric("total_gross", { precision: 12, scale: 2 }).default("0"),
+  totalDeductions: numeric("total_deductions", { precision: 12, scale: 2 }).default("0"),
+  totalNet: numeric("total_net", { precision: 12, scale: 2 }).default("0"),
+  employeeCount: integer("employee_count").default(0),
+  notes: text("notes"),
+  approvedBy: varchar("approved_by").references(() => users.id),
+  approvedAt: timestamp("approved_at"),
+  createdBy: varchar("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const payrollRunsRelations = relations(payrollRuns, ({ one, many }) => ({
+  office: one(offices, {
+    fields: [payrollRuns.officeId],
+    references: [offices.id],
+  }),
+  approvedByUser: one(users, {
+    fields: [payrollRuns.approvedBy],
+    references: [users.id],
+  }),
+  lineItems: many(payrollLineItems),
+}));
+
+// Payroll Line Items - Individual caregiver payments
+export const payrollLineItems = pgTable("payroll_line_items", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  payrollRunId: varchar("payroll_run_id").references(() => payrollRuns.id).notNull(),
+  caregiverId: varchar("caregiver_id").references(() => caregivers.id).notNull(),
+  hoursWorked: numeric("hours_worked", { precision: 8, scale: 2 }).default("0"),
+  hourlyRate: numeric("hourly_rate", { precision: 8, scale: 2 }),
+  grossPay: numeric("gross_pay", { precision: 10, scale: 2 }).default("0"),
+  deductions: jsonb("deductions"), // {tax: X, insurance: Y, etc}
+  netPay: numeric("net_pay", { precision: 10, scale: 2 }).default("0"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const payrollLineItemsRelations = relations(payrollLineItems, ({ one }) => ({
+  payrollRun: one(payrollRuns, {
+    fields: [payrollLineItems.payrollRunId],
+    references: [payrollRuns.id],
+  }),
+  caregiver: one(caregivers, {
+    fields: [payrollLineItems.caregiverId],
+    references: [caregivers.id],
+  }),
+}));
+
+// Billing Records - Track invoices and payments
+export const billingRecords = pgTable("billing_records", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  officeId: varchar("office_id").references(() => offices.id).notNull(),
+  clientId: varchar("client_id").references(() => clients.id).notNull(),
+  caregiverId: varchar("caregiver_id").references(() => caregivers.id),
+  mcoId: varchar("mco_id").references(() => mcos.id),
+  invoiceNumber: varchar("invoice_number"),
+  servicePeriodStart: timestamp("service_period_start").notNull(),
+  servicePeriodEnd: timestamp("service_period_end").notNull(),
+  serviceCode: varchar("service_code"),
+  hoursOrUnits: numeric("hours_or_units", { precision: 8, scale: 2 }),
+  rate: numeric("rate", { precision: 10, scale: 2 }),
+  amount: numeric("amount", { precision: 12, scale: 2 }).notNull(),
+  status: billingStatusEnum("status").default("pending"),
+  invoicedAt: timestamp("invoiced_at"),
+  paidAt: timestamp("paid_at"),
+  dueDate: timestamp("due_date"),
+  notes: text("notes"),
+  createdBy: varchar("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const billingRecordsRelations = relations(billingRecords, ({ one }) => ({
+  office: one(offices, {
+    fields: [billingRecords.officeId],
+    references: [offices.id],
+  }),
+  client: one(clients, {
+    fields: [billingRecords.clientId],
+    references: [clients.id],
+  }),
+  caregiver: one(caregivers, {
+    fields: [billingRecords.caregiverId],
+    references: [caregivers.id],
+  }),
+  mco: one(mcos, {
+    fields: [billingRecords.mcoId],
+    references: [mcos.id],
+  }),
+}));
+
+// ==================== PA SURVEY CHECKLIST TABLES ====================
+
+// PA Survey Checklist Items - Master template of required items
+export const paSurveyChecklistItems = pgTable("pa_survey_checklist_items", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  section: varchar("section").notNull(), // e.g., "Personnel", "Client Care", "Documentation"
+  title: varchar("title").notNull(),
+  description: text("description"),
+  regulationRef: varchar("regulation_ref"), // PA regulation reference number
+  sortOrder: integer("sort_order").default(0),
+  isRequired: boolean("is_required").default(true),
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// PA Survey status enum
+export const paSurveyStatusEnum = pgEnum("pa_survey_status", ["not_started", "in_progress", "complete", "not_applicable"]);
+
+// Office PA Survey Statuses - Per-office tracking of checklist completion
+export const officePaSurveyStatuses = pgTable("office_pa_survey_statuses", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  officeId: varchar("office_id").references(() => offices.id).notNull(),
+  checklistItemId: varchar("checklist_item_id").references(() => paSurveyChecklistItems.id).notNull(),
+  status: paSurveyStatusEnum("status").default("not_started"),
+  assignedTo: varchar("assigned_to").references(() => users.id),
+  dueDate: timestamp("due_date"),
+  completedAt: timestamp("completed_at"),
+  completedBy: varchar("completed_by").references(() => users.id),
+  notes: text("notes"),
+  documentIds: jsonb("document_ids"), // Array of related document IDs
+  updatedBy: varchar("updated_by").references(() => users.id),
+  updatedAt: timestamp("updated_at").defaultNow(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const officePaSurveyStatusesRelations = relations(officePaSurveyStatuses, ({ one }) => ({
+  office: one(offices, {
+    fields: [officePaSurveyStatuses.officeId],
+    references: [offices.id],
+  }),
+  checklistItem: one(paSurveyChecklistItems, {
+    fields: [officePaSurveyStatuses.checklistItemId],
+    references: [paSurveyChecklistItems.id],
+  }),
+  assignedToUser: one(users, {
+    fields: [officePaSurveyStatuses.assignedTo],
+    references: [users.id],
+  }),
+}));
+
+// Type exports for Payroll
+export type OfficePayrollConfig = typeof officePayrollConfigs.$inferSelect;
+export type InsertOfficePayrollConfig = typeof officePayrollConfigs.$inferInsert;
+export const insertOfficePayrollConfigSchema = createInsertSchema(officePayrollConfigs).omit({ id: true, createdAt: true, updatedAt: true });
+
+export type PayrollRun = typeof payrollRuns.$inferSelect;
+export type InsertPayrollRun = typeof payrollRuns.$inferInsert;
+export const insertPayrollRunSchema = createInsertSchema(payrollRuns).omit({ id: true, createdAt: true, updatedAt: true });
+
+export type PayrollLineItem = typeof payrollLineItems.$inferSelect;
+export type InsertPayrollLineItem = typeof payrollLineItems.$inferInsert;
+export const insertPayrollLineItemSchema = createInsertSchema(payrollLineItems).omit({ id: true, createdAt: true });
+
+export type BillingRecord = typeof billingRecords.$inferSelect;
+export type InsertBillingRecord = typeof billingRecords.$inferInsert;
+export const insertBillingRecordSchema = createInsertSchema(billingRecords).omit({ id: true, createdAt: true, updatedAt: true });
+
+// Type exports for PA Survey
+export type PaSurveyChecklistItem = typeof paSurveyChecklistItems.$inferSelect;
+export type InsertPaSurveyChecklistItem = typeof paSurveyChecklistItems.$inferInsert;
+export const insertPaSurveyChecklistItemSchema = createInsertSchema(paSurveyChecklistItems).omit({ id: true, createdAt: true, updatedAt: true });
+
+export type OfficePaSurveyStatus = typeof officePaSurveyStatuses.$inferSelect;
+export type InsertOfficePaSurveyStatus = typeof officePaSurveyStatuses.$inferInsert;
+export const insertOfficePaSurveyStatusSchema = createInsertSchema(officePaSurveyStatuses).omit({ id: true, createdAt: true, updatedAt: true });

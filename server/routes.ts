@@ -3076,6 +3076,277 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ==================== BILLING ROUTES ====================
+  app.get("/api/billing", isAuthenticated, async (req, res) => {
+    try {
+      const officeId = req.query.officeId as string | undefined;
+      const records = await storage.getBillingRecords(officeId);
+      res.json(records);
+    } catch (error) {
+      console.error("Error fetching billing records:", error);
+      res.status(500).json({ message: "Failed to fetch billing records" });
+    }
+  });
+
+  app.get("/api/billing/:id", isAuthenticated, async (req, res) => {
+    try {
+      const record = await storage.getBillingRecord(req.params.id);
+      if (!record) {
+        return res.status(404).json({ message: "Billing record not found" });
+      }
+      res.json(record);
+    } catch (error) {
+      console.error("Error fetching billing record:", error);
+      res.status(500).json({ message: "Failed to fetch billing record" });
+    }
+  });
+
+  app.post("/api/billing", isAuthenticated, async (req: any, res) => {
+    try {
+      const record = await storage.createBillingRecord({
+        ...req.body,
+        createdBy: req.user.claims.sub,
+      });
+      res.status(201).json(record);
+    } catch (error) {
+      console.error("Error creating billing record:", error);
+      res.status(400).json({ message: "Failed to create billing record" });
+    }
+  });
+
+  app.put("/api/billing/:id", isAuthenticated, async (req, res) => {
+    try {
+      const record = await storage.updateBillingRecord(req.params.id, req.body);
+      res.json(record);
+    } catch (error) {
+      console.error("Error updating billing record:", error);
+      res.status(400).json({ message: "Failed to update billing record" });
+    }
+  });
+
+  app.delete("/api/billing/:id", isAuthenticated, async (req, res) => {
+    try {
+      await storage.deleteBillingRecord(req.params.id);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting billing record:", error);
+      res.status(500).json({ message: "Failed to delete billing record" });
+    }
+  });
+
+  // ==================== PAYROLL CONFIG ROUTES ====================
+  app.get("/api/offices/:officeId/payroll-config", isAuthenticated, async (req, res) => {
+    try {
+      const config = await storage.getOfficePayrollConfig(req.params.officeId);
+      res.json(config || null);
+    } catch (error) {
+      console.error("Error fetching payroll config:", error);
+      res.status(500).json({ message: "Failed to fetch payroll configuration" });
+    }
+  });
+
+  app.post("/api/offices/:officeId/payroll-config", isAuthenticated, async (req, res) => {
+    try {
+      const config = await storage.upsertOfficePayrollConfig({
+        ...req.body,
+        officeId: req.params.officeId,
+      });
+      res.json(config);
+    } catch (error) {
+      console.error("Error saving payroll config:", error);
+      res.status(400).json({ message: "Failed to save payroll configuration" });
+    }
+  });
+
+  // ==================== PAYROLL RUNS ROUTES ====================
+  app.get("/api/payroll", isAuthenticated, async (req, res) => {
+    try {
+      const officeId = req.query.officeId as string | undefined;
+      const runs = await storage.getPayrollRuns(officeId);
+      res.json(runs);
+    } catch (error) {
+      console.error("Error fetching payroll runs:", error);
+      res.status(500).json({ message: "Failed to fetch payroll runs" });
+    }
+  });
+
+  app.get("/api/payroll/:id", isAuthenticated, async (req, res) => {
+    try {
+      const run = await storage.getPayrollRun(req.params.id);
+      if (!run) {
+        return res.status(404).json({ message: "Payroll run not found" });
+      }
+      const lineItems = await storage.getPayrollLineItems(req.params.id);
+      res.json({ ...run, lineItems });
+    } catch (error) {
+      console.error("Error fetching payroll run:", error);
+      res.status(500).json({ message: "Failed to fetch payroll run" });
+    }
+  });
+
+  app.post("/api/payroll", isAuthenticated, async (req: any, res) => {
+    try {
+      const run = await storage.createPayrollRun({
+        ...req.body,
+        createdBy: req.user.claims.sub,
+      });
+      res.status(201).json(run);
+    } catch (error) {
+      console.error("Error creating payroll run:", error);
+      res.status(400).json({ message: "Failed to create payroll run" });
+    }
+  });
+
+  app.put("/api/payroll/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const updateData = { ...req.body };
+      if (req.body.status === "approved") {
+        updateData.approvedBy = req.user.claims.sub;
+        updateData.approvedAt = new Date();
+      }
+      const run = await storage.updatePayrollRun(req.params.id, updateData);
+      res.json(run);
+    } catch (error) {
+      console.error("Error updating payroll run:", error);
+      res.status(400).json({ message: "Failed to update payroll run" });
+    }
+  });
+
+  app.delete("/api/payroll/:id", isAuthenticated, async (req, res) => {
+    try {
+      await storage.deletePayrollRun(req.params.id);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting payroll run:", error);
+      res.status(500).json({ message: "Failed to delete payroll run" });
+    }
+  });
+
+  // Payroll line items
+  app.post("/api/payroll/:runId/line-items", isAuthenticated, async (req, res) => {
+    try {
+      const item = await storage.createPayrollLineItem({
+        ...req.body,
+        payrollRunId: req.params.runId,
+      });
+      res.status(201).json(item);
+    } catch (error) {
+      console.error("Error creating payroll line item:", error);
+      res.status(400).json({ message: "Failed to create line item" });
+    }
+  });
+
+  app.put("/api/payroll-line-items/:id", isAuthenticated, async (req, res) => {
+    try {
+      const item = await storage.updatePayrollLineItem(req.params.id, req.body);
+      res.json(item);
+    } catch (error) {
+      console.error("Error updating payroll line item:", error);
+      res.status(400).json({ message: "Failed to update line item" });
+    }
+  });
+
+  app.delete("/api/payroll-line-items/:id", isAuthenticated, async (req, res) => {
+    try {
+      await storage.deletePayrollLineItem(req.params.id);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting payroll line item:", error);
+      res.status(500).json({ message: "Failed to delete line item" });
+    }
+  });
+
+  // ==================== PA SURVEY CHECKLIST ROUTES ====================
+  app.get("/api/pa-survey/checklist", isAuthenticated, async (req, res) => {
+    try {
+      await storage.seedDefaultPaSurveyChecklistItems();
+      const items = await storage.getPaSurveyChecklistItems();
+      res.json(items);
+    } catch (error) {
+      console.error("Error fetching PA survey checklist:", error);
+      res.status(500).json({ message: "Failed to fetch checklist items" });
+    }
+  });
+
+  app.post("/api/pa-survey/checklist", isAuthenticated, async (req, res) => {
+    try {
+      const item = await storage.createPaSurveyChecklistItem(req.body);
+      res.status(201).json(item);
+    } catch (error) {
+      console.error("Error creating PA survey checklist item:", error);
+      res.status(400).json({ message: "Failed to create checklist item" });
+    }
+  });
+
+  app.put("/api/pa-survey/checklist/:id", isAuthenticated, async (req, res) => {
+    try {
+      const item = await storage.updatePaSurveyChecklistItem(req.params.id, req.body);
+      res.json(item);
+    } catch (error) {
+      console.error("Error updating PA survey checklist item:", error);
+      res.status(400).json({ message: "Failed to update checklist item" });
+    }
+  });
+
+  app.delete("/api/pa-survey/checklist/:id", isAuthenticated, async (req, res) => {
+    try {
+      await storage.deletePaSurveyChecklistItem(req.params.id);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting PA survey checklist item:", error);
+      res.status(500).json({ message: "Failed to delete checklist item" });
+    }
+  });
+
+  // Office PA Survey Status routes
+  app.get("/api/offices/:officeId/pa-survey", isAuthenticated, async (req, res) => {
+    try {
+      await storage.seedDefaultPaSurveyChecklistItems();
+      const statuses = await storage.initializeOfficePaSurveyStatuses(req.params.officeId);
+      const items = await storage.getPaSurveyChecklistItems();
+      
+      const result = items.map(item => {
+        const status = statuses.find(s => s.checklistItemId === item.id);
+        return {
+          ...item,
+          status: status?.status || 'not_started',
+          statusId: status?.id,
+          assignedTo: status?.assignedTo,
+          dueDate: status?.dueDate,
+          completedAt: status?.completedAt,
+          notes: status?.notes,
+        };
+      });
+      
+      res.json(result);
+    } catch (error) {
+      console.error("Error fetching office PA survey status:", error);
+      res.status(500).json({ message: "Failed to fetch survey status" });
+    }
+  });
+
+  app.put("/api/offices/:officeId/pa-survey/:checklistItemId", isAuthenticated, async (req: any, res) => {
+    try {
+      const updateData: any = {
+        officeId: req.params.officeId,
+        checklistItemId: req.params.checklistItemId,
+        ...req.body,
+        updatedBy: req.user.claims.sub,
+      };
+      
+      if (req.body.status === 'complete') {
+        updateData.completedAt = new Date();
+        updateData.completedBy = req.user.claims.sub;
+      }
+      
+      const status = await storage.upsertOfficePaSurveyStatus(updateData);
+      res.json(status);
+    } catch (error) {
+      console.error("Error updating office PA survey status:", error);
+      res.status(400).json({ message: "Failed to update survey status" });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }

@@ -107,6 +107,24 @@ import {
   officeMcoBillingRates,
   type OfficeMcoBillingRate,
   type InsertOfficeMcoBillingRate,
+  billingRecords,
+  type BillingRecord,
+  type InsertBillingRecord,
+  officePayrollConfigs,
+  type OfficePayrollConfig,
+  type InsertOfficePayrollConfig,
+  payrollRuns,
+  type PayrollRun,
+  type InsertPayrollRun,
+  payrollLineItems,
+  type PayrollLineItem,
+  type InsertPayrollLineItem,
+  paSurveyChecklistItems,
+  type PaSurveyChecklistItem,
+  type InsertPaSurveyChecklistItem,
+  officePaSurveyStatuses,
+  type OfficePaSurveyStatus,
+  type InsertOfficePaSurveyStatus,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, asc, and, or, count, sql, like, gte, lte } from "drizzle-orm";
@@ -1890,6 +1908,195 @@ export class DatabaseStorage implements IStorage {
     }
 
     return newSchedules;
+  }
+
+  // ==================== BILLING RECORDS ====================
+  async getBillingRecords(officeId?: string): Promise<BillingRecord[]> {
+    if (officeId) {
+      return await db.select().from(billingRecords).where(eq(billingRecords.officeId, officeId)).orderBy(desc(billingRecords.createdAt));
+    }
+    return await db.select().from(billingRecords).orderBy(desc(billingRecords.createdAt));
+  }
+
+  async getBillingRecord(id: string): Promise<BillingRecord | undefined> {
+    const [record] = await db.select().from(billingRecords).where(eq(billingRecords.id, id));
+    return record;
+  }
+
+  async createBillingRecord(data: InsertBillingRecord): Promise<BillingRecord> {
+    const [record] = await db.insert(billingRecords).values(data).returning();
+    return record;
+  }
+
+  async updateBillingRecord(id: string, data: Partial<InsertBillingRecord>): Promise<BillingRecord> {
+    const [record] = await db.update(billingRecords).set({ ...data, updatedAt: new Date() }).where(eq(billingRecords.id, id)).returning();
+    return record;
+  }
+
+  async deleteBillingRecord(id: string): Promise<void> {
+    await db.delete(billingRecords).where(eq(billingRecords.id, id));
+  }
+
+  // ==================== PAYROLL CONFIGURATION ====================
+  async getOfficePayrollConfig(officeId: string): Promise<OfficePayrollConfig | undefined> {
+    const [config] = await db.select().from(officePayrollConfigs).where(eq(officePayrollConfigs.officeId, officeId));
+    return config;
+  }
+
+  async getAllOfficePayrollConfigs(): Promise<OfficePayrollConfig[]> {
+    return await db.select().from(officePayrollConfigs);
+  }
+
+  async upsertOfficePayrollConfig(data: InsertOfficePayrollConfig): Promise<OfficePayrollConfig> {
+    const existing = await this.getOfficePayrollConfig(data.officeId);
+    if (existing) {
+      const [config] = await db.update(officePayrollConfigs).set({ ...data, updatedAt: new Date() }).where(eq(officePayrollConfigs.officeId, data.officeId)).returning();
+      return config;
+    }
+    const [config] = await db.insert(officePayrollConfigs).values(data).returning();
+    return config;
+  }
+
+  // ==================== PAYROLL RUNS ====================
+  async getPayrollRuns(officeId?: string): Promise<PayrollRun[]> {
+    if (officeId) {
+      return await db.select().from(payrollRuns).where(eq(payrollRuns.officeId, officeId)).orderBy(desc(payrollRuns.paycheckDate));
+    }
+    return await db.select().from(payrollRuns).orderBy(desc(payrollRuns.paycheckDate));
+  }
+
+  async getPayrollRun(id: string): Promise<PayrollRun | undefined> {
+    const [run] = await db.select().from(payrollRuns).where(eq(payrollRuns.id, id));
+    return run;
+  }
+
+  async createPayrollRun(data: InsertPayrollRun): Promise<PayrollRun> {
+    const [run] = await db.insert(payrollRuns).values(data).returning();
+    return run;
+  }
+
+  async updatePayrollRun(id: string, data: Partial<InsertPayrollRun>): Promise<PayrollRun> {
+    const [run] = await db.update(payrollRuns).set({ ...data, updatedAt: new Date() }).where(eq(payrollRuns.id, id)).returning();
+    return run;
+  }
+
+  async deletePayrollRun(id: string): Promise<void> {
+    await db.delete(payrollLineItems).where(eq(payrollLineItems.payrollRunId, id));
+    await db.delete(payrollRuns).where(eq(payrollRuns.id, id));
+  }
+
+  // ==================== PAYROLL LINE ITEMS ====================
+  async getPayrollLineItems(payrollRunId: string): Promise<PayrollLineItem[]> {
+    return await db.select().from(payrollLineItems).where(eq(payrollLineItems.payrollRunId, payrollRunId));
+  }
+
+  async createPayrollLineItem(data: InsertPayrollLineItem): Promise<PayrollLineItem> {
+    const [item] = await db.insert(payrollLineItems).values(data).returning();
+    return item;
+  }
+
+  async updatePayrollLineItem(id: string, data: Partial<InsertPayrollLineItem>): Promise<PayrollLineItem> {
+    const [item] = await db.update(payrollLineItems).set(data).where(eq(payrollLineItems.id, id)).returning();
+    return item;
+  }
+
+  async deletePayrollLineItem(id: string): Promise<void> {
+    await db.delete(payrollLineItems).where(eq(payrollLineItems.id, id));
+  }
+
+  // ==================== PA SURVEY CHECKLIST ====================
+  async getPaSurveyChecklistItems(): Promise<PaSurveyChecklistItem[]> {
+    return await db.select().from(paSurveyChecklistItems).where(eq(paSurveyChecklistItems.isActive, true)).orderBy(paSurveyChecklistItems.section, paSurveyChecklistItems.sortOrder);
+  }
+
+  async createPaSurveyChecklistItem(data: InsertPaSurveyChecklistItem): Promise<PaSurveyChecklistItem> {
+    const [item] = await db.insert(paSurveyChecklistItems).values(data).returning();
+    return item;
+  }
+
+  async updatePaSurveyChecklistItem(id: string, data: Partial<InsertPaSurveyChecklistItem>): Promise<PaSurveyChecklistItem> {
+    const [item] = await db.update(paSurveyChecklistItems).set({ ...data, updatedAt: new Date() }).where(eq(paSurveyChecklistItems.id, id)).returning();
+    return item;
+  }
+
+  async deletePaSurveyChecklistItem(id: string): Promise<void> {
+    await db.delete(officePaSurveyStatuses).where(eq(officePaSurveyStatuses.checklistItemId, id));
+    await db.delete(paSurveyChecklistItems).where(eq(paSurveyChecklistItems.id, id));
+  }
+
+  // ==================== OFFICE PA SURVEY STATUSES ====================
+  async getOfficePaSurveyStatuses(officeId: string): Promise<OfficePaSurveyStatus[]> {
+    return await db.select().from(officePaSurveyStatuses).where(eq(officePaSurveyStatuses.officeId, officeId));
+  }
+
+  async upsertOfficePaSurveyStatus(data: InsertOfficePaSurveyStatus): Promise<OfficePaSurveyStatus> {
+    const [existing] = await db.select().from(officePaSurveyStatuses)
+      .where(and(
+        eq(officePaSurveyStatuses.officeId, data.officeId),
+        eq(officePaSurveyStatuses.checklistItemId, data.checklistItemId)
+      ));
+    
+    if (existing) {
+      const [status] = await db.update(officePaSurveyStatuses)
+        .set({ ...data, updatedAt: new Date() })
+        .where(eq(officePaSurveyStatuses.id, existing.id))
+        .returning();
+      return status;
+    }
+    const [status] = await db.insert(officePaSurveyStatuses).values(data).returning();
+    return status;
+  }
+
+  async initializeOfficePaSurveyStatuses(officeId: string): Promise<OfficePaSurveyStatus[]> {
+    const checklistItems = await this.getPaSurveyChecklistItems();
+    const existingStatuses = await this.getOfficePaSurveyStatuses(officeId);
+    const existingItemIds = new Set(existingStatuses.map(s => s.checklistItemId));
+    
+    const newStatuses: OfficePaSurveyStatus[] = [];
+    for (const item of checklistItems) {
+      if (!existingItemIds.has(item.id)) {
+        const status = await this.upsertOfficePaSurveyStatus({
+          officeId,
+          checklistItemId: item.id,
+          status: 'not_started',
+        });
+        newStatuses.push(status);
+      }
+    }
+    
+    return [...existingStatuses, ...newStatuses];
+  }
+
+  async seedDefaultPaSurveyChecklistItems(): Promise<void> {
+    const existingItems = await this.getPaSurveyChecklistItems();
+    if (existingItems.length > 0) return;
+
+    const defaultItems = [
+      { section: "Personnel Records", title: "Criminal Background Checks", description: "All staff must have current FBI and PA State Police clearances on file", regulationRef: "28 Pa. Code § 611.52", sortOrder: 1 },
+      { section: "Personnel Records", title: "Child Abuse Clearances", description: "Current child abuse clearances for all direct care staff", regulationRef: "23 Pa.C.S. § 6344", sortOrder: 2 },
+      { section: "Personnel Records", title: "Tuberculosis Testing", description: "Annual TB testing documentation for all staff", regulationRef: "28 Pa. Code § 611.52", sortOrder: 3 },
+      { section: "Personnel Records", title: "Health Assessment Records", description: "Physical examination records within past 2 years", regulationRef: "28 Pa. Code § 611.52", sortOrder: 4 },
+      { section: "Personnel Records", title: "Training Documentation", description: "Initial and ongoing training records for all caregivers", regulationRef: "28 Pa. Code § 611.53", sortOrder: 5 },
+      { section: "Personnel Records", title: "CPR/First Aid Certification", description: "Current CPR and First Aid certifications", regulationRef: "28 Pa. Code § 611.53", sortOrder: 6 },
+      { section: "Client Records", title: "Service Agreements", description: "Signed service agreements with all clients", regulationRef: "28 Pa. Code § 611.55", sortOrder: 7 },
+      { section: "Client Records", title: "Care Plans", description: "Current individualized care plans for all clients", regulationRef: "28 Pa. Code § 611.55", sortOrder: 8 },
+      { section: "Client Records", title: "Physician Orders", description: "Current physician orders where applicable", regulationRef: "28 Pa. Code § 611.55", sortOrder: 9 },
+      { section: "Client Records", title: "Emergency Contact Information", description: "Updated emergency contacts for all clients", regulationRef: "28 Pa. Code § 611.55", sortOrder: 10 },
+      { section: "Client Records", title: "Incident Reports", description: "Complete incident reporting documentation", regulationRef: "28 Pa. Code § 611.57", sortOrder: 11 },
+      { section: "Client Records", title: "Progress Notes", description: "Timely and complete service documentation", regulationRef: "28 Pa. Code § 611.55", sortOrder: 12 },
+      { section: "Policies & Procedures", title: "HIPAA Compliance Policies", description: "Privacy and security policies in place", regulationRef: "45 CFR § 164", sortOrder: 13 },
+      { section: "Policies & Procedures", title: "Infection Control Policies", description: "Current infection control procedures", regulationRef: "28 Pa. Code § 611.56", sortOrder: 14 },
+      { section: "Policies & Procedures", title: "Emergency Preparedness Plan", description: "Documented emergency and disaster plans", regulationRef: "28 Pa. Code § 611.56", sortOrder: 15 },
+      { section: "Policies & Procedures", title: "Complaint/Grievance Procedures", description: "Written complaint handling procedures", regulationRef: "28 Pa. Code § 611.54", sortOrder: 16 },
+      { section: "Policies & Procedures", title: "Quality Assurance Program", description: "Active QA program with documentation", regulationRef: "28 Pa. Code § 611.58", sortOrder: 17 },
+      { section: "Administrative", title: "Current License Display", description: "License displayed in visible location", regulationRef: "28 Pa. Code § 611.51", sortOrder: 18 },
+      { section: "Administrative", title: "Insurance Documentation", description: "Current liability insurance certificates", regulationRef: "28 Pa. Code § 611.51", sortOrder: 19 },
+      { section: "Administrative", title: "Organizational Chart", description: "Current organizational structure", regulationRef: "28 Pa. Code § 611.51", sortOrder: 20 },
+    ];
+
+    for (const item of defaultItems) {
+      await this.createPaSurveyChecklistItem(item);
+    }
   }
 }
 
