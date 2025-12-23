@@ -3316,8 +3316,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const data = {
         ...req.body,
         officeId: req.params.officeId,
-        effectiveDate: req.body.effectiveDate ? new Date(req.body.effectiveDate) : null,
-        endDate: req.body.endDate ? new Date(req.body.endDate) : null,
+        effectiveFrom: req.body.effectiveFrom ? new Date(req.body.effectiveFrom) : undefined,
+        effectiveTo: req.body.effectiveTo ? new Date(req.body.effectiveTo) : undefined,
       };
       const rate = await storage.createOfficeMcoBillingRate(data);
       res.status(201).json(rate);
@@ -3331,8 +3331,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const data = {
         ...req.body,
-        effectiveDate: req.body.effectiveDate ? new Date(req.body.effectiveDate) : undefined,
-        endDate: req.body.endDate ? new Date(req.body.endDate) : undefined,
+        effectiveFrom: req.body.effectiveFrom ? new Date(req.body.effectiveFrom) : undefined,
+        effectiveTo: req.body.effectiveTo ? new Date(req.body.effectiveTo) : undefined,
       };
       const rate = await storage.updateOfficeMcoBillingRate(req.params.id, data);
       res.json(rate);
