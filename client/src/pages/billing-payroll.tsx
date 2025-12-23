@@ -43,7 +43,8 @@ import {
   Download,
   Send
 } from "lucide-react";
-import type { Office, BillingRecord, PayrollRun, OfficePayrollConfig, Mco, OfficeMcoBillingRate, Client, Caregiver } from "@shared/schema";
+import type { Office, BillingRecord, PayrollRun, OfficePayrollConfig, Mco, OfficeMcoBillingRate, Client, Caregiver, PayrollHoliday } from "@shared/schema";
+import { queryClient } from "@/lib/queryClient";
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
@@ -140,6 +141,9 @@ export default function BillingPayroll() {
   const [payrollFrequency, setPayrollFrequency] = useState("biweekly");
   const [customDates, setCustomDates] = useState<string[]>([]);
   const [companyName, setCompanyName] = useState("");
+  const [showHolidayDialog, setShowHolidayDialog] = useState(false);
+  const [newHolidayName, setNewHolidayName] = useState("");
+  const [newHolidayDate, setNewHolidayDate] = useState("");
   const printRef = useRef<HTMLDivElement>(null);
 
   const actualOfficeId = selectedOfficeId === "all" ? "" : selectedOfficeId;
@@ -181,6 +185,12 @@ export default function BillingPayroll() {
   const { data: mcoRates = [] } = useQuery<OfficeMcoBillingRate[]>({
     queryKey: ["/api/offices", actualOfficeId, "mco-rates"],
     queryFn: () => actualOfficeId ? fetch(`/api/offices/${actualOfficeId}/mco-rates`).then(r => r.json()) : [],
+    enabled: !!actualOfficeId,
+  });
+
+  const { data: holidays = [] } = useQuery<PayrollHoliday[]>({
+    queryKey: ["/api/payroll-holidays", actualOfficeId, selectedYear],
+    queryFn: () => actualOfficeId ? fetch(`/api/payroll-holidays?officeId=${actualOfficeId}&year=${selectedYear}`).then(r => r.json()) : [],
     enabled: !!actualOfficeId,
   });
 
@@ -319,6 +329,36 @@ export default function BillingPayroll() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/offices", actualOfficeId, "mco-rates"] });
       toast({ title: "MCO rate deleted" });
+    },
+  });
+
+  const createHolidayMutation = useMutation({
+    mutationFn: async (data: { name: string; date: string; officeId: string; year: number }) => {
+      const response = await apiRequest("POST", "/api/payroll-holidays", data);
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/payroll-holidays"] });
+      setShowHolidayDialog(false);
+      setNewHolidayName("");
+      setNewHolidayDate("");
+      toast({ title: "Holiday added" });
+    },
+    onError: () => {
+      toast({ title: "Failed to add holiday", variant: "destructive" });
+    },
+  });
+
+  const deleteHolidayMutation = useMutation({
+    mutationFn: async (id: string) => {
+      await apiRequest("DELETE", `/api/payroll-holidays/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/payroll-holidays"] });
+      toast({ title: "Holiday removed" });
+    },
+    onError: () => {
+      toast({ title: "Failed to remove holiday", variant: "destructive" });
     },
   });
 
@@ -1520,11 +1560,10 @@ export default function BillingPayroll() {
                               const daysInMonth = getDaysInMonth(firstDayOfMonth);
                               const startingDayOfWeek = getDay(firstDayOfMonth);
                               
-                              const holidays = getUSHolidays(selectedYear);
                               const monthHolidays = holidays
-                                .filter(h => h.date.getMonth() === monthIndex)
+                                .filter(h => parseLocalDate(h.date).getMonth() === monthIndex)
                                 .reduce((acc, h) => {
-                                  acc[h.date.getDate()] = h.name;
+                                  acc[parseLocalDate(h.date).getDate()] = h.name;
                                   return acc;
                                 }, {} as Record<number, string>);
                               
@@ -1593,17 +1632,84 @@ export default function BillingPayroll() {
                           </div>
                           
                           <div className="mt-4 border rounded-lg p-3 print-holidays">
-                            <h4 className="font-medium mb-2 text-center">US Federal Holidays - {selectedYear}</h4>
+                            <div className="flex items-center justify-between mb-3">
+                              <h4 className="font-medium text-center flex-1">Holidays - {selectedYear}</h4>
+                              <Button 
+                                size="sm" 
+                                variant="outline" 
+                                onClick={() => setShowHolidayDialog(true)}
+                                className="print:hidden"
+                                data-testid="button-add-holiday"
+                              >
+                                <Plus className="w-4 h-4 mr-1" /> Add Holiday
+                              </Button>
+                            </div>
                             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2 text-sm">
-                              {getUSHolidays(selectedYear).map((holiday, idx) => (
-                                <div key={idx} className="flex items-center gap-2">
+                              {holidays.map((holiday) => (
+                                <div key={holiday.id} className="flex items-center gap-2 group">
                                   <div className="w-3 h-3 rounded bg-red-500 flex-shrink-0"></div>
-                                  <span className="font-medium">{format(holiday.date, 'MMM d')}</span>
-                                  <span className="text-muted-foreground">- {holiday.name}</span>
+                                  <span className="font-medium">{format(parseLocalDate(holiday.date), 'MMM d')}</span>
+                                  <span className="text-muted-foreground truncate">- {holiday.name}</span>
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    className="h-5 w-5 p-0 opacity-0 group-hover:opacity-100 print:hidden"
+                                    onClick={() => deleteHolidayMutation.mutate(holiday.id)}
+                                    data-testid={`button-delete-holiday-${holiday.id}`}
+                                  >
+                                    <Trash2 className="w-3 h-3 text-destructive" />
+                                  </Button>
                                 </div>
                               ))}
                             </div>
                           </div>
+                          
+                          <Dialog open={showHolidayDialog} onOpenChange={setShowHolidayDialog}>
+                            <DialogContent>
+                              <DialogHeader>
+                                <DialogTitle>Add Custom Holiday</DialogTitle>
+                              </DialogHeader>
+                              <div className="space-y-4">
+                                <div>
+                                  <Label>Holiday Name</Label>
+                                  <Input
+                                    value={newHolidayName}
+                                    onChange={(e) => setNewHolidayName(e.target.value)}
+                                    placeholder="e.g., Company Holiday"
+                                    data-testid="input-holiday-name"
+                                  />
+                                </div>
+                                <div>
+                                  <Label>Date</Label>
+                                  <Input
+                                    type="date"
+                                    value={newHolidayDate}
+                                    onChange={(e) => setNewHolidayDate(e.target.value)}
+                                    data-testid="input-holiday-date"
+                                  />
+                                </div>
+                              </div>
+                              <DialogFooter>
+                                <Button variant="outline" onClick={() => setShowHolidayDialog(false)}>Cancel</Button>
+                                <Button
+                                  onClick={() => {
+                                    if (newHolidayName && newHolidayDate) {
+                                      createHolidayMutation.mutate({
+                                        name: newHolidayName,
+                                        date: newHolidayDate,
+                                        officeId: actualOfficeId,
+                                        year: selectedYear,
+                                      });
+                                    }
+                                  }}
+                                  disabled={!newHolidayName || !newHolidayDate || createHolidayMutation.isPending}
+                                  data-testid="button-save-holiday"
+                                >
+                                  {createHolidayMutation.isPending ? "Adding..." : "Add Holiday"}
+                                </Button>
+                              </DialogFooter>
+                            </DialogContent>
+                          </Dialog>
                         </>
                       )}
 
