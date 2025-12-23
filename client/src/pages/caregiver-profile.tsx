@@ -17,6 +17,12 @@ import {
   SelectTrigger,
   SelectValue 
 } from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { apiRequest } from "@/lib/queryClient";
 import { format } from "date-fns";
 import { 
@@ -33,7 +39,8 @@ import {
   Download,
   Edit,
   Save,
-  X
+  X,
+  Eye
 } from "lucide-react";
 import type { Caregiver, User as UserType, Document, Office } from "@shared/schema";
 
@@ -420,39 +427,83 @@ export default function CaregiverProfile() {
 }
 
 function DocumentCard({ document, onDelete }: { document: Document; onDelete: () => void }) {
+  const [showViewer, setShowViewer] = useState(false);
   const categoryLabel = DOCUMENT_CATEGORIES.find(c => c.value === document.documentType)?.label || document.documentType;
+  const isPdf = document.fileName?.toLowerCase().endsWith('.pdf') || document.originalName?.toLowerCase().endsWith('.pdf');
+  const isImage = /\.(jpg|jpeg|png|gif|webp)$/i.test(document.fileName || document.originalName || '');
+  const fileUrl = `/uploads/${document.fileName}`;
   
   return (
-    <div className="p-4 border rounded-lg" data-testid={`card-document-${document.id}`}>
-      <div className="flex items-start justify-between">
-        <div className="flex-1 min-w-0">
-          <p className="font-medium truncate">{document.originalName}</p>
-          <p className="text-sm text-muted-foreground">{categoryLabel}</p>
-          <p className="text-xs text-muted-foreground mt-1">
-            {document.createdAt ? format(new Date(document.createdAt), "MMM d, yyyy") : ""}
-          </p>
-        </div>
-        <div className="flex gap-1 ml-2">
-          <Button 
-            variant="ghost" 
-            size="icon" 
-            className="h-8 w-8"
-            onClick={() => window.open(`/uploads/${document.fileName}`, '_blank')}
-            data-testid={`button-download-${document.id}`}
-          >
-            <Download className="w-4 h-4" />
-          </Button>
-          <Button 
-            variant="ghost" 
-            size="icon" 
-            className="h-8 w-8 text-destructive"
-            onClick={onDelete}
-            data-testid={`button-delete-${document.id}`}
-          >
-            <Trash2 className="w-4 h-4" />
-          </Button>
+    <>
+      <div className="p-4 border rounded-lg" data-testid={`card-document-${document.id}`}>
+        <div className="flex items-start justify-between">
+          <div className="flex-1 min-w-0">
+            <p className="font-medium truncate">{document.originalName}</p>
+            <p className="text-sm text-muted-foreground">{categoryLabel}</p>
+            <p className="text-xs text-muted-foreground mt-1">
+              {document.createdAt ? format(new Date(document.createdAt), "MMM d, yyyy") : ""}
+            </p>
+          </div>
+          <div className="flex gap-1 ml-2">
+            {(isPdf || isImage) && (
+              <Button 
+                variant="ghost" 
+                size="icon" 
+                className="h-8 w-8"
+                onClick={() => setShowViewer(true)}
+                data-testid={`button-view-${document.id}`}
+              >
+                <Eye className="w-4 h-4" />
+              </Button>
+            )}
+            <Button 
+              variant="ghost" 
+              size="icon" 
+              className="h-8 w-8"
+              onClick={() => window.open(fileUrl, '_blank')}
+              data-testid={`button-download-${document.id}`}
+            >
+              <Download className="w-4 h-4" />
+            </Button>
+            <Button 
+              variant="ghost" 
+              size="icon" 
+              className="h-8 w-8 text-destructive"
+              onClick={onDelete}
+              data-testid={`button-delete-${document.id}`}
+            >
+              <Trash2 className="w-4 h-4" />
+            </Button>
+          </div>
         </div>
       </div>
-    </div>
+
+      <Dialog open={showViewer} onOpenChange={setShowViewer}>
+        <DialogContent className="max-w-4xl w-full h-[85vh] flex flex-col">
+          <DialogHeader className="flex-shrink-0">
+            <DialogTitle className="flex items-center justify-between pr-8">
+              <span className="truncate">{document.originalName}</span>
+            </DialogTitle>
+          </DialogHeader>
+          <div className="flex-1 overflow-hidden rounded-lg bg-muted">
+            {isPdf ? (
+              <iframe
+                src={fileUrl}
+                className="w-full h-full border-0"
+                title={document.originalName || "PDF Document"}
+              />
+            ) : isImage ? (
+              <div className="w-full h-full flex items-center justify-center p-4">
+                <img 
+                  src={fileUrl} 
+                  alt={document.originalName || "Document"} 
+                  className="max-w-full max-h-full object-contain"
+                />
+              </div>
+            ) : null}
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
