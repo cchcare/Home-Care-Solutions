@@ -89,6 +89,7 @@ export default function BillingPayroll() {
   const [showPayrollDialog, setShowPayrollDialog] = useState(false);
   const [showMcoRateDialog, setShowMcoRateDialog] = useState(false);
   const [editingRate, setEditingRate] = useState<OfficeMcoBillingRate | null>(null);
+  const [editingPayrollRun, setEditingPayrollRun] = useState<PayrollRun | null>(null);
   const [payrollFrequency, setPayrollFrequency] = useState("biweekly");
   const [customDates, setCustomDates] = useState<string[]>([]);
   const [companyName, setCompanyName] = useState("");
@@ -182,22 +183,41 @@ export default function BillingPayroll() {
     },
   });
 
-  const createPayrollMutation = useMutation({
+  const savePayrollMutation = useMutation({
     mutationFn: async (data: any) => {
-      const response = await apiRequest("POST", "/api/payroll", {
-        ...data,
-        officeId: actualOfficeId,
-      });
-      return response.json();
+      if (editingPayrollRun) {
+        const response = await apiRequest("PUT", `/api/payroll/${editingPayrollRun.id}`, data);
+        return response.json();
+      } else {
+        const response = await apiRequest("POST", "/api/payroll", {
+          ...data,
+          officeId: actualOfficeId,
+        });
+        return response.json();
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/payroll"] });
       setShowPayrollDialog(false);
+      setEditingPayrollRun(null);
       payrollForm.reset();
-      toast({ title: "Payroll run created" });
+      toast({ title: editingPayrollRun ? "Payroll run updated" : "Payroll run created" });
     },
     onError: () => {
-      toast({ title: "Failed to create payroll run", variant: "destructive" });
+      toast({ title: editingPayrollRun ? "Failed to update payroll run" : "Failed to create payroll run", variant: "destructive" });
+    },
+  });
+
+  const deletePayrollMutation = useMutation({
+    mutationFn: async (id: string) => {
+      await apiRequest("DELETE", `/api/payroll/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/payroll"] });
+      toast({ title: "Payroll run deleted" });
+    },
+    onError: () => {
+      toast({ title: "Failed to delete payroll run", variant: "destructive" });
     },
   });
 
@@ -321,8 +341,34 @@ export default function BillingPayroll() {
   };
 
   const handleOpenPayrollDialog = () => {
+    setEditingPayrollRun(null);
     const nextDates = getNextBiweeklyDates();
     payrollForm.reset(nextDates);
+    setShowPayrollDialog(true);
+  };
+
+  const handleEditPayrollRun = (run: PayrollRun) => {
+    setEditingPayrollRun(run);
+    const startVal = run.payPeriodStart as unknown;
+    const endVal = run.payPeriodEnd as unknown;
+    const paycheckVal = run.paycheckDate as unknown;
+    
+    const startStr = typeof startVal === 'string' 
+      ? startVal.split('T')[0] 
+      : format(new Date(startVal as Date), "yyyy-MM-dd");
+    const endStr = typeof endVal === 'string' 
+      ? endVal.split('T')[0] 
+      : format(new Date(endVal as Date), "yyyy-MM-dd");
+    const paycheckStr = typeof paycheckVal === 'string' 
+      ? paycheckVal.split('T')[0] 
+      : format(new Date(paycheckVal as Date), "yyyy-MM-dd");
+    
+    payrollForm.reset({
+      payPeriodStart: startStr,
+      payPeriodEnd: endStr,
+      paycheckDate: paycheckStr,
+      notes: run.notes || "",
+    });
     setShowPayrollDialog(true);
   };
 
@@ -893,17 +939,23 @@ export default function BillingPayroll() {
                       <CardDescription>Create and manage payroll cycles</CardDescription>
                     </div>
                     {actualOfficeId && (
-                      <Dialog open={showPayrollDialog} onOpenChange={setShowPayrollDialog}>
+                      <Dialog open={showPayrollDialog} onOpenChange={(open) => {
+                        setShowPayrollDialog(open);
+                        if (!open) {
+                          setEditingPayrollRun(null);
+                          payrollForm.reset();
+                        }
+                      }}>
                         <Button onClick={handleOpenPayrollDialog} data-testid="button-create-payroll">
                           <Plus className="w-4 h-4 mr-2" />
                           Create Payroll Run
                         </Button>
                         <DialogContent className="max-w-lg">
                           <DialogHeader>
-                            <DialogTitle>Create Payroll Run</DialogTitle>
+                            <DialogTitle>{editingPayrollRun ? "Edit Payroll Run" : "Create Payroll Run"}</DialogTitle>
                           </DialogHeader>
                           <Form {...payrollForm}>
-                            <form onSubmit={payrollForm.handleSubmit((data) => createPayrollMutation.mutate(data))} className="space-y-4">
+                            <form onSubmit={payrollForm.handleSubmit((data) => savePayrollMutation.mutate(data))} className="space-y-4">
                               <div className="grid grid-cols-2 gap-4">
                                 <FormField
                                   control={payrollForm.control}
@@ -959,8 +1011,8 @@ export default function BillingPayroll() {
                                 )}
                               />
                               <DialogFooter>
-                                <Button type="submit" disabled={createPayrollMutation.isPending} data-testid="button-submit-payroll">
-                                  {createPayrollMutation.isPending ? "Creating..." : "Create Payroll Run"}
+                                <Button type="submit" disabled={savePayrollMutation.isPending} data-testid="button-submit-payroll">
+                                  {savePayrollMutation.isPending ? "Saving..." : editingPayrollRun ? "Update Payroll Run" : "Create Payroll Run"}
                                 </Button>
                               </DialogFooter>
                             </form>
@@ -1007,15 +1059,36 @@ export default function BillingPayroll() {
                                 <td className="p-3">{getStatusBadge(run.status || "draft")}</td>
                                 <td className="p-3">
                                   <div className="flex gap-1">
+                                    <Button 
+                                      size="sm" 
+                                      variant="ghost"
+                                      onClick={() => handleEditPayrollRun(run)}
+                                      data-testid={`button-edit-payroll-${run.id}`}
+                                      title="Edit payroll run"
+                                    >
+                                      <Edit className="w-3 h-3" />
+                                    </Button>
                                     {run.status === "draft" && (
-                                      <Button 
-                                        size="sm" 
-                                        variant="outline"
-                                        onClick={() => updatePayrollStatusMutation.mutate({ id: run.id, status: "approved" })}
-                                        data-testid={`button-approve-${run.id}`}
-                                      >
-                                        <CheckCircle className="w-3 h-3" />
-                                      </Button>
+                                      <>
+                                        <Button 
+                                          size="sm" 
+                                          variant="outline"
+                                          onClick={() => updatePayrollStatusMutation.mutate({ id: run.id, status: "approved" })}
+                                          data-testid={`button-approve-${run.id}`}
+                                          title="Approve"
+                                        >
+                                          <CheckCircle className="w-3 h-3" />
+                                        </Button>
+                                        <Button 
+                                          size="sm" 
+                                          variant="ghost"
+                                          onClick={() => deletePayrollMutation.mutate(run.id)}
+                                          data-testid={`button-delete-payroll-${run.id}`}
+                                          title="Delete payroll run"
+                                        >
+                                          <Trash2 className="w-3 h-3" />
+                                        </Button>
+                                      </>
                                     )}
                                     {run.status === "approved" && (
                                       <Button 
@@ -1023,6 +1096,7 @@ export default function BillingPayroll() {
                                         variant="outline"
                                         onClick={() => updatePayrollStatusMutation.mutate({ id: run.id, status: "paid" })}
                                         data-testid={`button-pay-${run.id}`}
+                                        title="Mark as paid"
                                       >
                                         <DollarSign className="w-3 h-3" />
                                       </Button>
