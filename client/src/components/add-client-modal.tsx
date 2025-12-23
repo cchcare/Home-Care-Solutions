@@ -75,6 +75,7 @@ export function AddClientModal({ isOpen, onClose, onSubmit, isLoading, initialDa
       allergies: "",
       primaryPhysician: "",
       officeId: "",
+      memberId: "",
       hipaaAcknowledged: false,
     },
   });
@@ -93,6 +94,7 @@ export function AddClientModal({ isOpen, onClose, onSubmit, isLoading, initialDa
         allergies: initialData.allergies || "",
         primaryPhysician: initialData.primaryPhysician || "",
         officeId: initialData.officeId || "",
+        memberId: initialData.memberId || "",
         hipaaAcknowledged: false,
       });
     }
@@ -126,30 +128,45 @@ export function AddClientModal({ isOpen, onClose, onSubmit, isLoading, initialDa
             <div className="space-y-4">
               <h4 className="font-semibold text-foreground">Office Assignment</h4>
               
-              <FormField
-                control={form.control}
-                name="officeId"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Office Location *</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value}>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <FormField
+                  control={form.control}
+                  name="officeId"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Office Location *</FormLabel>
+                      <Select onValueChange={field.onChange} value={field.value}>
+                        <FormControl>
+                          <SelectTrigger data-testid="select-office">
+                            <SelectValue placeholder="Select office location" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {offices.map((office) => (
+                            <SelectItem key={office.id} value={office.id}>
+                              {office.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="memberId"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Member ID</FormLabel>
                       <FormControl>
-                        <SelectTrigger data-testid="select-office">
-                          <SelectValue placeholder="Select office location" />
-                        </SelectTrigger>
+                        <Input placeholder="Enter member ID" {...field} value={field.value || ""} data-testid="input-member-id" />
                       </FormControl>
-                      <SelectContent>
-                        {offices.map((office) => (
-                          <SelectItem key={office.id} value={office.id}>
-                            {office.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
             </div>
 
             {/* Personal Information Section */}

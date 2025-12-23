@@ -52,7 +52,9 @@ import {
   RotateCcw,
   Users,
   Eye,
-  X
+  X,
+  Edit,
+  Save
 } from "lucide-react";
 import type { Client, Document, Office, Mco, User as UserType, ClientCommunication, OfficeMcoBillingRate, ClientSchedule, MasterWeekTemplate, MasterWeekSlot, Caregiver } from "@shared/schema";
 
@@ -81,6 +83,8 @@ export default function ClientProfile() {
   const [messageType, setMessageType] = useState("note");
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [showMasterWeekEditor, setShowMasterWeekEditor] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editFormData, setEditFormData] = useState<Partial<Client>>({});
 
   const { data: client, isLoading: clientLoading } = useQuery<Client>({
     queryKey: ["/api/clients", clientId],
@@ -222,6 +226,50 @@ export default function ClientProfile() {
     },
   });
 
+  const updateClientMutation = useMutation({
+    mutationFn: async (data: Partial<Client>) => {
+      return await apiRequest("PUT", `/api/clients/${clientId}`, data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/clients", clientId] });
+      setIsEditing(false);
+      toast({ title: "Success", description: "Client updated successfully" });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to update client", variant: "destructive" });
+    },
+  });
+
+  const handleStartEditing = () => {
+    if (client) {
+      setEditFormData({
+        firstName: client.firstName || "",
+        lastName: client.lastName || "",
+        phone: client.phone || "",
+        address: client.address || "",
+        dateOfBirth: client.dateOfBirth,
+        memberId: client.memberId || "",
+        emergencyContactName: client.emergencyContactName || "",
+        emergencyContactPhone: client.emergencyContactPhone || "",
+        emergencyContactRelation: client.emergencyContactRelation || "",
+        primaryDiagnosis: client.primaryDiagnosis || "",
+        primaryPhysician: client.primaryPhysician || "",
+        allergies: client.allergies || "",
+        medications: client.medications || "",
+      });
+      setIsEditing(true);
+    }
+  };
+
+  const handleSaveEdits = () => {
+    updateClientMutation.mutate(editFormData);
+  };
+
+  const handleCancelEditing = () => {
+    setIsEditing(false);
+    setEditFormData({});
+  };
+
   const handleFileUpload = () => {
     if (!selectedFile || !clientId) return;
     const formData = new FormData();
@@ -300,9 +348,28 @@ export default function ClientProfile() {
               Back to Clients
             </Button>
           </Link>
-          <Badge variant={client.status === "active" ? "default" : "secondary"}>
-            {client.status || "active"}
-          </Badge>
+          <div className="flex items-center gap-3">
+            <Badge variant={client.status === "active" ? "default" : "secondary"}>
+              {client.status || "active"}
+            </Badge>
+            {isEditing ? (
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" onClick={handleCancelEditing} data-testid="button-cancel-edit">
+                  <X className="w-4 h-4 mr-2" />
+                  Cancel
+                </Button>
+                <Button size="sm" onClick={handleSaveEdits} disabled={updateClientMutation.isPending} data-testid="button-save-client">
+                  <Save className="w-4 h-4 mr-2" />
+                  {updateClientMutation.isPending ? "Saving..." : "Save Changes"}
+                </Button>
+              </div>
+            ) : (
+              <Button variant="outline" size="sm" onClick={handleStartEditing} data-testid="button-edit-client">
+                <Edit className="w-4 h-4 mr-2" />
+                Edit
+              </Button>
+            )}
+          </div>
         </header>
 
         <div className="flex-1 overflow-auto p-6 bg-background">
@@ -359,9 +426,17 @@ export default function ClientProfile() {
                       </div>
                       <div className="space-y-1">
                         <Label className="text-muted-foreground text-sm">Member ID</Label>
-                        <p className="font-medium" data-testid="text-member-id">
-                          {client.memberId || "N/A"}
-                        </p>
+                        {isEditing ? (
+                          <Input
+                            value={editFormData.memberId || ""}
+                            onChange={(e) => setEditFormData({ ...editFormData, memberId: e.target.value })}
+                            data-testid="input-member-id"
+                          />
+                        ) : (
+                          <p className="font-medium" data-testid="text-member-id">
+                            {client.memberId || "N/A"}
+                          </p>
+                        )}
                       </div>
                     </div>
                   </CardContent>
@@ -377,34 +452,82 @@ export default function ClientProfile() {
                   <CardContent>
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                       <div className="space-y-1">
-                        <Label className="text-muted-foreground text-sm">Full Name</Label>
-                        <p className="font-medium" data-testid="text-client-name">
-                          {client.firstName} {client.lastName}
-                        </p>
+                        <Label className="text-muted-foreground text-sm">First Name</Label>
+                        {isEditing ? (
+                          <Input
+                            value={editFormData.firstName || ""}
+                            onChange={(e) => setEditFormData({ ...editFormData, firstName: e.target.value })}
+                            data-testid="input-first-name"
+                          />
+                        ) : (
+                          <p className="font-medium" data-testid="text-client-first-name">
+                            {client.firstName}
+                          </p>
+                        )}
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-muted-foreground text-sm">Last Name</Label>
+                        {isEditing ? (
+                          <Input
+                            value={editFormData.lastName || ""}
+                            onChange={(e) => setEditFormData({ ...editFormData, lastName: e.target.value })}
+                            data-testid="input-last-name"
+                          />
+                        ) : (
+                          <p className="font-medium" data-testid="text-client-last-name">
+                            {client.lastName}
+                          </p>
+                        )}
                       </div>
                       <div className="space-y-1">
                         <Label className="text-muted-foreground text-sm flex items-center gap-1">
                           <Calendar className="w-3 h-3" /> Date of Birth
                         </Label>
-                        <p className="font-medium" data-testid="text-client-dob">
-                          {client.dateOfBirth ? format(new Date(client.dateOfBirth), "MMM d, yyyy") : "N/A"}
-                        </p>
+                        {isEditing ? (
+                          <Input
+                            type="date"
+                            value={editFormData.dateOfBirth ? new Date(editFormData.dateOfBirth).toISOString().split('T')[0] : ""}
+                            onChange={(e) => setEditFormData({ ...editFormData, dateOfBirth: e.target.value ? new Date(e.target.value) : undefined })}
+                            data-testid="input-date-of-birth"
+                          />
+                        ) : (
+                          <p className="font-medium" data-testid="text-client-dob">
+                            {client.dateOfBirth ? format(new Date(client.dateOfBirth), "MMM d, yyyy") : "N/A"}
+                          </p>
+                        )}
                       </div>
                       <div className="space-y-1">
                         <Label className="text-muted-foreground text-sm flex items-center gap-1">
                           <Phone className="w-3 h-3" /> Phone
                         </Label>
-                        <p className="font-medium" data-testid="text-client-phone">
-                          {client.phone || "N/A"}
-                        </p>
+                        {isEditing ? (
+                          <Input
+                            value={editFormData.phone || ""}
+                            onChange={(e) => setEditFormData({ ...editFormData, phone: e.target.value })}
+                            data-testid="input-phone"
+                          />
+                        ) : (
+                          <p className="font-medium" data-testid="text-client-phone">
+                            {client.phone || "N/A"}
+                          </p>
+                        )}
                       </div>
                       <div className="space-y-1 md:col-span-2">
                         <Label className="text-muted-foreground text-sm flex items-center gap-1">
                           <MapPin className="w-3 h-3" /> Address
                         </Label>
-                        <p className="font-medium" data-testid="text-client-address">
-                          {client.address || "N/A"}
-                        </p>
+                        {isEditing ? (
+                          <Textarea
+                            value={editFormData.address || ""}
+                            onChange={(e) => setEditFormData({ ...editFormData, address: e.target.value })}
+                            rows={2}
+                            data-testid="input-address"
+                          />
+                        ) : (
+                          <p className="font-medium" data-testid="text-client-address">
+                            {client.address || "N/A"}
+                          </p>
+                        )}
                       </div>
                       <div className="space-y-1">
                         <Label className="text-muted-foreground text-sm flex items-center gap-1">
@@ -429,21 +552,45 @@ export default function ClientProfile() {
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                       <div className="space-y-1">
                         <Label className="text-muted-foreground text-sm">Name</Label>
-                        <p className="font-medium" data-testid="text-emergency-name">
-                          {client.emergencyContactName || "N/A"}
-                        </p>
+                        {isEditing ? (
+                          <Input
+                            value={editFormData.emergencyContactName || ""}
+                            onChange={(e) => setEditFormData({ ...editFormData, emergencyContactName: e.target.value })}
+                            data-testid="input-emergency-name"
+                          />
+                        ) : (
+                          <p className="font-medium" data-testid="text-emergency-name">
+                            {client.emergencyContactName || "N/A"}
+                          </p>
+                        )}
                       </div>
                       <div className="space-y-1">
                         <Label className="text-muted-foreground text-sm">Phone</Label>
-                        <p className="font-medium" data-testid="text-emergency-phone">
-                          {client.emergencyContactPhone || "N/A"}
-                        </p>
+                        {isEditing ? (
+                          <Input
+                            value={editFormData.emergencyContactPhone || ""}
+                            onChange={(e) => setEditFormData({ ...editFormData, emergencyContactPhone: e.target.value })}
+                            data-testid="input-emergency-phone"
+                          />
+                        ) : (
+                          <p className="font-medium" data-testid="text-emergency-phone">
+                            {client.emergencyContactPhone || "N/A"}
+                          </p>
+                        )}
                       </div>
                       <div className="space-y-1">
                         <Label className="text-muted-foreground text-sm">Relationship</Label>
-                        <p className="font-medium" data-testid="text-emergency-relation">
-                          {client.emergencyContactRelation || "N/A"}
-                        </p>
+                        {isEditing ? (
+                          <Input
+                            value={editFormData.emergencyContactRelation || ""}
+                            onChange={(e) => setEditFormData({ ...editFormData, emergencyContactRelation: e.target.value })}
+                            data-testid="input-emergency-relation"
+                          />
+                        ) : (
+                          <p className="font-medium" data-testid="text-emergency-relation">
+                            {client.emergencyContactRelation || "N/A"}
+                          </p>
+                        )}
                       </div>
                     </div>
                   </CardContent>
@@ -462,29 +609,62 @@ export default function ClientProfile() {
                         <Label className="text-muted-foreground text-sm flex items-center gap-1">
                           <Stethoscope className="w-3 h-3" /> Primary Diagnosis
                         </Label>
-                        <p className="font-medium" data-testid="text-diagnosis">
-                          {client.primaryDiagnosis || "N/A"}
-                        </p>
+                        {isEditing ? (
+                          <Textarea
+                            value={editFormData.primaryDiagnosis || ""}
+                            onChange={(e) => setEditFormData({ ...editFormData, primaryDiagnosis: e.target.value })}
+                            rows={2}
+                            data-testid="input-diagnosis"
+                          />
+                        ) : (
+                          <p className="font-medium" data-testid="text-diagnosis">
+                            {client.primaryDiagnosis || "N/A"}
+                          </p>
+                        )}
                       </div>
                       <div className="space-y-1">
                         <Label className="text-muted-foreground text-sm">Primary Physician</Label>
-                        <p className="font-medium" data-testid="text-physician">
-                          {client.primaryPhysician || "N/A"}
-                        </p>
+                        {isEditing ? (
+                          <Input
+                            value={editFormData.primaryPhysician || ""}
+                            onChange={(e) => setEditFormData({ ...editFormData, primaryPhysician: e.target.value })}
+                            data-testid="input-physician"
+                          />
+                        ) : (
+                          <p className="font-medium" data-testid="text-physician">
+                            {client.primaryPhysician || "N/A"}
+                          </p>
+                        )}
                       </div>
                       <div className="space-y-1">
                         <Label className="text-muted-foreground text-sm">Allergies</Label>
-                        <p className="font-medium" data-testid="text-allergies">
-                          {client.allergies || "None reported"}
-                        </p>
+                        {isEditing ? (
+                          <Input
+                            value={editFormData.allergies || ""}
+                            onChange={(e) => setEditFormData({ ...editFormData, allergies: e.target.value })}
+                            data-testid="input-allergies"
+                          />
+                        ) : (
+                          <p className="font-medium" data-testid="text-allergies">
+                            {client.allergies || "None reported"}
+                          </p>
+                        )}
                       </div>
                       <div className="space-y-1">
                         <Label className="text-muted-foreground text-sm flex items-center gap-1">
                           <Pill className="w-3 h-3" /> Medications
                         </Label>
-                        <p className="font-medium" data-testid="text-medications">
-                          {client.medications || "None reported"}
-                        </p>
+                        {isEditing ? (
+                          <Input
+                            value={editFormData.medications || ""}
+                            onChange={(e) => setEditFormData({ ...editFormData, medications: e.target.value })}
+                            data-testid="input-medications"
+                          />
+                        ) : (
+                          <p className="font-medium" data-testid="text-medications">
+                            {client.medications || "None reported"}
+                          </p>
+                        )}
                       </div>
                     </div>
                   </CardContent>

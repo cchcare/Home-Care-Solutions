@@ -57,7 +57,7 @@ export function ClientProfileModal({ client, isOpen, onClose, onUpdate, isLoadin
                   {client.firstName} {client.lastName}
                 </h3>
                 <p className="text-sm text-muted-foreground">
-                  Client ID: {client.id.slice(0, 8)} • DOB: {client.dateOfBirth ? new Date(client.dateOfBirth).toLocaleDateString() : "Not provided"}
+                  Member ID: {client.memberId || client.id.slice(0, 8)} • DOB: {client.dateOfBirth ? new Date(client.dateOfBirth).toLocaleDateString() : "Not provided"}
                 </p>
               </div>
             </div>

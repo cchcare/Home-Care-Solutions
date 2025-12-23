@@ -63,6 +63,7 @@ export default function CaregiverProfile() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [isEditing, setIsEditing] = useState(false);
+  const [editFormData, setEditFormData] = useState<Partial<Caregiver>>({});
   const [uploadCategory, setUploadCategory] = useState("other");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
 
@@ -128,6 +129,42 @@ export default function CaregiverProfile() {
     },
   });
 
+  const updateCaregiverMutation = useMutation({
+    mutationFn: async (data: Partial<Caregiver>) => {
+      return await apiRequest("PUT", `/api/caregivers/${caregiverId}`, data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/caregivers", caregiverId] });
+      setIsEditing(false);
+      toast({ title: "Success", description: "Caregiver updated successfully" });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to update caregiver", variant: "destructive" });
+    },
+  });
+
+  const handleStartEditing = () => {
+    if (caregiver) {
+      setEditFormData({
+        employeeId: caregiver.employeeId || "",
+        hourlyWage: caregiver.hourlyWage ?? undefined,
+        experienceYears: caregiver.experienceYears ?? undefined,
+        gender: caregiver.gender,
+        isActive: caregiver.isActive,
+      });
+      setIsEditing(true);
+    }
+  };
+
+  const handleSaveEdits = () => {
+    updateCaregiverMutation.mutate(editFormData);
+  };
+
+  const handleCancelEditing = () => {
+    setIsEditing(false);
+    setEditFormData({});
+  };
+
   const handleFileUpload = () => {
     if (!selectedFile || !caregiverId) return;
     const formData = new FormData();
@@ -180,13 +217,32 @@ export default function CaregiverProfile() {
           subtitle={`${user?.firstName || ""} ${user?.lastName || ""}`}
         />
         
-        <header className="bg-card border-b border-border h-16 flex items-center px-6 flex-shrink-0">
+        <header className="bg-card border-b border-border h-16 flex items-center justify-between px-6 flex-shrink-0">
           <Link href="/caregivers">
             <Button variant="ghost" size="sm" data-testid="button-back-caregivers">
               <ArrowLeft className="w-4 h-4 mr-2" />
               Back to Caregivers
             </Button>
           </Link>
+          <div className="flex items-center gap-3">
+            {isEditing ? (
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" onClick={handleCancelEditing} data-testid="button-cancel-edit">
+                  <X className="w-4 h-4 mr-2" />
+                  Cancel
+                </Button>
+                <Button size="sm" onClick={handleSaveEdits} disabled={updateCaregiverMutation.isPending} data-testid="button-save-caregiver">
+                  <Save className="w-4 h-4 mr-2" />
+                  {updateCaregiverMutation.isPending ? "Saving..." : "Save Changes"}
+                </Button>
+              </div>
+            ) : (
+              <Button variant="outline" size="sm" onClick={handleStartEditing} data-testid="button-edit-caregiver">
+                <Edit className="w-4 h-4 mr-2" />
+                Edit
+              </Button>
+            )}
+          </div>
         </header>
 
         <div className="flex-1 overflow-auto p-6 bg-background">
@@ -212,9 +268,17 @@ export default function CaregiverProfile() {
                   
                   <div className="space-y-1">
                     <Label className="text-muted-foreground text-sm">Employee ID</Label>
-                    <p className="font-medium" data-testid="text-employee-id">
-                      {caregiver.employeeId || "N/A"}
-                    </p>
+                    {isEditing ? (
+                      <Input
+                        value={editFormData.employeeId || ""}
+                        onChange={(e) => setEditFormData({ ...editFormData, employeeId: e.target.value })}
+                        data-testid="input-employee-id"
+                      />
+                    ) : (
+                      <p className="font-medium" data-testid="text-employee-id">
+                        {caregiver.employeeId || "N/A"}
+                      </p>
+                    )}
                   </div>
                   
                   <div className="space-y-1">
@@ -266,17 +330,36 @@ export default function CaregiverProfile() {
                   </div>
                   
                   <div className="space-y-1">
-                    <Label className="text-muted-foreground text-sm">Experience</Label>
-                    <p className="font-medium" data-testid="text-experience">
-                      {caregiver.experienceYears ? `${caregiver.experienceYears} years` : "N/A"}
-                    </p>
+                    <Label className="text-muted-foreground text-sm">Experience (Years)</Label>
+                    {isEditing ? (
+                      <Input
+                        type="number"
+                        value={editFormData.experienceYears ?? ""}
+                        onChange={(e) => setEditFormData({ ...editFormData, experienceYears: e.target.value ? parseInt(e.target.value) : undefined })}
+                        data-testid="input-experience"
+                      />
+                    ) : (
+                      <p className="font-medium" data-testid="text-experience">
+                        {caregiver.experienceYears ? `${caregiver.experienceYears} years` : "N/A"}
+                      </p>
+                    )}
                   </div>
                   
                   <div className="space-y-1">
                     <Label className="text-muted-foreground text-sm">Hourly Wage</Label>
-                    <p className="font-medium" data-testid="text-hourly-wage">
-                      {caregiver.hourlyWage ? `$${caregiver.hourlyWage}` : "N/A"}
-                    </p>
+                    {isEditing ? (
+                      <Input
+                        type="number"
+                        step="0.01"
+                        value={editFormData.hourlyWage ?? ""}
+                        onChange={(e) => setEditFormData({ ...editFormData, hourlyWage: e.target.value ? parseFloat(e.target.value) : undefined })}
+                        data-testid="input-hourly-wage"
+                      />
+                    ) : (
+                      <p className="font-medium" data-testid="text-hourly-wage">
+                        {caregiver.hourlyWage ? `$${caregiver.hourlyWage}` : "N/A"}
+                      </p>
+                    )}
                   </div>
                   
                   <div className="space-y-1 md:col-span-2">
