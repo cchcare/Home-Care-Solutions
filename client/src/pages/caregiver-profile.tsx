@@ -4,12 +4,12 @@ import { useRoute, Link } from "wouter";
 import { useToast } from "@/hooks/use-toast";
 import { Sidebar } from "@/components/sidebar";
 import { TopBar } from "@/components/topbar";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
 import { 
   Select,
   SelectContent,
@@ -22,9 +22,18 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogFooter,
 } from "@/components/ui/dialog";
-import { apiRequest } from "@/lib/queryClient";
-import { format } from "date-fns";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { apiRequest, queryClient as qc } from "@/lib/queryClient";
+import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameMonth, isToday, addMonths, subMonths } from "date-fns";
 import { 
   ArrowLeft, 
   User, 
@@ -40,9 +49,33 @@ import {
   Edit,
   Save,
   X,
-  Eye
+  Eye,
+  Clock,
+  DollarSign,
+  Heart,
+  CalendarDays,
+  ClipboardList,
+  Star,
+  CheckCircle,
+  History,
+  MoreHorizontal,
+  Wallet,
+  Plus,
+  ChevronLeft,
+  ChevronRight,
+  Settings,
+  AlertTriangle,
+  MapPin,
+  Briefcase,
+  GraduationCap,
+  Shield,
+  CreditCard,
+  Receipt,
+  Users,
+  MessageSquare,
+  ArrowRightLeft
 } from "lucide-react";
-import type { Caregiver, User as UserType, Document, Office } from "@shared/schema";
+import type { Caregiver, User as UserType, Document, Office, Client, ComplianceItem } from "@shared/schema";
 
 type EnrichedCaregiver = Caregiver & { firstName?: string | null; lastName?: string | null; email?: string | null };
 
@@ -59,6 +92,28 @@ const DOCUMENT_CATEGORIES = [
   { value: "other", label: "Other" },
 ];
 
+const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+const CAREGIVER_MENU_ITEMS = [
+  { id: "profile", label: "Profile", icon: User },
+  { id: "compliance", label: "Compliance", icon: Shield },
+  { id: "calendar", label: "Calendar", icon: Calendar },
+  { id: "visits", label: "Visits", icon: Clock },
+  { id: "in-service", label: "In Service", icon: GraduationCap },
+  { id: "rates", label: "Rates", icon: DollarSign },
+  { id: "notes", label: "Notes", icon: MessageSquare },
+  { id: "preferences", label: "Preferences", icon: Heart },
+  { id: "absence", label: "Absence/Restriction", icon: AlertTriangle },
+  { id: "availability", label: "Availability", icon: CalendarDays },
+  { id: "payroll-info", label: "Payroll Info", icon: CreditCard },
+  { id: "expenses", label: "Expenses", icon: Receipt },
+  { id: "paychecks", label: "Pay Check", icon: Wallet },
+  { id: "member-history", label: "Member History", icon: History },
+  { id: "others", label: "Others", icon: MoreHorizontal },
+  { id: "documents", label: "Document Management", icon: FileText },
+  { id: "office-move", label: "Office Move", icon: ArrowRightLeft },
+];
+
 export default function CaregiverProfile() {
   const [, params] = useRoute("/caregivers/:id");
   const caregiverId = params?.id;
@@ -68,6 +123,10 @@ export default function CaregiverProfile() {
   const [editFormData, setEditFormData] = useState<Partial<Caregiver>>({});
   const [uploadCategory, setUploadCategory] = useState("other");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [activeSection, setActiveSection] = useState("profile");
+  const [currentMonth, setCurrentMonth] = useState(new Date());
+  const [showAddDialog, setShowAddDialog] = useState(false);
+  const [dialogType, setDialogType] = useState<string>("");
 
   const { data: caregiver, isLoading: caregiverLoading } = useQuery<EnrichedCaregiver>({
     queryKey: ["/api/caregivers", caregiverId],
@@ -93,7 +152,11 @@ export default function CaregiverProfile() {
     enabled: !!caregiver?.officeId,
   });
 
-  const { data: documents = [], isLoading: documentsLoading } = useQuery<Document[]>({
+  const { data: offices = [] } = useQuery<Office[]>({
+    queryKey: ["/api/offices"],
+  });
+
+  const { data: documents = [] } = useQuery<Document[]>({
     queryKey: ["/api/caregivers", caregiverId, "documents"],
     queryFn: () => fetch(`/api/caregivers/${caregiverId}/documents`).then(r => r.json()),
     enabled: !!caregiverId,
@@ -102,6 +165,84 @@ export default function CaregiverProfile() {
   const { data: certifications = [] } = useQuery<any[]>({
     queryKey: ["/api/caregivers", caregiverId, "certifications"],
     queryFn: () => fetch(`/api/caregivers/${caregiverId}/certifications`).then(r => r.json()),
+    enabled: !!caregiverId,
+  });
+
+  const { data: complianceItems = [] } = useQuery<ComplianceItem[]>({
+    queryKey: ["/api/caregivers", caregiverId, "compliance"],
+    queryFn: () => fetch(`/api/caregivers/${caregiverId}/compliance`).then(r => r.json()),
+    enabled: !!caregiverId,
+  });
+
+  const { data: assignedClients = [] } = useQuery<Client[]>({
+    queryKey: ["/api/caregivers", caregiverId, "clients"],
+    queryFn: () => fetch(`/api/caregivers/${caregiverId}/clients`).then(r => r.json()),
+    enabled: !!caregiverId,
+  });
+
+  const { data: notes = [] } = useQuery<any[]>({
+    queryKey: ["/api/caregivers", caregiverId, "notes"],
+    queryFn: () => fetch(`/api/caregivers/${caregiverId}/notes`).then(r => r.json()),
+    enabled: !!caregiverId,
+  });
+
+  const { data: preferences = [] } = useQuery<any[]>({
+    queryKey: ["/api/caregivers", caregiverId, "preferences"],
+    queryFn: () => fetch(`/api/caregivers/${caregiverId}/preferences`).then(r => r.json()),
+    enabled: !!caregiverId,
+  });
+
+  const { data: absences = [] } = useQuery<any[]>({
+    queryKey: ["/api/caregivers", caregiverId, "absences"],
+    queryFn: () => fetch(`/api/caregivers/${caregiverId}/absences`).then(r => r.json()),
+    enabled: !!caregiverId,
+  });
+
+  const { data: availability = [] } = useQuery<any[]>({
+    queryKey: ["/api/caregivers", caregiverId, "availability"],
+    queryFn: () => fetch(`/api/caregivers/${caregiverId}/availability`).then(r => r.json()),
+    enabled: !!caregiverId,
+  });
+
+  const { data: payrollInfo } = useQuery<any>({
+    queryKey: ["/api/caregivers", caregiverId, "payroll-info"],
+    queryFn: () => fetch(`/api/caregivers/${caregiverId}/payroll-info`).then(r => r.json()),
+    enabled: !!caregiverId,
+  });
+
+  const { data: expenses = [] } = useQuery<any[]>({
+    queryKey: ["/api/caregivers", caregiverId, "expenses"],
+    queryFn: () => fetch(`/api/caregivers/${caregiverId}/expenses`).then(r => r.json()),
+    enabled: !!caregiverId,
+  });
+
+  const { data: paychecks = [] } = useQuery<any[]>({
+    queryKey: ["/api/caregivers", caregiverId, "paychecks"],
+    queryFn: () => fetch(`/api/caregivers/${caregiverId}/paychecks`).then(r => r.json()),
+    enabled: !!caregiverId,
+  });
+
+  const { data: rates = [] } = useQuery<any[]>({
+    queryKey: ["/api/caregivers", caregiverId, "rates"],
+    queryFn: () => fetch(`/api/caregivers/${caregiverId}/rates`).then(r => r.json()),
+    enabled: !!caregiverId,
+  });
+
+  const { data: inServices = [] } = useQuery<any[]>({
+    queryKey: ["/api/caregivers", caregiverId, "in-services"],
+    queryFn: () => fetch(`/api/caregivers/${caregiverId}/in-services`).then(r => r.json()),
+    enabled: !!caregiverId,
+  });
+
+  const { data: officeMoves = [] } = useQuery<any[]>({
+    queryKey: ["/api/caregivers", caregiverId, "office-moves"],
+    queryFn: () => fetch(`/api/caregivers/${caregiverId}/office-moves`).then(r => r.json()),
+    enabled: !!caregiverId,
+  });
+
+  const { data: schedules = [] } = useQuery<any[]>({
+    queryKey: ["/api/caregivers", caregiverId, "schedules"],
+    queryFn: () => fetch(`/api/caregivers/${caregiverId}/schedules`).then(r => r.json()),
     enabled: !!caregiverId,
   });
 
@@ -162,6 +303,7 @@ export default function CaregiverProfile() {
         hireDate: caregiver.hireDate,
         startDate: caregiver.startDate,
         specializations: caregiver.specializations || [],
+        officeId: caregiver.officeId,
       });
       setIsEditing(true);
     }
@@ -189,6 +331,12 @@ export default function CaregiverProfile() {
     acc[category.value] = documents.filter(doc => doc.documentType === category.value);
     return acc;
   }, {} as Record<string, Document[]>);
+
+  const monthStart = startOfMonth(currentMonth);
+  const monthEnd = endOfMonth(currentMonth);
+  const daysInMonth = eachDayOfInterval({ start: monthStart, end: monthEnd });
+  const startDayOfWeek = monthStart.getDay();
+  const paddedDays = Array(startDayOfWeek).fill(null).concat(daysInMonth);
 
   if (caregiverLoading) {
     return (
@@ -224,440 +372,1228 @@ export default function CaregiverProfile() {
       
       <main className="flex-1 flex flex-col overflow-hidden">
         <TopBar 
-          title="Caregiver Profile"
-          subtitle={caregiverName}
+          title={caregiverName}
+          showBackButton 
+          backUrl="/caregivers"
         />
-        
-        <header className="bg-card border-b border-border h-16 flex items-center justify-between px-6 flex-shrink-0">
-          <Link href="/caregivers">
-            <Button variant="ghost" size="sm" data-testid="button-back-caregivers">
-              <ArrowLeft className="w-4 h-4 mr-2" />
-              Back to Caregivers
-            </Button>
-          </Link>
-          <div className="flex items-center gap-3">
-            {isEditing ? (
-              <div className="flex gap-2">
-                <Button variant="outline" size="sm" onClick={handleCancelEditing} data-testid="button-cancel-edit">
-                  <X className="w-4 h-4 mr-2" />
-                  Cancel
-                </Button>
-                <Button size="sm" onClick={handleSaveEdits} disabled={updateCaregiverMutation.isPending} data-testid="button-save-caregiver">
-                  <Save className="w-4 h-4 mr-2" />
-                  {updateCaregiverMutation.isPending ? "Saving..." : "Save Changes"}
-                </Button>
-              </div>
-            ) : (
-              <Button variant="outline" size="sm" onClick={handleStartEditing} data-testid="button-edit-caregiver">
-                <Edit className="w-4 h-4 mr-2" />
-                Edit
-              </Button>
-            )}
-          </div>
-        </header>
 
-        <div className="flex-1 overflow-auto p-6 bg-background">
-          <div className="max-w-6xl mx-auto space-y-6">
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between">
-                <CardTitle className="flex items-center gap-2">
-                  <User className="w-5 h-5" />
-                  Personal Information
-                </CardTitle>
-                {isEditing ? (
-                  <div className="flex items-center gap-2">
-                    <Label className="text-sm">Active</Label>
-                    <input
-                      type="checkbox"
-                      checked={editFormData.isActive ?? caregiver.isActive ?? false}
-                      onChange={(e) => setEditFormData({ ...editFormData, isActive: e.target.checked })}
-                      className="h-4 w-4"
-                      data-testid="checkbox-is-active"
-                    />
-                  </div>
-                ) : (
-                  <Badge variant={caregiver.isActive ? "default" : "secondary"}>
+        <div className="flex flex-1 overflow-hidden">
+          <aside className="w-56 border-r bg-muted/30 overflow-y-auto">
+            <div className="p-4 border-b">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center">
+                  <User className="w-6 h-6 text-primary" />
+                </div>
+                <div className="min-w-0">
+                  <p className="font-semibold truncate" data-testid="text-caregiver-name">{caregiverName}</p>
+                  <Badge variant={caregiver.isActive ? "default" : "secondary"} className="mt-1" data-testid="badge-caregiver-status">
                     {caregiver.isActive ? "Active" : "Inactive"}
                   </Badge>
+                </div>
+              </div>
+              <div className="mt-3 text-sm text-muted-foreground">
+                <p className="flex items-center gap-1">
+                  <Building className="w-3 h-3" />
+                  {office?.name || "No office assigned"}
+                </p>
+                {caregiver.employeeId && (
+                  <p className="flex items-center gap-1 mt-1">
+                    <Briefcase className="w-3 h-3" />
+                    ID: {caregiver.employeeId}
+                  </p>
                 )}
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                  <div className="space-y-1">
-                    <Label className="text-muted-foreground text-sm">Full Name</Label>
-                    <p className="font-medium" data-testid="text-caregiver-name">
-                      {caregiver?.firstName || user?.firstName} {user?.middleName} {caregiver?.lastName || user?.lastName}
-                    </p>
-                  </div>
-                  
-                  <div className="space-y-1">
-                    <Label className="text-muted-foreground text-sm">Employee ID</Label>
-                    {isEditing ? (
-                      <Input
-                        value={editFormData.employeeId || ""}
-                        onChange={(e) => setEditFormData({ ...editFormData, employeeId: e.target.value })}
-                        data-testid="input-employee-id"
-                      />
-                    ) : (
-                      <p className="font-medium" data-testid="text-employee-id">
-                        {caregiver.employeeId || "N/A"}
-                      </p>
-                    )}
-                  </div>
-                  
-                  <div className="space-y-1">
-                    <Label className="text-muted-foreground text-sm flex items-center gap-1">
-                      <Mail className="w-3 h-3" /> Email
-                    </Label>
-                    <p className="font-medium" data-testid="text-caregiver-email">
-                      {caregiver?.email || user?.email || "N/A"}
-                    </p>
-                  </div>
-                  
-                  <div className="space-y-1">
-                    <Label className="text-muted-foreground text-sm flex items-center gap-1">
-                      <Calendar className="w-3 h-3" /> Date of Birth
-                    </Label>
-                    <p className="font-medium" data-testid="text-caregiver-dob">
-                      {user?.dateOfBirth ? format(new Date(user.dateOfBirth), "MMM d, yyyy") : "N/A"}
-                    </p>
-                  </div>
-                  
-                  <div className="space-y-1">
-                    <Label className="text-muted-foreground text-sm">Gender</Label>
-                    {isEditing ? (
-                      <Select
-                        value={editFormData.gender || ""}
-                        onValueChange={(value) => setEditFormData({ ...editFormData, gender: value as "male" | "female" | "non_binary" | "prefer_not_to_say" })}
-                      >
-                        <SelectTrigger data-testid="select-gender">
-                          <SelectValue placeholder="Select gender" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="male">Male</SelectItem>
-                          <SelectItem value="female">Female</SelectItem>
-                          <SelectItem value="non_binary">Non-Binary</SelectItem>
-                          <SelectItem value="prefer_not_to_say">Prefer Not to Say</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    ) : (
-                      <p className="font-medium capitalize" data-testid="text-caregiver-gender">
-                        {caregiver.gender?.replace(/_/g, " ") || "N/A"}
-                      </p>
-                    )}
-                  </div>
-                  
-                  <div className="space-y-1">
-                    <Label className="text-muted-foreground text-sm flex items-center gap-1">
-                      <Building className="w-3 h-3" /> Office Location
-                    </Label>
-                    <p className="font-medium" data-testid="text-caregiver-office">
-                      {office?.name || "N/A"}
-                    </p>
-                  </div>
-                  
-                  <div className="space-y-1">
-                    <Label className="text-muted-foreground text-sm">Hire Date</Label>
-                    {isEditing ? (
-                      <Input
-                        type="date"
-                        value={editFormData.hireDate ? new Date(editFormData.hireDate).toISOString().split('T')[0] : ""}
-                        onChange={(e) => setEditFormData({ ...editFormData, hireDate: e.target.value ? new Date(e.target.value) : undefined })}
-                        data-testid="input-hire-date"
-                      />
-                    ) : (
-                      <p className="font-medium" data-testid="text-hire-date">
-                        {caregiver.hireDate ? format(new Date(caregiver.hireDate), "MMM d, yyyy") : "N/A"}
-                      </p>
-                    )}
-                  </div>
-                  
-                  <div className="space-y-1">
-                    <Label className="text-muted-foreground text-sm">Start Date</Label>
-                    {isEditing ? (
-                      <Input
-                        type="date"
-                        value={editFormData.startDate ? new Date(editFormData.startDate).toISOString().split('T')[0] : ""}
-                        onChange={(e) => setEditFormData({ ...editFormData, startDate: e.target.value ? new Date(e.target.value) : undefined })}
-                        data-testid="input-start-date"
-                      />
-                    ) : (
-                      <p className="font-medium" data-testid="text-start-date">
-                        {caregiver.startDate ? format(new Date(caregiver.startDate), "MMM d, yyyy") : "N/A"}
-                      </p>
-                    )}
-                  </div>
-                  
-                  <div className="space-y-1">
-                    <Label className="text-muted-foreground text-sm">Experience (Years)</Label>
-                    {isEditing ? (
-                      <Input
-                        type="number"
-                        value={editFormData.experienceYears ?? ""}
-                        onChange={(e) => setEditFormData({ ...editFormData, experienceYears: e.target.value ? parseInt(e.target.value) : undefined })}
-                        data-testid="input-experience"
-                      />
-                    ) : (
-                      <p className="font-medium" data-testid="text-experience">
-                        {caregiver.experienceYears ? `${caregiver.experienceYears} years` : "N/A"}
-                      </p>
-                    )}
-                  </div>
-                  
-                  <div className="space-y-1">
-                    <Label className="text-muted-foreground text-sm">Hourly Wage</Label>
-                    {isEditing ? (
-                      <Input
-                        type="number"
-                        step="0.01"
-                        value={editFormData.hourlyWage ?? ""}
-                        onChange={(e) => setEditFormData({ ...editFormData, hourlyWage: e.target.value || undefined })}
-                        data-testid="input-hourly-wage"
-                      />
-                    ) : (
-                      <p className="font-medium" data-testid="text-hourly-wage">
-                        {caregiver.hourlyWage ? `$${caregiver.hourlyWage}` : "N/A"}
-                      </p>
-                    )}
-                  </div>
-                  
-                  <div className="space-y-1 md:col-span-2">
-                    <Label className="text-muted-foreground text-sm">Specializations</Label>
-                    {isEditing ? (
-                      <Input
-                        value={Array.isArray(editFormData.specializations) ? editFormData.specializations.join(", ") : ""}
-                        onChange={(e) => setEditFormData({ 
-                          ...editFormData, 
-                          specializations: e.target.value.split(",").map(s => s.trim()).filter(s => s.length > 0)
-                        })}
-                        placeholder="Enter specializations separated by commas"
-                        data-testid="input-specializations"
-                      />
-                    ) : (
-                      <div className="flex flex-wrap gap-2" data-testid="text-specializations">
-                        {caregiver.specializations?.length ? (
-                          caregiver.specializations.map((spec, i) => (
-                            <Badge key={i} variant="outline">{spec}</Badge>
-                          ))
-                        ) : (
-                          <span className="text-muted-foreground">None specified</span>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
+              </div>
+            </div>
 
-            {certifications.length > 0 && (
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Award className="w-5 h-5" />
-                    Certifications
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {certifications.map((cert) => (
-                      <div key={cert.id} className="p-4 border rounded-lg" data-testid={`card-certification-${cert.id}`}>
-                        <p className="font-medium">{cert.certificationType}</p>
-                        <p className="text-sm text-muted-foreground">
-                          {cert.issuingOrganization}
-                        </p>
-                        <div className="flex justify-between mt-2 text-xs text-muted-foreground">
-                          <span>Issued: {cert.issueDate ? format(new Date(cert.issueDate), "MMM yyyy") : "N/A"}</span>
-                          <span>Expires: {cert.expirationDate ? format(new Date(cert.expirationDate), "MMM yyyy") : "N/A"}</span>
+            <nav className="p-2 space-y-1">
+              {CAREGIVER_MENU_ITEMS.map((item) => {
+                const IconComponent = item.icon;
+                return (
+                  <button
+                    key={item.id}
+                    onClick={() => setActiveSection(item.id)}
+                    className={`w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors ${
+                      activeSection === item.id
+                        ? "bg-primary text-primary-foreground"
+                        : "hover:bg-muted text-muted-foreground hover:text-foreground"
+                    }`}
+                    data-testid={`menu-${item.id}`}
+                  >
+                    <IconComponent className="w-4 h-4 flex-shrink-0" />
+                    <span className="truncate">{item.label}</span>
+                  </button>
+                );
+              })}
+            </nav>
+          </aside>
+
+          <div className="flex-1 overflow-auto p-6 bg-background">
+            <div className="max-w-5xl">
+              {activeSection === "profile" && (
+                <div className="space-y-6">
+                  <div className="flex justify-end gap-2">
+                    {isEditing ? (
+                      <>
+                        <Button variant="outline" onClick={handleCancelEditing} data-testid="button-cancel-edit">
+                          <X className="w-4 h-4 mr-2" />
+                          Cancel
+                        </Button>
+                        <Button onClick={handleSaveEdits} disabled={updateCaregiverMutation.isPending} data-testid="button-save-profile">
+                          <Save className="w-4 h-4 mr-2" />
+                          Save Changes
+                        </Button>
+                      </>
+                    ) : (
+                      <Button variant="outline" onClick={handleStartEditing} data-testid="button-edit-profile">
+                        <Edit className="w-4 h-4 mr-2" />
+                        Edit Profile
+                      </Button>
+                    )}
+                  </div>
+
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2">
+                        <User className="w-5 h-5" />
+                        Personal Information
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                        <div className="space-y-1">
+                          <Label className="text-muted-foreground text-sm">Full Name</Label>
+                          <p className="font-medium" data-testid="text-caregiver-fullname">{caregiverName}</p>
                         </div>
-                        <Badge 
-                          variant={cert.status === "active" ? "default" : "secondary"} 
-                          className="mt-2"
-                        >
-                          {cert.status}
-                        </Badge>
-                      </div>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <FileText className="w-5 h-5" />
-                  Documents
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="mb-6 p-4 border rounded-lg bg-muted/50">
-                  <h4 className="font-medium mb-3">Upload New Document</h4>
-                  <div className="flex flex-wrap gap-4 items-end">
-                    <div className="flex-1 min-w-[200px]">
-                      <Label>Document Category</Label>
-                      <Select value={uploadCategory} onValueChange={setUploadCategory}>
-                        <SelectTrigger data-testid="select-document-category">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {DOCUMENT_CATEGORIES.map(cat => (
-                            <SelectItem key={cat.value} value={cat.value}>
-                              {cat.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="flex-1 min-w-[200px]">
-                      <Label>Select File</Label>
-                      <Input 
-                        type="file" 
-                        onChange={(e) => setSelectedFile(e.target.files?.[0] || null)}
-                        data-testid="input-document-file"
-                      />
-                    </div>
-                    <Button 
-                      onClick={handleFileUpload} 
-                      disabled={!selectedFile || uploadMutation.isPending}
-                      data-testid="button-upload-document"
-                    >
-                      <Upload className="w-4 h-4 mr-2" />
-                      {uploadMutation.isPending ? "Uploading..." : "Upload"}
-                    </Button>
-                  </div>
-                </div>
-
-                <Tabs defaultValue="all" className="w-full">
-                  <TabsList className="flex-wrap h-auto">
-                    <TabsTrigger value="all">All ({documents.length})</TabsTrigger>
-                    {DOCUMENT_CATEGORIES.filter(cat => groupedDocuments[cat.value]?.length > 0).map(cat => (
-                      <TabsTrigger key={cat.value} value={cat.value}>
-                        {cat.label} ({groupedDocuments[cat.value]?.length || 0})
-                      </TabsTrigger>
-                    ))}
-                  </TabsList>
-                  
-                  <TabsContent value="all" className="mt-4">
-                    {documents.length === 0 ? (
-                      <p className="text-muted-foreground text-center py-8">No documents uploaded yet</p>
-                    ) : (
-                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                        {documents.map(doc => (
-                          <DocumentCard 
-                            key={doc.id} 
-                            document={doc} 
-                            onDelete={() => deleteMutation.mutate(doc.id)} 
-                          />
-                        ))}
-                      </div>
-                    )}
-                  </TabsContent>
-                  
-                  {DOCUMENT_CATEGORIES.map(cat => (
-                    <TabsContent key={cat.value} value={cat.value} className="mt-4">
-                      {(groupedDocuments[cat.value]?.length || 0) === 0 ? (
-                        <p className="text-muted-foreground text-center py-8">No {cat.label.toLowerCase()} documents</p>
-                      ) : (
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                          {groupedDocuments[cat.value]?.map(doc => (
-                            <DocumentCard 
-                              key={doc.id} 
-                              document={doc} 
-                              onDelete={() => deleteMutation.mutate(doc.id)} 
+                        <div className="space-y-1">
+                          <Label className="text-muted-foreground text-sm">Email</Label>
+                          <p className="font-medium" data-testid="text-caregiver-email">{caregiver.email || user?.email || "N/A"}</p>
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-muted-foreground text-sm">Employee ID</Label>
+                          {isEditing ? (
+                            <Input
+                              value={editFormData.employeeId || ""}
+                              onChange={(e) => setEditFormData({ ...editFormData, employeeId: e.target.value })}
+                              data-testid="input-employee-id"
                             />
+                          ) : (
+                            <p className="font-medium" data-testid="text-employee-id">{caregiver.employeeId || "N/A"}</p>
+                          )}
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-muted-foreground text-sm">Gender</Label>
+                          {isEditing ? (
+                            <Select
+                              value={editFormData.gender || ""}
+                              onValueChange={(value) => setEditFormData({ ...editFormData, gender: value })}
+                            >
+                              <SelectTrigger data-testid="select-gender">
+                                <SelectValue placeholder="Select gender" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="male">Male</SelectItem>
+                                <SelectItem value="female">Female</SelectItem>
+                                <SelectItem value="other">Other</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          ) : (
+                            <p className="font-medium capitalize" data-testid="text-gender">{caregiver.gender || "N/A"}</p>
+                          )}
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-muted-foreground text-sm">Office</Label>
+                          {isEditing ? (
+                            <Select
+                              value={editFormData.officeId || ""}
+                              onValueChange={(value) => setEditFormData({ ...editFormData, officeId: value })}
+                            >
+                              <SelectTrigger data-testid="select-office">
+                                <SelectValue placeholder="Select office" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {offices.map((o) => (
+                                  <SelectItem key={o.id} value={o.id}>{o.name}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          ) : (
+                            <p className="font-medium" data-testid="text-office">{office?.name || "N/A"}</p>
+                          )}
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-muted-foreground text-sm">Status</Label>
+                          {isEditing ? (
+                            <Select
+                              value={editFormData.isActive ? "active" : "inactive"}
+                              onValueChange={(value) => setEditFormData({ ...editFormData, isActive: value === "active" })}
+                            >
+                              <SelectTrigger data-testid="select-status">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="active">Active</SelectItem>
+                                <SelectItem value="inactive">Inactive</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          ) : (
+                            <Badge variant={caregiver.isActive ? "default" : "secondary"} data-testid="badge-status">
+                              {caregiver.isActive ? "Active" : "Inactive"}
+                            </Badge>
+                          )}
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2">
+                        <Briefcase className="w-5 h-5" />
+                        Employment Information
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                        <div className="space-y-1">
+                          <Label className="text-muted-foreground text-sm">Hire Date</Label>
+                          {isEditing ? (
+                            <Input
+                              type="date"
+                              value={editFormData.hireDate ? new Date(editFormData.hireDate).toISOString().split('T')[0] : ""}
+                              onChange={(e) => setEditFormData({ ...editFormData, hireDate: e.target.value ? new Date(e.target.value) : undefined })}
+                              data-testid="input-hire-date"
+                            />
+                          ) : (
+                            <p className="font-medium" data-testid="text-hire-date">
+                              {caregiver.hireDate ? format(new Date(caregiver.hireDate), "MMM d, yyyy") : "N/A"}
+                            </p>
+                          )}
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-muted-foreground text-sm">Start Date</Label>
+                          {isEditing ? (
+                            <Input
+                              type="date"
+                              value={editFormData.startDate ? new Date(editFormData.startDate).toISOString().split('T')[0] : ""}
+                              onChange={(e) => setEditFormData({ ...editFormData, startDate: e.target.value ? new Date(e.target.value) : undefined })}
+                              data-testid="input-start-date"
+                            />
+                          ) : (
+                            <p className="font-medium" data-testid="text-start-date">
+                              {caregiver.startDate ? format(new Date(caregiver.startDate), "MMM d, yyyy") : "N/A"}
+                            </p>
+                          )}
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-muted-foreground text-sm">Hourly Wage</Label>
+                          {isEditing ? (
+                            <Input
+                              type="number"
+                              step="0.01"
+                              value={editFormData.hourlyWage || ""}
+                              onChange={(e) => setEditFormData({ ...editFormData, hourlyWage: e.target.value })}
+                              data-testid="input-hourly-wage"
+                            />
+                          ) : (
+                            <p className="font-medium" data-testid="text-hourly-wage">
+                              {caregiver.hourlyWage ? `$${parseFloat(caregiver.hourlyWage).toFixed(2)}` : "N/A"}
+                            </p>
+                          )}
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-muted-foreground text-sm">Experience (Years)</Label>
+                          {isEditing ? (
+                            <Input
+                              type="number"
+                              value={editFormData.experienceYears ?? ""}
+                              onChange={(e) => setEditFormData({ ...editFormData, experienceYears: parseInt(e.target.value) || undefined })}
+                              data-testid="input-experience-years"
+                            />
+                          ) : (
+                            <p className="font-medium" data-testid="text-experience-years">
+                              {caregiver.experienceYears !== null && caregiver.experienceYears !== undefined ? `${caregiver.experienceYears} years` : "N/A"}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2">
+                        <Users className="w-5 h-5" />
+                        Assigned Clients ({assignedClients.length})
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      {assignedClients.length === 0 ? (
+                        <p className="text-muted-foreground text-sm">No clients assigned</p>
+                      ) : (
+                        <div className="space-y-2">
+                          {assignedClients.map((client) => (
+                            <Link key={client.id} href={`/clients/${client.id}`}>
+                              <div className="flex items-center gap-3 p-3 rounded-md hover:bg-muted cursor-pointer" data-testid={`link-client-${client.id}`}>
+                                <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
+                                  <User className="w-4 h-4 text-primary" />
+                                </div>
+                                <div>
+                                  <p className="font-medium">{client.firstName} {client.lastName}</p>
+                                  <p className="text-sm text-muted-foreground">{client.memberId || "No member ID"}</p>
+                                </div>
+                              </div>
+                            </Link>
                           ))}
                         </div>
                       )}
-                    </TabsContent>
-                  ))}
-                </Tabs>
-              </CardContent>
-            </Card>
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
+
+              {activeSection === "compliance" && (
+                <div className="space-y-6">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2">
+                        <Shield className="w-5 h-5" />
+                        Compliance Items
+                      </CardTitle>
+                      <CardDescription>Track certifications, clearances, and compliance requirements</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      {complianceItems.length === 0 ? (
+                        <p className="text-muted-foreground text-sm">No compliance items found</p>
+                      ) : (
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Item</TableHead>
+                              <TableHead>Type</TableHead>
+                              <TableHead>Status</TableHead>
+                              <TableHead>Due Date</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {complianceItems.map((item) => (
+                              <TableRow key={item.id} data-testid={`row-compliance-${item.id}`}>
+                                <TableCell className="font-medium">{item.itemName}</TableCell>
+                                <TableCell>{item.itemType}</TableCell>
+                                <TableCell>
+                                  <Badge variant={item.status === "compliant" ? "default" : item.status === "pending" ? "secondary" : "destructive"}>
+                                    {item.status}
+                                  </Badge>
+                                </TableCell>
+                                <TableCell>
+                                  {item.dueDate ? format(new Date(item.dueDate), "MMM d, yyyy") : "N/A"}
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      )}
+                    </CardContent>
+                  </Card>
+
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2">
+                        <Award className="w-5 h-5" />
+                        Certifications
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      {certifications.length === 0 ? (
+                        <p className="text-muted-foreground text-sm">No certifications found</p>
+                      ) : (
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Certification</TableHead>
+                              <TableHead>Issue Date</TableHead>
+                              <TableHead>Expiration Date</TableHead>
+                              <TableHead>Status</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {certifications.map((cert) => (
+                              <TableRow key={cert.id} data-testid={`row-cert-${cert.id}`}>
+                                <TableCell className="font-medium">{cert.certificationName}</TableCell>
+                                <TableCell>
+                                  {cert.issueDate ? format(new Date(cert.issueDate), "MMM d, yyyy") : "N/A"}
+                                </TableCell>
+                                <TableCell>
+                                  {cert.expirationDate ? format(new Date(cert.expirationDate), "MMM d, yyyy") : "N/A"}
+                                </TableCell>
+                                <TableCell>
+                                  <Badge variant={cert.isValid ? "default" : "destructive"}>
+                                    {cert.isValid ? "Valid" : "Expired"}
+                                  </Badge>
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      )}
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
+
+              {activeSection === "calendar" && (
+                <div className="space-y-6">
+                  <Card>
+                    <CardHeader>
+                      <div className="flex items-center justify-between">
+                        <CardTitle className="flex items-center gap-2">
+                          <Calendar className="w-5 h-5" />
+                          Schedule Calendar
+                        </CardTitle>
+                        <div className="flex items-center gap-2">
+                          <Button variant="outline" size="icon" onClick={() => setCurrentMonth(subMonths(currentMonth, 1))} data-testid="button-prev-month">
+                            <ChevronLeft className="w-4 h-4" />
+                          </Button>
+                          <span className="font-medium min-w-[140px] text-center">
+                            {format(currentMonth, "MMMM yyyy")}
+                          </span>
+                          <Button variant="outline" size="icon" onClick={() => setCurrentMonth(addMonths(currentMonth, 1))} data-testid="button-next-month">
+                            <ChevronRight className="w-4 h-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="grid grid-cols-7 gap-1">
+                        {DAY_NAMES.map((day) => (
+                          <div key={day} className="text-center text-sm font-medium text-muted-foreground py-2">
+                            {day}
+                          </div>
+                        ))}
+                        {paddedDays.map((day, idx) => {
+                          if (!day) {
+                            return <div key={`empty-${idx}`} className="h-24 bg-muted/20 rounded-md" />;
+                          }
+                          const daySchedules = schedules.filter(
+                            (s) => format(new Date(s.scheduledDate), "yyyy-MM-dd") === format(day, "yyyy-MM-dd")
+                          );
+                          return (
+                            <div
+                              key={day.toISOString()}
+                              className={`h-24 p-1 rounded-md border ${
+                                isToday(day) ? "border-primary bg-primary/5" : "border-transparent hover:border-muted-foreground/20"
+                              } ${!isSameMonth(day, currentMonth) ? "opacity-50" : ""}`}
+                            >
+                              <div className={`text-sm ${isToday(day) ? "font-bold text-primary" : ""}`}>
+                                {format(day, "d")}
+                              </div>
+                              <div className="space-y-0.5 mt-1">
+                                {daySchedules.slice(0, 2).map((schedule) => (
+                                  <div
+                                    key={schedule.id}
+                                    className="text-xs p-1 rounded bg-primary/10 text-primary truncate"
+                                  >
+                                    {schedule.startTime} - {schedule.endTime}
+                                  </div>
+                                ))}
+                                {daySchedules.length > 2 && (
+                                  <div className="text-xs text-muted-foreground">+{daySchedules.length - 2} more</div>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
+
+              {activeSection === "visits" && (
+                <div className="space-y-6">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2">
+                        <Clock className="w-5 h-5" />
+                        Recent Visits
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      {schedules.length === 0 ? (
+                        <p className="text-muted-foreground text-sm">No visits found</p>
+                      ) : (
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Date</TableHead>
+                              <TableHead>Time</TableHead>
+                              <TableHead>Status</TableHead>
+                              <TableHead>Clock In/Out</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {schedules.slice(0, 20).map((schedule) => (
+                              <TableRow key={schedule.id} data-testid={`row-visit-${schedule.id}`}>
+                                <TableCell>{format(new Date(schedule.scheduledDate), "MMM d, yyyy")}</TableCell>
+                                <TableCell>{schedule.startTime} - {schedule.endTime}</TableCell>
+                                <TableCell>
+                                  <Badge variant={
+                                    schedule.status === "completed" ? "default" :
+                                    schedule.status === "in_progress" ? "secondary" :
+                                    schedule.status === "cancelled" ? "destructive" : "outline"
+                                  }>
+                                    {schedule.status}
+                                  </Badge>
+                                </TableCell>
+                                <TableCell>
+                                  {schedule.clockInTime && schedule.clockOutTime ? (
+                                    <span className="text-sm">
+                                      {format(new Date(schedule.clockInTime), "HH:mm")} - {format(new Date(schedule.clockOutTime), "HH:mm")}
+                                    </span>
+                                  ) : schedule.clockInTime ? (
+                                    <span className="text-sm">{format(new Date(schedule.clockInTime), "HH:mm")} - Pending</span>
+                                  ) : (
+                                    <span className="text-muted-foreground text-sm">Not clocked</span>
+                                  )}
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      )}
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
+
+              {activeSection === "in-service" && (
+                <div className="space-y-6">
+                  <Card>
+                    <CardHeader>
+                      <div className="flex items-center justify-between">
+                        <CardTitle className="flex items-center gap-2">
+                          <GraduationCap className="w-5 h-5" />
+                          In-Service Training Records
+                        </CardTitle>
+                        <Button size="sm" onClick={() => { setDialogType("in-service"); setShowAddDialog(true); }} data-testid="button-add-in-service">
+                          <Plus className="w-4 h-4 mr-2" />
+                          Add Training
+                        </Button>
+                      </div>
+                    </CardHeader>
+                    <CardContent>
+                      {inServices.length === 0 ? (
+                        <p className="text-muted-foreground text-sm">No in-service training records found</p>
+                      ) : (
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Training</TableHead>
+                              <TableHead>Date</TableHead>
+                              <TableHead>Hours</TableHead>
+                              <TableHead>Status</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {inServices.map((service) => (
+                              <TableRow key={service.id} data-testid={`row-in-service-${service.id}`}>
+                                <TableCell className="font-medium">{service.title}</TableCell>
+                                <TableCell>{format(new Date(service.trainingDate), "MMM d, yyyy")}</TableCell>
+                                <TableCell>{service.hours || "N/A"}</TableCell>
+                                <TableCell>
+                                  <Badge variant={service.status === "completed" ? "default" : "secondary"}>
+                                    {service.status}
+                                  </Badge>
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      )}
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
+
+              {activeSection === "rates" && (
+                <div className="space-y-6">
+                  <Card>
+                    <CardHeader>
+                      <div className="flex items-center justify-between">
+                        <CardTitle className="flex items-center gap-2">
+                          <DollarSign className="w-5 h-5" />
+                          Pay Rates
+                        </CardTitle>
+                        <Button size="sm" onClick={() => { setDialogType("rate"); setShowAddDialog(true); }} data-testid="button-add-rate">
+                          <Plus className="w-4 h-4 mr-2" />
+                          Add Rate
+                        </Button>
+                      </div>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="mb-4 p-4 bg-muted/50 rounded-lg">
+                        <p className="text-sm text-muted-foreground">Base Hourly Wage</p>
+                        <p className="text-2xl font-bold" data-testid="text-base-wage">
+                          {caregiver.hourlyWage ? `$${parseFloat(caregiver.hourlyWage).toFixed(2)}/hr` : "Not set"}
+                        </p>
+                      </div>
+                      {rates.length === 0 ? (
+                        <p className="text-muted-foreground text-sm">No additional rates configured</p>
+                      ) : (
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Service Type</TableHead>
+                              <TableHead>Rate</TableHead>
+                              <TableHead>Type</TableHead>
+                              <TableHead>Effective</TableHead>
+                              <TableHead>Status</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {rates.map((rate) => (
+                              <TableRow key={rate.id} data-testid={`row-rate-${rate.id}`}>
+                                <TableCell className="font-medium capitalize">{rate.serviceType?.replace(/_/g, " ")}</TableCell>
+                                <TableCell>${parseFloat(rate.rate).toFixed(2)}</TableCell>
+                                <TableCell className="capitalize">{rate.rateType}</TableCell>
+                                <TableCell>
+                                  {rate.effectiveFrom ? format(new Date(rate.effectiveFrom), "MMM d, yyyy") : "N/A"}
+                                </TableCell>
+                                <TableCell>
+                                  <Badge variant={rate.isActive ? "default" : "secondary"}>
+                                    {rate.isActive ? "Active" : "Inactive"}
+                                  </Badge>
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      )}
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
+
+              {activeSection === "notes" && (
+                <div className="space-y-6">
+                  <Card>
+                    <CardHeader>
+                      <div className="flex items-center justify-between">
+                        <CardTitle className="flex items-center gap-2">
+                          <MessageSquare className="w-5 h-5" />
+                          Notes
+                        </CardTitle>
+                        <Button size="sm" onClick={() => { setDialogType("note"); setShowAddDialog(true); }} data-testid="button-add-note">
+                          <Plus className="w-4 h-4 mr-2" />
+                          Add Note
+                        </Button>
+                      </div>
+                    </CardHeader>
+                    <CardContent>
+                      {notes.length === 0 ? (
+                        <p className="text-muted-foreground text-sm">No notes found</p>
+                      ) : (
+                        <div className="space-y-4">
+                          {notes.map((note) => (
+                            <div key={note.id} className="p-4 border rounded-lg" data-testid={`card-note-${note.id}`}>
+                              <div className="flex items-center justify-between mb-2">
+                                <div className="flex items-center gap-2">
+                                  <Badge variant="outline" className="capitalize">{note.noteType}</Badge>
+                                  {note.subject && <span className="font-medium">{note.subject}</span>}
+                                </div>
+                                <span className="text-sm text-muted-foreground">
+                                  {format(new Date(note.createdAt), "MMM d, yyyy")}
+                                </span>
+                              </div>
+                              <p className="text-sm">{note.content}</p>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
+
+              {activeSection === "preferences" && (
+                <div className="space-y-6">
+                  <Card>
+                    <CardHeader>
+                      <div className="flex items-center justify-between">
+                        <CardTitle className="flex items-center gap-2">
+                          <Heart className="w-5 h-5" />
+                          Work Preferences
+                        </CardTitle>
+                        <Button size="sm" onClick={() => { setDialogType("preference"); setShowAddDialog(true); }} data-testid="button-add-preference">
+                          <Plus className="w-4 h-4 mr-2" />
+                          Add Preference
+                        </Button>
+                      </div>
+                    </CardHeader>
+                    <CardContent>
+                      {preferences.length === 0 ? (
+                        <p className="text-muted-foreground text-sm">No preferences set</p>
+                      ) : (
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Type</TableHead>
+                              <TableHead>Value</TableHead>
+                              <TableHead>Priority</TableHead>
+                              <TableHead>Notes</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {preferences.map((pref) => (
+                              <TableRow key={pref.id} data-testid={`row-preference-${pref.id}`}>
+                                <TableCell className="font-medium capitalize">{pref.preferenceType?.replace(/_/g, " ")}</TableCell>
+                                <TableCell>{pref.preferenceValue}</TableCell>
+                                <TableCell>
+                                  <Badge variant={pref.priority === 1 ? "default" : pref.priority === 2 ? "secondary" : "outline"}>
+                                    {pref.priority === 1 ? "High" : pref.priority === 2 ? "Medium" : "Low"}
+                                  </Badge>
+                                </TableCell>
+                                <TableCell className="text-sm text-muted-foreground">{pref.notes || "N/A"}</TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      )}
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
+
+              {activeSection === "absence" && (
+                <div className="space-y-6">
+                  <Card>
+                    <CardHeader>
+                      <div className="flex items-center justify-between">
+                        <CardTitle className="flex items-center gap-2">
+                          <AlertTriangle className="w-5 h-5" />
+                          Absences & Restrictions
+                        </CardTitle>
+                        <Button size="sm" onClick={() => { setDialogType("absence"); setShowAddDialog(true); }} data-testid="button-add-absence">
+                          <Plus className="w-4 h-4 mr-2" />
+                          Add Absence
+                        </Button>
+                      </div>
+                    </CardHeader>
+                    <CardContent>
+                      {absences.length === 0 ? (
+                        <p className="text-muted-foreground text-sm">No absences or restrictions recorded</p>
+                      ) : (
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Type</TableHead>
+                              <TableHead>Start Date</TableHead>
+                              <TableHead>End Date</TableHead>
+                              <TableHead>Status</TableHead>
+                              <TableHead>Reason</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {absences.map((absence) => (
+                              <TableRow key={absence.id} data-testid={`row-absence-${absence.id}`}>
+                                <TableCell className="font-medium capitalize">{absence.absenceType?.replace(/_/g, " ")}</TableCell>
+                                <TableCell>{format(new Date(absence.startDate), "MMM d, yyyy")}</TableCell>
+                                <TableCell>
+                                  {absence.endDate ? format(new Date(absence.endDate), "MMM d, yyyy") : "Ongoing"}
+                                </TableCell>
+                                <TableCell>
+                                  <Badge variant={
+                                    absence.status === "approved" ? "default" :
+                                    absence.status === "pending" ? "secondary" : "destructive"
+                                  }>
+                                    {absence.status}
+                                  </Badge>
+                                </TableCell>
+                                <TableCell className="text-sm">{absence.reason || "N/A"}</TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      )}
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
+
+              {activeSection === "availability" && (
+                <div className="space-y-6">
+                  <Card>
+                    <CardHeader>
+                      <div className="flex items-center justify-between">
+                        <CardTitle className="flex items-center gap-2">
+                          <CalendarDays className="w-5 h-5" />
+                          Weekly Availability
+                        </CardTitle>
+                        <Button size="sm" onClick={() => { setDialogType("availability"); setShowAddDialog(true); }} data-testid="button-add-availability">
+                          <Plus className="w-4 h-4 mr-2" />
+                          Add Slot
+                        </Button>
+                      </div>
+                    </CardHeader>
+                    <CardContent>
+                      {availability.length === 0 ? (
+                        <p className="text-muted-foreground text-sm">No availability set</p>
+                      ) : (
+                        <div className="grid grid-cols-7 gap-2">
+                          {DAY_NAMES.map((day, idx) => {
+                            const daySlots = availability.filter((a) => a.dayOfWeek === idx);
+                            return (
+                              <div key={day} className="border rounded-lg p-2">
+                                <h4 className="font-medium text-sm text-center border-b pb-1 mb-2">{day}</h4>
+                                {daySlots.length === 0 ? (
+                                  <p className="text-xs text-muted-foreground text-center">Not set</p>
+                                ) : (
+                                  <div className="space-y-1">
+                                    {daySlots.map((slot) => (
+                                      <div
+                                        key={slot.id}
+                                        className={`text-xs p-1 rounded text-center ${
+                                          slot.isAvailable ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"
+                                        }`}
+                                      >
+                                        {slot.startTime} - {slot.endTime}
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
+
+              {activeSection === "payroll-info" && (
+                <div className="space-y-6">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2">
+                        <CreditCard className="w-5 h-5" />
+                        Payroll Information
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      {!payrollInfo ? (
+                        <div className="text-center py-8">
+                          <p className="text-muted-foreground mb-4">No payroll information configured</p>
+                          <Button onClick={() => { setDialogType("payroll-info"); setShowAddDialog(true); }} data-testid="button-setup-payroll">
+                            <Plus className="w-4 h-4 mr-2" />
+                            Setup Payroll Info
+                          </Button>
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                          <div className="space-y-1">
+                            <Label className="text-muted-foreground text-sm">Payment Method</Label>
+                            <p className="font-medium capitalize" data-testid="text-payment-method">
+                              {payrollInfo.paymentMethod?.replace(/_/g, " ") || "N/A"}
+                            </p>
+                          </div>
+                          <div className="space-y-1">
+                            <Label className="text-muted-foreground text-sm">Bank Name</Label>
+                            <p className="font-medium" data-testid="text-bank-name">{payrollInfo.bankName || "N/A"}</p>
+                          </div>
+                          <div className="space-y-1">
+                            <Label className="text-muted-foreground text-sm">Account Type</Label>
+                            <p className="font-medium capitalize" data-testid="text-account-type">{payrollInfo.accountType || "N/A"}</p>
+                          </div>
+                          <div className="space-y-1">
+                            <Label className="text-muted-foreground text-sm">Tax Filing Status</Label>
+                            <p className="font-medium capitalize" data-testid="text-tax-status">
+                              {payrollInfo.taxFilingStatus?.replace(/_/g, " ") || "N/A"}
+                            </p>
+                          </div>
+                          <div className="space-y-1">
+                            <Label className="text-muted-foreground text-sm">W-4 On File</Label>
+                            <Badge variant={payrollInfo.w4OnFile ? "default" : "secondary"} data-testid="badge-w4">
+                              {payrollInfo.w4OnFile ? "Yes" : "No"}
+                            </Badge>
+                          </div>
+                          <div className="space-y-1">
+                            <Label className="text-muted-foreground text-sm">I-9 On File</Label>
+                            <Badge variant={payrollInfo.i9OnFile ? "default" : "secondary"} data-testid="badge-i9">
+                              {payrollInfo.i9OnFile ? "Yes" : "No"}
+                            </Badge>
+                          </div>
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
+
+              {activeSection === "expenses" && (
+                <div className="space-y-6">
+                  <Card>
+                    <CardHeader>
+                      <div className="flex items-center justify-between">
+                        <CardTitle className="flex items-center gap-2">
+                          <Receipt className="w-5 h-5" />
+                          Expenses
+                        </CardTitle>
+                        <Button size="sm" onClick={() => { setDialogType("expense"); setShowAddDialog(true); }} data-testid="button-add-expense">
+                          <Plus className="w-4 h-4 mr-2" />
+                          Add Expense
+                        </Button>
+                      </div>
+                    </CardHeader>
+                    <CardContent>
+                      {expenses.length === 0 ? (
+                        <p className="text-muted-foreground text-sm">No expenses recorded</p>
+                      ) : (
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Date</TableHead>
+                              <TableHead>Type</TableHead>
+                              <TableHead>Amount</TableHead>
+                              <TableHead>Status</TableHead>
+                              <TableHead>Description</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {expenses.map((expense) => (
+                              <TableRow key={expense.id} data-testid={`row-expense-${expense.id}`}>
+                                <TableCell>{format(new Date(expense.expenseDate), "MMM d, yyyy")}</TableCell>
+                                <TableCell className="capitalize">{expense.expenseType?.replace(/_/g, " ")}</TableCell>
+                                <TableCell>${parseFloat(expense.amount).toFixed(2)}</TableCell>
+                                <TableCell>
+                                  <Badge variant={
+                                    expense.status === "paid" ? "default" :
+                                    expense.status === "approved" ? "secondary" :
+                                    expense.status === "pending" ? "outline" : "destructive"
+                                  }>
+                                    {expense.status}
+                                  </Badge>
+                                </TableCell>
+                                <TableCell className="text-sm">{expense.description || "N/A"}</TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      )}
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
+
+              {activeSection === "paychecks" && (
+                <div className="space-y-6">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2">
+                        <Wallet className="w-5 h-5" />
+                        Paycheck History
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      {paychecks.length === 0 ? (
+                        <p className="text-muted-foreground text-sm">No paychecks found</p>
+                      ) : (
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Pay Date</TableHead>
+                              <TableHead>Period</TableHead>
+                              <TableHead>Hours</TableHead>
+                              <TableHead>Gross</TableHead>
+                              <TableHead>Net</TableHead>
+                              <TableHead>Status</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {paychecks.map((paycheck) => (
+                              <TableRow key={paycheck.id} data-testid={`row-paycheck-${paycheck.id}`}>
+                                <TableCell>{format(new Date(paycheck.payDate), "MMM d, yyyy")}</TableCell>
+                                <TableCell className="text-sm">
+                                  {format(new Date(paycheck.payPeriodStart), "MMM d")} - {format(new Date(paycheck.payPeriodEnd), "MMM d")}
+                                </TableCell>
+                                <TableCell>
+                                  {parseFloat(paycheck.regularHours || 0) + parseFloat(paycheck.overtimeHours || 0)}
+                                </TableCell>
+                                <TableCell>${parseFloat(paycheck.grossPay).toFixed(2)}</TableCell>
+                                <TableCell className="font-medium">${parseFloat(paycheck.netPay).toFixed(2)}</TableCell>
+                                <TableCell>
+                                  <Badge variant={
+                                    paycheck.status === "paid" ? "default" :
+                                    paycheck.status === "processed" ? "secondary" : "outline"
+                                  }>
+                                    {paycheck.status}
+                                  </Badge>
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      )}
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
+
+              {activeSection === "member-history" && (
+                <div className="space-y-6">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2">
+                        <History className="w-5 h-5" />
+                        Client Assignment History
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      {assignedClients.length === 0 ? (
+                        <p className="text-muted-foreground text-sm">No client history found</p>
+                      ) : (
+                        <div className="space-y-4">
+                          {assignedClients.map((client) => (
+                            <div key={client.id} className="flex items-center justify-between p-4 border rounded-lg" data-testid={`card-client-history-${client.id}`}>
+                              <div className="flex items-center gap-3">
+                                <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
+                                  <User className="w-5 h-5 text-primary" />
+                                </div>
+                                <div>
+                                  <p className="font-medium">{client.firstName} {client.lastName}</p>
+                                  <p className="text-sm text-muted-foreground">{client.memberId || "No member ID"}</p>
+                                </div>
+                              </div>
+                              <Badge variant="default">Current</Badge>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
+
+              {activeSection === "others" && (
+                <div className="space-y-6">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2">
+                        <MoreHorizontal className="w-5 h-5" />
+                        Additional Information
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div className="space-y-1">
+                          <Label className="text-muted-foreground text-sm">Specializations</Label>
+                          <div className="flex flex-wrap gap-2">
+                            {caregiver.specializations && caregiver.specializations.length > 0 ? (
+                              caregiver.specializations.map((spec, idx) => (
+                                <Badge key={idx} variant="outline">{spec}</Badge>
+                              ))
+                            ) : (
+                              <p className="text-muted-foreground text-sm">No specializations listed</p>
+                            )}
+                          </div>
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-muted-foreground text-sm">Created At</Label>
+                          <p className="font-medium">
+                            {caregiver.createdAt ? format(new Date(caregiver.createdAt), "MMM d, yyyy HH:mm") : "N/A"}
+                          </p>
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-muted-foreground text-sm">Last Updated</Label>
+                          <p className="font-medium">
+                            {caregiver.updatedAt ? format(new Date(caregiver.updatedAt), "MMM d, yyyy HH:mm") : "N/A"}
+                          </p>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
+
+              {activeSection === "documents" && (
+                <div className="space-y-6">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2">
+                        <FileText className="w-5 h-5" />
+                        Document Management
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="mb-6 p-4 border rounded-lg bg-muted/30">
+                        <h4 className="font-medium mb-3">Upload New Document</h4>
+                        <div className="flex gap-4 items-end flex-wrap">
+                          <div className="flex-1 min-w-[200px]">
+                            <Label className="text-sm">Document Type</Label>
+                            <Select value={uploadCategory} onValueChange={setUploadCategory}>
+                              <SelectTrigger data-testid="select-upload-category">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {DOCUMENT_CATEGORIES.map((cat) => (
+                                  <SelectItem key={cat.value} value={cat.value}>{cat.label}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div className="flex-1 min-w-[200px]">
+                            <Label className="text-sm">Select File</Label>
+                            <Input
+                              type="file"
+                              onChange={(e) => setSelectedFile(e.target.files?.[0] || null)}
+                              data-testid="input-file-upload"
+                            />
+                          </div>
+                          <Button
+                            onClick={handleFileUpload}
+                            disabled={!selectedFile || uploadMutation.isPending}
+                            data-testid="button-upload-document"
+                          >
+                            <Upload className="w-4 h-4 mr-2" />
+                            Upload
+                          </Button>
+                        </div>
+                      </div>
+
+                      <div className="space-y-6">
+                        {DOCUMENT_CATEGORIES.map((category) => {
+                          const categoryDocs = groupedDocuments[category.value] || [];
+                          return (
+                            <div key={category.value}>
+                              <h4 className="font-medium mb-2">{category.label} ({categoryDocs.length})</h4>
+                              {categoryDocs.length === 0 ? (
+                                <p className="text-sm text-muted-foreground">No documents</p>
+                              ) : (
+                                <div className="space-y-2">
+                                  {categoryDocs.map((doc) => (
+                                    <div key={doc.id} className="flex items-center justify-between p-3 border rounded-lg" data-testid={`card-document-${doc.id}`}>
+                                      <div className="flex items-center gap-3">
+                                        <FileText className="w-4 h-4 text-muted-foreground" />
+                                        <div>
+                                          <p className="font-medium text-sm">{doc.originalName || doc.fileName}</p>
+                                          <p className="text-xs text-muted-foreground">
+                                            {doc.createdAt ? format(new Date(doc.createdAt), "MMM d, yyyy") : ""}
+                                          </p>
+                                        </div>
+                                      </div>
+                                      <div className="flex gap-2">
+                                        <Button variant="ghost" size="icon" data-testid={`button-view-doc-${doc.id}`}>
+                                          <Eye className="w-4 h-4" />
+                                        </Button>
+                                        <Button variant="ghost" size="icon" data-testid={`button-download-doc-${doc.id}`}>
+                                          <Download className="w-4 h-4" />
+                                        </Button>
+                                        <Button
+                                          variant="ghost"
+                                          size="icon"
+                                          onClick={() => deleteMutation.mutate(doc.id)}
+                                          data-testid={`button-delete-doc-${doc.id}`}
+                                        >
+                                          <Trash2 className="w-4 h-4 text-destructive" />
+                                        </Button>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
+
+              {activeSection === "office-move" && (
+                <div className="space-y-6">
+                  <Card>
+                    <CardHeader>
+                      <div className="flex items-center justify-between">
+                        <CardTitle className="flex items-center gap-2">
+                          <ArrowRightLeft className="w-5 h-5" />
+                          Office Transfer History
+                        </CardTitle>
+                        <Button size="sm" onClick={() => { setDialogType("office-move"); setShowAddDialog(true); }} data-testid="button-add-office-move">
+                          <Plus className="w-4 h-4 mr-2" />
+                          Record Transfer
+                        </Button>
+                      </div>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="mb-4 p-4 bg-muted/50 rounded-lg">
+                        <p className="text-sm text-muted-foreground">Current Office</p>
+                        <p className="text-lg font-medium" data-testid="text-current-office">{office?.name || "Not assigned"}</p>
+                      </div>
+                      {officeMoves.length === 0 ? (
+                        <p className="text-muted-foreground text-sm">No transfer history</p>
+                      ) : (
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Date</TableHead>
+                              <TableHead>From</TableHead>
+                              <TableHead>To</TableHead>
+                              <TableHead>Status</TableHead>
+                              <TableHead>Reason</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {officeMoves.map((move) => (
+                              <TableRow key={move.id} data-testid={`row-office-move-${move.id}`}>
+                                <TableCell>{format(new Date(move.moveDate), "MMM d, yyyy")}</TableCell>
+                                <TableCell>{offices.find(o => o.id === move.fromOfficeId)?.name || "N/A"}</TableCell>
+                                <TableCell>{offices.find(o => o.id === move.toOfficeId)?.name || "N/A"}</TableCell>
+                                <TableCell>
+                                  <Badge variant={move.status === "completed" ? "default" : "secondary"}>
+                                    {move.status}
+                                  </Badge>
+                                </TableCell>
+                                <TableCell className="text-sm">{move.reason || "N/A"}</TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      )}
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </main>
-    </div>
-  );
-}
 
-function DocumentCard({ document, onDelete }: { document: Document; onDelete: () => void }) {
-  const [showViewer, setShowViewer] = useState(false);
-  const categoryLabel = DOCUMENT_CATEGORIES.find(c => c.value === document.documentType)?.label || document.documentType;
-  const isPdf = document.fileName?.toLowerCase().endsWith('.pdf') || document.originalName?.toLowerCase().endsWith('.pdf');
-  const isImage = /\.(jpg|jpeg|png|gif|webp)$/i.test(document.fileName || document.originalName || '');
-  const fileUrl = `/uploads/${document.fileName}`;
-  
-  return (
-    <>
-      <div className="p-4 border rounded-lg" data-testid={`card-document-${document.id}`}>
-        <div className="flex items-start justify-between">
-          <div className="flex-1 min-w-0">
-            <p className="font-medium truncate">{document.originalName}</p>
-            <p className="text-sm text-muted-foreground">{categoryLabel}</p>
-            <p className="text-xs text-muted-foreground mt-1">
-              {document.createdAt ? format(new Date(document.createdAt), "MMM d, yyyy") : ""}
-            </p>
-          </div>
-          <div className="flex gap-1 ml-2">
-            {(isPdf || isImage) && (
-              <Button 
-                variant="ghost" 
-                size="icon" 
-                className="h-8 w-8"
-                onClick={() => setShowViewer(true)}
-                data-testid={`button-view-${document.id}`}
-              >
-                <Eye className="w-4 h-4" />
-              </Button>
-            )}
-            <Button 
-              variant="ghost" 
-              size="icon" 
-              className="h-8 w-8"
-              onClick={() => window.open(fileUrl, '_blank')}
-              data-testid={`button-download-${document.id}`}
-            >
-              <Download className="w-4 h-4" />
-            </Button>
-            <Button 
-              variant="ghost" 
-              size="icon" 
-              className="h-8 w-8 text-destructive"
-              onClick={onDelete}
-              data-testid={`button-delete-${document.id}`}
-            >
-              <Trash2 className="w-4 h-4" />
-            </Button>
-          </div>
-        </div>
-      </div>
-
-      <Dialog open={showViewer} onOpenChange={setShowViewer}>
-        <DialogContent className="max-w-4xl w-full h-[85vh] flex flex-col">
-          <DialogHeader className="flex-shrink-0">
-            <DialogTitle className="flex items-center justify-between pr-8">
-              <span className="truncate">{document.originalName}</span>
+      <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              {dialogType === "note" && "Add Note"}
+              {dialogType === "preference" && "Add Preference"}
+              {dialogType === "absence" && "Add Absence"}
+              {dialogType === "availability" && "Add Availability Slot"}
+              {dialogType === "expense" && "Add Expense"}
+              {dialogType === "rate" && "Add Rate"}
+              {dialogType === "in-service" && "Add In-Service Training"}
+              {dialogType === "office-move" && "Record Office Transfer"}
+              {dialogType === "payroll-info" && "Setup Payroll Info"}
             </DialogTitle>
           </DialogHeader>
-          <div className="flex-1 overflow-hidden rounded-lg bg-muted">
-            {isPdf ? (
-              <iframe
-                src={fileUrl}
-                className="w-full h-full border-0"
-                title={document.originalName || "PDF Document"}
-              />
-            ) : isImage ? (
-              <div className="w-full h-full flex items-center justify-center p-4">
-                <img 
-                  src={fileUrl} 
-                  alt={document.originalName || "Document"} 
-                  className="max-w-full max-h-full object-contain"
-                />
-              </div>
-            ) : null}
+          <div className="py-4">
+            <p className="text-sm text-muted-foreground">
+              Form for adding {dialogType} would be implemented here with proper validation and API calls.
+            </p>
           </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowAddDialog(false)}>Cancel</Button>
+            <Button onClick={() => setShowAddDialog(false)}>Save</Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
-    </>
+    </div>
   );
 }

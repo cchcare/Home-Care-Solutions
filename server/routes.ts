@@ -38,6 +38,17 @@ import {
   insertMcoSchema,
   insertSystemSettingSchema,
   insertEntityFieldConfigSchema,
+  insertCaregiverNoteSchema,
+  insertCaregiverPreferenceSchema,
+  insertCaregiverAbsenceSchema,
+  insertCaregiverAvailabilitySchema,
+  insertCaregiverPayrollInfoSchema,
+  insertCaregiverExpenseSchema,
+  insertCaregiverPaycheckSchema,
+  insertCaregiverRateSchema,
+  insertCaregiverInServiceSchema,
+  insertCaregiverOfficeMoveSchema,
+  insertCaregiverScheduleSchema,
 } from "@shared/schema";
 import { ObjectStorageService, ObjectNotFoundError } from "./objectStorage";
 import { ObjectPermission } from "./objectAcl";
@@ -3623,8 +3634,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/caregivers/:caregiverId/notes", isAuthenticated, async (req: any, res) => {
     try {
+      const { caregiverId: _, authorId: __, ...userBody } = req.body;
+      const validatedBody = insertCaregiverNoteSchema.omit({ caregiverId: true, authorId: true }).parse(userBody);
       const note = await storage.createCaregiverNote({
-        ...req.body,
+        ...validatedBody,
         caregiverId: req.params.caregiverId,
         authorId: req.user.claims.sub,
       });
@@ -3637,7 +3650,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.put("/api/caregiver-notes/:id", isAuthenticated, async (req, res) => {
     try {
-      const note = await storage.updateCaregiverNote(req.params.id, req.body);
+      const { caregiverId, authorId, ...updateData } = req.body;
+      const validatedData = insertCaregiverNoteSchema.partial().parse(updateData);
+      const note = await storage.updateCaregiverNote(req.params.id, validatedData);
       res.json(note);
     } catch (error) {
       console.error("Error updating caregiver note:", error);
@@ -3668,8 +3683,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/caregivers/:caregiverId/preferences", isAuthenticated, async (req, res) => {
     try {
+      const { caregiverId: _, ...userBody } = req.body;
+      const validatedBody = insertCaregiverPreferenceSchema.omit({ caregiverId: true }).parse(userBody);
       const preference = await storage.createCaregiverPreference({
-        ...req.body,
+        ...validatedBody,
         caregiverId: req.params.caregiverId,
       });
       res.status(201).json(preference);
@@ -3681,7 +3698,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.put("/api/caregiver-preferences/:id", isAuthenticated, async (req, res) => {
     try {
-      const preference = await storage.updateCaregiverPreference(req.params.id, req.body);
+      const { caregiverId, ...updateData } = req.body;
+      const validatedData = insertCaregiverPreferenceSchema.partial().parse(updateData);
+      const preference = await storage.updateCaregiverPreference(req.params.id, validatedData);
       res.json(preference);
     } catch (error) {
       console.error("Error updating caregiver preference:", error);
@@ -3712,8 +3731,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/caregivers/:caregiverId/absences", isAuthenticated, async (req, res) => {
     try {
+      const { caregiverId: _, ...userBody } = req.body;
+      const validatedBody = insertCaregiverAbsenceSchema.omit({ caregiverId: true }).parse(userBody);
       const absence = await storage.createCaregiverAbsence({
-        ...req.body,
+        ...validatedBody,
         caregiverId: req.params.caregiverId,
       });
       res.status(201).json(absence);
@@ -3725,7 +3746,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.put("/api/caregiver-absences/:id", isAuthenticated, async (req, res) => {
     try {
-      const absence = await storage.updateCaregiverAbsence(req.params.id, req.body);
+      const { caregiverId, ...updateData } = req.body;
+      const validatedData = insertCaregiverAbsenceSchema.partial().parse(updateData);
+      const absence = await storage.updateCaregiverAbsence(req.params.id, validatedData);
       res.json(absence);
     } catch (error) {
       console.error("Error updating caregiver absence:", error);
@@ -3756,8 +3779,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/caregivers/:caregiverId/availability", isAuthenticated, async (req, res) => {
     try {
+      const { caregiverId: _, ...userBody } = req.body;
+      const validatedBody = insertCaregiverAvailabilitySchema.omit({ caregiverId: true }).parse(userBody);
       const availability = await storage.createCaregiverAvailability({
-        ...req.body,
+        ...validatedBody,
         caregiverId: req.params.caregiverId,
       });
       res.status(201).json(availability);
@@ -3769,7 +3794,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.put("/api/caregiver-availability/:id", isAuthenticated, async (req, res) => {
     try {
-      const availability = await storage.updateCaregiverAvailability(req.params.id, req.body);
+      const { caregiverId, ...updateData } = req.body;
+      const validatedData = insertCaregiverAvailabilitySchema.partial().parse(updateData);
+      const availability = await storage.updateCaregiverAvailability(req.params.id, validatedData);
       res.json(availability);
     } catch (error) {
       console.error("Error updating caregiver availability:", error);
@@ -3800,8 +3827,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/caregivers/:caregiverId/payroll-info", isAuthenticated, async (req, res) => {
     try {
+      const { caregiverId: _, ...userBody } = req.body;
+      const validatedBody = insertCaregiverPayrollInfoSchema.omit({ caregiverId: true }).parse(userBody);
       const info = await storage.upsertCaregiverPayrollInfo({
-        ...req.body,
+        ...validatedBody,
         caregiverId: req.params.caregiverId,
       });
       res.status(201).json(info);
@@ -3824,8 +3853,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/caregivers/:caregiverId/expenses", isAuthenticated, async (req, res) => {
     try {
+      const { caregiverId: _, ...userBody } = req.body;
+      const validatedBody = insertCaregiverExpenseSchema.omit({ caregiverId: true }).parse(userBody);
       const expense = await storage.createCaregiverExpense({
-        ...req.body,
+        ...validatedBody,
         caregiverId: req.params.caregiverId,
       });
       res.status(201).json(expense);
@@ -3837,7 +3868,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.put("/api/caregiver-expenses/:id", isAuthenticated, async (req, res) => {
     try {
-      const expense = await storage.updateCaregiverExpense(req.params.id, req.body);
+      const { caregiverId, ...updateData } = req.body;
+      const validatedData = insertCaregiverExpenseSchema.partial().parse(updateData);
+      const expense = await storage.updateCaregiverExpense(req.params.id, validatedData);
       res.json(expense);
     } catch (error) {
       console.error("Error updating caregiver expense:", error);
@@ -3868,8 +3901,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/caregivers/:caregiverId/paychecks", isAuthenticated, async (req, res) => {
     try {
+      const { caregiverId: _, ...userBody } = req.body;
+      const validatedBody = insertCaregiverPaycheckSchema.omit({ caregiverId: true }).parse(userBody);
       const paycheck = await storage.createCaregiverPaycheck({
-        ...req.body,
+        ...validatedBody,
         caregiverId: req.params.caregiverId,
       });
       res.status(201).json(paycheck);
@@ -3881,7 +3916,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.put("/api/caregiver-paychecks/:id", isAuthenticated, async (req, res) => {
     try {
-      const paycheck = await storage.updateCaregiverPaycheck(req.params.id, req.body);
+      const { caregiverId, ...updateData } = req.body;
+      const validatedData = insertCaregiverPaycheckSchema.partial().parse(updateData);
+      const paycheck = await storage.updateCaregiverPaycheck(req.params.id, validatedData);
       res.json(paycheck);
     } catch (error) {
       console.error("Error updating caregiver paycheck:", error);
@@ -3902,8 +3939,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/caregivers/:caregiverId/rates", isAuthenticated, async (req, res) => {
     try {
+      const { caregiverId: _, ...userBody } = req.body;
+      const validatedBody = insertCaregiverRateSchema.omit({ caregiverId: true }).parse(userBody);
       const rate = await storage.createCaregiverRate({
-        ...req.body,
+        ...validatedBody,
         caregiverId: req.params.caregiverId,
       });
       res.status(201).json(rate);
@@ -3915,7 +3954,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.put("/api/caregiver-rates/:id", isAuthenticated, async (req, res) => {
     try {
-      const rate = await storage.updateCaregiverRate(req.params.id, req.body);
+      const { caregiverId, ...updateData } = req.body;
+      const validatedData = insertCaregiverRateSchema.partial().parse(updateData);
+      const rate = await storage.updateCaregiverRate(req.params.id, validatedData);
       res.json(rate);
     } catch (error) {
       console.error("Error updating caregiver rate:", error);
@@ -3946,8 +3987,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/caregivers/:caregiverId/in-services", isAuthenticated, async (req, res) => {
     try {
+      const { caregiverId: _, ...userBody } = req.body;
+      const validatedBody = insertCaregiverInServiceSchema.omit({ caregiverId: true }).parse(userBody);
       const inService = await storage.createCaregiverInService({
-        ...req.body,
+        ...validatedBody,
         caregiverId: req.params.caregiverId,
       });
       res.status(201).json(inService);
@@ -3959,7 +4002,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.put("/api/caregiver-in-services/:id", isAuthenticated, async (req, res) => {
     try {
-      const inService = await storage.updateCaregiverInService(req.params.id, req.body);
+      const { caregiverId, ...updateData } = req.body;
+      const validatedData = insertCaregiverInServiceSchema.partial().parse(updateData);
+      const inService = await storage.updateCaregiverInService(req.params.id, validatedData);
       res.json(inService);
     } catch (error) {
       console.error("Error updating caregiver in-service:", error);
@@ -3990,8 +4035,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/caregivers/:caregiverId/office-moves", isAuthenticated, async (req: any, res) => {
     try {
+      const { caregiverId: _, approvedBy: __, ...userBody } = req.body;
+      const validatedBody = insertCaregiverOfficeMoveSchema.omit({ caregiverId: true, approvedBy: true }).parse(userBody);
       const move = await storage.createCaregiverOfficeMove({
-        ...req.body,
+        ...validatedBody,
         caregiverId: req.params.caregiverId,
         approvedBy: req.user.claims.sub,
       });
@@ -4004,7 +4051,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.put("/api/caregiver-office-moves/:id", isAuthenticated, async (req, res) => {
     try {
-      const move = await storage.updateCaregiverOfficeMove(req.params.id, req.body);
+      const { caregiverId, approvedBy, ...updateData } = req.body;
+      const validatedData = insertCaregiverOfficeMoveSchema.partial().parse(updateData);
+      const move = await storage.updateCaregiverOfficeMove(req.params.id, validatedData);
       res.json(move);
     } catch (error) {
       console.error("Error updating caregiver office move:", error);
@@ -4030,8 +4079,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/caregivers/:caregiverId/schedules", isAuthenticated, async (req: any, res) => {
     try {
+      const { caregiverId: _, createdBy: __, ...userBody } = req.body;
+      const validatedBody = insertCaregiverScheduleSchema.omit({ caregiverId: true, createdBy: true }).parse(userBody);
       const schedule = await storage.createCaregiverSchedule({
-        ...req.body,
+        ...validatedBody,
         caregiverId: req.params.caregiverId,
         createdBy: req.user.claims.sub,
       });
@@ -4044,7 +4095,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.put("/api/caregiver-schedules/:id", isAuthenticated, async (req, res) => {
     try {
-      const schedule = await storage.updateCaregiverSchedule(req.params.id, req.body);
+      const { caregiverId, createdBy, ...updateData } = req.body;
+      const validatedData = insertCaregiverScheduleSchema.partial().parse(updateData);
+      const schedule = await storage.updateCaregiverSchedule(req.params.id, validatedData);
       res.json(schedule);
     } catch (error) {
       console.error("Error updating caregiver schedule:", error);
