@@ -1409,26 +1409,67 @@ export default function BillingPayroll() {
                         </>
                       )}
 
-                      {payrollRuns.length > 0 && (
+                      {actualOfficeId && (
                         <div className="mt-6 border-t pt-4">
-                          <h4 className="font-medium mb-2">All Payroll Runs for {selectedYear}</h4>
-                          <div className="space-y-2">
-                            {payrollRuns
-                              .filter(run => new Date(run.payPeriodStart).getFullYear() === selectedYear)
-                              .sort((a, b) => new Date(a.payPeriodStart).getTime() - new Date(b.payPeriodStart).getTime())
-                              .map(run => (
-                                <div key={run.id} className="flex flex-wrap gap-2 items-center text-sm">
-                                  <Badge className="bg-green-500">{format(new Date(run.payPeriodStart), "MMM d")}</Badge>
-                                  <span>to</span>
-                                  <Badge className="bg-blue-500">{format(new Date(run.payPeriodEnd), "MMM d")}</Badge>
-                                  <span className="text-muted-foreground">|</span>
-                                  <span>Pay:</span>
-                                  <Badge className="bg-purple-500">{format(new Date(run.paycheckDate), "MMM d, yyyy")}</Badge>
-                                </div>
-                              ))}
-                          </div>
-                          <p className="text-sm text-muted-foreground mt-2">
-                            Total payroll runs: {payrollRuns.filter(run => new Date(run.payPeriodStart).getFullYear() === selectedYear).length}
+                          <h4 className="font-medium mb-3 text-lg">Payroll Dates Schedule</h4>
+                          {payrollRuns.filter(run => new Date(run.payPeriodStart).getFullYear() === selectedYear).length === 0 ? (
+                            <p className="text-muted-foreground text-center py-4">No payroll runs scheduled for {selectedYear}. Create a payroll run in the Payroll tab.</p>
+                          ) : (
+                            <div className="overflow-x-auto">
+                              <table className="w-full border-collapse">
+                                <thead>
+                                  <tr className="border-b">
+                                    <th className="text-left p-2 font-medium">#</th>
+                                    <th className="text-left p-2 font-medium">
+                                      <span className="flex items-center gap-2">
+                                        <div className="w-3 h-3 rounded bg-green-500"></div>
+                                        Pay Period Start
+                                      </span>
+                                    </th>
+                                    <th className="text-left p-2 font-medium">
+                                      <span className="flex items-center gap-2">
+                                        <div className="w-3 h-3 rounded bg-blue-500"></div>
+                                        Pay Period End
+                                      </span>
+                                    </th>
+                                    <th className="text-left p-2 font-medium">
+                                      <span className="flex items-center gap-2">
+                                        <div className="w-3 h-3 rounded bg-purple-500"></div>
+                                        Paycheck Date
+                                      </span>
+                                    </th>
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y">
+                                  {payrollRuns
+                                    .filter(run => new Date(run.payPeriodStart).getFullYear() === selectedYear)
+                                    .sort((a, b) => new Date(a.payPeriodStart).getTime() - new Date(b.payPeriodStart).getTime())
+                                    .map((run, index) => (
+                                      <tr key={run.id} className="hover:bg-muted/50">
+                                        <td className="p-2 text-muted-foreground">{index + 1}</td>
+                                        <td className="p-2">
+                                          <Badge className="bg-green-500 hover:bg-green-600">
+                                            {format(new Date(run.payPeriodStart), "EEEE, MMM d, yyyy")}
+                                          </Badge>
+                                        </td>
+                                        <td className="p-2">
+                                          <Badge className="bg-blue-500 hover:bg-blue-600">
+                                            {format(new Date(run.payPeriodEnd), "EEEE, MMM d, yyyy")}
+                                          </Badge>
+                                        </td>
+                                        <td className="p-2">
+                                          <Badge className="bg-purple-500 hover:bg-purple-600">
+                                            {format(new Date(run.paycheckDate), "EEEE, MMM d, yyyy")}
+                                          </Badge>
+                                        </td>
+                                      </tr>
+                                    ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
+                          <p className="text-sm text-muted-foreground mt-3">
+                            Total payroll periods: {payrollRuns.filter(run => new Date(run.payPeriodStart).getFullYear() === selectedYear).length}
                           </p>
                         </div>
                       )}
