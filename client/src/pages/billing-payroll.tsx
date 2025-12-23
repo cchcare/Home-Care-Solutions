@@ -1408,8 +1408,8 @@ export default function BillingPayroll() {
                             height: 10px !important; 
                           }
                           .print-calendar-grid { 
-                            grid-template-columns: repeat(4, 1fr) !important; 
-                            gap: 6px !important;
+                            grid-template-columns: repeat(3, 1fr) !important; 
+                            gap: 8px !important;
                           }
                           .print-month { 
                             border: 1px solid #ccc !important; 
