@@ -2824,7 +2824,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // MCOs routes
+  // MCOs routes - public endpoint for billing/payroll
+  app.get("/api/mcos", isAuthenticated, async (req, res) => {
+    try {
+      const mcos = await storage.getAllMcos();
+      res.json(mcos);
+    } catch (error) {
+      console.error("Error fetching MCOs:", error);
+      res.status(500).json({ message: "Failed to fetch MCOs" });
+    }
+  });
+
+  // MCOs routes - admin endpoint
   app.get("/api/admin/mcos", isAuthenticated, async (req, res) => {
     try {
       const mcos = await storage.getAllMcos();
