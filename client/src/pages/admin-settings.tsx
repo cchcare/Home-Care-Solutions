@@ -70,7 +70,7 @@ function McoTypesTab() {
   });
 
   const createMutation = useMutation({
-    mutationFn: (data: z.infer<typeof mcoTypeSchema>) => apiRequest("/api/admin/mco-types", { method: "POST", body: JSON.stringify(data) }),
+    mutationFn: (data: z.infer<typeof mcoTypeSchema>) => apiRequest("POST", "/api/admin/mco-types", data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/mco-types"] });
       setIsDialogOpen(false);
@@ -81,7 +81,7 @@ function McoTypesTab() {
   });
 
   const updateMutation = useMutation({
-    mutationFn: ({ id, data }: { id: string; data: z.infer<typeof mcoTypeSchema> }) => apiRequest(`/api/admin/mco-types/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+    mutationFn: ({ id, data }: { id: string; data: z.infer<typeof mcoTypeSchema> }) => apiRequest("PUT", `/api/admin/mco-types/${id}`, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/mco-types"] });
       setIsDialogOpen(false);
@@ -93,7 +93,7 @@ function McoTypesTab() {
   });
 
   const deleteMutation = useMutation({
-    mutationFn: (id: string) => apiRequest(`/api/admin/mco-types/${id}`, { method: "DELETE" }),
+    mutationFn: (id: string) => apiRequest("DELETE", `/api/admin/mco-types/${id}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/mco-types"] });
       toast({ title: "MCO Type deleted successfully" });
@@ -219,7 +219,7 @@ function McosTab() {
   });
 
   const createMutation = useMutation({
-    mutationFn: (data: z.infer<typeof mcoSchema>) => apiRequest("/api/admin/mcos", { method: "POST", body: JSON.stringify(data) }),
+    mutationFn: (data: z.infer<typeof mcoSchema>) => apiRequest("POST", "/api/admin/mcos", data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/mcos"] });
       setIsDialogOpen(false);
@@ -230,7 +230,7 @@ function McosTab() {
   });
 
   const updateMutation = useMutation({
-    mutationFn: ({ id, data }: { id: string; data: z.infer<typeof mcoSchema> }) => apiRequest(`/api/admin/mcos/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+    mutationFn: ({ id, data }: { id: string; data: z.infer<typeof mcoSchema> }) => apiRequest("PUT", `/api/admin/mcos/${id}`, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/mcos"] });
       setIsDialogOpen(false);
@@ -242,7 +242,7 @@ function McosTab() {
   });
 
   const deleteMutation = useMutation({
-    mutationFn: (id: string) => apiRequest(`/api/admin/mcos/${id}`, { method: "DELETE" }),
+    mutationFn: (id: string) => apiRequest("DELETE", `/api/admin/mcos/${id}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/mcos"] });
       toast({ title: "MCO deleted successfully" });
@@ -438,7 +438,7 @@ function FieldConfigsTab({ entityType }: { entityType: 'client' | 'caregiver' })
   });
 
   const createMutation = useMutation({
-    mutationFn: (data: z.infer<typeof fieldConfigSchema>) => apiRequest("/api/admin/field-configs", { method: "POST", body: JSON.stringify(data) }),
+    mutationFn: (data: z.infer<typeof fieldConfigSchema>) => apiRequest("POST", "/api/admin/field-configs", data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/field-configs", entityType] });
       setIsDialogOpen(false);
@@ -449,7 +449,7 @@ function FieldConfigsTab({ entityType }: { entityType: 'client' | 'caregiver' })
   });
 
   const updateMutation = useMutation({
-    mutationFn: ({ id, data }: { id: string; data: z.infer<typeof fieldConfigSchema> }) => apiRequest(`/api/admin/field-configs/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+    mutationFn: ({ id, data }: { id: string; data: z.infer<typeof fieldConfigSchema> }) => apiRequest("PUT", `/api/admin/field-configs/${id}`, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/field-configs", entityType] });
       setIsDialogOpen(false);
@@ -461,7 +461,7 @@ function FieldConfigsTab({ entityType }: { entityType: 'client' | 'caregiver' })
   });
 
   const deleteMutation = useMutation({
-    mutationFn: (id: string) => apiRequest(`/api/admin/field-configs/${id}`, { method: "DELETE" }),
+    mutationFn: (id: string) => apiRequest("DELETE", `/api/admin/field-configs/${id}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/field-configs", entityType] });
       toast({ title: "Field configuration deleted successfully" });
@@ -631,7 +631,7 @@ function SystemSettingsTab() {
   });
 
   const createMutation = useMutation({
-    mutationFn: (data: z.infer<typeof systemSettingSchema>) => apiRequest("/api/admin/settings", { method: "POST", body: JSON.stringify(data) }),
+    mutationFn: (data: z.infer<typeof systemSettingSchema>) => apiRequest("POST", "/api/admin/settings", data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/settings"] });
       setIsDialogOpen(false);
@@ -642,7 +642,7 @@ function SystemSettingsTab() {
   });
 
   const updateMutation = useMutation({
-    mutationFn: ({ key, data }: { key: string; data: z.infer<typeof systemSettingSchema> }) => apiRequest(`/api/admin/settings/${key}`, { method: "PUT", body: JSON.stringify(data) }),
+    mutationFn: ({ key, data }: { key: string; data: z.infer<typeof systemSettingSchema> }) => apiRequest("PUT", `/api/admin/settings/${key}`, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/settings"] });
       setIsDialogOpen(false);
@@ -654,7 +654,7 @@ function SystemSettingsTab() {
   });
 
   const deleteMutation = useMutation({
-    mutationFn: (key: string) => apiRequest(`/api/admin/settings/${key}`, { method: "DELETE" }),
+    mutationFn: (key: string) => apiRequest("DELETE", `/api/admin/settings/${key}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/settings"] });
       toast({ title: "Setting deleted successfully" });
