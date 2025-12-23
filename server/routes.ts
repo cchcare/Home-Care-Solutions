@@ -3294,10 +3294,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/payroll", isAuthenticated, async (req: any, res) => {
     try {
-      const run = await storage.createPayrollRun({
+      const data = {
         ...req.body,
         createdBy: req.user.claims.sub,
-      });
+        payPeriodStart: req.body.payPeriodStart ? new Date(req.body.payPeriodStart) : null,
+        payPeriodEnd: req.body.payPeriodEnd ? new Date(req.body.payPeriodEnd) : null,
+        paycheckDate: req.body.paycheckDate ? new Date(req.body.paycheckDate) : null,
+      };
+      const run = await storage.createPayrollRun(data);
       res.status(201).json(run);
     } catch (error) {
       console.error("Error creating payroll run:", error);
@@ -3307,7 +3311,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.put("/api/payroll/:id", isAuthenticated, async (req: any, res) => {
     try {
-      const updateData = { ...req.body };
+      const updateData = {
+        ...req.body,
+        payPeriodStart: req.body.payPeriodStart ? new Date(req.body.payPeriodStart) : undefined,
+        payPeriodEnd: req.body.payPeriodEnd ? new Date(req.body.payPeriodEnd) : undefined,
+        paycheckDate: req.body.paycheckDate ? new Date(req.body.paycheckDate) : undefined,
+      };
       if (req.body.status === "approved") {
         updateData.approvedBy = req.user.claims.sub;
         updateData.approvedAt = new Date();
