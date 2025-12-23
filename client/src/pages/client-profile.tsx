@@ -63,7 +63,8 @@ import {
   History,
   MoreHorizontal,
   Wallet,
-  UserPlus
+  UserPlus,
+  Search
 } from "lucide-react";
 import type { Client, Document, Office, Mco, User as UserType, ClientCommunication, OfficeMcoBillingRate, ClientSchedule, MasterWeekTemplate, MasterWeekSlot, Caregiver } from "@shared/schema";
 
@@ -112,6 +113,8 @@ export default function ClientProfile() {
   const [isEditing, setIsEditing] = useState(false);
   const [editFormData, setEditFormData] = useState<Partial<Client>>({});
   const [activeSection, setActiveSection] = useState("general");
+  const [showSearchDialog, setShowSearchDialog] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
 
   const { data: client, isLoading: clientLoading } = useQuery<Client>({
     queryKey: ["/api/clients", clientId],
@@ -192,6 +195,11 @@ export default function ClientProfile() {
   const { data: allCaregivers = [] } = useQuery<Caregiver[]>({
     queryKey: ["/api/caregivers"],
     queryFn: () => fetch(`/api/caregivers`).then(r => r.json()),
+  });
+
+  const { data: allClients = [] } = useQuery<Client[]>({
+    queryKey: ["/api/clients"],
+    queryFn: () => fetch(`/api/clients`).then(r => r.json()),
   });
 
   const uploadMutation = useMutation({
@@ -422,6 +430,18 @@ export default function ClientProfile() {
         <div className="flex-1 flex overflow-hidden">
           {/* Left Sidebar Menu */}
           <aside className="w-56 border-r border-border bg-card flex-shrink-0 overflow-y-auto">
+            <div className="p-2 border-b">
+              <Button 
+                variant="outline" 
+                size="sm" 
+                className="w-full" 
+                onClick={() => setShowSearchDialog(true)}
+                data-testid="button-search-client"
+              >
+                <Search className="w-4 h-4 mr-2" />
+                Search Client
+              </Button>
+            </div>
             <nav className="p-2 space-y-1">
               {CLIENT_MENU_ITEMS.map((item) => {
                 const IconComponent = item.icon;
@@ -1396,6 +1416,71 @@ export default function ClientProfile() {
           </div>
         </div>
       </main>
+
+      <Dialog open={showSearchDialog} onOpenChange={setShowSearchDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Search className="w-5 h-5" />
+              Search Client
+            </DialogTitle>
+          </DialogHeader>
+          <div className="py-4 space-y-4">
+            <Input
+              placeholder="Search by name or Medicaid ID..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              data-testid="input-search-client"
+            />
+            <div className="max-h-64 overflow-y-auto space-y-2">
+              {allClients
+                .filter((cl) => {
+                  if (!searchQuery.trim()) return true;
+                  const query = searchQuery.toLowerCase();
+                  const name = `${cl.firstName || ""} ${cl.lastName || ""}`.toLowerCase();
+                  const medicaidId = (cl.medicaidId || "").toLowerCase();
+                  return name.includes(query) || medicaidId.includes(query);
+                })
+                .slice(0, 10)
+                .map((cl) => (
+                  <Link 
+                    key={cl.id} 
+                    href={`/clients/${cl.id}`}
+                    onClick={() => {
+                      setShowSearchDialog(false);
+                      setSearchQuery("");
+                    }}
+                  >
+                    <div 
+                      className="flex items-center gap-3 p-3 rounded-md hover:bg-muted cursor-pointer border"
+                      data-testid={`search-result-client-${cl.id}`}
+                    >
+                      <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
+                        <User className="w-4 h-4 text-primary" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium truncate">{cl.firstName} {cl.lastName}</p>
+                        <p className="text-sm text-muted-foreground">{cl.medicaidId || "No Medicaid ID"}</p>
+                      </div>
+                      <Badge variant={cl.status === "active" ? "default" : "secondary"} className="flex-shrink-0">
+                        {cl.status || "active"}
+                      </Badge>
+                    </div>
+                  </Link>
+                ))}
+              {allClients.filter((cl) => {
+                if (!searchQuery.trim()) return true;
+                const query = searchQuery.toLowerCase();
+                const name = `${cl.firstName || ""} ${cl.lastName || ""}`.toLowerCase();
+                const medicaidId = (cl.medicaidId || "").toLowerCase();
+                return name.includes(query) || medicaidId.includes(query);
+              }).length === 0 && (
+                <p className="text-muted-foreground text-center py-4">No clients found</p>
+              )}
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

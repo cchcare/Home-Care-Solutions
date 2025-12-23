@@ -73,7 +73,8 @@ import {
   Receipt,
   Users,
   MessageSquare,
-  ArrowRightLeft
+  ArrowRightLeft,
+  Search
 } from "lucide-react";
 import type { Caregiver, User as UserType, Document, Office, Client, ComplianceItem } from "@shared/schema";
 
@@ -127,6 +128,8 @@ export default function CaregiverProfile() {
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [dialogType, setDialogType] = useState<string>("");
+  const [showSearchDialog, setShowSearchDialog] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
 
   const { data: caregiver, isLoading: caregiverLoading } = useQuery<EnrichedCaregiver>({
     queryKey: ["/api/caregivers", caregiverId],
@@ -178,6 +181,11 @@ export default function CaregiverProfile() {
     queryKey: ["/api/caregivers", caregiverId, "clients"],
     queryFn: () => fetch(`/api/caregivers/${caregiverId}/clients`).then(r => r.json()),
     enabled: !!caregiverId,
+  });
+
+  const { data: allCaregivers = [] } = useQuery<EnrichedCaregiver[]>({
+    queryKey: ["/api/caregivers"],
+    queryFn: () => fetch(`/api/caregivers`).then(r => r.json()),
   });
 
   const { data: notes = [] } = useQuery<any[]>({
@@ -403,6 +411,16 @@ export default function CaregiverProfile() {
                   </p>
                 )}
               </div>
+              <Button 
+                variant="outline" 
+                size="sm" 
+                className="w-full mt-3" 
+                onClick={() => setShowSearchDialog(true)}
+                data-testid="button-search-caregiver"
+              >
+                <Search className="w-4 h-4 mr-2" />
+                Search Caregiver
+              </Button>
             </div>
 
             <nav className="p-2 space-y-1">
@@ -1592,6 +1610,71 @@ export default function CaregiverProfile() {
             <Button variant="outline" onClick={() => setShowAddDialog(false)}>Cancel</Button>
             <Button onClick={() => setShowAddDialog(false)}>Save</Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showSearchDialog} onOpenChange={setShowSearchDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Search className="w-5 h-5" />
+              Search Caregiver
+            </DialogTitle>
+          </DialogHeader>
+          <div className="py-4 space-y-4">
+            <Input
+              placeholder="Search by name or employee ID..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              data-testid="input-search-caregiver"
+            />
+            <div className="max-h-64 overflow-y-auto space-y-2">
+              {allCaregivers
+                .filter((cg) => {
+                  if (!searchQuery.trim()) return true;
+                  const query = searchQuery.toLowerCase();
+                  const name = `${cg.firstName || ""} ${cg.lastName || ""}`.toLowerCase();
+                  const empId = (cg.employeeId || "").toLowerCase();
+                  return name.includes(query) || empId.includes(query);
+                })
+                .slice(0, 10)
+                .map((cg) => (
+                  <Link 
+                    key={cg.id} 
+                    href={`/caregivers/${cg.id}`}
+                    onClick={() => {
+                      setShowSearchDialog(false);
+                      setSearchQuery("");
+                    }}
+                  >
+                    <div 
+                      className="flex items-center gap-3 p-3 rounded-md hover:bg-muted cursor-pointer border"
+                      data-testid={`search-result-caregiver-${cg.id}`}
+                    >
+                      <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
+                        <User className="w-4 h-4 text-primary" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium truncate">{cg.firstName} {cg.lastName}</p>
+                        <p className="text-sm text-muted-foreground">{cg.employeeId || "No ID"}</p>
+                      </div>
+                      <Badge variant={cg.isActive ? "default" : "secondary"} className="flex-shrink-0">
+                        {cg.isActive ? "Active" : "Inactive"}
+                      </Badge>
+                    </div>
+                  </Link>
+                ))}
+              {allCaregivers.filter((cg) => {
+                if (!searchQuery.trim()) return true;
+                const query = searchQuery.toLowerCase();
+                const name = `${cg.firstName || ""} ${cg.lastName || ""}`.toLowerCase();
+                const empId = (cg.employeeId || "").toLowerCase();
+                return name.includes(query) || empId.includes(query);
+              }).length === 0 && (
+                <p className="text-muted-foreground text-center py-4">No caregivers found</p>
+              )}
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
     </div>
