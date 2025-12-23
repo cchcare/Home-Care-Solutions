@@ -146,6 +146,7 @@ export default function BillingPayroll() {
   const [newHolidayDate, setNewHolidayDate] = useState("");
   const [showMcoDialog, setShowMcoDialog] = useState(false);
   const [newMcoName, setNewMcoName] = useState("");
+  const [newMcoTypeId, setNewMcoTypeId] = useState("");
   const printRef = useRef<HTMLDivElement>(null);
 
   const actualOfficeId = selectedOfficeId === "all" ? "" : selectedOfficeId;
@@ -196,6 +197,10 @@ export default function BillingPayroll() {
     queryKey: ["/api/payroll-holidays", actualOfficeId, selectedYear],
     queryFn: () => actualOfficeId ? fetch(`/api/payroll-holidays?officeId=${actualOfficeId}&year=${selectedYear}`).then(r => r.json()) : [],
     enabled: !!actualOfficeId,
+  });
+
+  const { data: mcoTypes = [] } = useQuery<{id: string; name: string}[]>({
+    queryKey: ["/api/admin/mco-types"],
   });
 
   const selectedOffice = offices.find(o => o.id === actualOfficeId);
@@ -345,6 +350,7 @@ export default function BillingPayroll() {
       queryClient.invalidateQueries({ queryKey: ["/api/offices", actualOfficeId, "mcos"] });
       setShowMcoDialog(false);
       setNewMcoName("");
+      setNewMcoTypeId("");
       toast({ title: "MCO added" });
     },
     onError: () => {
@@ -1238,7 +1244,7 @@ export default function BillingPayroll() {
                           </DialogHeader>
                           <div className="space-y-4">
                             <div>
-                              <Label>MCO Name</Label>
+                              <Label>MCO Name *</Label>
                               <Input
                                 value={newMcoName}
                                 onChange={(e) => setNewMcoName(e.target.value)}
@@ -1246,13 +1252,31 @@ export default function BillingPayroll() {
                                 data-testid="input-mco-name"
                               />
                             </div>
+                            <div>
+                              <Label>MCO Type</Label>
+                              <Select value={newMcoTypeId} onValueChange={setNewMcoTypeId}>
+                                <SelectTrigger data-testid="select-mco-type">
+                                  <SelectValue placeholder="Select MCO type (optional)" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {mcoTypes.map((type) => (
+                                    <SelectItem key={type.id} value={type.id}>
+                                      {type.name}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
                           </div>
                           <DialogFooter>
                             <Button variant="outline" onClick={() => setShowMcoDialog(false)}>Cancel</Button>
                             <Button
                               onClick={() => {
                                 if (newMcoName) {
-                                  createMcoMutation.mutate({ name: newMcoName });
+                                  createMcoMutation.mutate({ 
+                                    name: newMcoName, 
+                                    typeId: newMcoTypeId || undefined 
+                                  });
                                 }
                               }}
                               disabled={!newMcoName || createMcoMutation.isPending}
