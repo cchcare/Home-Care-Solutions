@@ -81,8 +81,8 @@ export function MasterWeekTemplateModal({
         name: template.name,
         description: template.description || "",
         clientId: template.clientId,
-        isActive: template.isActive,
-        autoRollover: template.autoRollover,
+        isActive: template.isActive ?? true,
+        autoRollover: template.autoRollover ?? false,
         startDate: template.startDate ? new Date(template.startDate).toISOString().split('T')[0] : "",
         endDate: template.endDate ? new Date(template.endDate).toISOString().split('T')[0] : "",
       });
@@ -101,7 +101,7 @@ export function MasterWeekTemplateModal({
   }, [template, client.id, form]);
 
   // Fetch existing slots if editing template
-  const { data: existingSlots = [] } = useQuery({
+  const { data: existingSlots = [] } = useQuery<MasterWeekSlot[]>({
     queryKey: ["/api/master-week-templates", template?.id, "slots"],
     enabled: !!template?.id,
     retry: false,
@@ -281,7 +281,7 @@ export function MasterWeekTemplateModal({
                       <FormLabel>Active Template</FormLabel>
                       <FormControl>
                         <Switch
-                          checked={field.value}
+                          checked={field.value ?? false}
                           onCheckedChange={field.onChange}
                           data-testid="switch-is-active"
                         />
@@ -298,7 +298,7 @@ export function MasterWeekTemplateModal({
                       <FormLabel>Auto Rollover (Midnight Updates)</FormLabel>
                       <FormControl>
                         <Switch
-                          checked={field.value}
+                          checked={field.value ?? false}
                           onCheckedChange={field.onChange}
                           data-testid="switch-auto-rollover"
                         />
@@ -316,7 +316,7 @@ export function MasterWeekTemplateModal({
                 <FormItem>
                   <FormLabel>Description</FormLabel>
                   <FormControl>
-                    <Textarea {...field} placeholder="Describe this template..." data-testid="textarea-description" />
+                    <Textarea {...field} value={field.value || ""} placeholder="Describe this template..." data-testid="textarea-description" />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -426,7 +426,9 @@ export function MasterWeekTemplateModal({
                                 <SelectItem value="">Unassigned</SelectItem>
                                 {caregivers.map(caregiver => (
                                   <SelectItem key={caregiver.id} value={caregiver.id}>
-                                    {caregiver.userId || `Caregiver ${caregiver.id.slice(0, 8)}`}
+                                    {(caregiver as any).firstName && (caregiver as any).lastName 
+                                      ? `${(caregiver as any).firstName} ${(caregiver as any).lastName}`
+                                      : `Caregiver ${caregiver.id.slice(0, 8)}`}
                                   </SelectItem>
                                 ))}
                               </SelectContent>
