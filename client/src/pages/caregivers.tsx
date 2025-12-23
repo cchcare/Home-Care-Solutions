@@ -238,7 +238,11 @@ export default function Caregivers() {
                                   <UserCheck className="w-6 h-6 text-accent-foreground" />
                                 </div>
                                 <div>
-                                  <p className="font-medium text-foreground" data-testid={`text-caregiver-name-${caregiver.id}`}>
+                                  <p 
+                                    className="font-medium text-foreground hover:text-primary cursor-pointer hover:underline" 
+                                    onClick={() => navigate(`/caregivers/${caregiver.id}`)}
+                                    data-testid={`text-caregiver-name-${caregiver.id}`}
+                                  >
                                     Employee #{caregiver.employeeId}
                                   </p>
                                   <p className="text-sm text-muted-foreground">

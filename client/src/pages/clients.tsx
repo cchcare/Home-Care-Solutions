@@ -284,7 +284,11 @@ export default function Clients() {
                                   </span>
                                 </div>
                                 <div>
-                                  <p className="font-medium text-foreground" data-testid={`text-full-client-name-${client.id}`}>
+                                  <p 
+                                    className="font-medium text-foreground hover:text-primary cursor-pointer hover:underline" 
+                                    onClick={() => navigate(`/clients/${client.id}`)}
+                                    data-testid={`text-full-client-name-${client.id}`}
+                                  >
                                     {client.firstName} {client.lastName}
                                   </p>
                                   <p className="text-sm text-muted-foreground">
