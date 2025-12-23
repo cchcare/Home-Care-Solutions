@@ -2835,6 +2835,92 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Office-specific MCO routes
+  app.get("/api/offices/:officeId/mcos", isAuthenticated, async (req, res) => {
+    try {
+      const mcos = await storage.getMcosByOffice(req.params.officeId);
+      res.json(mcos);
+    } catch (error) {
+      console.error("Error fetching office MCOs:", error);
+      res.status(500).json({ message: "Failed to fetch office MCOs" });
+    }
+  });
+
+  app.post("/api/offices/:officeId/mcos", isAuthenticated, async (req: any, res) => {
+    try {
+      const validatedData = insertMcoSchema.parse({
+        ...req.body,
+        officeId: req.params.officeId,
+      });
+      const mco = await storage.createMco(validatedData);
+      
+      await storage.createAuditLog({
+        userId: req.user.claims.sub,
+        action: "create",
+        entityType: "mco",
+        entityId: mco.id,
+        newValues: mco,
+        ipAddress: req.ip,
+        userAgent: req.get("User-Agent"),
+      });
+      
+      res.status(201).json(mco);
+    } catch (error) {
+      console.error("Error creating office MCO:", error);
+      res.status(400).json({ message: "Failed to create office MCO" });
+    }
+  });
+
+  app.put("/api/offices/:officeId/mcos/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const oldMco = await storage.getMco(req.params.id);
+      const validatedData = insertMcoSchema.partial().parse(req.body);
+      const mco = await storage.updateMco(req.params.id, validatedData);
+      
+      await storage.createAuditLog({
+        userId: req.user.claims.sub,
+        action: "update",
+        entityType: "mco",
+        entityId: mco.id,
+        oldValues: oldMco,
+        newValues: mco,
+        ipAddress: req.ip,
+        userAgent: req.get("User-Agent"),
+      });
+      
+      res.json(mco);
+    } catch (error) {
+      console.error("Error updating office MCO:", error);
+      res.status(400).json({ message: "Failed to update office MCO" });
+    }
+  });
+
+  app.delete("/api/offices/:officeId/mcos/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const mco = await storage.getMco(req.params.id);
+      if (!mco) {
+        return res.status(404).json({ message: "MCO not found" });
+      }
+      
+      await storage.deleteMco(req.params.id);
+      
+      await storage.createAuditLog({
+        userId: req.user.claims.sub,
+        action: "delete",
+        entityType: "mco",
+        entityId: req.params.id,
+        oldValues: mco,
+        ipAddress: req.ip,
+        userAgent: req.get("User-Agent"),
+      });
+      
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting office MCO:", error);
+      res.status(500).json({ message: "Failed to delete office MCO" });
+    }
+  });
+
   // MCOs routes - admin endpoint
   app.get("/api/admin/mcos", isAuthenticated, async (req, res) => {
     try {

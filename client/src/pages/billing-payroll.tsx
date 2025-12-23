@@ -144,6 +144,8 @@ export default function BillingPayroll() {
   const [showHolidayDialog, setShowHolidayDialog] = useState(false);
   const [newHolidayName, setNewHolidayName] = useState("");
   const [newHolidayDate, setNewHolidayDate] = useState("");
+  const [showMcoDialog, setShowMcoDialog] = useState(false);
+  const [newMcoName, setNewMcoName] = useState("");
   const printRef = useRef<HTMLDivElement>(null);
 
   const actualOfficeId = selectedOfficeId === "all" ? "" : selectedOfficeId;
@@ -153,7 +155,9 @@ export default function BillingPayroll() {
   });
 
   const { data: mcos = [] } = useQuery<Mco[]>({
-    queryKey: ["/api/mcos"],
+    queryKey: ["/api/offices", actualOfficeId, "mcos"],
+    queryFn: () => actualOfficeId ? fetch(`/api/offices/${actualOfficeId}/mcos`).then(r => r.json()) : [],
+    enabled: !!actualOfficeId,
   });
 
   const { data: clients = [] } = useQuery<Client[]>({
@@ -329,6 +333,35 @@ export default function BillingPayroll() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/offices", actualOfficeId, "mco-rates"] });
       toast({ title: "MCO rate deleted" });
+    },
+  });
+
+  const createMcoMutation = useMutation({
+    mutationFn: async (data: { name: string; typeId?: string }) => {
+      const response = await apiRequest("POST", `/api/offices/${actualOfficeId}/mcos`, data);
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/offices", actualOfficeId, "mcos"] });
+      setShowMcoDialog(false);
+      setNewMcoName("");
+      toast({ title: "MCO added" });
+    },
+    onError: () => {
+      toast({ title: "Failed to add MCO", variant: "destructive" });
+    },
+  });
+
+  const deleteMcoMutation = useMutation({
+    mutationFn: async (id: string) => {
+      await apiRequest("DELETE", `/api/offices/${actualOfficeId}/mcos/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/offices", actualOfficeId, "mcos"] });
+      toast({ title: "MCO removed" });
+    },
+    onError: () => {
+      toast({ title: "Failed to remove MCO", variant: "destructive" });
     },
   });
 
@@ -1181,12 +1214,88 @@ export default function BillingPayroll() {
                 </Card>
               </TabsContent>
 
-              <TabsContent value="mco-rates" className="mt-6">
+              <TabsContent value="mco-rates" className="mt-6 space-y-6">
                 <Card>
                   <CardHeader className="flex flex-row items-center justify-between">
                     <div>
                       <CardTitle className="flex items-center gap-2">
                         <Building2 className="w-5 h-5" />
+                        MCOs (Managed Care Organizations)
+                      </CardTitle>
+                      <CardDescription>Manage MCOs for this office</CardDescription>
+                    </div>
+                    {actualOfficeId && (
+                      <Dialog open={showMcoDialog} onOpenChange={setShowMcoDialog}>
+                        <DialogTrigger asChild>
+                          <Button data-testid="button-add-mco">
+                            <Plus className="w-4 h-4 mr-2" />
+                            Add MCO
+                          </Button>
+                        </DialogTrigger>
+                        <DialogContent>
+                          <DialogHeader>
+                            <DialogTitle>Add MCO</DialogTitle>
+                          </DialogHeader>
+                          <div className="space-y-4">
+                            <div>
+                              <Label>MCO Name</Label>
+                              <Input
+                                value={newMcoName}
+                                onChange={(e) => setNewMcoName(e.target.value)}
+                                placeholder="e.g., AmeriHealth, UPMC"
+                                data-testid="input-mco-name"
+                              />
+                            </div>
+                          </div>
+                          <DialogFooter>
+                            <Button variant="outline" onClick={() => setShowMcoDialog(false)}>Cancel</Button>
+                            <Button
+                              onClick={() => {
+                                if (newMcoName) {
+                                  createMcoMutation.mutate({ name: newMcoName });
+                                }
+                              }}
+                              disabled={!newMcoName || createMcoMutation.isPending}
+                              data-testid="button-save-mco"
+                            >
+                              {createMcoMutation.isPending ? "Adding..." : "Add MCO"}
+                            </Button>
+                          </DialogFooter>
+                        </DialogContent>
+                      </Dialog>
+                    )}
+                  </CardHeader>
+                  <CardContent>
+                    {!actualOfficeId ? (
+                      <p className="text-center text-muted-foreground py-4">Please select an office to manage MCOs</p>
+                    ) : mcos.length === 0 ? (
+                      <p className="text-center text-muted-foreground py-4">No MCOs configured for this office. Click "Add MCO" to get started.</p>
+                    ) : (
+                      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                        {mcos.map(mco => (
+                          <div key={mco.id} className="flex items-center justify-between p-3 border rounded-lg group hover:bg-muted/50">
+                            <span className="font-medium">{mco.name}</span>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-6 w-6 p-0 opacity-0 group-hover:opacity-100"
+                              onClick={() => deleteMcoMutation.mutate(mco.id)}
+                              data-testid={`button-delete-mco-${mco.id}`}
+                            >
+                              <Trash2 className="w-3 h-3 text-destructive" />
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader className="flex flex-row items-center justify-between">
+                    <div>
+                      <CardTitle className="flex items-center gap-2">
+                        <DollarSign className="w-5 h-5" />
                         MCO Billing Rates
                       </CardTitle>
                       <CardDescription>Configure billing rates for each MCO at this office</CardDescription>

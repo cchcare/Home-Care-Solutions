@@ -372,6 +372,7 @@ export interface IStorage {
   getAllMcos(): Promise<Mco[]>;
   getMco(id: string): Promise<Mco | undefined>;
   getMcosByType(typeId: string): Promise<Mco[]>;
+  getMcosByOffice(officeId: string): Promise<Mco[]>;
   createMco(mco: InsertMco): Promise<Mco>;
   updateMco(id: string, mco: Partial<InsertMco>): Promise<Mco>;
   deleteMco(id: string): Promise<void>;
@@ -1721,6 +1722,10 @@ export class DatabaseStorage implements IStorage {
 
   async getMcosByType(typeId: string): Promise<Mco[]> {
     return await db.select().from(mcos).where(eq(mcos.typeId, typeId)).orderBy(asc(mcos.name));
+  }
+
+  async getMcosByOffice(officeId: string): Promise<Mco[]> {
+    return await db.select().from(mcos).where(eq(mcos.officeId, officeId)).orderBy(asc(mcos.name));
   }
 
   async createMco(mco: InsertMco): Promise<Mco> {

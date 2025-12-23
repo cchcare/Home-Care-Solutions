@@ -953,10 +953,11 @@ export const mcoTypesRelations = relations(mcoTypes, ({ many }) => ({
   mcos: many(mcos),
 }));
 
-// MCOs - Managed Care Organizations for billing
+// MCOs - Managed Care Organizations for billing (per office)
 export const mcos = pgTable("mcos", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   name: varchar("name").notNull(),
+  officeId: varchar("office_id").references(() => offices.id),
   typeId: varchar("type_id").references(() => mcoTypes.id),
   payerId: varchar("payer_id"),
   contactName: varchar("contact_name"),
@@ -974,6 +975,10 @@ export const mcosRelations = relations(mcos, ({ one }) => ({
   type: one(mcoTypes, {
     fields: [mcos.typeId],
     references: [mcoTypes.id],
+  }),
+  office: one(offices, {
+    fields: [mcos.officeId],
+    references: [offices.id],
   }),
 }));
 
