@@ -19,26 +19,44 @@ import {
   Settings,
   Menu,
   X,
-  Cog
+  Cog,
+  ChevronDown,
+  ChevronRight,
+  ShieldCheck,
+  UserCog,
+  Key
 } from "lucide-react";
+
+interface NavItem {
+  name: string;
+  href?: string;
+  icon: any;
+  children?: NavItem[];
+}
 
 export function Sidebar() {
   const [location] = useLocation();
   const { user } = useAuth();
   const [isOpen, setIsOpen] = useState(false);
+  const [expandedMenus, setExpandedMenus] = useState<string[]>(["Admin"]);
   const isMobile = useIsMobile();
 
-  // Role-based navigation
-  const getNavigation = () => {
-    // Family members only have access to family portal
+  const toggleMenu = (menuName: string) => {
+    setExpandedMenus(prev => 
+      prev.includes(menuName) 
+        ? prev.filter(m => m !== menuName)
+        : [...prev, menuName]
+    );
+  };
+
+  const getNavigation = (): NavItem[] => {
     if ((user as any)?.role === "family") {
       return [
         { name: "Family Portal", href: "/family-portal", icon: Heart },
       ];
     }
 
-    // Base navigation for all authenticated users (including super admin)
-    const baseNavigation = [
+    const baseNavigation: NavItem[] = [
       { name: "Dashboard", href: "/", icon: LayoutDashboard },
       { name: "Client Management", href: "/clients", icon: Users },
       { name: "Caregiver Management", href: "/caregivers", icon: UserCheck },
@@ -52,17 +70,16 @@ export function Sidebar() {
       { name: "Analytics & Reports", href: "/reports", icon: BarChart3 },
     ];
 
-    // Add user management for admin, supervisor, and super admin roles
     if ((user as any)?.role === "admin" || (user as any)?.role === "supervisor" || (user as any)?.role === "super_admin") {
-      baseNavigation.splice(4, 0, { name: "User Management", href: "/user-management", icon: Users });
-    }
-
-    // Add super admin specific features
-    if ((user as any)?.role === "super_admin") {
-      baseNavigation.push(
-        { name: "Super Admin", href: "/super-admin", icon: Shield },
-        { name: "Role & Access Control", href: "/role-wizard", icon: Cog }
-      );
+      baseNavigation.push({
+        name: "Admin",
+        icon: Cog,
+        children: [
+          { name: "User Management", href: "/user-management", icon: UserCog },
+          { name: "Super Admin", href: "/super-admin", icon: ShieldCheck },
+          { name: "Role & Access Control", href: "/role-wizard", icon: Key },
+        ]
+      });
     }
 
     return baseNavigation;
@@ -74,9 +91,18 @@ export function Sidebar() {
     window.location.href = "/api/logout";
   };
 
+  const isActiveRoute = (href?: string) => {
+    if (!href) return false;
+    return location === href;
+  };
+
+  const hasActiveChild = (item: NavItem): boolean => {
+    if (!item.children) return false;
+    return item.children.some(child => isActiveRoute(child.href));
+  };
+
   return (
     <>
-      {/* Mobile menu button */}
       {isMobile && (
         <Button
           variant="ghost"
@@ -89,7 +115,6 @@ export function Sidebar() {
         </Button>
       )}
 
-      {/* Mobile overlay */}
       {isMobile && isOpen && (
         <div 
           className="fixed inset-0 bg-foreground/50 backdrop-blur-sm z-40 lg:hidden"
@@ -97,7 +122,6 @@ export function Sidebar() {
         />
       )}
 
-      {/* Sidebar */}
       <aside 
         className={`
           bg-sidebar border-r border-sidebar-border w-64 flex-shrink-0 sidebar-transition
@@ -107,7 +131,6 @@ export function Sidebar() {
         data-testid="sidebar"
       >
         <div className="flex flex-col h-full">
-          {/* Logo & Brand */}
           <div className="flex items-center justify-between p-6 border-b border-sidebar-border">
             <div className="flex flex-col">
               <div className="flex items-center space-x-3">
@@ -136,14 +159,73 @@ export function Sidebar() {
             )}
           </div>
 
-          {/* Navigation Menu */}
-          <nav className="flex-1 p-4 space-y-2">
+          <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
             {navigation.map((item) => {
-              const isActive = location === item.href;
               const Icon = item.icon;
               
+              if (item.children) {
+                const isExpanded = expandedMenus.includes(item.name);
+                const hasActive = hasActiveChild(item);
+                
+                return (
+                  <div key={item.name}>
+                    <button
+                      onClick={() => toggleMenu(item.name)}
+                      className={`
+                        w-full flex items-center justify-between p-3 rounded-lg font-medium transition-colors
+                        ${hasActive 
+                          ? 'bg-sidebar-accent text-sidebar-primary' 
+                          : 'text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground'
+                        }
+                      `}
+                      data-testid={`nav-menu-${item.name.toLowerCase().replace(/\s+/g, '-')}`}
+                    >
+                      <div className="flex items-center space-x-3">
+                        <Icon className="w-5 h-5" />
+                        <span>{item.name}</span>
+                      </div>
+                      {isExpanded ? (
+                        <ChevronDown className="w-4 h-4" />
+                      ) : (
+                        <ChevronRight className="w-4 h-4" />
+                      )}
+                    </button>
+                    
+                    {isExpanded && (
+                      <div className="ml-4 mt-1 space-y-1">
+                        {item.children.map((child) => {
+                          const ChildIcon = child.icon;
+                          const isActive = isActiveRoute(child.href);
+                          
+                          return (
+                            <Link key={child.name} href={child.href || "#"}>
+                              <a
+                                className={`
+                                  flex items-center space-x-3 p-2.5 pl-4 rounded-lg text-sm font-medium transition-colors
+                                  ${isActive 
+                                    ? 'bg-sidebar-primary text-sidebar-primary-foreground' 
+                                    : 'text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground'
+                                  }
+                                `}
+                                onClick={() => isMobile && setIsOpen(false)}
+                                data-testid={`nav-link-${child.name.toLowerCase().replace(/\s+/g, '-')}`}
+                              >
+                                <ChildIcon className="w-4 h-4" />
+                                <span>{child.name}</span>
+                              </a>
+                            </Link>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              }
+              
+              const isActive = isActiveRoute(item.href);
+              
               return (
-                <Link key={item.name} href={item.href}>
+                <Link key={item.name} href={item.href || "#"}>
                   <a
                     className={`
                       flex items-center space-x-3 p-3 rounded-lg font-medium transition-colors
@@ -163,7 +245,6 @@ export function Sidebar() {
             })}
           </nav>
 
-          {/* User Profile */}
           <div className="p-4 border-t border-sidebar-border">
             <div className="flex items-center space-x-3 p-3 rounded-lg bg-sidebar-accent">
               <div className="w-8 h-8 bg-accent rounded-full flex items-center justify-center">
