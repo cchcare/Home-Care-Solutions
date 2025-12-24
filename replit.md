@@ -38,6 +38,16 @@ Preferred communication style: Simple, everyday language.
 - **Staff Management**: Assign users to offices with position, department, and start date tracking
 - **Expense Tracking**: Record and track office expenses with type, vendor, amount, and payment status
 
+### Billing System
+- **MCO-Focused Billing**: Simplified billing records focused on MCO (Managed Care Organization) payments
+- **Fields**: MCO, Service Start/End Date, Service Code, Hours, Rate, Total Amount, Bill Date
+- **Auto Due Date Calculation**: Due dates calculated automatically based on MCO:
+  - UPMC: 7 days from bill date
+  - PA Health and Wellness: 14 days from bill date
+  - Amerihealth: 24 days from bill date
+  - Other MCOs: 14 days default
+- **Status Tracking**: Pending, Invoiced, Paid status workflow
+
 ### Authentication & Authorization
 - **OIDC Integration**: Secure authentication flow with Replit's identity provider
 - **Role-Based Access**: Multiple user roles (admin, supervisor, caregiver, family) with appropriate permissions
