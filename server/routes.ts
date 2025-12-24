@@ -49,6 +49,7 @@ import {
   insertCaregiverInServiceSchema,
   insertCaregiverOfficeMoveSchema,
   insertCaregiverScheduleSchema,
+  insertClientMcoSchema,
 } from "@shared/schema";
 import { ObjectStorageService, ObjectNotFoundError } from "./objectStorage";
 import { ObjectPermission } from "./objectAcl";
@@ -2445,6 +2446,54 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error applying master week template:", error);
       res.status(400).json({ message: "Failed to apply master week template" });
+    }
+  });
+
+  // Client MCO Management Routes
+  app.get("/api/clients/:clientId/mcos", isAuthenticated, async (req, res) => {
+    try {
+      const mcos = await storage.getClientMcosByClient(req.params.clientId);
+      res.json(mcos);
+    } catch (error) {
+      console.error("Error fetching client MCOs:", error);
+      res.status(500).json({ message: "Failed to fetch client MCOs" });
+    }
+  });
+
+  app.post("/api/clients/:clientId/mcos", isAuthenticated, async (req, res) => {
+    try {
+      const { clientId: _, ...userBody } = req.body;
+      const validatedBody = insertClientMcoSchema.omit({ clientId: true }).parse(userBody);
+      const mco = await storage.createClientMco({
+        ...validatedBody,
+        clientId: req.params.clientId,
+      });
+      res.status(201).json(mco);
+    } catch (error) {
+      console.error("Error creating client MCO:", error);
+      res.status(400).json({ message: "Failed to create client MCO" });
+    }
+  });
+
+  app.put("/api/client-mcos/:id", isAuthenticated, async (req, res) => {
+    try {
+      const { clientId, ...updateData } = req.body;
+      const validatedData = insertClientMcoSchema.partial().parse(updateData);
+      const mco = await storage.updateClientMco(req.params.id, validatedData);
+      res.json(mco);
+    } catch (error) {
+      console.error("Error updating client MCO:", error);
+      res.status(400).json({ message: "Failed to update client MCO" });
+    }
+  });
+
+  app.delete("/api/client-mcos/:id", isAuthenticated, async (req, res) => {
+    try {
+      await storage.deleteClientMco(req.params.id);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting client MCO:", error);
+      res.status(400).json({ message: "Failed to delete client MCO" });
     }
   });
 
