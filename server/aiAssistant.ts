@@ -11,28 +11,30 @@ type UserRole = "admin" | "supervisor" | "caregiver" | "family" | "super_admin";
 
 const ROLE_PERMISSIONS: Record<UserRole, string[]> = {
   super_admin: [
-    "search_clients", "search_caregivers", "assign_client_to_caregiver",
-    "create_caregiver_note", "update_client_mco_status", "get_client_mcos",
-    "create_schedule", "get_client_details", "get_caregiver_details",
-    "deactivate_client", "activate_client"
+    "search_clients", "search_caregivers", "list_clients", "list_caregivers",
+    "assign_client_to_caregiver", "create_caregiver_note", "update_client_mco_status",
+    "get_client_mcos", "create_client_schedule", "get_client_details",
+    "get_caregiver_details", "deactivate_client", "activate_client"
   ],
   admin: [
-    "search_clients", "search_caregivers", "assign_client_to_caregiver",
-    "create_caregiver_note", "update_client_mco_status", "get_client_mcos",
-    "create_schedule", "get_client_details", "get_caregiver_details",
-    "deactivate_client", "activate_client"
+    "search_clients", "search_caregivers", "list_clients", "list_caregivers",
+    "assign_client_to_caregiver", "create_caregiver_note", "update_client_mco_status",
+    "get_client_mcos", "create_client_schedule", "get_client_details",
+    "get_caregiver_details", "deactivate_client", "activate_client"
   ],
   supervisor: [
-    "search_clients", "search_caregivers", "assign_client_to_caregiver",
-    "create_caregiver_note", "update_client_mco_status", "get_client_mcos",
-    "create_schedule", "get_client_details", "get_caregiver_details"
+    "search_clients", "search_caregivers", "list_clients", "list_caregivers",
+    "assign_client_to_caregiver", "create_caregiver_note", "update_client_mco_status",
+    "get_client_mcos", "create_client_schedule", "get_client_details",
+    "get_caregiver_details"
   ],
   caregiver: [
-    "search_clients", "search_caregivers", "get_client_details",
-    "get_caregiver_details", "create_caregiver_note", "get_client_mcos"
+    "search_clients", "search_caregivers", "list_clients", "list_caregivers",
+    "get_client_details", "get_caregiver_details", "create_caregiver_note",
+    "get_client_mcos"
   ],
   family: [
-    "search_clients", "get_client_details"
+    "search_clients", "list_clients", "get_client_details"
   ]
 };
 
@@ -47,7 +49,9 @@ function getPermissionDenialMessage(role: UserRole, toolName: string): string {
     deactivate_client: "Client status changes require administrator privileges. I can help you create a note or notify an admin instead.",
     activate_client: "Client status changes require administrator privileges. I can help you create a note or notify an admin instead.",
     update_client_mco_status: "MCO status updates require supervisor or administrator access. Would you like me to help with something else?",
-    create_schedule: "Schedule creation requires supervisor access or higher. I can help you view existing information instead.",
+    create_client_schedule: "Schedule creation requires supervisor access or higher. I can help you view existing information instead.",
+    create_caregiver_note: "Note creation requires at least caregiver access. Please contact a staff member for assistance.",
+    list_caregivers: "Viewing caregiver lists requires staff access. I can help you find client information instead.",
   };
   return denialMessages[toolName] || `This action requires higher access privileges than your current ${role} role provides.`;
 }
