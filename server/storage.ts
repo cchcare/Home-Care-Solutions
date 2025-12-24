@@ -2049,6 +2049,22 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getMcosByOffice(officeId: string): Promise<Mco[]> {
+    // Get MCO IDs linked to this office via the billing rates junction table
+    const linkedMcoIds = await db
+      .selectDistinct({ mcoId: officeMcoBillingRates.mcoId })
+      .from(officeMcoBillingRates)
+      .where(eq(officeMcoBillingRates.officeId, officeId));
+    
+    const linkedIds = linkedMcoIds.map(r => r.mcoId);
+    
+    // Return MCOs that either have direct office_id OR are linked via billing rates
+    if (linkedIds.length > 0) {
+      return await db.select().from(mcos)
+        .where(or(eq(mcos.officeId, officeId), inArray(mcos.id, linkedIds)))
+        .orderBy(asc(mcos.name));
+    }
+    
+    // If no linked MCOs, just return direct office MCOs
     return await db.select().from(mcos).where(eq(mcos.officeId, officeId)).orderBy(asc(mcos.name));
   }
 
