@@ -133,6 +133,7 @@ export const caregivers = pgTable("caregivers", {
   state: varchar("state"),
   zipCode: varchar("zip_code"),
   hhaxCaregiverCode: varchar("hhax_caregiver_code").unique(),
+  adpCode: varchar("adp_code"),
   isActive: boolean("is_active").default(true),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),

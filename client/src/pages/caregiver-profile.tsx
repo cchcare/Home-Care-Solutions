@@ -363,6 +363,7 @@ export default function CaregiverProfile() {
         state: caregiver.state || "",
         zipCode: caregiver.zipCode || "",
         hhaxCaregiverCode: caregiver.hhaxCaregiverCode || "",
+        adpCode: caregiver.adpCode || "",
       });
       setIsEditing(true);
     }
@@ -705,6 +706,18 @@ export default function CaregiverProfile() {
                             />
                           ) : (
                             <p className="font-medium" data-testid="text-hhax-caregiver-code">{caregiver.hhaxCaregiverCode || "N/A"}</p>
+                          )}
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-muted-foreground text-sm">ADP Code</Label>
+                          {isEditing ? (
+                            <Input
+                              value={editFormData.adpCode || ""}
+                              onChange={(e) => setEditFormData({ ...editFormData, adpCode: e.target.value })}
+                              data-testid="input-adp-code"
+                            />
+                          ) : (
+                            <p className="font-medium" data-testid="text-adp-code">{caregiver.adpCode || "N/A"}</p>
                           )}
                         </div>
                       </div>
