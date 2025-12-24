@@ -167,6 +167,15 @@ import {
   coordinators,
   type Coordinator,
   type InsertCoordinator,
+  officeLicenses,
+  type OfficeLicense,
+  type InsertOfficeLicense,
+  officeStaff,
+  type OfficeStaff,
+  type InsertOfficeStaff,
+  officeExpenses,
+  type OfficeExpense,
+  type InsertOfficeExpense,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, asc, and, or, count, sql, like, gte, lte, inArray } from "drizzle-orm";
@@ -524,6 +533,27 @@ export interface IStorage {
   createClientMco(mco: InsertClientMco): Promise<ClientMco>;
   updateClientMco(id: string, mco: Partial<InsertClientMco>): Promise<ClientMco>;
   deleteClientMco(id: string): Promise<void>;
+
+  // Office Licenses operations
+  getOfficeLicenses(officeId: string): Promise<OfficeLicense[]>;
+  getOfficeLicense(id: string): Promise<OfficeLicense | undefined>;
+  createOfficeLicense(license: InsertOfficeLicense): Promise<OfficeLicense>;
+  updateOfficeLicense(id: string, license: Partial<InsertOfficeLicense>): Promise<OfficeLicense>;
+  deleteOfficeLicense(id: string): Promise<void>;
+
+  // Office Staff operations
+  getOfficeStaff(officeId: string): Promise<OfficeStaff[]>;
+  getOfficeStaffMember(id: string): Promise<OfficeStaff | undefined>;
+  createOfficeStaff(staff: InsertOfficeStaff): Promise<OfficeStaff>;
+  updateOfficeStaff(id: string, staff: Partial<InsertOfficeStaff>): Promise<OfficeStaff>;
+  deleteOfficeStaff(id: string): Promise<void>;
+
+  // Office Expenses operations
+  getOfficeExpenses(officeId: string): Promise<OfficeExpense[]>;
+  getOfficeExpense(id: string): Promise<OfficeExpense | undefined>;
+  createOfficeExpense(expense: InsertOfficeExpense): Promise<OfficeExpense>;
+  updateOfficeExpense(id: string, expense: Partial<InsertOfficeExpense>): Promise<OfficeExpense>;
+  deleteOfficeExpense(id: string): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -2568,6 +2598,78 @@ export class DatabaseStorage implements IStorage {
 
   async deleteClientMco(id: string): Promise<void> {
     await db.delete(clientMcos).where(eq(clientMcos.id, id));
+  }
+
+  // Office Licenses
+  async getOfficeLicenses(officeId: string): Promise<OfficeLicense[]> {
+    return await db.select().from(officeLicenses).where(eq(officeLicenses.officeId, officeId)).orderBy(desc(officeLicenses.createdAt));
+  }
+
+  async getOfficeLicense(id: string): Promise<OfficeLicense | undefined> {
+    const [license] = await db.select().from(officeLicenses).where(eq(officeLicenses.id, id));
+    return license;
+  }
+
+  async createOfficeLicense(license: InsertOfficeLicense): Promise<OfficeLicense> {
+    const [created] = await db.insert(officeLicenses).values(license).returning();
+    return created;
+  }
+
+  async updateOfficeLicense(id: string, license: Partial<InsertOfficeLicense>): Promise<OfficeLicense> {
+    const [updated] = await db.update(officeLicenses).set({ ...license, updatedAt: new Date() }).where(eq(officeLicenses.id, id)).returning();
+    return updated;
+  }
+
+  async deleteOfficeLicense(id: string): Promise<void> {
+    await db.delete(officeLicenses).where(eq(officeLicenses.id, id));
+  }
+
+  // Office Staff
+  async getOfficeStaff(officeId: string): Promise<OfficeStaff[]> {
+    return await db.select().from(officeStaff).where(eq(officeStaff.officeId, officeId)).orderBy(desc(officeStaff.createdAt));
+  }
+
+  async getOfficeStaffMember(id: string): Promise<OfficeStaff | undefined> {
+    const [staff] = await db.select().from(officeStaff).where(eq(officeStaff.id, id));
+    return staff;
+  }
+
+  async createOfficeStaff(staff: InsertOfficeStaff): Promise<OfficeStaff> {
+    const [created] = await db.insert(officeStaff).values(staff).returning();
+    return created;
+  }
+
+  async updateOfficeStaff(id: string, staff: Partial<InsertOfficeStaff>): Promise<OfficeStaff> {
+    const [updated] = await db.update(officeStaff).set({ ...staff, updatedAt: new Date() }).where(eq(officeStaff.id, id)).returning();
+    return updated;
+  }
+
+  async deleteOfficeStaff(id: string): Promise<void> {
+    await db.delete(officeStaff).where(eq(officeStaff.id, id));
+  }
+
+  // Office Expenses
+  async getOfficeExpenses(officeId: string): Promise<OfficeExpense[]> {
+    return await db.select().from(officeExpenses).where(eq(officeExpenses.officeId, officeId)).orderBy(desc(officeExpenses.expenseDate));
+  }
+
+  async getOfficeExpense(id: string): Promise<OfficeExpense | undefined> {
+    const [expense] = await db.select().from(officeExpenses).where(eq(officeExpenses.id, id));
+    return expense;
+  }
+
+  async createOfficeExpense(expense: InsertOfficeExpense): Promise<OfficeExpense> {
+    const [created] = await db.insert(officeExpenses).values(expense).returning();
+    return created;
+  }
+
+  async updateOfficeExpense(id: string, expense: Partial<InsertOfficeExpense>): Promise<OfficeExpense> {
+    const [updated] = await db.update(officeExpenses).set({ ...expense, updatedAt: new Date() }).where(eq(officeExpenses.id, id)).returning();
+    return updated;
+  }
+
+  async deleteOfficeExpense(id: string): Promise<void> {
+    await db.delete(officeExpenses).where(eq(officeExpenses.id, id));
   }
 }
 

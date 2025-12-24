@@ -51,6 +51,9 @@ import {
   insertCaregiverScheduleSchema,
   insertClientMcoSchema,
   insertCoordinatorSchema,
+  insertOfficeLicenseSchema,
+  insertOfficeStaffSchema,
+  insertOfficeExpenseSchema,
 } from "@shared/schema";
 import { ObjectStorageService, ObjectNotFoundError } from "./objectStorage";
 import { ObjectPermission } from "./objectAcl";
@@ -3271,6 +3274,287 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error deleting office MCO:", error);
       res.status(500).json({ message: "Failed to delete office MCO" });
+    }
+  });
+
+  // Office Licenses routes
+  app.get("/api/offices/:officeId/licenses", isAuthenticated, async (req, res) => {
+    try {
+      const licenses = await storage.getOfficeLicenses(req.params.officeId);
+      res.json(licenses);
+    } catch (error) {
+      console.error("Error fetching office licenses:", error);
+      res.status(500).json({ message: "Failed to fetch office licenses" });
+    }
+  });
+
+  app.get("/api/offices/:officeId/licenses/:id", isAuthenticated, async (req, res) => {
+    try {
+      const license = await storage.getOfficeLicense(req.params.id);
+      if (!license) {
+        return res.status(404).json({ message: "License not found" });
+      }
+      res.json(license);
+    } catch (error) {
+      console.error("Error fetching office license:", error);
+      res.status(500).json({ message: "Failed to fetch office license" });
+    }
+  });
+
+  app.post("/api/offices/:officeId/licenses", isAuthenticated, async (req: any, res) => {
+    try {
+      const requestData = {
+        ...req.body,
+        officeId: req.params.officeId,
+        createdBy: req.user.claims.sub,
+      };
+      const validatedData = insertOfficeLicenseSchema.parse(requestData);
+      const license = await storage.createOfficeLicense(validatedData);
+      
+      await storage.createAuditLog({
+        userId: req.user.claims.sub,
+        action: "create",
+        entityType: "office_license",
+        entityId: license.id,
+        newValues: license,
+        ipAddress: req.ip,
+        userAgent: req.get("User-Agent"),
+      });
+      
+      res.status(201).json(license);
+    } catch (error) {
+      console.error("Error creating office license:", error);
+      res.status(400).json({ message: "Failed to create office license" });
+    }
+  });
+
+  app.put("/api/offices/:officeId/licenses/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const oldLicense = await storage.getOfficeLicense(req.params.id);
+      const validatedData = insertOfficeLicenseSchema.partial().parse(req.body);
+      const license = await storage.updateOfficeLicense(req.params.id, validatedData);
+      
+      await storage.createAuditLog({
+        userId: req.user.claims.sub,
+        action: "update",
+        entityType: "office_license",
+        entityId: license.id,
+        oldValues: oldLicense,
+        newValues: license,
+        ipAddress: req.ip,
+        userAgent: req.get("User-Agent"),
+      });
+      
+      res.json(license);
+    } catch (error) {
+      console.error("Error updating office license:", error);
+      res.status(400).json({ message: "Failed to update office license" });
+    }
+  });
+
+  app.delete("/api/offices/:officeId/licenses/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const license = await storage.getOfficeLicense(req.params.id);
+      if (!license) {
+        return res.status(404).json({ message: "License not found" });
+      }
+      
+      await storage.deleteOfficeLicense(req.params.id);
+      
+      await storage.createAuditLog({
+        userId: req.user.claims.sub,
+        action: "delete",
+        entityType: "office_license",
+        entityId: req.params.id,
+        oldValues: license,
+        ipAddress: req.ip,
+        userAgent: req.get("User-Agent"),
+      });
+      
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting office license:", error);
+      res.status(500).json({ message: "Failed to delete office license" });
+    }
+  });
+
+  // Office Staff routes
+  app.get("/api/offices/:officeId/staff", isAuthenticated, async (req, res) => {
+    try {
+      const staff = await storage.getOfficeStaff(req.params.officeId);
+      res.json(staff);
+    } catch (error) {
+      console.error("Error fetching office staff:", error);
+      res.status(500).json({ message: "Failed to fetch office staff" });
+    }
+  });
+
+  app.post("/api/offices/:officeId/staff", isAuthenticated, async (req: any, res) => {
+    try {
+      const requestData = {
+        ...req.body,
+        officeId: req.params.officeId,
+      };
+      const validatedData = insertOfficeStaffSchema.parse(requestData);
+      const staff = await storage.createOfficeStaff(validatedData);
+      
+      await storage.createAuditLog({
+        userId: req.user.claims.sub,
+        action: "create",
+        entityType: "office_staff",
+        entityId: staff.id,
+        newValues: staff,
+        ipAddress: req.ip,
+        userAgent: req.get("User-Agent"),
+      });
+      
+      res.status(201).json(staff);
+    } catch (error) {
+      console.error("Error creating office staff:", error);
+      res.status(400).json({ message: "Failed to create office staff" });
+    }
+  });
+
+  app.put("/api/offices/:officeId/staff/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const oldStaff = await storage.getOfficeStaffMember(req.params.id);
+      const validatedData = insertOfficeStaffSchema.partial().parse(req.body);
+      const staff = await storage.updateOfficeStaff(req.params.id, validatedData);
+      
+      await storage.createAuditLog({
+        userId: req.user.claims.sub,
+        action: "update",
+        entityType: "office_staff",
+        entityId: staff.id,
+        oldValues: oldStaff,
+        newValues: staff,
+        ipAddress: req.ip,
+        userAgent: req.get("User-Agent"),
+      });
+      
+      res.json(staff);
+    } catch (error) {
+      console.error("Error updating office staff:", error);
+      res.status(400).json({ message: "Failed to update office staff" });
+    }
+  });
+
+  app.delete("/api/offices/:officeId/staff/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const staff = await storage.getOfficeStaffMember(req.params.id);
+      if (!staff) {
+        return res.status(404).json({ message: "Staff member not found" });
+      }
+      
+      await storage.deleteOfficeStaff(req.params.id);
+      
+      await storage.createAuditLog({
+        userId: req.user.claims.sub,
+        action: "delete",
+        entityType: "office_staff",
+        entityId: req.params.id,
+        oldValues: staff,
+        ipAddress: req.ip,
+        userAgent: req.get("User-Agent"),
+      });
+      
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting office staff:", error);
+      res.status(500).json({ message: "Failed to delete office staff" });
+    }
+  });
+
+  // Office Expenses routes
+  app.get("/api/offices/:officeId/expenses", isAuthenticated, async (req, res) => {
+    try {
+      const expenses = await storage.getOfficeExpenses(req.params.officeId);
+      res.json(expenses);
+    } catch (error) {
+      console.error("Error fetching office expenses:", error);
+      res.status(500).json({ message: "Failed to fetch office expenses" });
+    }
+  });
+
+  app.post("/api/offices/:officeId/expenses", isAuthenticated, async (req: any, res) => {
+    try {
+      const requestData = {
+        ...req.body,
+        officeId: req.params.officeId,
+        createdBy: req.user.claims.sub,
+        amount: req.body.amount != null ? String(req.body.amount) : undefined,
+      };
+      const validatedData = insertOfficeExpenseSchema.parse(requestData);
+      const expense = await storage.createOfficeExpense(validatedData);
+      
+      await storage.createAuditLog({
+        userId: req.user.claims.sub,
+        action: "create",
+        entityType: "office_expense",
+        entityId: expense.id,
+        newValues: expense,
+        ipAddress: req.ip,
+        userAgent: req.get("User-Agent"),
+      });
+      
+      res.status(201).json(expense);
+    } catch (error) {
+      console.error("Error creating office expense:", error);
+      res.status(400).json({ message: "Failed to create office expense" });
+    }
+  });
+
+  app.put("/api/offices/:officeId/expenses/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const oldExpense = await storage.getOfficeExpense(req.params.id);
+      const requestData = {
+        ...req.body,
+        amount: req.body.amount != null ? String(req.body.amount) : undefined,
+      };
+      const validatedData = insertOfficeExpenseSchema.partial().parse(requestData);
+      const expense = await storage.updateOfficeExpense(req.params.id, validatedData);
+      
+      await storage.createAuditLog({
+        userId: req.user.claims.sub,
+        action: "update",
+        entityType: "office_expense",
+        entityId: expense.id,
+        oldValues: oldExpense,
+        newValues: expense,
+        ipAddress: req.ip,
+        userAgent: req.get("User-Agent"),
+      });
+      
+      res.json(expense);
+    } catch (error) {
+      console.error("Error updating office expense:", error);
+      res.status(400).json({ message: "Failed to update office expense" });
+    }
+  });
+
+  app.delete("/api/offices/:officeId/expenses/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const expense = await storage.getOfficeExpense(req.params.id);
+      if (!expense) {
+        return res.status(404).json({ message: "Expense not found" });
+      }
+      
+      await storage.deleteOfficeExpense(req.params.id);
+      
+      await storage.createAuditLog({
+        userId: req.user.claims.sub,
+        action: "delete",
+        entityType: "office_expense",
+        entityId: req.params.id,
+        oldValues: expense,
+        ipAddress: req.ip,
+        userAgent: req.get("User-Agent"),
+      });
+      
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting office expense:", error);
+      res.status(500).json({ message: "Failed to delete office expense" });
     }
   });
 
