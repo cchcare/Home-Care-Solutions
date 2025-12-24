@@ -169,7 +169,7 @@ import {
   type InsertCoordinator,
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, desc, asc, and, or, count, sql, like, gte, lte } from "drizzle-orm";
+import { eq, desc, asc, and, or, count, sql, like, gte, lte, inArray } from "drizzle-orm";
 
 export interface IStorage {
   // User operations
@@ -195,6 +195,7 @@ export interface IStorage {
   getClient(id: string): Promise<Client | undefined>;
   createClient(client: InsertClient): Promise<Client>;
   updateClient(id: string, client: Partial<InsertClient>): Promise<Client>;
+  updateClientsBulk(clientIds: string[], updates: Partial<InsertClient>): Promise<Client[]>;
   deleteClient(id: string): Promise<void>;
   searchClients(searchTerm: string, officeId?: string): Promise<Client[]>;
 
@@ -627,6 +628,15 @@ export class DatabaseStorage implements IStorage {
       .where(eq(clients.id, id))
       .returning();
     return updatedClient;
+  }
+
+  async updateClientsBulk(clientIds: string[], updates: Partial<InsertClient>): Promise<Client[]> {
+    const updatedClients = await db
+      .update(clients)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(inArray(clients.id, clientIds))
+      .returning();
+    return updatedClients;
   }
 
   async deleteClient(id: string): Promise<void> {

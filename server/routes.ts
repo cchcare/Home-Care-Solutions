@@ -441,6 +441,39 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Client bulk update
+  app.post("/api/clients/bulk-update", isAuthenticated, async (req: any, res) => {
+    try {
+      const { clientIds, updates } = req.body;
+
+      if (!Array.isArray(clientIds) || clientIds.length === 0) {
+        return res.status(400).json({ message: "clientIds must be a non-empty array" });
+      }
+
+      if (!updates || typeof updates !== 'object' || Object.keys(updates).length === 0) {
+        return res.status(400).json({ message: "updates must be a non-empty object" });
+      }
+
+      const validatedUpdates = insertClientSchema.partial().parse(updates);
+      const updatedClients = await storage.updateClientsBulk(clientIds, validatedUpdates);
+
+      await storage.createAuditLog({
+        userId: req.user.claims.sub,
+        action: "bulk_update",
+        entityType: "client",
+        entityId: clientIds.join(","),
+        newValues: { clientIds, updates: validatedUpdates },
+        ipAddress: req.ip,
+        userAgent: req.get("User-Agent"),
+      });
+
+      res.json(updatedClients);
+    } catch (error) {
+      console.error("Error bulk updating clients:", error);
+      res.status(400).json({ message: "Failed to bulk update clients" });
+    }
+  });
+
   // Client bulk import
   app.post("/api/clients/bulk-import", isAuthenticated, async (req: any, res) => {
     try {

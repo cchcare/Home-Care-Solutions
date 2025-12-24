@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Sidebar } from "@/components/sidebar";
 import { TopBar } from "@/components/topbar";
 import { AddClientModal } from "@/components/add-client-modal";
@@ -14,6 +15,21 @@ import { OfficeSelector } from "@/components/office-selector";
 import { useOffice } from "@/context/office-context";
 import { apiRequest } from "@/lib/queryClient";
 import { isUnauthorizedError } from "@/lib/authUtils";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Label } from "@/components/ui/label";
 import { 
   Plus, 
   Search, 
@@ -23,12 +39,220 @@ import {
   Users,
   Phone,
   Calendar,
-  Scan
+  Scan,
+  CheckSquare
 } from "lucide-react";
 import { useLocation } from "wouter";
-import type { Client } from "@shared/schema";
+import type { Client, Office, Coordinator, Mco } from "@shared/schema";
 import { ExcelImport } from "@/components/excel-import";
 import { ExcelExport } from "@/components/excel-export";
+
+function BulkUpdateModal({
+  isOpen,
+  onClose,
+  selectedCount,
+  onSubmit,
+  isLoading,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  selectedCount: number;
+  onSubmit: (updates: Record<string, string>) => void;
+  isLoading: boolean;
+}) {
+  const [applyOffice, setApplyOffice] = useState(false);
+  const [applyCoordinator, setApplyCoordinator] = useState(false);
+  const [applyMco, setApplyMco] = useState(false);
+  const [applyStatus, setApplyStatus] = useState(false);
+
+  const [officeId, setOfficeId] = useState<string>("");
+  const [coordinatorId, setCoordinatorId] = useState<string>("");
+  const [mcoId, setMcoId] = useState<string>("");
+  const [status, setStatus] = useState<string>("");
+
+  const { data: offices = [] } = useQuery<Office[]>({
+    queryKey: ["/api/offices"],
+    queryFn: () => fetch("/api/offices").then(r => r.json()),
+    enabled: isOpen,
+  });
+
+  const { data: coordinators = [] } = useQuery<Coordinator[]>({
+    queryKey: ["/api/coordinators"],
+    queryFn: () => fetch("/api/coordinators").then(r => r.json()),
+    enabled: isOpen,
+  });
+
+  const { data: mcos = [] } = useQuery<Mco[]>({
+    queryKey: ["/api/mcos"],
+    queryFn: () => fetch("/api/mcos").then(r => r.json()),
+    enabled: isOpen,
+  });
+
+  const handleSubmit = () => {
+    const updates: Record<string, string> = {};
+    if (applyOffice && officeId && officeId !== "__none__") updates.officeId = officeId;
+    if (applyCoordinator && coordinatorId && coordinatorId !== "__none__") updates.coordinatorId = coordinatorId;
+    if (applyMco && mcoId && mcoId !== "__none__") updates.mcoId = mcoId;
+    if (applyStatus && status && status !== "__none__") updates.status = status;
+    
+    if (Object.keys(updates).length === 0) {
+      return;
+    }
+    onSubmit(updates);
+  };
+
+  const handleClose = () => {
+    setApplyOffice(false);
+    setApplyCoordinator(false);
+    setApplyMco(false);
+    setApplyStatus(false);
+    setOfficeId("");
+    setCoordinatorId("");
+    setMcoId("");
+    setStatus("");
+    onClose();
+  };
+
+  const hasSelection = applyOffice || applyCoordinator || applyMco || applyStatus;
+
+  return (
+    <Dialog open={isOpen} onOpenChange={handleClose}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Bulk Update {selectedCount} Client{selectedCount > 1 ? "s" : ""}</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4 py-4">
+          <div className="flex items-center space-x-3">
+            <Checkbox
+              id="apply-office"
+              checked={applyOffice}
+              onCheckedChange={(checked) => setApplyOffice(!!checked)}
+              data-testid="checkbox-apply-office"
+            />
+            <div className="flex-1">
+              <Label htmlFor="apply-office" className="font-medium">Office</Label>
+              <Select
+                value={officeId}
+                onValueChange={setOfficeId}
+                disabled={!applyOffice}
+              >
+                <SelectTrigger className="mt-1" data-testid="select-bulk-office">
+                  <SelectValue placeholder="Select office" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">Select office</SelectItem>
+                  {offices.map((office) => (
+                    <SelectItem key={office.id} value={office.id}>
+                      {office.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <div className="flex items-center space-x-3">
+            <Checkbox
+              id="apply-coordinator"
+              checked={applyCoordinator}
+              onCheckedChange={(checked) => setApplyCoordinator(!!checked)}
+              data-testid="checkbox-apply-coordinator"
+            />
+            <div className="flex-1">
+              <Label htmlFor="apply-coordinator" className="font-medium">Coordinator</Label>
+              <Select
+                value={coordinatorId}
+                onValueChange={setCoordinatorId}
+                disabled={!applyCoordinator}
+              >
+                <SelectTrigger className="mt-1" data-testid="select-bulk-coordinator">
+                  <SelectValue placeholder="Select coordinator" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">Select coordinator</SelectItem>
+                  {coordinators.map((coord) => (
+                    <SelectItem key={coord.id} value={coord.id}>
+                      {coord.firstName} {coord.lastName}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <div className="flex items-center space-x-3">
+            <Checkbox
+              id="apply-mco"
+              checked={applyMco}
+              onCheckedChange={(checked) => setApplyMco(!!checked)}
+              data-testid="checkbox-apply-mco"
+            />
+            <div className="flex-1">
+              <Label htmlFor="apply-mco" className="font-medium">MCO</Label>
+              <Select
+                value={mcoId}
+                onValueChange={setMcoId}
+                disabled={!applyMco}
+              >
+                <SelectTrigger className="mt-1" data-testid="select-bulk-mco">
+                  <SelectValue placeholder="Select MCO" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">Select MCO</SelectItem>
+                  {mcos.map((mco) => (
+                    <SelectItem key={mco.id} value={mco.id}>
+                      {mco.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <div className="flex items-center space-x-3">
+            <Checkbox
+              id="apply-status"
+              checked={applyStatus}
+              onCheckedChange={(checked) => setApplyStatus(!!checked)}
+              data-testid="checkbox-apply-status"
+            />
+            <div className="flex-1">
+              <Label htmlFor="apply-status" className="font-medium">Status</Label>
+              <Select
+                value={status}
+                onValueChange={setStatus}
+                disabled={!applyStatus}
+              >
+                <SelectTrigger className="mt-1" data-testid="select-bulk-status">
+                  <SelectValue placeholder="Select status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">Select status</SelectItem>
+                  <SelectItem value="active">Active</SelectItem>
+                  <SelectItem value="inactive">Inactive</SelectItem>
+                  <SelectItem value="pending">Pending</SelectItem>
+                  <SelectItem value="discharged">Discharged</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={handleClose} data-testid="button-cancel-bulk-update">
+            Cancel
+          </Button>
+          <Button 
+            onClick={handleSubmit} 
+            disabled={isLoading || !hasSelection}
+            data-testid="button-submit-bulk-update"
+          >
+            {isLoading ? "Updating..." : "Update Clients"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
 
 export default function Clients() {
   const [searchTerm, setSearchTerm] = useState("");
@@ -36,6 +260,8 @@ export default function Clients() {
   const [showOcrDialog, setShowOcrDialog] = useState(false);
   const [ocrExtractedData, setOcrExtractedData] = useState<any>(null);
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
+  const [selectedClientIds, setSelectedClientIds] = useState<Set<string>>(new Set());
+  const [showBulkUpdateModal, setShowBulkUpdateModal] = useState(false);
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { selectedOfficeId, setSelectedOfficeId } = useOffice();
@@ -116,6 +342,41 @@ export default function Clients() {
     },
   });
 
+  const bulkUpdateMutation = useMutation({
+    mutationFn: async ({ clientIds, updates }: { clientIds: string[]; updates: Record<string, string> }) => {
+      const response = await apiRequest("POST", "/api/clients/bulk-update", { clientIds, updates });
+      return response.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/clients"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/dashboard/metrics"] });
+      setShowBulkUpdateModal(false);
+      setSelectedClientIds(new Set());
+      toast({
+        title: "Success",
+        description: `${data.length} client${data.length > 1 ? "s" : ""} updated successfully`,
+      });
+    },
+    onError: (error) => {
+      if (isUnauthorizedError(error as Error)) {
+        toast({
+          title: "Unauthorized",
+          description: "You are logged out. Logging in again...",
+          variant: "destructive",
+        });
+        setTimeout(() => {
+          window.location.href = "/api/login";
+        }, 500);
+        return;
+      }
+      toast({
+        title: "Error",
+        description: "Failed to bulk update clients",
+        variant: "destructive",
+      });
+    },
+  });
+
   const handleAddClient = (clientData: any) => {
     createClientMutation.mutate(clientData);
   };
@@ -126,11 +387,39 @@ export default function Clients() {
     }
   };
 
+  const handleBulkUpdate = (updates: Record<string, string>) => {
+    bulkUpdateMutation.mutate({
+      clientIds: Array.from(selectedClientIds),
+      updates,
+    });
+  };
+
   const filteredClients = clients?.filter((client: Client) =>
     searchTerm === "" || 
     `${client.firstName} ${client.lastName}`.toLowerCase().includes(searchTerm.toLowerCase()) ||
     client.phone?.includes(searchTerm)
   ) || [];
+
+  const toggleClientSelection = (clientId: string) => {
+    const newSet = new Set(selectedClientIds);
+    if (newSet.has(clientId)) {
+      newSet.delete(clientId);
+    } else {
+      newSet.add(clientId);
+    }
+    setSelectedClientIds(newSet);
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedClientIds.size === filteredClients.length) {
+      setSelectedClientIds(new Set());
+    } else {
+      setSelectedClientIds(new Set(filteredClients.map(c => c.id)));
+    }
+  };
+
+  const isAllSelected = filteredClients.length > 0 && selectedClientIds.size === filteredClients.length;
+  const isSomeSelected = selectedClientIds.size > 0 && selectedClientIds.size < filteredClients.length;
 
   return (
     <div className="flex h-screen overflow-hidden">
@@ -176,6 +465,40 @@ export default function Clients() {
         <div className="flex-1 overflow-auto p-6 bg-background">
           <div className="max-w-7xl mx-auto space-y-6">
             
+            {/* Bulk Actions Bar */}
+            {selectedClientIds.size > 0 && (
+              <Card className="bg-primary/10 border-primary">
+                <CardContent className="p-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-3">
+                      <CheckSquare className="w-5 h-5 text-primary" />
+                      <span className="font-medium text-foreground" data-testid="text-selected-count">
+                        {selectedClientIds.size} client{selectedClientIds.size > 1 ? "s" : ""} selected
+                      </span>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setSelectedClientIds(new Set())}
+                        data-testid="button-clear-selection"
+                      >
+                        Clear Selection
+                      </Button>
+                      <Button
+                        size="sm"
+                        onClick={() => setShowBulkUpdateModal(true)}
+                        data-testid="button-bulk-update"
+                      >
+                        <Edit className="w-4 h-4 mr-2" />
+                        Bulk Update
+                      </Button>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
             {/* Search and Filters */}
             <Card>
               <CardContent className="p-6">
@@ -263,6 +586,15 @@ export default function Clients() {
                   <table className="w-full">
                     <thead className="bg-muted/50">
                       <tr>
+                        <th className="w-12 p-4">
+                          <Checkbox
+                            checked={isAllSelected}
+                            onCheckedChange={toggleSelectAll}
+                            aria-label="Select all clients"
+                            data-testid="checkbox-select-all"
+                            className={isSomeSelected ? "data-[state=checked]:bg-primary/50" : ""}
+                          />
+                        </th>
                         <th className="text-left p-4 text-sm font-medium text-muted-foreground">Client Information</th>
                         <th className="text-left p-4 text-sm font-medium text-muted-foreground">Contact</th>
                         <th className="text-left p-4 text-sm font-medium text-muted-foreground">Emergency Contact</th>
@@ -273,13 +605,21 @@ export default function Clients() {
                     <tbody className="divide-y divide-border">
                       {isLoading ? (
                         <tr>
-                          <td colSpan={5} className="p-8 text-center text-muted-foreground">
+                          <td colSpan={6} className="p-8 text-center text-muted-foreground">
                             Loading clients...
                           </td>
                         </tr>
                       ) : filteredClients.length > 0 ? (
                         filteredClients.map((client: Client) => (
                           <tr key={client.id} className="hover:bg-muted/25 transition-colors" data-testid={`row-client-details-${client.id}`}>
+                            <td className="p-4">
+                              <Checkbox
+                                checked={selectedClientIds.has(client.id)}
+                                onCheckedChange={() => toggleClientSelection(client.id)}
+                                aria-label={`Select ${client.firstName} ${client.lastName}`}
+                                data-testid={`checkbox-select-client-${client.id}`}
+                              />
+                            </td>
                             <td className="p-4">
                               <div className="flex items-center space-x-3">
                                 <div className="w-12 h-12 bg-primary rounded-full flex items-center justify-center">
@@ -350,7 +690,7 @@ export default function Clients() {
                         ))
                       ) : (
                         <tr>
-                          <td colSpan={5} className="p-8 text-center text-muted-foreground">
+                          <td colSpan={6} className="p-8 text-center text-muted-foreground">
                             {searchTerm ? "No clients found matching your search" : "No clients found"}
                           </td>
                         </tr>
@@ -397,6 +737,14 @@ export default function Clients() {
             description: "Document scanned successfully. Please review and complete the form.",
           });
         }}
+      />
+
+      <BulkUpdateModal
+        isOpen={showBulkUpdateModal}
+        onClose={() => setShowBulkUpdateModal(false)}
+        selectedCount={selectedClientIds.size}
+        onSubmit={handleBulkUpdate}
+        isLoading={bulkUpdateMutation.isPending}
       />
     </div>
   );
