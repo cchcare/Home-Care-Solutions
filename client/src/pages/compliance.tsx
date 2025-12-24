@@ -34,6 +34,8 @@ import {
   ClipboardList
 } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useOfficeScope } from "@/context/office-context";
+import { OfficeSelector } from "@/components/office-selector";
 
 const complianceFormSchema = insertComplianceItemSchema.extend({
   dueDate: z.string().min(1, "Due date is required"),
@@ -63,6 +65,7 @@ export default function Compliance() {
   const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const { selectedOfficeId, setSelectedOfficeId, isAllOffices, canMutate, viewOnlyMessage } = useOfficeScope();
 
   const { data: caregivers = [], isLoading: caregiversLoading } = useQuery<Caregiver[]>({
     queryKey: ["/api/caregivers"],
@@ -70,12 +73,28 @@ export default function Compliance() {
   });
 
   const { data: complianceItems = [], isLoading: complianceLoading } = useQuery<ComplianceItem[]>({
-    queryKey: ["/api/compliance"],
+    queryKey: ["/api/compliance", selectedOfficeId],
+    queryFn: async () => {
+      const url = selectedOfficeId && selectedOfficeId !== "all" 
+        ? `/api/compliance?officeId=${selectedOfficeId}` 
+        : "/api/compliance";
+      const response = await fetch(url, { credentials: "include" });
+      if (!response.ok) throw new Error("Failed to fetch compliance items");
+      return response.json();
+    },
     retry: false,
   });
 
   const { data: evvData = [], isLoading: evvLoading } = useQuery<EvvData[]>({
-    queryKey: ["/api/evv-data"],
+    queryKey: ["/api/evv-data", selectedOfficeId],
+    queryFn: async () => {
+      const url = selectedOfficeId && selectedOfficeId !== "all" 
+        ? `/api/evv-data?officeId=${selectedOfficeId}` 
+        : "/api/evv-data";
+      const response = await fetch(url, { credentials: "include" });
+      if (!response.ok) throw new Error("Failed to fetch EVV data");
+      return response.json();
+    },
     retry: false,
   });
 
@@ -119,7 +138,7 @@ export default function Compliance() {
       return response.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/compliance"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/compliance", selectedOfficeId] });
       setOpen(false);
       form.reset();
       toast({
@@ -167,7 +186,7 @@ export default function Compliance() {
       return response.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/evv-data"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/evv-data", selectedOfficeId] });
       setEvvDialogOpen(false);
       evvForm.reset();
       toast({
@@ -195,7 +214,7 @@ export default function Compliance() {
       }
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/evv-data"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/evv-data", selectedOfficeId] });
       toast({
         title: "Success",
         description: "EVV data deleted successfully",
@@ -372,13 +391,15 @@ export default function Compliance() {
               <h1 className="text-2xl font-bold text-foreground">Compliance Management</h1>
               <p className="text-muted-foreground">Monitor and manage compliance requirements</p>
             </div>
-            <Dialog open={open} onOpenChange={setOpen}>
-              <DialogTrigger asChild>
-                <Button data-testid="button-add-compliance">
-                  <Plus className="mr-2 h-4 w-4" />
-                  Add Compliance Item
-                </Button>
-              </DialogTrigger>
+            <div className="flex items-center gap-4">
+              <OfficeSelector selectedOfficeId={selectedOfficeId} onOfficeChange={setSelectedOfficeId} />
+              <Dialog open={open} onOpenChange={setOpen}>
+                <DialogTrigger asChild>
+                  <Button data-testid="button-add-compliance" disabled={!canMutate} title={!canMutate ? viewOnlyMessage : undefined}>
+                    <Plus className="mr-2 h-4 w-4" />
+                    Add Compliance Item
+                  </Button>
+                </DialogTrigger>
               <DialogContent className="max-w-md">
                 <DialogHeader>
                   <DialogTitle>Add Compliance Item</DialogTitle>
@@ -516,8 +537,16 @@ export default function Compliance() {
                   </form>
                 </Form>
               </DialogContent>
-            </Dialog>
+              </Dialog>
+            </div>
           </div>
+
+          {isAllOffices && (
+            <div className="bg-amber-50 border border-amber-200 text-amber-800 px-4 py-2 rounded-md text-sm flex items-center gap-2">
+              <AlertTriangle className="h-4 w-4" />
+              {viewOnlyMessage}
+            </div>
+          )}
 
           {/* Search and Filters */}
           <div className="flex gap-4 flex-wrap">
@@ -721,7 +750,7 @@ export default function Compliance() {
                   </Select>
                   <Dialog open={evvDialogOpen} onOpenChange={setEvvDialogOpen}>
                     <DialogTrigger asChild>
-                      <Button data-testid="button-add-evv">
+                      <Button data-testid="button-add-evv" disabled={!canMutate} title={!canMutate ? viewOnlyMessage : undefined}>
                         <Plus className="mr-2 h-4 w-4" />
                         Add EVV Data
                       </Button>
@@ -961,7 +990,8 @@ export default function Compliance() {
                                 variant="ghost"
                                 size="sm"
                                 onClick={() => deleteEvvMutation.mutate(item.id)}
-                                disabled={deleteEvvMutation.isPending}
+                                disabled={deleteEvvMutation.isPending || !canMutate}
+                                title={!canMutate ? viewOnlyMessage : undefined}
                                 data-testid={`button-delete-evv-${item.id}`}
                               >
                                 <Trash2 className="w-4 h-4 text-destructive" />
