@@ -2682,7 +2682,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Message is required" });
       }
       
-      const result = await processAIAssistantMessage(message, conversationHistory || []);
+      const userRole = req.user?.role || "caregiver";
+      const result = await processAIAssistantMessage(message, conversationHistory || [], userRole);
       res.json(result);
     } catch (error) {
       console.error("Error processing AI assistant message:", error);

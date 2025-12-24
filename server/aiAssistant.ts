@@ -7,6 +7,51 @@ const openai = new OpenAI({
   apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
 });
 
+type UserRole = "admin" | "supervisor" | "caregiver" | "family" | "super_admin";
+
+const ROLE_PERMISSIONS: Record<UserRole, string[]> = {
+  super_admin: [
+    "search_clients", "search_caregivers", "assign_client_to_caregiver",
+    "create_caregiver_note", "update_client_mco_status", "get_client_mcos",
+    "create_schedule", "get_client_details", "get_caregiver_details",
+    "deactivate_client", "activate_client"
+  ],
+  admin: [
+    "search_clients", "search_caregivers", "assign_client_to_caregiver",
+    "create_caregiver_note", "update_client_mco_status", "get_client_mcos",
+    "create_schedule", "get_client_details", "get_caregiver_details",
+    "deactivate_client", "activate_client"
+  ],
+  supervisor: [
+    "search_clients", "search_caregivers", "assign_client_to_caregiver",
+    "create_caregiver_note", "update_client_mco_status", "get_client_mcos",
+    "create_schedule", "get_client_details", "get_caregiver_details"
+  ],
+  caregiver: [
+    "search_clients", "search_caregivers", "get_client_details",
+    "get_caregiver_details", "create_caregiver_note", "get_client_mcos"
+  ],
+  family: [
+    "search_clients", "get_client_details"
+  ]
+};
+
+function canExecuteTool(role: UserRole, toolName: string): boolean {
+  const permissions = ROLE_PERMISSIONS[role];
+  return permissions ? permissions.includes(toolName) : false;
+}
+
+function getPermissionDenialMessage(role: UserRole, toolName: string): string {
+  const denialMessages: Record<string, string> = {
+    assign_client_to_caregiver: "I'm not able to assign clients to caregivers with your current role. Please contact an administrator or supervisor for this request.",
+    deactivate_client: "Client status changes require administrator privileges. I can help you create a note or notify an admin instead.",
+    activate_client: "Client status changes require administrator privileges. I can help you create a note or notify an admin instead.",
+    update_client_mco_status: "MCO status updates require supervisor or administrator access. Would you like me to help with something else?",
+    create_schedule: "Schedule creation requires supervisor access or higher. I can help you view existing information instead.",
+  };
+  return denialMessages[toolName] || `This action requires higher access privileges than your current ${role} role provides.`;
+}
+
 const AVAILABLE_TOOLS: ChatCompletionTool[] = [
   {
     type: "function",
@@ -267,7 +312,15 @@ const AVAILABLE_TOOLS: ChatCompletionTool[] = [
   }
 ];
 
-async function executeFunction(name: string, args: any): Promise<string> {
+async function executeFunction(name: string, args: any, userRole: UserRole): Promise<string> {
+  if (!canExecuteTool(userRole, name)) {
+    return JSON.stringify({ 
+      success: false, 
+      permissionDenied: true,
+      message: getPermissionDenialMessage(userRole, name)
+    });
+  }
+  
   try {
     switch (name) {
       case "search_clients": {
@@ -512,26 +565,29 @@ export interface ChatMessage {
 
 export async function processAIAssistantMessage(
   userMessage: string,
-  conversationHistory: ChatMessage[]
+  conversationHistory: ChatMessage[],
+  userRole: UserRole = "caregiver"
 ): Promise<{ response: string; actions: string[] }> {
   const actions: string[] = [];
   
   const messages: ChatCompletionMessageParam[] = [
     {
       role: "system",
-      content: `You are an AI assistant for a home care agency management system. You help users perform actions like:
-- Searching for and viewing client/caregiver information
-- Assigning clients to caregivers
-- Creating notes for caregivers
-- Managing client MCO (Managed Care Organization) assignments
-- Creating schedules for client visits
-- Activating/deactivating clients
+      content: `You are an AI assistant for a home care agency management system. The user has a "${userRole}" role.
+
+Based on their role, you can help with:
+${userRole === "admin" || userRole === "super_admin" ? `- Full access: search, assign clients, create schedules, manage MCO status, activate/deactivate clients, create notes` : ""}
+${userRole === "supervisor" ? `- Search clients and caregivers, assign clients, create schedules, manage MCO status, create notes (cannot activate/deactivate clients)` : ""}
+${userRole === "caregiver" ? `- Search and view client/caregiver details, create notes, view MCO information (cannot assign clients, create schedules, or change client status)` : ""}
+${userRole === "family" ? `- View client information only (limited access for privacy protection)` : ""}
 
 When the user asks you to do something:
 1. First search for the relevant entities (clients, caregivers) if needed
 2. Confirm you found the right ones
 3. Perform the requested action
 4. Report the result
+
+If the user requests an action they don't have permission for, politely explain the limitation and suggest what they can do instead or who to contact.
 
 Be helpful, concise, and professional. If you need more information to complete a task, ask for it.
 Always be careful with actions that modify data - confirm before making changes if the user's request is ambiguous.`
@@ -563,7 +619,7 @@ Always be careful with actions that modify data - confirm before making changes 
       
       actions.push(`Executing: ${functionName}`);
       
-      const result = await executeFunction(functionName, functionArgs);
+      const result = await executeFunction(functionName, functionArgs, userRole);
       
       messages.push({
         role: "tool",
