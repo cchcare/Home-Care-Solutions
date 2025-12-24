@@ -298,6 +298,7 @@ export const complianceItems = pgTable("compliance_items", {
   dueDate: timestamp("due_date"),
   completedDate: timestamp("completed_date"),
   notes: text("notes"),
+  officeId: varchar("office_id").references(() => offices.id),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });

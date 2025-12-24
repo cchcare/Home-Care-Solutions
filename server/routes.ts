@@ -1652,7 +1652,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/compliance", isAuthenticated, async (req, res) => {
     try {
-      const complianceItems = await storage.getAllComplianceItems();
+      const officeId = req.query.officeId as string | undefined;
+      const complianceItems = await storage.getAllComplianceItems(officeId);
       res.json(complianceItems);
     } catch (error) {
       console.error("Error fetching compliance items:", error);
@@ -3112,7 +3113,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // EVV Data routes
   app.get("/api/evv-data", isAuthenticated, async (req, res) => {
     try {
-      const { month, year } = req.query;
+      const { month, year, officeId } = req.query;
       let evvDataItems;
       
       if (month && year) {
@@ -3120,10 +3121,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
           parseInt(month as string, 10),
           parseInt(year as string, 10)
         );
+        // Filter by officeId if provided
+        if (officeId) {
+          evvDataItems = evvDataItems.filter(item => item.officeId === officeId);
+        }
       } else {
-        evvDataItems = await storage.getAllEvvData();
+        evvDataItems = await storage.getAllEvvData(officeId as string | undefined);
       }
-      
       res.json(evvDataItems);
     } catch (error) {
       console.error("Error fetching EVV data:", error);

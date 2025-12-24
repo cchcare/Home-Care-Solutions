@@ -393,10 +393,10 @@ export interface IStorage {
   createAiDetectedIssue(issue: InsertAiDetectedIssue): Promise<AiDetectedIssue>;
   updateAiDetectedIssue(id: string, issue: Partial<InsertAiDetectedIssue>): Promise<AiDetectedIssue>;
   deleteAiDetectedIssue(id: string): Promise<void>;
-  getAllComplianceItems(): Promise<ComplianceItem[]>;
+  getAllComplianceItems(officeId?: string): Promise<ComplianceItem[]>;
 
   // EVV Data operations
-  getAllEvvData(): Promise<EvvData[]>;
+  getAllEvvData(officeId?: string): Promise<EvvData[]>;
   getEvvData(id: string): Promise<EvvData | undefined>;
   getEvvDataByMonthYear(month: number, year: number): Promise<EvvData[]>;
   createEvvData(data: InsertEvvData): Promise<EvvData>;
@@ -1114,7 +1114,14 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Compliance operations
-  async getAllComplianceItems(): Promise<ComplianceItem[]> {
+  async getAllComplianceItems(officeId?: string): Promise<ComplianceItem[]> {
+    if (officeId) {
+      return await db
+        .select()
+        .from(complianceItems)
+        .where(eq(complianceItems.officeId, officeId))
+        .orderBy(desc(complianceItems.dueDate));
+    }
     return await db
       .select()
       .from(complianceItems)
@@ -1837,8 +1844,18 @@ export class DatabaseStorage implements IStorage {
   }
 
   // EVV Data operations
-  async getAllEvvData(): Promise<EvvData[]> {
-    return await db.select().from(evvData).orderBy(desc(evvData.year), desc(evvData.month));
+  async getAllEvvData(officeId?: string): Promise<EvvData[]> {
+    if (officeId) {
+      return await db
+        .select()
+        .from(evvData)
+        .where(eq(evvData.officeId, officeId))
+        .orderBy(desc(evvData.createdAt));
+    }
+    return await db
+      .select()
+      .from(evvData)
+      .orderBy(desc(evvData.createdAt));
   }
 
   async getEvvData(id: string): Promise<EvvData | undefined> {
