@@ -64,9 +64,11 @@ import {
   MoreHorizontal,
   Wallet,
   UserPlus,
-  Search
+  Search,
+  ExternalLink,
+  Globe
 } from "lucide-react";
-import type { Client, Document, Office, Mco, User as UserType, ClientCommunication, OfficeMcoBillingRate, ClientSchedule, MasterWeekTemplate, MasterWeekSlot, Caregiver, ClientMco, Coordinator } from "@shared/schema";
+import type { Client, Document, Office, Mco, User as UserType, ClientCommunication, OfficeMcoBillingRate, ClientSchedule, MasterWeekTemplate, MasterWeekSlot, Caregiver, ClientMco, Coordinator, EligibilityCheck } from "@shared/schema";
 
 const DOCUMENT_CATEGORIES = [
   { value: "id_card", label: "ID Card" },
@@ -135,6 +137,20 @@ export default function ClientProfile() {
     dischargeNotes: "",
     isPrimary: false,
     status: "active",
+  });
+  const [showEligibilityDialog, setShowEligibilityDialog] = useState(false);
+  const [editingEligibility, setEditingEligibility] = useState<EligibilityCheck | null>(null);
+  const [eligibilityFormData, setEligibilityFormData] = useState({
+    mcoId: "",
+    memberId: "",
+    checkDate: new Date().toISOString().split('T')[0],
+    status: "pending",
+    eligibilityStatus: "",
+    coverageStartDate: "",
+    coverageEndDate: "",
+    verificationSource: "promise_portal",
+    notes: "",
+    expirationDate: "",
   });
 
   const { data: client, isLoading: clientLoading } = useQuery<Client>({
@@ -237,6 +253,12 @@ export default function ClientProfile() {
   const { data: allMcos = [] } = useQuery<Mco[]>({
     queryKey: ["/api/mcos"],
     queryFn: () => fetch(`/api/mcos`).then(r => r.json()),
+  });
+
+  const { data: eligibilityChecks = [] } = useQuery<EligibilityCheck[]>({
+    queryKey: ["/api/clients", clientId, "eligibility-checks"],
+    queryFn: () => fetch(`/api/clients/${clientId}/eligibility-checks`).then(r => r.json()),
+    enabled: !!clientId,
   });
 
   const uploadMutation = useMutation({
@@ -382,6 +404,53 @@ export default function ClientProfile() {
     },
   });
 
+  const createEligibilityCheckMutation = useMutation({
+    mutationFn: async (data: typeof eligibilityFormData) => {
+      return await apiRequest("POST", `/api/clients/${clientId}/eligibility-checks`, {
+        ...data,
+        officeId: client?.officeId,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/clients", clientId, "eligibility-checks"] });
+      setShowEligibilityDialog(false);
+      resetEligibilityForm();
+      toast({ title: "Success", description: "Eligibility check recorded successfully" });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to record eligibility check", variant: "destructive" });
+    },
+  });
+
+  const updateEligibilityCheckMutation = useMutation({
+    mutationFn: async ({ id, data }: { id: string; data: typeof eligibilityFormData }) => {
+      return await apiRequest("PUT", `/api/eligibility-checks/${id}`, data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/clients", clientId, "eligibility-checks"] });
+      setShowEligibilityDialog(false);
+      setEditingEligibility(null);
+      resetEligibilityForm();
+      toast({ title: "Success", description: "Eligibility check updated successfully" });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to update eligibility check", variant: "destructive" });
+    },
+  });
+
+  const deleteEligibilityCheckMutation = useMutation({
+    mutationFn: async (id: string) => {
+      return await apiRequest("DELETE", `/api/eligibility-checks/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/clients", clientId, "eligibility-checks"] });
+      toast({ title: "Success", description: "Eligibility check deleted successfully" });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to delete eligibility check", variant: "destructive" });
+    },
+  });
+
   const assignCaregiverMutation = useMutation({
     mutationFn: async (caregiverId: string) => {
       return await apiRequest("POST", `/api/clients/${clientId}/caregivers`, { caregiverId });
@@ -451,6 +520,66 @@ export default function ClientProfile() {
     } else {
       createClientMcoMutation.mutate(mcoFormData);
     }
+  };
+
+  const resetEligibilityForm = () => {
+    setEligibilityFormData({
+      mcoId: "",
+      memberId: "",
+      checkDate: new Date().toISOString().split('T')[0],
+      status: "pending",
+      eligibilityStatus: "",
+      coverageStartDate: "",
+      coverageEndDate: "",
+      verificationSource: "promise_portal",
+      notes: "",
+      expirationDate: "",
+    });
+  };
+
+  const handleOpenEligibilityDialog = (check?: EligibilityCheck) => {
+    if (check) {
+      setEditingEligibility(check);
+      setEligibilityFormData({
+        mcoId: check.mcoId || "",
+        memberId: check.memberId || "",
+        checkDate: check.checkDate ? format(new Date(check.checkDate), "yyyy-MM-dd") : "",
+        status: check.status || "pending",
+        eligibilityStatus: check.eligibilityStatus || "",
+        coverageStartDate: check.coverageStartDate ? format(new Date(check.coverageStartDate), "yyyy-MM-dd") : "",
+        coverageEndDate: check.coverageEndDate ? format(new Date(check.coverageEndDate), "yyyy-MM-dd") : "",
+        verificationSource: check.verificationSource || "promise_portal",
+        notes: check.notes || "",
+        expirationDate: check.expirationDate ? format(new Date(check.expirationDate), "yyyy-MM-dd") : "",
+      });
+    } else {
+      setEditingEligibility(null);
+      resetEligibilityForm();
+      // Pre-fill with client's current MCO if available
+      if (client?.mcoId) {
+        setEligibilityFormData(prev => ({ ...prev, mcoId: client.mcoId || "" }));
+      }
+      if (client?.memberId) {
+        setEligibilityFormData(prev => ({ ...prev, memberId: client.memberId || "" }));
+      }
+    }
+    setShowEligibilityDialog(true);
+  };
+
+  const handleSaveEligibility = () => {
+    if (!eligibilityFormData.checkDate) {
+      toast({ title: "Error", description: "Please enter a check date", variant: "destructive" });
+      return;
+    }
+    if (editingEligibility) {
+      updateEligibilityCheckMutation.mutate({ id: editingEligibility.id, data: eligibilityFormData });
+    } else {
+      createEligibilityCheckMutation.mutate(eligibilityFormData);
+    }
+  };
+
+  const openPromisePortal = () => {
+    window.open("https://promise.dhs.pa.gov/portal/provider/Home/tabid/135/Default.aspx", "_blank");
   };
 
   const handleStartEditing = () => {
@@ -1650,15 +1779,113 @@ export default function ClientProfile() {
               {activeSection === "eligibility" && (
                 <div className="space-y-6">
                   <Card>
-                    <CardHeader>
-                      <CardTitle className="flex items-center gap-2">
-                        <CheckCircle className="w-5 h-5" />
-                        Eligibility Check
-                      </CardTitle>
-                      <CardDescription>Check client eligibility status</CardDescription>
+                    <CardHeader className="flex flex-row items-center justify-between">
+                      <div>
+                        <CardTitle className="flex items-center gap-2">
+                          <CheckCircle className="w-5 h-5" />
+                          Eligibility Verification
+                        </CardTitle>
+                        <CardDescription>Check and track client eligibility via PA DHS PROMISe portal</CardDescription>
+                      </div>
+                      <div className="flex gap-2">
+                        <Button 
+                          variant="outline" 
+                          onClick={openPromisePortal}
+                          data-testid="button-open-promise-portal"
+                        >
+                          <Globe className="w-4 h-4 mr-2" />
+                          Open PROMISe Portal
+                          <ExternalLink className="w-3 h-3 ml-2" />
+                        </Button>
+                        <Button onClick={() => handleOpenEligibilityDialog()} data-testid="button-add-eligibility-check">
+                          <Plus className="w-4 h-4 mr-2" />
+                          Record Check
+                        </Button>
+                      </div>
                     </CardHeader>
                     <CardContent>
-                      <p className="text-muted-foreground text-center py-8">Eligibility check coming soon</p>
+                      <div className="bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded-lg p-4 mb-6">
+                        <div className="flex items-start gap-3">
+                          <Globe className="w-5 h-5 text-blue-600 mt-0.5" />
+                          <div>
+                            <h4 className="font-medium text-blue-900 dark:text-blue-100">PA DHS PROMISe Portal</h4>
+                            <p className="text-sm text-blue-700 dark:text-blue-300 mt-1">
+                              Click "Open PROMISe Portal" to verify eligibility on the official PA DHS system. 
+                              After verification, click "Record Check" to save the results here.
+                            </p>
+                            <div className="mt-2 text-sm text-blue-600 dark:text-blue-400">
+                              <strong>Member ID:</strong> {client?.memberId || "Not set"} | 
+                              <strong className="ml-2">MCO:</strong> {mco?.name || "Not assigned"}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {eligibilityChecks.length === 0 ? (
+                        <p className="text-muted-foreground text-center py-8">
+                          No eligibility checks recorded. Use the PROMISe portal to verify eligibility, then record the results here.
+                        </p>
+                      ) : (
+                        <div className="overflow-x-auto">
+                          <table className="w-full">
+                            <thead className="bg-muted">
+                              <tr>
+                                <th className="text-left p-3 text-sm font-medium">Check Date</th>
+                                <th className="text-left p-3 text-sm font-medium">MCO</th>
+                                <th className="text-left p-3 text-sm font-medium">Status</th>
+                                <th className="text-left p-3 text-sm font-medium">Eligibility</th>
+                                <th className="text-left p-3 text-sm font-medium">Coverage</th>
+                                <th className="text-left p-3 text-sm font-medium">Actions</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y">
+                              {eligibilityChecks.map((check) => {
+                                const checkMco = allMcos.find(m => m.id === check.mcoId);
+                                return (
+                                  <tr key={check.id} data-testid={`eligibility-check-${check.id}`}>
+                                    <td className="p-3">{check.checkDate ? format(new Date(check.checkDate), "MM/dd/yyyy") : "-"}</td>
+                                    <td className="p-3">{checkMco?.name || "N/A"}</td>
+                                    <td className="p-3">
+                                      <Badge variant={check.status === "verified" ? "default" : check.status === "failed" ? "destructive" : "secondary"}>
+                                        {check.status || "pending"}
+                                      </Badge>
+                                    </td>
+                                    <td className="p-3">
+                                      <Badge variant={check.eligibilityStatus === "eligible" ? "default" : check.eligibilityStatus === "ineligible" ? "destructive" : "outline"}>
+                                        {check.eligibilityStatus || "Unknown"}
+                                      </Badge>
+                                    </td>
+                                    <td className="p-3 text-sm">
+                                      {check.coverageStartDate && check.coverageEndDate ? (
+                                        <>{format(new Date(check.coverageStartDate), "MM/dd/yy")} - {format(new Date(check.coverageEndDate), "MM/dd/yy")}</>
+                                      ) : "-"}
+                                    </td>
+                                    <td className="p-3">
+                                      <div className="flex gap-2">
+                                        <Button variant="ghost" size="sm" onClick={() => handleOpenEligibilityDialog(check)} data-testid={`button-edit-eligibility-${check.id}`}>
+                                          <Edit className="w-4 h-4" />
+                                        </Button>
+                                        <Button 
+                                          variant="ghost" 
+                                          size="sm" 
+                                          onClick={() => {
+                                            if (confirm("Delete this eligibility check?")) {
+                                              deleteEligibilityCheckMutation.mutate(check.id);
+                                            }
+                                          }}
+                                          data-testid={`button-delete-eligibility-${check.id}`}
+                                        >
+                                          <Trash2 className="w-4 h-4 text-destructive" />
+                                        </Button>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
                     </CardContent>
                   </Card>
                 </div>
@@ -1923,6 +2150,171 @@ export default function ClientProfile() {
               >
                 <Save className="w-4 h-4 mr-2" />
                 {editingMco ? "Update" : "Add"} MCO
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showEligibilityDialog} onOpenChange={(open) => {
+        setShowEligibilityDialog(open);
+        if (!open) {
+          setEditingEligibility(null);
+          resetEligibilityForm();
+        }
+      }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <CheckCircle className="w-5 h-5" />
+              {editingEligibility ? "Edit Eligibility Check" : "Record Eligibility Check"}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="py-4 space-y-4">
+            <div className="bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded-lg p-3">
+              <div className="flex items-center gap-2">
+                <Globe className="w-4 h-4 text-blue-600" />
+                <Button variant="link" className="p-0 h-auto text-blue-600" onClick={openPromisePortal}>
+                  Open PROMISe Portal <ExternalLink className="w-3 h-3 ml-1" />
+                </Button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Check Date *</Label>
+                <Input
+                  type="date"
+                  value={eligibilityFormData.checkDate}
+                  onChange={(e) => setEligibilityFormData({ ...eligibilityFormData, checkDate: e.target.value })}
+                  data-testid="input-eligibility-check-date"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>MCO</Label>
+                <Select
+                  value={eligibilityFormData.mcoId}
+                  onValueChange={(value) => setEligibilityFormData({ ...eligibilityFormData, mcoId: value })}
+                >
+                  <SelectTrigger data-testid="select-eligibility-mco">
+                    <SelectValue placeholder="Select MCO" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {officeMcos.map((m) => (
+                      <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Member ID</Label>
+              <Input
+                value={eligibilityFormData.memberId}
+                onChange={(e) => setEligibilityFormData({ ...eligibilityFormData, memberId: e.target.value })}
+                placeholder="Enter member ID used for verification"
+                data-testid="input-eligibility-member-id"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Verification Status</Label>
+                <Select
+                  value={eligibilityFormData.status}
+                  onValueChange={(value) => setEligibilityFormData({ ...eligibilityFormData, status: value })}
+                >
+                  <SelectTrigger data-testid="select-eligibility-status">
+                    <SelectValue placeholder="Select status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="pending">Pending</SelectItem>
+                    <SelectItem value="verified">Verified</SelectItem>
+                    <SelectItem value="failed">Failed</SelectItem>
+                    <SelectItem value="expired">Expired</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Eligibility Result</Label>
+                <Select
+                  value={eligibilityFormData.eligibilityStatus}
+                  onValueChange={(value) => setEligibilityFormData({ ...eligibilityFormData, eligibilityStatus: value })}
+                >
+                  <SelectTrigger data-testid="select-eligibility-result">
+                    <SelectValue placeholder="Select result" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="eligible">Eligible</SelectItem>
+                    <SelectItem value="ineligible">Ineligible</SelectItem>
+                    <SelectItem value="partial">Partial Coverage</SelectItem>
+                    <SelectItem value="unknown">Unknown</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Coverage Start Date</Label>
+                <Input
+                  type="date"
+                  value={eligibilityFormData.coverageStartDate}
+                  onChange={(e) => setEligibilityFormData({ ...eligibilityFormData, coverageStartDate: e.target.value })}
+                  data-testid="input-coverage-start-date"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Coverage End Date</Label>
+                <Input
+                  type="date"
+                  value={eligibilityFormData.coverageEndDate}
+                  onChange={(e) => setEligibilityFormData({ ...eligibilityFormData, coverageEndDate: e.target.value })}
+                  data-testid="input-coverage-end-date"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Verification Expiration</Label>
+              <Input
+                type="date"
+                value={eligibilityFormData.expirationDate}
+                onChange={(e) => setEligibilityFormData({ ...eligibilityFormData, expirationDate: e.target.value })}
+                data-testid="input-eligibility-expiration"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label>Notes</Label>
+              <Textarea
+                value={eligibilityFormData.notes}
+                onChange={(e) => setEligibilityFormData({ ...eligibilityFormData, notes: e.target.value })}
+                placeholder="Add any notes from the verification..."
+                rows={3}
+                data-testid="input-eligibility-notes"
+              />
+            </div>
+
+            <div className="flex justify-end gap-2 pt-4">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setShowEligibilityDialog(false);
+                  setEditingEligibility(null);
+                  resetEligibilityForm();
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleSaveEligibility}
+                disabled={createEligibilityCheckMutation.isPending || updateEligibilityCheckMutation.isPending}
+                data-testid="button-save-eligibility"
+              >
+                <Save className="w-4 h-4 mr-2" />
+                {editingEligibility ? "Update" : "Save"} Check
               </Button>
             </div>
           </div>

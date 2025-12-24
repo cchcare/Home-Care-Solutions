@@ -179,6 +179,9 @@ import {
   officeExpenses,
   type OfficeExpense,
   type InsertOfficeExpense,
+  eligibilityChecks,
+  type EligibilityCheck,
+  type InsertEligibilityCheck,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, asc, and, or, count, sql, like, gte, lte, inArray } from "drizzle-orm";
@@ -556,6 +559,13 @@ export interface IStorage {
   createOfficeExpense(expense: InsertOfficeExpense): Promise<OfficeExpense>;
   updateOfficeExpense(id: string, expense: Partial<InsertOfficeExpense>): Promise<OfficeExpense>;
   deleteOfficeExpense(id: string): Promise<void>;
+
+  // Eligibility Check operations
+  getEligibilityChecksByClient(clientId: string): Promise<EligibilityCheck[]>;
+  getEligibilityCheck(id: string): Promise<EligibilityCheck | undefined>;
+  createEligibilityCheck(check: InsertEligibilityCheck): Promise<EligibilityCheck>;
+  updateEligibilityCheck(id: string, check: Partial<InsertEligibilityCheck>): Promise<EligibilityCheck>;
+  deleteEligibilityCheck(id: string): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -2852,6 +2862,30 @@ export class DatabaseStorage implements IStorage {
 
   async deleteOfficeExpense(id: string): Promise<void> {
     await db.delete(officeExpenses).where(eq(officeExpenses.id, id));
+  }
+
+  // Eligibility Check operations
+  async getEligibilityChecksByClient(clientId: string): Promise<EligibilityCheck[]> {
+    return await db.select().from(eligibilityChecks).where(eq(eligibilityChecks.clientId, clientId)).orderBy(desc(eligibilityChecks.checkDate));
+  }
+
+  async getEligibilityCheck(id: string): Promise<EligibilityCheck | undefined> {
+    const [check] = await db.select().from(eligibilityChecks).where(eq(eligibilityChecks.id, id));
+    return check;
+  }
+
+  async createEligibilityCheck(check: InsertEligibilityCheck): Promise<EligibilityCheck> {
+    const [created] = await db.insert(eligibilityChecks).values(check).returning();
+    return created;
+  }
+
+  async updateEligibilityCheck(id: string, check: Partial<InsertEligibilityCheck>): Promise<EligibilityCheck> {
+    const [updated] = await db.update(eligibilityChecks).set({ ...check, updatedAt: new Date() }).where(eq(eligibilityChecks.id, id)).returning();
+    return updated;
+  }
+
+  async deleteEligibilityCheck(id: string): Promise<void> {
+    await db.delete(eligibilityChecks).where(eq(eligibilityChecks.id, id));
   }
 }
 

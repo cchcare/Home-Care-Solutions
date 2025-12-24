@@ -1801,3 +1801,37 @@ export const officeExpensesRelations = relations(officeExpenses, ({ one }) => ({
 export type OfficeExpense = typeof officeExpenses.$inferSelect;
 export type InsertOfficeExpense = typeof officeExpenses.$inferInsert;
 export const insertOfficeExpenseSchema = createInsertSchema(officeExpenses).omit({ id: true, createdAt: true, updatedAt: true });
+
+// Eligibility Checks - tracks client eligibility verifications via PA DHS PROMISe portal
+export const eligibilityChecks = pgTable("eligibility_checks", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  clientId: varchar("client_id").references(() => clients.id).notNull(),
+  mcoId: varchar("mco_id").references(() => mcos.id), // MCO being verified
+  memberId: varchar("member_id"), // Member ID used for verification
+  checkDate: timestamp("check_date").notNull(), // Date of verification check
+  status: varchar("status").default("pending"), // pending, verified, failed, expired
+  eligibilityStatus: varchar("eligibility_status"), // eligible, ineligible, partial, unknown
+  coverageStartDate: timestamp("coverage_start_date"),
+  coverageEndDate: timestamp("coverage_end_date"),
+  verificationSource: varchar("verification_source").default("promise_portal"), // promise_portal, phone, fax, other
+  verifiedBy: varchar("verified_by").references(() => users.id),
+  notes: text("notes"),
+  portalResponse: text("portal_response"), // Store any response data or notes from portal
+  documentId: varchar("document_id").references(() => documents.id), // Uploaded verification screenshot/document
+  expirationDate: timestamp("expiration_date"), // When this verification expires
+  officeId: varchar("office_id").references(() => offices.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const eligibilityChecksRelations = relations(eligibilityChecks, ({ one }) => ({
+  client: one(clients, { fields: [eligibilityChecks.clientId], references: [clients.id] }),
+  mco: one(mcos, { fields: [eligibilityChecks.mcoId], references: [mcos.id] }),
+  verifiedByUser: one(users, { fields: [eligibilityChecks.verifiedBy], references: [users.id] }),
+  document: one(documents, { fields: [eligibilityChecks.documentId], references: [documents.id] }),
+  office: one(offices, { fields: [eligibilityChecks.officeId], references: [offices.id] }),
+}));
+
+export type EligibilityCheck = typeof eligibilityChecks.$inferSelect;
+export type InsertEligibilityCheck = typeof eligibilityChecks.$inferInsert;
+export const insertEligibilityCheckSchema = createInsertSchema(eligibilityChecks).omit({ id: true, createdAt: true, updatedAt: true });

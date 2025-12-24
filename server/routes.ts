@@ -54,6 +54,7 @@ import {
   insertOfficeLicenseSchema,
   insertOfficeStaffSchema,
   insertOfficeExpenseSchema,
+  insertEligibilityCheckSchema,
 } from "@shared/schema";
 import { ObjectStorageService, ObjectNotFoundError } from "./objectStorage";
 import { ObjectPermission } from "./objectAcl";
@@ -2991,6 +2992,85 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error deleting client MCO:", error);
       res.status(400).json({ message: "Failed to delete client MCO" });
+    }
+  });
+
+  // ==================== ELIGIBILITY CHECK ROUTES ====================
+  app.get("/api/clients/:clientId/eligibility-checks", isAuthenticated, async (req, res) => {
+    try {
+      const checks = await storage.getEligibilityChecksByClient(req.params.clientId);
+      res.json(checks);
+    } catch (error) {
+      console.error("Error fetching eligibility checks:", error);
+      res.status(500).json({ message: "Failed to fetch eligibility checks" });
+    }
+  });
+
+  app.get("/api/eligibility-checks/:id", isAuthenticated, async (req, res) => {
+    try {
+      const check = await storage.getEligibilityCheck(req.params.id);
+      if (!check) {
+        return res.status(404).json({ message: "Eligibility check not found" });
+      }
+      res.json(check);
+    } catch (error) {
+      console.error("Error fetching eligibility check:", error);
+      res.status(500).json({ message: "Failed to fetch eligibility check" });
+    }
+  });
+
+  app.post("/api/clients/:clientId/eligibility-checks", isAuthenticated, async (req: any, res) => {
+    try {
+      const { clientId: _, verifiedBy: __, ...userBody } = req.body;
+      const coercedData = {
+        ...userBody,
+        checkDate: coerceDate(userBody.checkDate),
+        coverageStartDate: coerceDate(userBody.coverageStartDate),
+        coverageEndDate: coerceDate(userBody.coverageEndDate),
+        expirationDate: coerceDate(userBody.expirationDate),
+      };
+      const validatedBody = insertEligibilityCheckSchema.omit({ clientId: true, verifiedBy: true }).parse(coercedData);
+      const check = await storage.createEligibilityCheck({
+        ...validatedBody,
+        clientId: req.params.clientId,
+        verifiedBy: req.user.claims.sub,
+      });
+      res.status(201).json(check);
+    } catch (error) {
+      console.error("Error creating eligibility check:", error);
+      res.status(400).json({ message: "Failed to create eligibility check" });
+    }
+  });
+
+  app.put("/api/eligibility-checks/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const { clientId, verifiedBy, ...updateData } = req.body;
+      const coercedData = {
+        ...updateData,
+        checkDate: coerceDate(updateData.checkDate),
+        coverageStartDate: coerceDate(updateData.coverageStartDate),
+        coverageEndDate: coerceDate(updateData.coverageEndDate),
+        expirationDate: coerceDate(updateData.expirationDate),
+      };
+      const validatedData = insertEligibilityCheckSchema.partial().parse(coercedData);
+      const check = await storage.updateEligibilityCheck(req.params.id, {
+        ...validatedData,
+        verifiedBy: req.user.claims.sub,
+      });
+      res.json(check);
+    } catch (error) {
+      console.error("Error updating eligibility check:", error);
+      res.status(400).json({ message: "Failed to update eligibility check" });
+    }
+  });
+
+  app.delete("/api/eligibility-checks/:id", isAuthenticated, async (req, res) => {
+    try {
+      await storage.deleteEligibilityCheck(req.params.id);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting eligibility check:", error);
+      res.status(400).json({ message: "Failed to delete eligibility check" });
     }
   });
 
