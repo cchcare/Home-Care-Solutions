@@ -292,7 +292,7 @@ export function MasterWeekTemplateModal({
       return newTemplate;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/clients", client.id, "master-week-templates"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/clients", client.id, "master-week"] });
       toast({
         title: "Success",
         description: "Master week template created successfully",
@@ -322,7 +322,7 @@ export function MasterWeekTemplateModal({
       const updatedTemplate = await response.json();
 
       // Delete existing slots and recreate
-      const existingSlotsResponse = await fetch(`/api/master-week-templates/${template.id}/slots`);
+      const existingSlotsResponse = await apiRequest("GET", `/api/master-week-templates/${template.id}/slots`);
       const existingSlotsData = await existingSlotsResponse.json();
       
       for (const slot of existingSlotsData) {
@@ -358,7 +358,7 @@ export function MasterWeekTemplateModal({
       return updatedTemplate;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/clients", client.id, "master-week-templates"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/clients", client.id, "master-week"] });
       toast({
         title: "Success",
         description: "Master week template updated successfully",
