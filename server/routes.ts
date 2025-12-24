@@ -2672,6 +2672,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // AI Assistant route
+  app.post("/api/ai-assistant/chat", isAuthenticated, async (req: any, res) => {
+    try {
+      const { processAIAssistantMessage } = await import("./aiAssistant");
+      const { message, conversationHistory } = req.body;
+      
+      if (!message || typeof message !== "string") {
+        return res.status(400).json({ message: "Message is required" });
+      }
+      
+      const result = await processAIAssistantMessage(message, conversationHistory || []);
+      res.json(result);
+    } catch (error) {
+      console.error("Error processing AI assistant message:", error);
+      res.status(500).json({ message: "Failed to process message" });
+    }
+  });
+
   // EVV Data routes
   app.get("/api/evv-data", isAuthenticated, async (req, res) => {
     try {

@@ -25,7 +25,8 @@ import {
   ShieldCheck,
   UserCog,
   Key,
-  DollarSign
+  DollarSign,
+  Bot
 } from "lucide-react";
 
 interface NavItem {
@@ -69,6 +70,7 @@ export function Sidebar() {
       { name: "Forms & Documents", href: "/documents", icon: FileText },
       { name: "Analytics & Reports", href: "/reports", icon: BarChart3 },
       { name: "Billing & Payroll", href: "/billing-payroll", icon: DollarSign },
+      { name: "AI Assistant", href: "/ai-assistant", icon: Bot },
     ];
 
     if ((user as any)?.role === "admin" || (user as any)?.role === "supervisor" || (user as any)?.role === "super_admin") {

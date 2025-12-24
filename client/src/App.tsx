@@ -27,6 +27,7 @@ import RoleWizard from "@/pages/role-wizard";
 import AccountSettings from "@/pages/account-settings";
 import AdminSettings from "@/pages/admin-settings";
 import BillingPayroll from "@/pages/billing-payroll";
+import AIAssistant from "@/pages/ai-assistant";
 
 function Router() {
   const { isAuthenticated, isLoading, error } = useAuth();
@@ -69,6 +70,7 @@ function Router() {
           <Route path="/admin-settings" component={AdminSettings} />
           <Route path="/role-wizard" component={RoleWizard} />
           <Route path="/billing-payroll" component={BillingPayroll} />
+          <Route path="/ai-assistant" component={AIAssistant} />
         </>
       )}
       <Route component={NotFound} />
