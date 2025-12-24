@@ -1660,8 +1660,8 @@ export default function ClientProfile() {
                                     {template.endDate && (
                                       <span>To: {format(new Date(template.endDate), "MMM d, yyyy")}</span>
                                     )}
-                                    {template.recurrence && (
-                                      <span>Every {template.recurrence} week(s)</span>
+                                    {template.recurrenceWeeks && (
+                                      <span>Every {template.recurrenceWeeks} week(s)</span>
                                     )}
                                   </div>
                                 </div>
@@ -1753,7 +1753,7 @@ export default function ClientProfile() {
                           });
                         }
                       }}
-                      disabled={applyToCalendarMutation.isPending || !selectedTemplateForApply}
+                      disabled={applyToCalendarMutation.isPending || !selectedTemplateForApply || !applyFromDate || !applyToDate || applyFromDate > applyToDate}
                       data-testid="button-confirm-apply"
                     >
                       {applyToCalendarMutation.isPending ? "Applying..." : "Apply to Calendar"}

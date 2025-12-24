@@ -2921,11 +2921,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/master-week-templates/:id/apply", isAuthenticated, async (req: any, res) => {
     try {
       const { fromDate, toDate } = req.body;
+      console.log("[Apply] Received request with fromDate:", fromDate, "toDate:", toDate);
       if (!fromDate || !toDate) {
         return res.status(400).json({ message: "From date and to date are required" });
       }
 
+      console.log("[Apply] Calling applyMasterWeekToSchedules...");
       const schedules = await storage.applyMasterWeekToSchedules(req.params.id, new Date(fromDate), new Date(toDate));
+      console.log("[Apply] Created", schedules.length, "schedules");
       
       // Log the rollover
       for (const schedule of schedules) {
