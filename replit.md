@@ -117,10 +117,18 @@ Preferred communication style: Simple, everyday language.
   - GET/POST/PUT/DELETE /api/master-week-slots
 
 ### Authentication & Authorization
-- **OIDC Integration**: Secure authentication flow with Replit's identity provider
-- **Role-Based Access**: Multiple user roles (admin, supervisor, caregiver, family) with appropriate permissions
-- **Session Security**: HTTP-only cookies with secure flags and configurable TTL
-- **HIPAA Compliance**: Secure session storage and user data protection mechanisms
+- **Local Session-Based Authentication**: Server-managed username/password authentication replacing Replit OIDC
+  - Password hashing: bcrypt with 12 rounds
+  - Rate limiting: 5 login attempts per 15 minutes per username
+  - Session regeneration on successful login
+  - mustResetPassword flag for new accounts created by managers
+- **User Account Creation**: Office managers can create staff/caregiver accounts with initial passwords
+  - Office admins can only create users in their own office
+  - Office admins cannot create super_admin or admin users (privilege escalation prevention)
+- **Role-Based Access**: Multiple user roles (super_admin, admin, office_admin, supervisor, caregiver, family) with appropriate permissions
+- **Session Security**: HTTP-only cookies with secure flags (in production), sameSite=lax, PostgreSQL session storage
+- **HIPAA Compliance**: Secure session storage, password hashing, and user data protection mechanisms
+- **Login Flow**: Username/password form on landing page with client-side validation
 
 ### File Management
 - **Secure Upload**: Multi-part form uploads with file type validation and size limits
