@@ -118,6 +118,9 @@ export const clients = pgTable("clients", {
 export const caregivers = pgTable("caregivers", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id").references(() => users.id),
+  firstName: varchar("first_name"),
+  middleName: varchar("middle_name"),
+  lastName: varchar("last_name"),
   employeeId: varchar("employee_id").unique(),
   gender: genderEnum("gender"),
   hireDate: timestamp("hire_date"),
@@ -132,6 +135,7 @@ export const caregivers = pgTable("caregivers", {
   city: varchar("city"),
   state: varchar("state"),
   zipCode: varchar("zip_code"),
+  county: varchar("county"),
   hhaxCaregiverCode: varchar("hhax_caregiver_code").unique(),
   adpCode: varchar("adp_code"),
   isActive: boolean("is_active").default(true),
