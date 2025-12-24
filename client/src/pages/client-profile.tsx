@@ -66,7 +66,7 @@ import {
   UserPlus,
   Search
 } from "lucide-react";
-import type { Client, Document, Office, Mco, User as UserType, ClientCommunication, OfficeMcoBillingRate, ClientSchedule, MasterWeekTemplate, MasterWeekSlot, Caregiver } from "@shared/schema";
+import type { Client, Document, Office, Mco, User as UserType, ClientCommunication, OfficeMcoBillingRate, ClientSchedule, MasterWeekTemplate, MasterWeekSlot, Caregiver, ClientMco } from "@shared/schema";
 
 const DOCUMENT_CATEGORIES = [
   { value: "id_card", label: "ID Card" },
@@ -115,6 +115,25 @@ export default function ClientProfile() {
   const [activeSection, setActiveSection] = useState("general");
   const [showSearchDialog, setShowSearchDialog] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [showMcoDialog, setShowMcoDialog] = useState(false);
+  const [editingMco, setEditingMco] = useState<ClientMco | null>(null);
+  const [mcoFormData, setMcoFormData] = useState<{
+    mcoId: string;
+    startDate: string;
+    dischargeDate: string;
+    dischargeReason: string;
+    dischargeNotes: string;
+    isPrimary: boolean;
+    status: string;
+  }>({
+    mcoId: "",
+    startDate: "",
+    dischargeDate: "",
+    dischargeReason: "none",
+    dischargeNotes: "",
+    isPrimary: false,
+    status: "active",
+  });
 
   const { data: client, isLoading: clientLoading } = useQuery<Client>({
     queryKey: ["/api/clients", clientId],
@@ -200,6 +219,17 @@ export default function ClientProfile() {
   const { data: allClients = [] } = useQuery<Client[]>({
     queryKey: ["/api/clients"],
     queryFn: () => fetch(`/api/clients`).then(r => r.json()),
+  });
+
+  const { data: clientMcos = [] } = useQuery<ClientMco[]>({
+    queryKey: ["/api/clients", clientId, "mcos"],
+    queryFn: () => fetch(`/api/clients/${clientId}/mcos`).then(r => r.json()),
+    enabled: !!clientId,
+  });
+
+  const { data: allMcos = [] } = useQuery<Mco[]>({
+    queryKey: ["/api/mcos"],
+    queryFn: () => fetch(`/api/mcos`).then(r => r.json()),
   });
 
   const uploadMutation = useMutation({
@@ -290,6 +320,103 @@ export default function ClientProfile() {
       toast({ title: "Error", description: "Failed to update client", variant: "destructive" });
     },
   });
+
+  const createClientMcoMutation = useMutation({
+    mutationFn: async (data: typeof mcoFormData) => {
+      return await apiRequest("POST", `/api/clients/${clientId}/mcos`, {
+        ...data,
+        startDate: data.startDate ? new Date(data.startDate) : null,
+        dischargeDate: data.dischargeDate ? new Date(data.dischargeDate) : null,
+        dischargeReason: data.dischargeReason === "none" ? null : data.dischargeReason,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/clients", clientId, "mcos"] });
+      setShowMcoDialog(false);
+      resetMcoForm();
+      toast({ title: "Success", description: "MCO added successfully" });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to add MCO", variant: "destructive" });
+    },
+  });
+
+  const updateClientMcoMutation = useMutation({
+    mutationFn: async ({ id, data }: { id: string; data: typeof mcoFormData }) => {
+      return await apiRequest("PUT", `/api/client-mcos/${id}`, {
+        ...data,
+        startDate: data.startDate ? new Date(data.startDate) : null,
+        dischargeDate: data.dischargeDate ? new Date(data.dischargeDate) : null,
+        dischargeReason: data.dischargeReason === "none" ? null : data.dischargeReason,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/clients", clientId, "mcos"] });
+      setShowMcoDialog(false);
+      setEditingMco(null);
+      resetMcoForm();
+      toast({ title: "Success", description: "MCO updated successfully" });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to update MCO", variant: "destructive" });
+    },
+  });
+
+  const deleteClientMcoMutation = useMutation({
+    mutationFn: async (id: string) => {
+      return await apiRequest("DELETE", `/api/client-mcos/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/clients", clientId, "mcos"] });
+      toast({ title: "Success", description: "MCO removed successfully" });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to remove MCO", variant: "destructive" });
+    },
+  });
+
+  const resetMcoForm = () => {
+    setMcoFormData({
+      mcoId: "",
+      startDate: "",
+      dischargeDate: "",
+      dischargeReason: "none",
+      dischargeNotes: "",
+      isPrimary: false,
+      status: "active",
+    });
+  };
+
+  const handleOpenMcoDialog = (mco?: ClientMco) => {
+    if (mco) {
+      setEditingMco(mco);
+      setMcoFormData({
+        mcoId: mco.mcoId || "",
+        startDate: mco.startDate ? format(new Date(mco.startDate), "yyyy-MM-dd") : "",
+        dischargeDate: mco.dischargeDate ? format(new Date(mco.dischargeDate), "yyyy-MM-dd") : "",
+        dischargeReason: mco.dischargeReason || "none",
+        dischargeNotes: mco.dischargeNotes || "",
+        isPrimary: mco.isPrimary || false,
+        status: mco.status || "active",
+      });
+    } else {
+      setEditingMco(null);
+      resetMcoForm();
+    }
+    setShowMcoDialog(true);
+  };
+
+  const handleSaveMco = () => {
+    if (!mcoFormData.mcoId) {
+      toast({ title: "Error", description: "Please select an MCO", variant: "destructive" });
+      return;
+    }
+    if (editingMco) {
+      updateClientMcoMutation.mutate({ id: editingMco.id, data: mcoFormData });
+    } else {
+      createClientMcoMutation.mutate(mcoFormData);
+    }
+  };
 
   const handleStartEditing = () => {
     if (client) {
@@ -878,26 +1005,109 @@ export default function ClientProfile() {
               {activeSection === "mcos" && (
                 <div className="space-y-6">
                 <Card>
+                  <CardHeader className="flex flex-row items-center justify-between">
+                    <div>
+                      <CardTitle className="flex items-center gap-2">
+                        <Shield className="w-5 h-5" />
+                        MCO Assignments
+                      </CardTitle>
+                      <CardDescription>Manage insurance and MCO enrollments for this client</CardDescription>
+                    </div>
+                    <Button onClick={() => handleOpenMcoDialog()} data-testid="button-add-mco">
+                      <Plus className="w-4 h-4 mr-2" />
+                      Add MCO
+                    </Button>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="p-4 border rounded-lg mb-6 bg-muted/50">
+                      <Label className="text-muted-foreground text-sm">Member ID</Label>
+                      <p className="font-medium text-lg">{client.memberId || "N/A"}</p>
+                    </div>
+
+                    {clientMcos.length === 0 ? (
+                      <p className="text-muted-foreground text-center py-8">
+                        No MCOs assigned to this client. Click "Add MCO" to add one.
+                      </p>
+                    ) : (
+                      <div className="border rounded-lg overflow-hidden">
+                        <table className="w-full">
+                          <thead className="bg-muted/50">
+                            <tr>
+                              <th className="text-left p-3 text-sm font-medium">MCO</th>
+                              <th className="text-left p-3 text-sm font-medium">Start Date</th>
+                              <th className="text-left p-3 text-sm font-medium">Discharge Date</th>
+                              <th className="text-left p-3 text-sm font-medium">Discharge Reason</th>
+                              <th className="text-left p-3 text-sm font-medium">Status</th>
+                              <th className="text-left p-3 text-sm font-medium">Primary</th>
+                              <th className="text-left p-3 text-sm font-medium">Actions</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y">
+                            {clientMcos.map((clientMco) => {
+                              const mcoInfo = allMcos.find(m => m.id === clientMco.mcoId);
+                              return (
+                                <tr key={clientMco.id} data-testid={`client-mco-${clientMco.id}`}>
+                                  <td className="p-3 font-medium">{mcoInfo?.name || "Unknown MCO"}</td>
+                                  <td className="p-3">
+                                    {clientMco.startDate ? format(new Date(clientMco.startDate), "MMM d, yyyy") : "-"}
+                                  </td>
+                                  <td className="p-3">
+                                    {clientMco.dischargeDate ? format(new Date(clientMco.dischargeDate), "MMM d, yyyy") : "-"}
+                                  </td>
+                                  <td className="p-3">{clientMco.dischargeReason || "-"}</td>
+                                  <td className="p-3">
+                                    <Badge variant={clientMco.status === "active" ? "default" : "secondary"}>
+                                      {clientMco.status || "active"}
+                                    </Badge>
+                                  </td>
+                                  <td className="p-3">
+                                    {clientMco.isPrimary && (
+                                      <Badge variant="outline" className="bg-primary/10">Primary</Badge>
+                                    )}
+                                  </td>
+                                  <td className="p-3">
+                                    <div className="flex items-center gap-2">
+                                      <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        onClick={() => handleOpenMcoDialog(clientMco)}
+                                        data-testid={`button-edit-mco-${clientMco.id}`}
+                                      >
+                                        <Edit className="w-4 h-4" />
+                                      </Button>
+                                      <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        onClick={() => {
+                                          if (confirm("Are you sure you want to remove this MCO?")) {
+                                            deleteClientMcoMutation.mutate(clientMco.id);
+                                          }
+                                        }}
+                                        data-testid={`button-delete-mco-${clientMco.id}`}
+                                      >
+                                        <Trash2 className="w-4 h-4 text-destructive" />
+                                      </Button>
+                                    </div>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+
+                <Card>
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2">
                       <DollarSign className="w-5 h-5" />
-                      Billing Information
+                      Billing Rates
                     </CardTitle>
                     <CardDescription>MCO billing rates for {office?.name || "this office"}</CardDescription>
                   </CardHeader>
                   <CardContent>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-                      <div className="p-4 border rounded-lg">
-                        <Label className="text-muted-foreground text-sm">MCO</Label>
-                        <p className="font-medium text-lg">{mco?.name || "Not assigned"}</p>
-                      </div>
-                      <div className="p-4 border rounded-lg">
-                        <Label className="text-muted-foreground text-sm">Member ID</Label>
-                        <p className="font-medium text-lg">{client.memberId || "N/A"}</p>
-                      </div>
-                    </div>
-
-                    <h4 className="font-medium mb-3">Billing Rates</h4>
                     {billingRates.length === 0 ? (
                       <p className="text-muted-foreground text-center py-8">
                         No billing rates configured for this MCO at this office
@@ -1416,6 +1626,149 @@ export default function ClientProfile() {
           </div>
         </div>
       </main>
+
+      <Dialog open={showMcoDialog} onOpenChange={(open) => {
+        setShowMcoDialog(open);
+        if (!open) {
+          setEditingMco(null);
+          resetMcoForm();
+        }
+      }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Shield className="w-5 h-5" />
+              {editingMco ? "Edit MCO" : "Add MCO"}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="py-4 space-y-4">
+            <div className="space-y-2">
+              <Label>MCO *</Label>
+              <Select
+                value={mcoFormData.mcoId}
+                onValueChange={(value) => setMcoFormData({ ...mcoFormData, mcoId: value })}
+              >
+                <SelectTrigger data-testid="select-mco">
+                  <SelectValue placeholder="Select MCO" />
+                </SelectTrigger>
+                <SelectContent>
+                  {allMcos.map((m) => (
+                    <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Start Date</Label>
+                <Input
+                  type="date"
+                  value={mcoFormData.startDate}
+                  onChange={(e) => setMcoFormData({ ...mcoFormData, startDate: e.target.value })}
+                  data-testid="input-mco-start-date"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Discharge Date</Label>
+                <Input
+                  type="date"
+                  value={mcoFormData.dischargeDate}
+                  onChange={(e) => setMcoFormData({ ...mcoFormData, dischargeDate: e.target.value })}
+                  data-testid="input-mco-discharge-date"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Discharge Reason</Label>
+              <Select
+                value={mcoFormData.dischargeReason}
+                onValueChange={(value) => setMcoFormData({ ...mcoFormData, dischargeReason: value })}
+              >
+                <SelectTrigger data-testid="select-discharge-reason">
+                  <SelectValue placeholder="Select reason (if discharged)" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">None</SelectItem>
+                  <SelectItem value="deceased">Deceased</SelectItem>
+                  <SelectItem value="moved_out_of_area">Moved Out of Area</SelectItem>
+                  <SelectItem value="transferred">Transferred to Another Agency</SelectItem>
+                  <SelectItem value="lost_eligibility">Lost Eligibility</SelectItem>
+                  <SelectItem value="voluntary">Voluntary Discharge</SelectItem>
+                  <SelectItem value="hospitalized">Hospitalized</SelectItem>
+                  <SelectItem value="nursing_facility">Nursing Facility Placement</SelectItem>
+                  <SelectItem value="no_longer_needs_services">No Longer Needs Services</SelectItem>
+                  <SelectItem value="non_compliance">Non-Compliance</SelectItem>
+                  <SelectItem value="other">Other</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Discharge Notes</Label>
+              <Textarea
+                value={mcoFormData.dischargeNotes}
+                onChange={(e) => setMcoFormData({ ...mcoFormData, dischargeNotes: e.target.value })}
+                placeholder="Additional notes about the discharge..."
+                data-testid="input-discharge-notes"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Status</Label>
+                <Select
+                  value={mcoFormData.status}
+                  onValueChange={(value) => setMcoFormData({ ...mcoFormData, status: value })}
+                >
+                  <SelectTrigger data-testid="select-mco-status">
+                    <SelectValue placeholder="Select status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="active">Active</SelectItem>
+                    <SelectItem value="inactive">Inactive</SelectItem>
+                    <SelectItem value="pending">Pending</SelectItem>
+                    <SelectItem value="discharged">Discharged</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex items-center space-x-2 pt-6">
+                <input
+                  type="checkbox"
+                  id="isPrimary"
+                  checked={mcoFormData.isPrimary}
+                  onChange={(e) => setMcoFormData({ ...mcoFormData, isPrimary: e.target.checked })}
+                  className="h-4 w-4 rounded border-gray-300"
+                  data-testid="checkbox-is-primary"
+                />
+                <Label htmlFor="isPrimary">Primary MCO</Label>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-4">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setShowMcoDialog(false);
+                  setEditingMco(null);
+                  resetMcoForm();
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleSaveMco}
+                disabled={createClientMcoMutation.isPending || updateClientMcoMutation.isPending}
+                data-testid="button-save-mco"
+              >
+                <Save className="w-4 h-4 mr-2" />
+                {editingMco ? "Update" : "Add"} MCO
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={showSearchDialog} onOpenChange={setShowSearchDialog}>
         <DialogContent className="max-w-md">
