@@ -50,6 +50,7 @@ import {
   insertCaregiverOfficeMoveSchema,
   insertCaregiverScheduleSchema,
   insertClientMcoSchema,
+  insertCoordinatorSchema,
 } from "@shared/schema";
 import { ObjectStorageService, ObjectNotFoundError } from "./objectStorage";
 import { ObjectPermission } from "./objectAcl";
@@ -213,6 +214,104 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error deleting office:", error);
       res.status(500).json({ message: "Failed to delete office" });
+    }
+  });
+
+  // Coordinator routes
+  app.get("/api/coordinators", isAuthenticated, async (req, res) => {
+    try {
+      const { officeId } = req.query;
+      const officeFilter = officeId && officeId !== 'all' ? String(officeId) : undefined;
+      const coordinators = await storage.getAllCoordinators(officeFilter);
+      res.json(coordinators);
+    } catch (error) {
+      console.error("Error fetching coordinators:", error);
+      res.status(500).json({ message: "Failed to fetch coordinators" });
+    }
+  });
+
+  app.get("/api/coordinators/:id", isAuthenticated, async (req, res) => {
+    try {
+      const coordinator = await storage.getCoordinator(req.params.id);
+      if (!coordinator) {
+        return res.status(404).json({ message: "Coordinator not found" });
+      }
+      res.json(coordinator);
+    } catch (error) {
+      console.error("Error fetching coordinator:", error);
+      res.status(500).json({ message: "Failed to fetch coordinator" });
+    }
+  });
+
+  app.post("/api/coordinators", isAuthenticated, async (req: any, res) => {
+    try {
+      const validatedData = insertCoordinatorSchema.parse(req.body);
+      const coordinator = await storage.createCoordinator(validatedData);
+      
+      await storage.createAuditLog({
+        userId: req.user.claims.sub,
+        action: "create",
+        entityType: "coordinator",
+        entityId: coordinator.id,
+        newValues: coordinator,
+        ipAddress: req.ip,
+        userAgent: req.get("User-Agent"),
+      });
+      
+      res.status(201).json(coordinator);
+    } catch (error) {
+      console.error("Error creating coordinator:", error);
+      res.status(400).json({ message: "Failed to create coordinator" });
+    }
+  });
+
+  app.put("/api/coordinators/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const oldCoordinator = await storage.getCoordinator(req.params.id);
+      const validatedData = insertCoordinatorSchema.partial().parse(req.body);
+      const coordinator = await storage.updateCoordinator(req.params.id, validatedData);
+      
+      await storage.createAuditLog({
+        userId: req.user.claims.sub,
+        action: "update",
+        entityType: "coordinator",
+        entityId: coordinator.id,
+        oldValues: oldCoordinator,
+        newValues: coordinator,
+        ipAddress: req.ip,
+        userAgent: req.get("User-Agent"),
+      });
+      
+      res.json(coordinator);
+    } catch (error) {
+      console.error("Error updating coordinator:", error);
+      res.status(400).json({ message: "Failed to update coordinator" });
+    }
+  });
+
+  app.delete("/api/coordinators/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const coordinator = await storage.getCoordinator(req.params.id);
+      if (!coordinator) {
+        return res.status(404).json({ message: "Coordinator not found" });
+      }
+      
+      await storage.deleteCoordinator(req.params.id);
+      
+      await storage.createAuditLog({
+        userId: req.user.claims.sub,
+        action: "delete",
+        entityType: "coordinator",
+        entityId: req.params.id,
+        oldValues: coordinator,
+        ipAddress: req.ip,
+        userAgent: req.get("User-Agent"),
+      });
+      
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting coordinator:", error);
+      res.status(500).json({ message: "Failed to delete coordinator" });
     }
   });
 
