@@ -164,6 +164,9 @@ import {
   clientMcos,
   type ClientMco,
   type InsertClientMco,
+  coordinators,
+  type Coordinator,
+  type InsertCoordinator,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, asc, and, or, count, sql, like, gte, lte } from "drizzle-orm";
@@ -179,6 +182,13 @@ export interface IStorage {
   createOffice(office: InsertOffice): Promise<Office>;
   updateOffice(id: string, office: Partial<InsertOffice>): Promise<Office>;
   deleteOffice(id: string): Promise<void>;
+
+  // Coordinator operations
+  getAllCoordinators(officeId?: string): Promise<Coordinator[]>;
+  getCoordinator(id: string): Promise<Coordinator | undefined>;
+  createCoordinator(coordinator: InsertCoordinator): Promise<Coordinator>;
+  updateCoordinator(id: string, coordinator: Partial<InsertCoordinator>): Promise<Coordinator>;
+  deleteCoordinator(id: string): Promise<void>;
 
   // Client operations
   getAllClients(officeId?: string): Promise<Client[]>;
@@ -562,6 +572,33 @@ export class DatabaseStorage implements IStorage {
 
   async deleteOffice(id: string): Promise<void> {
     await db.delete(offices).where(eq(offices.id, id));
+  }
+
+  // Coordinator operations
+  async getAllCoordinators(officeId?: string): Promise<Coordinator[]> {
+    if (officeId) {
+      return await db.select().from(coordinators).where(eq(coordinators.officeId, officeId)).orderBy(asc(coordinators.lastName));
+    }
+    return await db.select().from(coordinators).orderBy(asc(coordinators.lastName));
+  }
+
+  async getCoordinator(id: string): Promise<Coordinator | undefined> {
+    const [coordinator] = await db.select().from(coordinators).where(eq(coordinators.id, id));
+    return coordinator;
+  }
+
+  async createCoordinator(coordinator: InsertCoordinator): Promise<Coordinator> {
+    const [created] = await db.insert(coordinators).values(coordinator).returning();
+    return created;
+  }
+
+  async updateCoordinator(id: string, coordinator: Partial<InsertCoordinator>): Promise<Coordinator> {
+    const [updated] = await db.update(coordinators).set({ ...coordinator, updatedAt: new Date() }).where(eq(coordinators.id, id)).returning();
+    return updated;
+  }
+
+  async deleteCoordinator(id: string): Promise<void> {
+    await db.delete(coordinators).where(eq(coordinators.id, id));
   }
 
   // Client operations
