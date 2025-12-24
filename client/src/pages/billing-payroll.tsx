@@ -151,6 +151,26 @@ export default function BillingPayroll() {
   const [newMcoTypeId, setNewMcoTypeId] = useState("");
   const printRef = useRef<HTMLDivElement>(null);
   
+  // Billing hours import state
+  const [showImportHoursDialog, setShowImportHoursDialog] = useState(false);
+  const [selectedPayrollRunForImport, setSelectedPayrollRunForImport] = useState<PayrollRun | null>(null);
+  const [importHoursFile, setImportHoursFile] = useState<File | null>(null);
+  const [importHoursResults, setImportHoursResults] = useState<{
+    summary: { total: number; matched: number; unmatched: number; errors: number };
+    results: Array<{
+      row: number;
+      status: "matched" | "unmatched" | "error";
+      clientHhaxId?: string;
+      caregiverAssignmentId?: string;
+      date?: string;
+      hours?: number;
+      message?: string;
+    }>;
+  } | null>(null);
+  const [isImportingHours, setIsImportingHours] = useState(false);
+  const [isCalculatingOvertime, setIsCalculatingOvertime] = useState<string | null>(null);
+  const importHoursFileInputRef = useRef<HTMLInputElement>(null);
+  
   // Bulk paystub upload state
   const [showBulkPaystubDialog, setShowBulkPaystubDialog] = useState(false);
   const [bulkPaystubFile, setBulkPaystubFile] = useState<File | null>(null);
@@ -583,6 +603,118 @@ export default function BillingPayroll() {
     setBulkPaystubResults(null);
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
+    }
+  };
+
+  const handleImportHours = async () => {
+    if (!importHoursFile || !selectedPayrollRunForImport) return;
+    
+    setIsImportingHours(true);
+    setImportHoursResults(null);
+    
+    try {
+      const formData = new FormData();
+      formData.append("file", importHoursFile);
+      
+      const response = await fetch(`/api/payroll/${selectedPayrollRunForImport.id}/import-hours`, {
+        method: "POST",
+        body: formData,
+        credentials: "include",
+      });
+      
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || "Failed to import hours");
+      }
+      
+      const data = await response.json();
+      setImportHoursResults(data);
+      
+      toast({
+        title: "Hours imported",
+        description: `${data.summary.matched} matched, ${data.summary.unmatched} unmatched, ${data.summary.errors} errors`,
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/payroll"] });
+    } catch (error: any) {
+      toast({
+        title: "Import failed",
+        description: error.message || "Failed to import hours",
+        variant: "destructive",
+      });
+    } finally {
+      setIsImportingHours(false);
+    }
+  };
+
+  const resetImportHours = () => {
+    setImportHoursFile(null);
+    setImportHoursResults(null);
+    if (importHoursFileInputRef.current) {
+      importHoursFileInputRef.current.value = "";
+    }
+  };
+
+  const handleOpenImportDialog = (run: PayrollRun) => {
+    setSelectedPayrollRunForImport(run);
+    resetImportHours();
+    setShowImportHoursDialog(true);
+  };
+
+  const handleExportHours = async (runId: string) => {
+    try {
+      const response = await fetch(`/api/payroll/${runId}/export-hours`, {
+        credentials: "include",
+      });
+      
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || "Failed to export hours");
+      }
+      
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `payroll-hours-${runId}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+      
+      toast({ title: "Hours exported successfully" });
+    } catch (error: any) {
+      toast({
+        title: "Export failed",
+        description: error.message || "Failed to export hours",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleCalculateOvertime = async (runId: string) => {
+    setIsCalculatingOvertime(runId);
+    
+    try {
+      const response = await fetch(`/api/payroll/${runId}/calculate-overtime`, {
+        method: "POST",
+        credentials: "include",
+      });
+      
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || "Failed to calculate overtime");
+      }
+      
+      toast({ title: "Overtime calculated successfully" });
+      queryClient.invalidateQueries({ queryKey: ["/api/payroll"] });
+    } catch (error: any) {
+      toast({
+        title: "Calculation failed",
+        description: error.message || "Failed to calculate overtime",
+        variant: "destructive",
+      });
+    } finally {
+      setIsCalculatingOvertime(null);
     }
   };
 
@@ -1093,17 +1225,203 @@ export default function BillingPayroll() {
                       <CardDescription>Create and manage payroll cycles</CardDescription>
                     </div>
                     {actualOfficeId && (
-                      <Dialog open={showPayrollDialog} onOpenChange={(open) => {
-                        setShowPayrollDialog(open);
-                        if (!open) {
-                          setEditingPayrollRun(null);
-                          payrollForm.reset();
-                        }
-                      }}>
-                        <Button onClick={handleOpenPayrollDialog} data-testid="button-create-payroll">
-                          <Plus className="w-4 h-4 mr-2" />
-                          Create Payroll Run
-                        </Button>
+                      <div className="flex gap-2">
+                        <Dialog open={showImportHoursDialog} onOpenChange={(open) => {
+                          setShowImportHoursDialog(open);
+                          if (!open) {
+                            setSelectedPayrollRunForImport(null);
+                            resetImportHours();
+                          }
+                        }}>
+                          <DialogTrigger asChild>
+                            <Button variant="outline" data-testid="button-import-billing-hours">
+                              <Upload className="w-4 h-4 mr-2" />
+                              Import Billing Hours
+                            </Button>
+                          </DialogTrigger>
+                          <DialogContent className="max-w-2xl">
+                            <DialogHeader>
+                              <DialogTitle>Import Billing Hours</DialogTitle>
+                            </DialogHeader>
+                            <div className="space-y-4 py-4">
+                              <div>
+                                <Label>Select Payroll Run</Label>
+                                <Select 
+                                  value={selectedPayrollRunForImport?.id || ""} 
+                                  onValueChange={(value) => {
+                                    const run = payrollRuns.find(r => r.id === value);
+                                    if (run) setSelectedPayrollRunForImport(run);
+                                  }}
+                                >
+                                  <SelectTrigger data-testid="select-payroll-run-import">
+                                    <SelectValue placeholder="Select payroll run" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {payrollRuns.map(run => (
+                                      <SelectItem key={run.id} value={run.id}>
+                                        {format(parseLocalDate(run.payPeriodStart), "MMM d")} - {format(parseLocalDate(run.payPeriodEnd), "MMM d, yyyy")}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                              
+                              {selectedPayrollRunForImport && (
+                                <>
+                                  <div className="border-2 border-dashed rounded-lg p-6 text-center">
+                                    <input
+                                      ref={importHoursFileInputRef}
+                                      type="file"
+                                      accept=".xlsx,.xls"
+                                      className="hidden"
+                                      onChange={(e) => {
+                                        const file = e.target.files?.[0];
+                                        if (file) {
+                                          setImportHoursFile(file);
+                                          setImportHoursResults(null);
+                                        }
+                                      }}
+                                      data-testid="input-import-hours-file"
+                                    />
+                                    
+                                    {!importHoursFile ? (
+                                      <div className="space-y-4">
+                                        <Upload className="w-12 h-12 mx-auto text-muted-foreground" />
+                                        <div>
+                                          <p className="text-lg font-medium">Upload Excel file</p>
+                                          <p className="text-sm text-muted-foreground">
+                                            Required columns: Client HHAX ID, Caregiver Assignment ID, Date, Hours
+                                          </p>
+                                        </div>
+                                        <Button
+                                          variant="outline"
+                                          onClick={() => importHoursFileInputRef.current?.click()}
+                                          data-testid="button-browse-import-hours"
+                                        >
+                                          Browse Files
+                                        </Button>
+                                      </div>
+                                    ) : (
+                                      <div className="space-y-4">
+                                        <FileText className="w-12 h-12 mx-auto text-primary" />
+                                        <div>
+                                          <p className="text-lg font-medium">{importHoursFile.name}</p>
+                                          <p className="text-sm text-muted-foreground">
+                                            {(importHoursFile.size / 1024).toFixed(2)} KB
+                                          </p>
+                                        </div>
+                                        <div className="flex gap-2 justify-center">
+                                          <Button
+                                            onClick={handleImportHours}
+                                            disabled={isImportingHours}
+                                            data-testid="button-submit-import-hours"
+                                          >
+                                            {isImportingHours ? (
+                                              <>
+                                                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                                Importing...
+                                              </>
+                                            ) : (
+                                              <>
+                                                <Upload className="w-4 h-4 mr-2" />
+                                                Import Hours
+                                              </>
+                                            )}
+                                          </Button>
+                                          <Button
+                                            variant="outline"
+                                            onClick={resetImportHours}
+                                            disabled={isImportingHours}
+                                            data-testid="button-reset-import-hours"
+                                          >
+                                            Clear
+                                          </Button>
+                                        </div>
+                                      </div>
+                                    )}
+                                  </div>
+
+                                  {importHoursResults && (
+                                    <div className="space-y-4">
+                                      <Separator />
+                                      <div className="grid grid-cols-4 gap-4">
+                                        <div className="text-center p-4 bg-muted rounded-lg">
+                                          <p className="text-2xl font-bold">{importHoursResults.summary.total}</p>
+                                          <p className="text-sm text-muted-foreground">Total Rows</p>
+                                        </div>
+                                        <div className="text-center p-4 bg-green-50 rounded-lg border border-green-200">
+                                          <p className="text-2xl font-bold text-green-700">{importHoursResults.summary.matched}</p>
+                                          <p className="text-sm text-green-600">Matched</p>
+                                        </div>
+                                        <div className="text-center p-4 bg-yellow-50 rounded-lg border border-yellow-200">
+                                          <p className="text-2xl font-bold text-yellow-700">{importHoursResults.summary.unmatched}</p>
+                                          <p className="text-sm text-yellow-600">Unmatched</p>
+                                        </div>
+                                        <div className="text-center p-4 bg-red-50 rounded-lg border border-red-200">
+                                          <p className="text-2xl font-bold text-red-700">{importHoursResults.summary.errors}</p>
+                                          <p className="text-sm text-red-600">Errors</p>
+                                        </div>
+                                      </div>
+
+                                      {importHoursResults.results.length > 0 && (
+                                        <div className="max-h-64 overflow-y-auto">
+                                          <table className="w-full">
+                                            <thead className="border-b bg-muted/50 sticky top-0">
+                                              <tr>
+                                                <th className="text-left p-2 text-sm font-medium">Row</th>
+                                                <th className="text-left p-2 text-sm font-medium">Status</th>
+                                                <th className="text-left p-2 text-sm font-medium">Client HHAX ID</th>
+                                                <th className="text-left p-2 text-sm font-medium">Assignment ID</th>
+                                                <th className="text-left p-2 text-sm font-medium">Date</th>
+                                                <th className="text-left p-2 text-sm font-medium">Hours</th>
+                                                <th className="text-left p-2 text-sm font-medium">Message</th>
+                                              </tr>
+                                            </thead>
+                                            <tbody className="divide-y">
+                                              {importHoursResults.results.map((result, idx) => (
+                                                <tr key={idx} data-testid={`import-result-row-${idx}`}>
+                                                  <td className="p-2 text-sm">{result.row}</td>
+                                                  <td className="p-2">
+                                                    {result.status === "matched" && (
+                                                      <Badge variant="default">Matched</Badge>
+                                                    )}
+                                                    {result.status === "unmatched" && (
+                                                      <Badge variant="secondary">Unmatched</Badge>
+                                                    )}
+                                                    {result.status === "error" && (
+                                                      <Badge variant="destructive">Error</Badge>
+                                                    )}
+                                                  </td>
+                                                  <td className="p-2 text-sm font-mono">{result.clientHhaxId || "-"}</td>
+                                                  <td className="p-2 text-sm font-mono">{result.caregiverAssignmentId || "-"}</td>
+                                                  <td className="p-2 text-sm">{result.date || "-"}</td>
+                                                  <td className="p-2 text-sm">{result.hours || "-"}</td>
+                                                  <td className="p-2 text-sm text-muted-foreground">{result.message || "-"}</td>
+                                                </tr>
+                                              ))}
+                                            </tbody>
+                                          </table>
+                                        </div>
+                                      )}
+                                    </div>
+                                  )}
+                                </>
+                              )}
+                            </div>
+                          </DialogContent>
+                        </Dialog>
+
+                        <Dialog open={showPayrollDialog} onOpenChange={(open) => {
+                          setShowPayrollDialog(open);
+                          if (!open) {
+                            setEditingPayrollRun(null);
+                            payrollForm.reset();
+                          }
+                        }}>
+                          <Button onClick={handleOpenPayrollDialog} data-testid="button-create-payroll">
+                            <Plus className="w-4 h-4 mr-2" />
+                            Create Payroll Run
+                          </Button>
                         <DialogContent className="max-w-lg">
                           <DialogHeader>
                             <DialogTitle>{editingPayrollRun ? "Edit Payroll Run" : "Create Payroll Run"}</DialogTitle>
@@ -1172,7 +1490,8 @@ export default function BillingPayroll() {
                             </form>
                           </Form>
                         </DialogContent>
-                      </Dialog>
+                        </Dialog>
+                      </div>
                     )}
                   </CardHeader>
                   <CardContent>
@@ -1212,7 +1531,7 @@ export default function BillingPayroll() {
                                 <td className="p-3 font-medium">${run.totalNet || "0.00"}</td>
                                 <td className="p-3">{getStatusBadge(run.status || "draft")}</td>
                                 <td className="p-3">
-                                  <div className="flex gap-1">
+                                  <div className="flex gap-1 flex-wrap">
                                     <Button 
                                       size="sm" 
                                       variant="ghost"
@@ -1221,6 +1540,38 @@ export default function BillingPayroll() {
                                       title="Edit payroll run"
                                     >
                                       <Edit className="w-3 h-3" />
+                                    </Button>
+                                    <Button 
+                                      size="sm" 
+                                      variant="outline"
+                                      onClick={() => handleOpenImportDialog(run)}
+                                      data-testid={`button-import-hours-${run.id}`}
+                                      title="Import hours"
+                                    >
+                                      <Upload className="w-3 h-3" />
+                                    </Button>
+                                    <Button 
+                                      size="sm" 
+                                      variant="outline"
+                                      onClick={() => handleExportHours(run.id)}
+                                      data-testid={`button-export-hours-${run.id}`}
+                                      title="Export hours"
+                                    >
+                                      <Download className="w-3 h-3" />
+                                    </Button>
+                                    <Button 
+                                      size="sm" 
+                                      variant="outline"
+                                      onClick={() => handleCalculateOvertime(run.id)}
+                                      disabled={isCalculatingOvertime === run.id}
+                                      data-testid={`button-calculate-overtime-${run.id}`}
+                                      title="Calculate overtime"
+                                    >
+                                      {isCalculatingOvertime === run.id ? (
+                                        <Loader2 className="w-3 h-3 animate-spin" />
+                                      ) : (
+                                        <Clock className="w-3 h-3" />
+                                      )}
                                     </Button>
                                     {run.status === "draft" && (
                                       <>

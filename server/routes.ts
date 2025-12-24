@@ -79,6 +79,29 @@ const upload = multer({
   },
 });
 
+// Configure multer for Excel file uploads (memory storage for direct buffer access)
+const excelUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 10 * 1024 * 1024, // 10MB limit
+  },
+  fileFilter: (req, file, cb) => {
+    const allowedTypes = /xlsx|xls/;
+    const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
+    const allowedMimeTypes = [
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'application/vnd.ms-excel',
+      'application/octet-stream'
+    ];
+    
+    if (extname || allowedMimeTypes.includes(file.mimetype)) {
+      return cb(null, true);
+    } else {
+      cb(new Error("Invalid file type. Only Excel files (.xlsx, .xls) are allowed."));
+    }
+  },
+});
+
 export async function registerRoutes(app: Express): Promise<Server> {
   // Auth middleware
   await setupAuth(app);
@@ -4348,6 +4371,392 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error deleting payroll line item:", error);
       res.status(500).json({ message: "Failed to delete line item" });
+    }
+  });
+
+  // ==================== BILLING HOURS IMPORT/EXPORT ROUTES ====================
+  
+  // Import billing hours from spreadsheet
+  app.post("/api/payroll/:runId/import-hours", isAuthenticated, excelUpload.single("file"), async (req, res) => {
+    try {
+      const { runId } = req.params;
+      const file = req.file;
+      
+      if (!file) {
+        return res.status(400).json({ message: "No file uploaded" });
+      }
+
+      // Get the payroll run to determine pay period dates
+      const payrollRun = await storage.getPayrollRun(runId);
+      if (!payrollRun) {
+        return res.status(404).json({ message: "Payroll run not found" });
+      }
+
+      // Parse Excel file
+      const ExcelJS = require("exceljs");
+      const workbook = new ExcelJS.Workbook();
+      await workbook.xlsx.load(file.buffer);
+      const worksheet = workbook.worksheets[0];
+
+      const resultsList: Array<{
+        row: number;
+        status: "matched" | "unmatched" | "error";
+        clientHhaxId?: string;
+        caregiverAssignmentId?: string;
+        hours?: number;
+        week?: number;
+        caregiverName?: string;
+        clientName?: string;
+        error?: string;
+      }> = [];
+
+      let totalRows = 0;
+      let matched = 0;
+      let unmatched = 0;
+      let errors = 0;
+
+      const importBatchId = `import_${Date.now()}`;
+      const payPeriodStart = new Date(payrollRun.payPeriodStart);
+      const payPeriodEnd = new Date(payrollRun.payPeriodEnd);
+      const midpoint = new Date(payPeriodStart.getTime() + (payPeriodEnd.getTime() - payPeriodStart.getTime()) / 2);
+
+      // Delete existing entries for this payroll run (re-import replaces old data)
+      await storage.deleteTimeEntriesByPayrollRun(runId);
+
+      const entriesToCreate: any[] = [];
+
+      worksheet.eachRow((row: any, rowNumber: number) => {
+        if (rowNumber === 1) return; // Skip header row
+        totalRows++;
+
+        try {
+          const clientHhaxId = row.getCell(1).value?.toString()?.trim();
+          const caregiverAssignmentId = row.getCell(2).value?.toString()?.trim();
+          const dateValue = row.getCell(3).value;
+          const hoursValue = row.getCell(4).value;
+
+          if (!clientHhaxId || !caregiverAssignmentId || !hoursValue) {
+            resultsList.push({ 
+              row: rowNumber, 
+              status: "error", 
+              clientHhaxId,
+              caregiverAssignmentId,
+              error: "Missing required fields" 
+            });
+            errors++;
+            return;
+          }
+
+          // Parse date
+          let entryDate: Date;
+          if (dateValue instanceof Date) {
+            entryDate = dateValue;
+          } else if (typeof dateValue === "string") {
+            entryDate = new Date(dateValue);
+          } else {
+            resultsList.push({ 
+              row: rowNumber, 
+              status: "error", 
+              clientHhaxId,
+              caregiverAssignmentId,
+              error: "Invalid date format" 
+            });
+            errors++;
+            return;
+          }
+
+          // Parse hours
+          let hours: number;
+          if (typeof hoursValue === "number") {
+            hours = hoursValue;
+          } else if (typeof hoursValue === "string") {
+            // Handle HH:MM format
+            if (hoursValue.includes(":")) {
+              const [h, m] = hoursValue.split(":").map(Number);
+              hours = h + (m / 60);
+            } else {
+              hours = parseFloat(hoursValue);
+            }
+          } else {
+            resultsList.push({ 
+              row: rowNumber, 
+              status: "error", 
+              clientHhaxId,
+              caregiverAssignmentId,
+              error: "Invalid hours format" 
+            });
+            errors++;
+            return;
+          }
+
+          // Determine week number (1 or 2)
+          const weekNumber = entryDate <= midpoint ? 1 : 2;
+
+          entriesToCreate.push({
+            clientHhaxId,
+            caregiverAssignmentId,
+            entryDate,
+            hours,
+            weekNumber,
+            rowNumber,
+          });
+        } catch (err: any) {
+          resultsList.push({ 
+            row: rowNumber, 
+            status: "error", 
+            error: err.message 
+          });
+          errors++;
+        }
+      });
+
+      // Process entries - match caregivers and clients
+      for (const entry of entriesToCreate) {
+        const caregiver = await storage.getCaregiverByAssignmentId(entry.caregiverAssignmentId);
+        const client = await storage.getClientByHhaxId(entry.clientHhaxId);
+
+        if (!caregiver) {
+          resultsList.push({
+            row: entry.rowNumber,
+            status: "unmatched",
+            clientHhaxId: entry.clientHhaxId,
+            caregiverAssignmentId: entry.caregiverAssignmentId,
+            hours: entry.hours,
+            week: entry.weekNumber,
+            error: `Caregiver not found for Assignment ID: ${entry.caregiverAssignmentId}`,
+          });
+          unmatched++;
+          continue;
+        }
+
+        if (!client) {
+          resultsList.push({
+            row: entry.rowNumber,
+            status: "unmatched",
+            clientHhaxId: entry.clientHhaxId,
+            caregiverAssignmentId: entry.caregiverAssignmentId,
+            hours: entry.hours,
+            week: entry.weekNumber,
+            caregiverName: `${caregiver.firstName || ""} ${caregiver.lastName || ""}`.trim(),
+            error: `Client not found for HHAX ID: ${entry.clientHhaxId}`,
+          });
+          unmatched++;
+          continue;
+        }
+
+        await storage.createTimeEntry({
+          payrollRunId: runId,
+          caregiverId: caregiver.id,
+          clientId: client.id,
+          entryDate: entry.entryDate,
+          hoursWorked: entry.hours.toFixed(2),
+          weekNumber: entry.weekNumber,
+          sourceRowNumber: entry.rowNumber,
+          importBatchId,
+        });
+
+        const caregiverName = `${caregiver.firstName || ""} ${caregiver.lastName || ""}`.trim();
+        const clientName = client.firstName && client.lastName 
+          ? `${client.firstName} ${client.lastName}` 
+          : client.hhaxAdmissionId || "";
+
+        resultsList.push({
+          row: entry.rowNumber,
+          status: "matched",
+          clientHhaxId: entry.clientHhaxId,
+          caregiverAssignmentId: entry.caregiverAssignmentId,
+          hours: entry.hours,
+          week: entry.weekNumber,
+          caregiverName,
+          clientName,
+        });
+        matched++;
+      }
+
+      res.json({
+        summary: {
+          total: totalRows,
+          matched,
+          unmatched,
+          errors,
+        },
+        results: resultsList,
+        importBatchId,
+      });
+    } catch (error) {
+      console.error("Error importing billing hours:", error);
+      res.status(500).json({ message: "Failed to import billing hours" });
+    }
+  });
+
+  // Calculate overtime hours for a payroll run
+  app.post("/api/payroll/:runId/calculate-overtime", isAuthenticated, async (req, res) => {
+    try {
+      const { runId } = req.params;
+      
+      const payrollRun = await storage.getPayrollRun(runId);
+      if (!payrollRun) {
+        return res.status(404).json({ message: "Payroll run not found" });
+      }
+
+      // Get all time entries for this payroll run
+      const timeEntries = await storage.getTimeEntriesByPayrollRun(runId);
+      
+      // Group by caregiver and week
+      const caregiverHours: { [caregiverId: string]: { week1: number; week2: number } } = {};
+      
+      for (const entry of timeEntries) {
+        if (!caregiverHours[entry.caregiverId]) {
+          caregiverHours[entry.caregiverId] = { week1: 0, week2: 0 };
+        }
+        const hours = parseFloat(entry.hoursWorked) || 0;
+        if (entry.weekNumber === 1) {
+          caregiverHours[entry.caregiverId].week1 += hours;
+        } else {
+          caregiverHours[entry.caregiverId].week2 += hours;
+        }
+      }
+
+      // Calculate regular vs overtime for each caregiver
+      const results: any[] = [];
+      
+      for (const [caregiverId, hours] of Object.entries(caregiverHours)) {
+        // Overtime = hours above 40 per week
+        const week1Regular = Math.min(hours.week1, 40);
+        const week1OT = Math.max(0, hours.week1 - 40);
+        const week2Regular = Math.min(hours.week2, 40);
+        const week2OT = Math.max(0, hours.week2 - 40);
+        
+        const totalRegular = week1Regular + week2Regular;
+        const totalOT = week1OT + week2OT;
+        const totalHours = hours.week1 + hours.week2;
+
+        // Get existing line item or create new one
+        const existingItems = await storage.getPayrollLineItems(runId);
+        const existingItem = existingItems.find(item => item.caregiverId === caregiverId);
+
+        if (existingItem) {
+          await storage.updatePayrollLineItem(existingItem.id, {
+            hoursWorked: totalHours.toFixed(2),
+            regularHours: totalRegular.toFixed(2),
+            overtimeHours: totalOT.toFixed(2),
+            week1RegularHours: week1Regular.toFixed(2),
+            week1OvertimeHours: week1OT.toFixed(2),
+            week2RegularHours: week2Regular.toFixed(2),
+            week2OvertimeHours: week2OT.toFixed(2),
+          });
+        } else {
+          await storage.createPayrollLineItem({
+            payrollRunId: runId,
+            caregiverId,
+            hoursWorked: totalHours.toFixed(2),
+            regularHours: totalRegular.toFixed(2),
+            overtimeHours: totalOT.toFixed(2),
+            week1RegularHours: week1Regular.toFixed(2),
+            week1OvertimeHours: week1OT.toFixed(2),
+            week2RegularHours: week2Regular.toFixed(2),
+            week2OvertimeHours: week2OT.toFixed(2),
+          });
+        }
+
+        results.push({
+          caregiverId,
+          week1: { regular: week1Regular, overtime: week1OT },
+          week2: { regular: week2Regular, overtime: week2OT },
+          total: { regular: totalRegular, overtime: totalOT, hours: totalHours },
+        });
+      }
+
+      res.json({ message: "Overtime calculated", results });
+    } catch (error) {
+      console.error("Error calculating overtime:", error);
+      res.status(500).json({ message: "Failed to calculate overtime" });
+    }
+  });
+
+  // Export payroll hours by caregiver with ADP code
+  app.get("/api/payroll/:runId/export-hours", isAuthenticated, async (req, res) => {
+    try {
+      const { runId } = req.params;
+      
+      const payrollRun = await storage.getPayrollRun(runId);
+      if (!payrollRun) {
+        return res.status(404).json({ message: "Payroll run not found" });
+      }
+
+      // Get line items with caregiver details
+      const lineItems = await storage.getPayrollLineItems(runId);
+      const caregivers = await storage.getAllCaregivers();
+      
+      const exportData: any[] = [];
+      
+      for (const item of lineItems) {
+        const caregiver = caregivers.find(c => c.id === item.caregiverId);
+        if (!caregiver) continue;
+
+        exportData.push({
+          adpCode: caregiver.adpCode || "",
+          caregiverName: `${caregiver.firstName || ""} ${caregiver.lastName || ""}`.trim(),
+          payPeriodStart: payrollRun.payPeriodStart,
+          payPeriodEnd: payrollRun.payPeriodEnd,
+          week1RegularHours: parseFloat(item.week1RegularHours || "0"),
+          week1OvertimeHours: parseFloat(item.week1OvertimeHours || "0"),
+          week2RegularHours: parseFloat(item.week2RegularHours || "0"),
+          week2OvertimeHours: parseFloat(item.week2OvertimeHours || "0"),
+          totalRegularHours: parseFloat(item.regularHours || "0"),
+          totalOvertimeHours: parseFloat(item.overtimeHours || "0"),
+          totalHours: parseFloat(item.hoursWorked || "0"),
+        });
+      }
+
+      // Generate Excel file
+      const ExcelJS = require("exceljs");
+      const workbook = new ExcelJS.Workbook();
+      const worksheet = workbook.addWorksheet("Payroll Hours");
+
+      worksheet.columns = [
+        { header: "ADP Code", key: "adpCode", width: 15 },
+        { header: "Caregiver Name", key: "caregiverName", width: 25 },
+        { header: "Pay Period Start", key: "payPeriodStart", width: 15 },
+        { header: "Pay Period End", key: "payPeriodEnd", width: 15 },
+        { header: "Week 1 Regular", key: "week1RegularHours", width: 15 },
+        { header: "Week 1 OT", key: "week1OvertimeHours", width: 12 },
+        { header: "Week 2 Regular", key: "week2RegularHours", width: 15 },
+        { header: "Week 2 OT", key: "week2OvertimeHours", width: 12 },
+        { header: "Total Regular", key: "totalRegularHours", width: 15 },
+        { header: "Total OT", key: "totalOvertimeHours", width: 12 },
+        { header: "Total Hours", key: "totalHours", width: 12 },
+      ];
+
+      exportData.forEach(row => worksheet.addRow(row));
+
+      // Style header row
+      worksheet.getRow(1).font = { bold: true };
+      worksheet.getRow(1).fill = {
+        type: "pattern",
+        pattern: "solid",
+        fgColor: { argb: "FFE0E0E0" },
+      };
+
+      res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+      res.setHeader("Content-Disposition", `attachment; filename=payroll_hours_${runId}.xlsx`);
+      
+      await workbook.xlsx.write(res);
+      res.end();
+    } catch (error) {
+      console.error("Error exporting payroll hours:", error);
+      res.status(500).json({ message: "Failed to export payroll hours" });
+    }
+  });
+
+  // Get time entries for a payroll run
+  app.get("/api/payroll/:runId/time-entries", isAuthenticated, async (req, res) => {
+    try {
+      const entries = await storage.getTimeEntriesByPayrollRun(req.params.runId);
+      res.json(entries);
+    } catch (error) {
+      console.error("Error fetching time entries:", error);
+      res.status(500).json({ message: "Failed to fetch time entries" });
     }
   });
 

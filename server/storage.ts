@@ -119,6 +119,9 @@ import {
   payrollLineItems,
   type PayrollLineItem,
   type InsertPayrollLineItem,
+  caregiverTimeEntries,
+  type CaregiverTimeEntry,
+  type InsertCaregiverTimeEntry,
   payrollHolidays,
   type PayrollHoliday,
   type InsertPayrollHoliday,
@@ -2227,6 +2230,57 @@ export class DatabaseStorage implements IStorage {
 
   async deletePayrollLineItem(id: string): Promise<void> {
     await db.delete(payrollLineItems).where(eq(payrollLineItems.id, id));
+  }
+
+  // ==================== CAREGIVER TIME ENTRIES ====================
+  async getTimeEntriesByPayrollRun(payrollRunId: string): Promise<CaregiverTimeEntry[]> {
+    return await db.select().from(caregiverTimeEntries)
+      .where(eq(caregiverTimeEntries.payrollRunId, payrollRunId))
+      .orderBy(caregiverTimeEntries.entryDate);
+  }
+
+  async getTimeEntriesByCaregiver(caregiverId: string, payrollRunId?: string): Promise<CaregiverTimeEntry[]> {
+    if (payrollRunId) {
+      return await db.select().from(caregiverTimeEntries)
+        .where(and(
+          eq(caregiverTimeEntries.caregiverId, caregiverId),
+          eq(caregiverTimeEntries.payrollRunId, payrollRunId)
+        ))
+        .orderBy(caregiverTimeEntries.entryDate);
+    }
+    return await db.select().from(caregiverTimeEntries)
+      .where(eq(caregiverTimeEntries.caregiverId, caregiverId))
+      .orderBy(caregiverTimeEntries.entryDate);
+  }
+
+  async createTimeEntry(data: InsertCaregiverTimeEntry): Promise<CaregiverTimeEntry> {
+    const [entry] = await db.insert(caregiverTimeEntries).values(data).returning();
+    return entry;
+  }
+
+  async createTimeEntries(entries: InsertCaregiverTimeEntry[]): Promise<CaregiverTimeEntry[]> {
+    if (entries.length === 0) return [];
+    return await db.insert(caregiverTimeEntries).values(entries).returning();
+  }
+
+  async deleteTimeEntriesByPayrollRun(payrollRunId: string): Promise<void> {
+    await db.delete(caregiverTimeEntries).where(eq(caregiverTimeEntries.payrollRunId, payrollRunId));
+  }
+
+  async deleteTimeEntriesByImportBatch(importBatchId: string): Promise<void> {
+    await db.delete(caregiverTimeEntries).where(eq(caregiverTimeEntries.importBatchId, importBatchId));
+  }
+
+  // Find caregiver by assignment ID for billing import matching
+  async getCaregiverByAssignmentId(assignmentId: string): Promise<Caregiver | undefined> {
+    const [caregiver] = await db.select().from(caregivers).where(eq(caregivers.assignmentId, assignmentId));
+    return caregiver;
+  }
+
+  // Find client by HHAX admission ID for billing import matching
+  async getClientByHhaxId(hhaxAdmissionId: string): Promise<Client | undefined> {
+    const [client] = await db.select().from(clients).where(eq(clients.hhaxAdmissionId, hhaxAdmissionId));
+    return client;
   }
 
   // ==================== PAYROLL HOLIDAYS ====================

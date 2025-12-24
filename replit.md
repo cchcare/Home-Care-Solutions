@@ -65,6 +65,18 @@ Preferred communication style: Simple, everyday language.
   - Role-based access: admin, super_admin, and supervisor roles only
 - **Payroll Runs**: Create and manage biweekly payroll cycles
 - **Paycheck Records**: Track individual caregiver paychecks with hours, deductions, and net pay
+- **Billing Hours Import**: Import billing hours from Excel spreadsheet (.xlsx)
+  - Matches by Client HHAX ID and Caregiver Assignment ID
+  - Tracks hours by entry date and determines week 1 or week 2 within pay period
+  - Shows detailed import results with matched/unmatched/error counts
+- **Overtime Calculation**: Automatically calculates regular vs overtime hours
+  - 40+ hours per week = overtime
+  - Tracks Week 1 and Week 2 regular/OT hours separately
+  - Sums both weeks for total regular and total OT
+- **Payroll Hours Export**: Export payroll hours to Excel with:
+  - ADP Code, Caregiver Name, Pay Period dates
+  - Week 1 Regular, Week 1 OT, Week 2 Regular, Week 2 OT
+  - Total Regular Hours, Total Overtime Hours
 
 ### Authentication & Authorization
 - **OIDC Integration**: Secure authentication flow with Replit's identity provider
