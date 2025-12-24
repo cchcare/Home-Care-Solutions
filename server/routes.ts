@@ -55,6 +55,7 @@ import {
   insertOfficeStaffSchema,
   insertOfficeExpenseSchema,
   insertEligibilityCheckSchema,
+  insertCaregiverComplianceSchema,
 } from "@shared/schema";
 import { ObjectStorageService, ObjectNotFoundError } from "./objectStorage";
 import { ObjectPermission } from "./objectAcl";
@@ -3085,6 +3086,82 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error deleting eligibility check:", error);
       res.status(400).json({ message: "Failed to delete eligibility check" });
+    }
+  });
+
+  // Caregiver Compliance Routes
+  app.get("/api/caregivers/:caregiverId/compliance", isAuthenticated, async (req, res) => {
+    try {
+      const items = await storage.getCaregiverComplianceByCaregiver(req.params.caregiverId);
+      res.json(items);
+    } catch (error) {
+      console.error("Error fetching caregiver compliance:", error);
+      res.status(500).json({ message: "Failed to fetch caregiver compliance" });
+    }
+  });
+
+  app.get("/api/caregiver-compliance/:id", isAuthenticated, async (req, res) => {
+    try {
+      const item = await storage.getCaregiverCompliance(req.params.id);
+      if (!item) {
+        return res.status(404).json({ message: "Compliance item not found" });
+      }
+      res.json(item);
+    } catch (error) {
+      console.error("Error fetching compliance item:", error);
+      res.status(500).json({ message: "Failed to fetch compliance item" });
+    }
+  });
+
+  app.post("/api/caregivers/:caregiverId/compliance", isAuthenticated, async (req: any, res) => {
+    try {
+      const { caregiverId: _, ...userBody } = req.body;
+      const coercedData = {
+        ...userBody,
+        expirationDate: coerceDate(userBody.expirationDate),
+        performedDate: coerceDate(userBody.performedDate),
+        resultDate: coerceDate(userBody.resultDate),
+        verifiedAt: coerceDate(userBody.verifiedAt),
+      };
+      const validatedBody = insertCaregiverComplianceSchema.omit({ caregiverId: true, createdBy: true }).parse(coercedData);
+      const item = await storage.createCaregiverCompliance({
+        ...validatedBody,
+        caregiverId: req.params.caregiverId,
+        createdBy: req.user.claims.sub,
+      });
+      res.status(201).json(item);
+    } catch (error) {
+      console.error("Error creating compliance item:", error);
+      res.status(400).json({ message: "Failed to create compliance item" });
+    }
+  });
+
+  app.put("/api/caregiver-compliance/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const { caregiverId, createdBy, ...updateData } = req.body;
+      const coercedData = {
+        ...updateData,
+        expirationDate: coerceDate(updateData.expirationDate),
+        performedDate: coerceDate(updateData.performedDate),
+        resultDate: coerceDate(updateData.resultDate),
+        verifiedAt: coerceDate(updateData.verifiedAt),
+      };
+      const validatedData = insertCaregiverComplianceSchema.partial().parse(coercedData);
+      const item = await storage.updateCaregiverCompliance(req.params.id, validatedData);
+      res.json(item);
+    } catch (error) {
+      console.error("Error updating compliance item:", error);
+      res.status(400).json({ message: "Failed to update compliance item" });
+    }
+  });
+
+  app.delete("/api/caregiver-compliance/:id", isAuthenticated, async (req, res) => {
+    try {
+      await storage.deleteCaregiverCompliance(req.params.id);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting compliance item:", error);
+      res.status(400).json({ message: "Failed to delete compliance item" });
     }
   });
 
