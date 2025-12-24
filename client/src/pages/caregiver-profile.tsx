@@ -200,6 +200,11 @@ export default function CaregiverProfile() {
     queryKey: ["/api/clients"],
   });
 
+  const { data: allMcos = [] } = useQuery<any[]>({
+    queryKey: ["/api/mcos"],
+    queryFn: () => fetch("/api/mcos").then(r => r.json()),
+  });
+
   const { data: allCaregivers = [] } = useQuery<EnrichedCaregiver[]>({
     queryKey: ["/api/caregivers"],
     queryFn: () => fetch(`/api/caregivers`).then(r => r.json()),
@@ -348,6 +353,9 @@ export default function CaregiverProfile() {
   const handleStartEditing = () => {
     if (caregiver) {
       setEditFormData({
+        firstName: caregiver.firstName || "",
+        middleName: caregiver.middleName || "",
+        lastName: caregiver.lastName || "",
         employeeId: caregiver.employeeId || "",
         hourlyWage: caregiver.hourlyWage || undefined,
         experienceYears: caregiver.experienceYears ?? undefined,
@@ -362,6 +370,7 @@ export default function CaregiverProfile() {
         city: caregiver.city || "",
         state: caregiver.state || "",
         zipCode: caregiver.zipCode || "",
+        county: caregiver.county || "",
         hhaxCaregiverCode: caregiver.hhaxCaregiverCode || "",
         adpCode: caregiver.adpCode || "",
       });
@@ -531,8 +540,40 @@ export default function CaregiverProfile() {
                     <CardContent>
                       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                         <div className="space-y-1">
-                          <Label className="text-muted-foreground text-sm">Full Name</Label>
-                          <p className="font-medium" data-testid="text-caregiver-fullname">{caregiverName}</p>
+                          <Label className="text-muted-foreground text-sm">First Name</Label>
+                          {isEditing ? (
+                            <Input
+                              value={editFormData.firstName || ""}
+                              onChange={(e) => setEditFormData({ ...editFormData, firstName: e.target.value })}
+                              data-testid="input-first-name"
+                            />
+                          ) : (
+                            <p className="font-medium" data-testid="text-first-name">{caregiver.firstName || user?.firstName || "N/A"}</p>
+                          )}
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-muted-foreground text-sm">Middle Name</Label>
+                          {isEditing ? (
+                            <Input
+                              value={editFormData.middleName || ""}
+                              onChange={(e) => setEditFormData({ ...editFormData, middleName: e.target.value })}
+                              data-testid="input-middle-name"
+                            />
+                          ) : (
+                            <p className="font-medium" data-testid="text-middle-name">{caregiver.middleName || user?.middleName || "N/A"}</p>
+                          )}
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-muted-foreground text-sm">Last Name</Label>
+                          {isEditing ? (
+                            <Input
+                              value={editFormData.lastName || ""}
+                              onChange={(e) => setEditFormData({ ...editFormData, lastName: e.target.value })}
+                              data-testid="input-last-name"
+                            />
+                          ) : (
+                            <p className="font-medium" data-testid="text-last-name">{caregiver.lastName || user?.lastName || "N/A"}</p>
+                          )}
                         </div>
                         <div className="space-y-1">
                           <Label className="text-muted-foreground text-sm">Email</Label>
@@ -697,7 +738,19 @@ export default function CaregiverProfile() {
                           )}
                         </div>
                         <div className="space-y-1">
-                          <Label className="text-muted-foreground text-sm">HHAX Caregiver Code</Label>
+                          <Label className="text-muted-foreground text-sm">County</Label>
+                          {isEditing ? (
+                            <Input
+                              value={editFormData.county || ""}
+                              onChange={(e) => setEditFormData({ ...editFormData, county: e.target.value })}
+                              data-testid="input-county"
+                            />
+                          ) : (
+                            <p className="font-medium" data-testid="text-county">{caregiver.county || "N/A"}</p>
+                          )}
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-muted-foreground text-sm">HHAX ID</Label>
                           {isEditing ? (
                             <Input
                               value={editFormData.hhaxCaregiverCode || ""}
@@ -719,6 +772,18 @@ export default function CaregiverProfile() {
                           ) : (
                             <p className="font-medium" data-testid="text-adp-code">{caregiver.adpCode || "N/A"}</p>
                           )}
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-muted-foreground text-sm">MCO (Auto-assigned from client)</Label>
+                          <p className="font-medium" data-testid="text-mco">
+                            {caregiver.mcoId 
+                              ? allMcos.find(m => m.id === caregiver.mcoId)?.name || "Unknown MCO"
+                              : "Not assigned"
+                            }
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            MCO is automatically assigned when caregiver is assigned to a client
+                          </p>
                         </div>
                       </div>
                     </CardContent>

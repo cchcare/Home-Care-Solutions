@@ -755,6 +755,23 @@ export class DatabaseStorage implements IStorage {
     }));
     
     await db.insert(clientCaregiverAssignments).values(assignments).onConflictDoNothing();
+    
+    // Automatically assign MCO from the first client with an active MCO
+    for (const clientId of clientIds) {
+      const clientMcoRecords = await this.getClientMcosByClient(clientId);
+      // Find active MCO - check for active status and no discharge date
+      // Status can be 'active', null, or missing - we want non-discharged MCOs
+      const activeMco = clientMcoRecords.find(m => 
+        !m.dischargeDate && (m.status === 'active' || m.status === null || m.status === undefined)
+      );
+      if (activeMco) {
+        // Update caregiver's MCO to match the client's active MCO
+        await db.update(caregivers)
+          .set({ mcoId: activeMco.mcoId, updatedAt: new Date() })
+          .where(eq(caregivers.id, caregiverId));
+        break; // Only set from the first client with an active MCO
+      }
+    }
   }
 
   async unassignClientsFromCaregiver(caregiverId: string, clientIds: string[]): Promise<void> {

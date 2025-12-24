@@ -42,6 +42,14 @@ const caregiverFormSchema = insertCaregiverSchema.extend({
   lastName: z.string().min(1, "Last name is required"),
   dateOfBirth: z.date().optional(),
   hireDate: z.date().optional(),
+  // Address fields
+  address: z.string().optional(),
+  address2: z.string().optional(),
+  city: z.string().optional(),
+  state: z.string().optional(),
+  zipCode: z.string().optional(),
+  county: z.string().optional(),
+  hhaxCaregiverCode: z.string().optional(),
   // Client assignments
   clientIds: z.array(z.string()).optional(),
 });
@@ -82,6 +90,13 @@ export function AddCaregiverModal({ isOpen, onClose, onSubmit, isLoading, initia
       dateOfBirth: undefined,
       startDate: undefined,
       hireDate: undefined,
+      address: "",
+      address2: "",
+      city: "",
+      state: "",
+      zipCode: "",
+      county: "",
+      hhaxCaregiverCode: "",
       clientIds: [],
     },
   });
@@ -101,6 +116,13 @@ export function AddCaregiverModal({ isOpen, onClose, onSubmit, isLoading, initia
         dateOfBirth: initialData.dateOfBirth,
         startDate: initialData.startDate,
         hireDate: initialData.hireDate,
+        address: initialData.address || "",
+        address2: initialData.address2 || "",
+        city: initialData.city || "",
+        state: initialData.state || "",
+        zipCode: initialData.zipCode || "",
+        county: initialData.county || "",
+        hhaxCaregiverCode: initialData.hhaxCaregiverCode || "",
         clientIds: initialData.clientIds || [],
       });
     }
@@ -363,6 +385,110 @@ export function AddCaregiverModal({ isOpen, onClose, onSubmit, isLoading, initia
                 />
               </div>
 
+            </div>
+
+            {/* Address Section */}
+            <div className="space-y-4">
+              <h4 className="font-semibold text-foreground">Address Information</h4>
+              
+              <FormField
+                control={form.control}
+                name="address"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Street Address</FormLabel>
+                    <FormControl>
+                      <Input placeholder="Enter street address" {...field} data-testid="input-address" />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="address2"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Address Line 2</FormLabel>
+                    <FormControl>
+                      <Input placeholder="Apt, suite, unit, etc." {...field} data-testid="input-address2" />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <FormField
+                  control={form.control}
+                  name="city"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>City</FormLabel>
+                      <FormControl>
+                        <Input placeholder="Enter city" {...field} data-testid="input-city" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="state"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>State</FormLabel>
+                      <FormControl>
+                        <Input placeholder="Enter state" {...field} data-testid="input-state" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="zipCode"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Zip Code</FormLabel>
+                      <FormControl>
+                        <Input placeholder="Enter zip code" {...field} data-testid="input-zip-code" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <FormField
+                  control={form.control}
+                  name="county"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>County</FormLabel>
+                      <FormControl>
+                        <Input placeholder="Enter county" {...field} data-testid="input-county" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="hhaxCaregiverCode"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>HHAX ID</FormLabel>
+                      <FormControl>
+                        <Input placeholder="Enter HHAX ID" {...field} data-testid="input-hhax-id" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
             </div>
 
             {/* Client Assignment Section */}

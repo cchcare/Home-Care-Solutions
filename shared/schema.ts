@@ -130,6 +130,7 @@ export const caregivers = pgTable("caregivers", {
   specializations: text("specializations").array(),
   officeId: varchar("office_id").references(() => offices.id),
   coordinatorId: varchar("coordinator_id").references(() => coordinators.id),
+  mcoId: varchar("mco_id"),
   address: text("address"),
   address2: varchar("address_2"),
   city: varchar("city"),

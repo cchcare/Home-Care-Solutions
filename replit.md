@@ -48,6 +48,14 @@ Preferred communication style: Simple, everyday language.
   - Other MCOs: 14 days default
 - **Status Tracking**: Pending, Invoiced, Paid status workflow
 
+### Caregiver Management
+- **Enhanced Profile Fields**: Caregivers have separate firstName, middleName, lastName fields directly on caregiver record
+- **Address Fields**: Full address with address, address2, city, state, zipCode, and county
+- **HHAX ID**: HHAX caregiver code for integration with external systems
+- **Automatic MCO Assignment**: When a caregiver is assigned to a client, the caregiver's MCO is automatically set from the client's active MCO
+  - MCO displayed on profile as read-only (auto-assigned from client)
+  - Only the first client with an active MCO is used for assignment
+
 ### Payroll Management
 - **Bulk Paystub Upload**: AI-powered feature to upload PDF files containing multiple paystubs
   - Extracts employee name, pay period, hours, gross/net pay, and deductions using OCR
