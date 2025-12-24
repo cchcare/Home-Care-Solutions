@@ -416,14 +416,14 @@ export function MasterWeekTemplateModal({
                           <div>
                             <label className="block text-sm font-medium mb-2">Caregiver</label>
                             <Select 
-                              value={slot.caregiverId || ""}
-                              onValueChange={(value) => updateSlot(slot.tempId, 'caregiverId', value || null)}
+                              value={slot.caregiverId || "__unassigned__"}
+                              onValueChange={(value) => updateSlot(slot.tempId, 'caregiverId', value === "__unassigned__" ? null : value)}
                             >
                               <SelectTrigger data-testid={`select-caregiver-${slot.tempId}`}>
                                 <SelectValue placeholder="Select caregiver" />
                               </SelectTrigger>
                               <SelectContent>
-                                <SelectItem value="">Unassigned</SelectItem>
+                                <SelectItem value="__unassigned__">Unassigned</SelectItem>
                                 {caregivers.map(caregiver => (
                                   <SelectItem key={caregiver.id} value={caregiver.id}>
                                     {(caregiver as any).firstName && (caregiver as any).lastName 

@@ -518,7 +518,7 @@ const AVAILABLE_TOOLS: ChatCompletionTool[] = [
   }
 ];
 
-async function executeFunction(name: string, args: any, userRole: UserRole): Promise<string> {
+async function executeFunction(name: string, args: any, userRole: UserRole, userId?: string): Promise<string> {
   if (!canExecuteTool(userRole, name)) {
     return JSON.stringify({ 
       success: false, 
@@ -953,12 +953,17 @@ async function executeFunction(name: string, args: any, userRole: UserRole): Pro
       }
 
       case "send_message": {
+        if (!userId) {
+          return JSON.stringify({ success: false, message: "User not authenticated" });
+        }
+        
         const recipient = await storage.getUser(args.recipientId);
         if (!recipient) {
           return JSON.stringify({ success: false, message: "Recipient user not found" });
         }
         
         const message = await storage.createMessage({
+          senderId: userId,
           recipientId: args.recipientId,
           subject: args.subject || "",
           content: args.content,
@@ -1054,7 +1059,8 @@ export interface ChatMessage {
 export async function processAIAssistantMessage(
   userMessage: string,
   conversationHistory: ChatMessage[],
-  userRole: UserRole = "caregiver"
+  userRole: UserRole = "caregiver",
+  userId?: string
 ): Promise<{ response: string; actions: string[] }> {
   const actions: string[] = [];
   
@@ -1141,7 +1147,7 @@ Always be careful with actions that modify data - confirm before making changes 
       
       actions.push(`Executing: ${functionName}`);
       
-      const result = await executeFunction(functionName, functionArgs, userRole);
+      const result = await executeFunction(functionName, functionArgs, userRole, userId);
       
       messages.push({
         role: "tool",

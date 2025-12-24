@@ -2748,7 +2748,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       const userRole = req.user?.role || "caregiver";
-      const result = await processAIAssistantMessage(message, conversationHistory || [], userRole);
+      const userId = req.user?.id || req.user?.claims?.sub;
+      const result = await processAIAssistantMessage(message, conversationHistory || [], userRole, userId);
       res.json(result);
     } catch (error) {
       console.error("Error processing AI assistant message:", error);

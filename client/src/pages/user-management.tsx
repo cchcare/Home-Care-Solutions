@@ -347,14 +347,14 @@ export default function UserManagementPage() {
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>Primary Office</FormLabel>
-                        <Select onValueChange={field.onChange} defaultValue={field.value || ""}>
+                        <Select onValueChange={(value) => field.onChange(value === "__none__" ? null : value)} defaultValue={field.value || "__none__"}>
                           <FormControl>
                             <SelectTrigger data-testid="select-user-office">
                               <SelectValue placeholder="Select office" />
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
-                            <SelectItem value="">No Office</SelectItem>
+                            <SelectItem value="__none__">No Office</SelectItem>
                             {offices.map((office: any) => (
                               <SelectItem key={office.id} value={office.id}>
                                 {office.name}

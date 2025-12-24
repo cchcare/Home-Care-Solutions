@@ -196,14 +196,14 @@ export function ClientScheduleModal({
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>Assigned Caregiver</FormLabel>
-                  <Select onValueChange={(value) => field.onChange(value || null)} value={field.value || ""}>
+                  <Select onValueChange={(value) => field.onChange(value === "__unassigned__" ? null : value)} value={field.value || "__unassigned__"}>
                     <FormControl>
                       <SelectTrigger data-testid="select-caregiver">
                         <SelectValue placeholder="Select a caregiver" />
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
-                      <SelectItem value="">Unassigned</SelectItem>
+                      <SelectItem value="__unassigned__">Unassigned</SelectItem>
                       {caregivers.map((caregiver) => (
                         <SelectItem key={caregiver.id} value={caregiver.id}>
                           {caregiver.userId || `Caregiver ${caregiver.id.slice(0, 8)}`}

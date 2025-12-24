@@ -632,14 +632,14 @@ export default function ClientProfile() {
                         <Label className="text-muted-foreground text-sm">Coordinator</Label>
                         {isEditing ? (
                           <Select
-                            value={editFormData.coordinatorId || ""}
-                            onValueChange={(value) => setEditFormData({ ...editFormData, coordinatorId: value || null })}
+                            value={editFormData.coordinatorId || "__none__"}
+                            onValueChange={(value) => setEditFormData({ ...editFormData, coordinatorId: value === "__none__" ? null : value })}
                           >
                             <SelectTrigger data-testid="select-coordinator">
                               <SelectValue placeholder="Select Coordinator" />
                             </SelectTrigger>
                             <SelectContent>
-                              <SelectItem value="">None</SelectItem>
+                              <SelectItem value="__none__">None</SelectItem>
                               {allCoordinators.filter(c => c.isActive).map((c) => (
                                 <SelectItem key={c.id} value={c.id}>
                                   {c.firstName} {c.lastName}
