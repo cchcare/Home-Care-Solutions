@@ -831,6 +831,78 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Caregiver bulk update
+  app.post("/api/caregivers/bulk-update", isAuthenticated, async (req: any, res) => {
+    try {
+      const { caregiverIds, updates } = req.body;
+
+      if (!Array.isArray(caregiverIds) || caregiverIds.length === 0) {
+        return res.status(400).json({ message: "caregiverIds must be a non-empty array" });
+      }
+
+      if (!updates || typeof updates !== 'object' || Object.keys(updates).length === 0) {
+        return res.status(400).json({ message: "updates must be a non-empty object" });
+      }
+
+      const validatedUpdates = insertCaregiverSchema.partial().parse(updates);
+      const updatedCaregivers = await storage.updateCaregiversBulk(caregiverIds, validatedUpdates);
+
+      await storage.createAuditLog({
+        userId: req.user.claims.sub,
+        action: "bulk_update",
+        entityType: "caregiver",
+        entityId: caregiverIds.join(","),
+        newValues: { caregiverIds, updates: validatedUpdates, count: updatedCaregivers.length },
+        ipAddress: req.ip,
+        userAgent: req.get("User-Agent"),
+      });
+
+      res.json({
+        updated: updatedCaregivers.length,
+        caregivers: updatedCaregivers,
+      });
+    } catch (error) {
+      console.error("Error bulk updating caregivers:", error);
+      res.status(400).json({ message: "Failed to bulk update caregivers" });
+    }
+  });
+
+  // Caregiver bulk delete
+  app.post("/api/caregivers/bulk-delete", isAuthenticated, async (req: any, res) => {
+    try {
+      const { caregiverIds } = req.body;
+
+      if (!Array.isArray(caregiverIds) || caregiverIds.length === 0) {
+        return res.status(400).json({ message: "caregiverIds must be a non-empty array" });
+      }
+
+      // Check user role - only admin, supervisor, or super_admin can bulk delete
+      const user = await storage.getUser(req.user.claims.sub);
+      if (!user || !['admin', 'supervisor', 'super_admin'].includes(user.role || '')) {
+        return res.status(403).json({ message: "Insufficient permissions to delete caregivers" });
+      }
+
+      await storage.deleteCaregiversBulk(caregiverIds);
+
+      await storage.createAuditLog({
+        userId: req.user.claims.sub,
+        action: "bulk_delete",
+        entityType: "caregiver",
+        entityId: caregiverIds.join(","),
+        oldValues: { caregiverIds, count: caregiverIds.length },
+        ipAddress: req.ip,
+        userAgent: req.get("User-Agent"),
+      });
+
+      res.json({
+        deleted: caregiverIds.length,
+      });
+    } catch (error) {
+      console.error("Error bulk deleting caregivers:", error);
+      res.status(500).json({ message: "Failed to bulk delete caregivers" });
+    }
+  });
+
   // Care plan routes
   app.get("/api/clients/:clientId/care-plans", isAuthenticated, async (req, res) => {
     try {

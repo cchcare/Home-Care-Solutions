@@ -214,7 +214,9 @@ export interface IStorage {
   getCaregiverByUserId(userId: string): Promise<Caregiver | undefined>;
   createCaregiver(caregiver: InsertCaregiver): Promise<Caregiver>;
   updateCaregiver(id: string, caregiver: Partial<InsertCaregiver>): Promise<Caregiver>;
+  updateCaregiversBulk(caregiverIds: string[], updates: Partial<InsertCaregiver>): Promise<Caregiver[]>;
   deleteCaregiver(id: string): Promise<void>;
+  deleteCaregiversBulk(caregiverIds: string[]): Promise<void>;
   
   // Client-Caregiver assignment operations
   assignClientsToCaregiver(caregiverId: string, clientIds: string[]): Promise<void>;
@@ -725,8 +727,21 @@ export class DatabaseStorage implements IStorage {
     return updatedCaregiver;
   }
 
+  async updateCaregiversBulk(caregiverIds: string[], updates: Partial<InsertCaregiver>): Promise<Caregiver[]> {
+    const updatedCaregivers = await db
+      .update(caregivers)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(inArray(caregivers.id, caregiverIds))
+      .returning();
+    return updatedCaregivers;
+  }
+
   async deleteCaregiver(id: string): Promise<void> {
     await db.delete(caregivers).where(eq(caregivers.id, id));
+  }
+
+  async deleteCaregiversBulk(caregiverIds: string[]): Promise<void> {
+    await db.delete(caregivers).where(inArray(caregivers.id, caregiverIds));
   }
 
   // Client-Caregiver assignment operations
