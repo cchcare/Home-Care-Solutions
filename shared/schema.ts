@@ -1866,3 +1866,50 @@ export const eligibilityChecksRelations = relations(eligibilityChecks, ({ one })
 export type EligibilityCheck = typeof eligibilityChecks.$inferSelect;
 export type InsertEligibilityCheck = typeof eligibilityChecks.$inferInsert;
 export const insertEligibilityCheckSchema = createInsertSchema(eligibilityChecks).omit({ id: true, createdAt: true, updatedAt: true });
+
+// Caregiver Compliance - tracks -9 requirements, background checks, and medical requirements
+export const caregiverCompliance = pgTable("caregiver_compliance", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  caregiverId: varchar("caregiver_id").references(() => caregivers.id).notNull(),
+  officeId: varchar("office_id").references(() => offices.id),
+  
+  // Category: requirement_9 (PA -9 form), background_check, medical
+  category: varchar("category").notNull(), // requirement_9, background_check, medical
+  
+  // Type within category (e.g., for -9: application, fingerprinting, etc.)
+  // For background_check: fbi, pa_state, child_abuse, adult_abuse
+  // For medical: tb_test, physical_exam, drug_test, hepatitis_b
+  itemType: varchar("item_type").notNull(),
+  
+  // For -9 requirements and medical - document tracking
+  documentId: varchar("document_id").references(() => documents.id),
+  expirationDate: timestamp("expiration_date"),
+  
+  // For background checks
+  performedDate: timestamp("performed_date"), // When check was performed
+  resultDate: timestamp("result_date"), // When result was received
+  result: varchar("result"), // pass, fail, pending, conditional
+  
+  // General fields
+  status: varchar("status").default("pending"), // pending, compliant, expired, non_compliant
+  notes: text("notes"),
+  
+  // Audit fields
+  verifiedBy: varchar("verified_by").references(() => users.id),
+  verifiedAt: timestamp("verified_at"),
+  createdBy: varchar("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const caregiverComplianceRelations = relations(caregiverCompliance, ({ one }) => ({
+  caregiver: one(caregivers, { fields: [caregiverCompliance.caregiverId], references: [caregivers.id] }),
+  office: one(offices, { fields: [caregiverCompliance.officeId], references: [offices.id] }),
+  document: one(documents, { fields: [caregiverCompliance.documentId], references: [documents.id] }),
+  verifiedByUser: one(users, { fields: [caregiverCompliance.verifiedBy], references: [users.id] }),
+  createdByUser: one(users, { fields: [caregiverCompliance.createdBy], references: [users.id] }),
+}));
+
+export type CaregiverCompliance = typeof caregiverCompliance.$inferSelect;
+export type InsertCaregiverCompliance = typeof caregiverCompliance.$inferInsert;
+export const insertCaregiverComplianceSchema = createInsertSchema(caregiverCompliance).omit({ id: true, createdAt: true, updatedAt: true });

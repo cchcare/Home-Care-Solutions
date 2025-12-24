@@ -182,6 +182,9 @@ import {
   eligibilityChecks,
   type EligibilityCheck,
   type InsertEligibilityCheck,
+  caregiverCompliance,
+  type CaregiverCompliance,
+  type InsertCaregiverCompliance,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, asc, and, or, count, sql, like, gte, lte, inArray } from "drizzle-orm";
@@ -566,6 +569,13 @@ export interface IStorage {
   createEligibilityCheck(check: InsertEligibilityCheck): Promise<EligibilityCheck>;
   updateEligibilityCheck(id: string, check: Partial<InsertEligibilityCheck>): Promise<EligibilityCheck>;
   deleteEligibilityCheck(id: string): Promise<void>;
+
+  // Caregiver Compliance operations
+  getCaregiverComplianceByCaregiver(caregiverId: string): Promise<CaregiverCompliance[]>;
+  getCaregiverCompliance(id: string): Promise<CaregiverCompliance | undefined>;
+  createCaregiverCompliance(compliance: InsertCaregiverCompliance): Promise<CaregiverCompliance>;
+  updateCaregiverCompliance(id: string, compliance: Partial<InsertCaregiverCompliance>): Promise<CaregiverCompliance>;
+  deleteCaregiverCompliance(id: string): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -2952,6 +2962,30 @@ export class DatabaseStorage implements IStorage {
 
   async deleteEligibilityCheck(id: string): Promise<void> {
     await db.delete(eligibilityChecks).where(eq(eligibilityChecks.id, id));
+  }
+
+  // Caregiver Compliance operations
+  async getCaregiverComplianceByCaregiver(caregiverId: string): Promise<CaregiverCompliance[]> {
+    return await db.select().from(caregiverCompliance).where(eq(caregiverCompliance.caregiverId, caregiverId)).orderBy(desc(caregiverCompliance.createdAt));
+  }
+
+  async getCaregiverCompliance(id: string): Promise<CaregiverCompliance | undefined> {
+    const [item] = await db.select().from(caregiverCompliance).where(eq(caregiverCompliance.id, id));
+    return item;
+  }
+
+  async createCaregiverCompliance(compliance: InsertCaregiverCompliance): Promise<CaregiverCompliance> {
+    const [created] = await db.insert(caregiverCompliance).values(compliance).returning();
+    return created;
+  }
+
+  async updateCaregiverCompliance(id: string, compliance: Partial<InsertCaregiverCompliance>): Promise<CaregiverCompliance> {
+    const [updated] = await db.update(caregiverCompliance).set({ ...compliance, updatedAt: new Date() }).where(eq(caregiverCompliance.id, id)).returning();
+    return updated;
+  }
+
+  async deleteCaregiverCompliance(id: string): Promise<void> {
+    await db.delete(caregiverCompliance).where(eq(caregiverCompliance.id, id));
   }
 }
 
