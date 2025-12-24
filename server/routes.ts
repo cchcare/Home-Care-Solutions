@@ -202,7 +202,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const office = await storage.createOffice(validatedData);
       
       await storage.createAuditLog({
-        userId: req.user.claims.sub,
+        userId: req.session?.user?.id,
         action: "create",
         entityType: "office",
         entityId: office.id,
@@ -225,7 +225,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const office = await storage.updateOffice(req.params.id, validatedData);
       
       await storage.createAuditLog({
-        userId: req.user.claims.sub,
+        userId: req.session?.user?.id,
         action: "update",
         entityType: "office",
         entityId: office.id,
@@ -252,7 +252,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await storage.deleteOffice(req.params.id);
       
       await storage.createAuditLog({
-        userId: req.user.claims.sub,
+        userId: req.session?.user?.id,
         action: "delete",
         entityType: "office",
         entityId: req.params.id,
@@ -300,7 +300,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const coordinator = await storage.createCoordinator(validatedData);
       
       await storage.createAuditLog({
-        userId: req.user.claims.sub,
+        userId: req.session?.user?.id,
         action: "create",
         entityType: "coordinator",
         entityId: coordinator.id,
@@ -323,7 +323,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const coordinator = await storage.updateCoordinator(req.params.id, validatedData);
       
       await storage.createAuditLog({
-        userId: req.user.claims.sub,
+        userId: req.session?.user?.id,
         action: "update",
         entityType: "coordinator",
         entityId: coordinator.id,
@@ -350,7 +350,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await storage.deleteCoordinator(req.params.id);
       
       await storage.createAuditLog({
-        userId: req.user.claims.sub,
+        userId: req.session?.user?.id,
         action: "delete",
         entityType: "coordinator",
         entityId: req.params.id,
@@ -419,7 +419,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Log audit trail
       await storage.createAuditLog({
-        userId: req.user.claims.sub,
+        userId: req.session?.user?.id,
         action: "create",
         entityType: "client",
         entityId: client.id,
@@ -453,7 +453,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Log audit trail
       await storage.createAuditLog({
-        userId: req.user.claims.sub,
+        userId: req.session?.user?.id,
         action: "update",
         entityType: "client",
         entityId: client.id,
@@ -481,7 +481,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Log audit trail
       await storage.createAuditLog({
-        userId: req.user.claims.sub,
+        userId: req.session?.user?.id,
         action: "delete",
         entityType: "client",
         entityId: req.params.id,
@@ -514,7 +514,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const updatedClients = await storage.updateClientsBulk(clientIds, validatedUpdates);
 
       await storage.createAuditLog({
-        userId: req.user.claims.sub,
+        userId: req.session?.user?.id,
         action: "bulk_update",
         entityType: "client",
         entityId: clientIds.join(","),
@@ -573,7 +573,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           
           // Log audit trail
           await storage.createAuditLog({
-            userId: req.user.claims.sub,
+            userId: req.session?.user?.id,
             action: "bulk_import_create",
             entityType: "client",
             entityId: client.id,
@@ -713,7 +713,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       await storage.createAuditLog({
-        userId: req.user.claims.sub,
+        userId: req.session?.user?.id,
         action: "create",
         entityType: "caregiver",
         entityId: caregiver.id,
@@ -779,7 +779,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Log audit trail
       await storage.createAuditLog({
-        userId: req.user.claims.sub,
+        userId: req.session?.user?.id,
         action: "update",
         entityType: "caregiver",
         entityId: caregiver.id,
@@ -848,7 +848,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           
           // Log audit trail
           await storage.createAuditLog({
-            userId: req.user.claims.sub,
+            userId: req.session?.user?.id,
             action: "bulk_import_create",
             entityType: "caregiver",
             entityId: caregiver.id,
@@ -901,7 +901,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const updatedCaregivers = await storage.updateCaregiversBulk(caregiverIds, validatedUpdates);
 
       await storage.createAuditLog({
-        userId: req.user.claims.sub,
+        userId: req.session?.user?.id,
         action: "bulk_update",
         entityType: "caregiver",
         entityId: caregiverIds.join(","),
@@ -930,7 +930,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Check user role - only admin, supervisor, or super_admin can bulk delete
-      const user = await storage.getUser(req.user.claims.sub);
+      const user = await storage.getUser(req.session?.user?.id);
       if (!user || !['admin', 'supervisor', 'super_admin'].includes(user.role || '')) {
         return res.status(403).json({ message: "Insufficient permissions to delete caregivers" });
       }
@@ -938,7 +938,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await storage.deleteCaregiversBulk(caregiverIds);
 
       await storage.createAuditLog({
-        userId: req.user.claims.sub,
+        userId: req.session?.user?.id,
         action: "bulk_delete",
         entityType: "caregiver",
         entityId: caregiverIds.join(","),
@@ -971,7 +971,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const validatedData = insertCarePlanSchema.parse({
         ...req.body,
-        createdBy: req.user.claims.sub,
+        createdBy: req.session?.user?.id,
       });
       const carePlan = await storage.createCarePlan(validatedData);
       res.status(201).json(carePlan);
@@ -1016,7 +1016,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const document = await storage.createDocument({
         clientId: req.body.clientId || null,
         caregiverId: req.body.caregiverId || null,
-        uploadedBy: req.user.claims.sub,
+        uploadedBy: req.session?.user?.id,
         fileName: req.file.filename,
         originalName: req.file.originalname,
         fileType: req.file.mimetype,
@@ -1142,7 +1142,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Assign caregiver to client (requires admin, supervisor, or super_admin role)
   app.post("/api/clients/:clientId/caregivers", isAuthenticated, async (req: any, res) => {
     try {
-      const user = await storage.getUser(req.user.claims.sub);
+      const user = await storage.getUser(req.session?.user?.id);
       if (!user || (user.role !== "admin" && user.role !== "supervisor" && user.role !== "super_admin")) {
         return res.status(403).json({ message: "Access denied. Admin or supervisor role required." });
       }
@@ -1169,7 +1169,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Unassign caregiver from client (requires admin, supervisor, or super_admin role)
   app.delete("/api/clients/:clientId/caregivers/:caregiverId", isAuthenticated, async (req: any, res) => {
     try {
-      const user = await storage.getUser(req.user.claims.sub);
+      const user = await storage.getUser(req.session?.user?.id);
       if (!user || (user.role !== "admin" && user.role !== "supervisor" && user.role !== "super_admin")) {
         return res.status(403).json({ message: "Access denied. Admin or supervisor role required." });
       }
@@ -1195,7 +1195,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Assign client to caregiver (requires admin, supervisor, or super_admin role)
   app.post("/api/caregivers/:caregiverId/clients", isAuthenticated, async (req: any, res) => {
     try {
-      const user = await storage.getUser(req.user.claims.sub);
+      const user = await storage.getUser(req.session?.user?.id);
       if (!user || (user.role !== "admin" && user.role !== "supervisor" && user.role !== "super_admin")) {
         return res.status(403).json({ message: "Access denied. Admin or supervisor role required." });
       }
@@ -1222,7 +1222,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Unassign client from caregiver (requires admin, supervisor, or super_admin role)
   app.delete("/api/caregivers/:caregiverId/clients/:clientId", isAuthenticated, async (req: any, res) => {
     try {
-      const user = await storage.getUser(req.user.claims.sub);
+      const user = await storage.getUser(req.session?.user?.id);
       if (!user || (user.role !== "admin" && user.role !== "supervisor" && user.role !== "super_admin")) {
         return res.status(403).json({ message: "Access denied. Admin or supervisor role required." });
       }
@@ -1250,7 +1250,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const communication = await storage.createClientCommunication({
         ...req.body,
         clientId: req.params.clientId,
-        authorUserId: req.user.claims.sub,
+        authorUserId: req.session?.user?.id,
       });
       res.status(201).json(communication);
     } catch (error) {
@@ -1352,7 +1352,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const template = await storage.createMasterWeekTemplate({
         ...req.body,
         clientId: req.params.clientId,
-        createdBy: req.user.claims.sub,
+        createdBy: req.session?.user?.id,
       });
       res.status(201).json(template);
     } catch (error) {
@@ -1413,7 +1413,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ...req.body,
         incidentDate: coerceDate(req.body.incidentDate),
         followUpDate: coerceDate(req.body.followUpDate),
-        reportedBy: req.user.claims.sub,
+        reportedBy: req.session?.user?.id,
       };
       const validatedData = insertIncidentReportSchema.parse(coercedData);
       const report = await storage.createIncidentReport(validatedData);
@@ -1462,7 +1462,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ...req.body,
         dueDate: coerceDate(req.body.dueDate),
         completedAt: coerceDate(req.body.completedAt),
-        createdBy: req.user.claims.sub,
+        createdBy: req.session?.user?.id,
       };
       const validatedData = insertTaskSchema.parse(coercedData);
       const task = await storage.createTask(validatedData);
@@ -1503,7 +1503,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/messages", isAuthenticated, async (req: any, res) => {
     try {
       const { type = 'received', status, officeId } = req.query;
-      const userId = req.user.claims.sub;
+      const userId = req.session?.user?.id;
       const officeFilter = officeId && officeId !== 'all' ? String(officeId) : undefined;
       let messages;
       
@@ -1524,7 +1524,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const validatedData = insertMessageSchema.parse({
         ...req.body,
-        senderId: req.user.claims.sub,
+        senderId: req.session?.user?.id,
       });
       
       const message = await storage.createMessage(validatedData);
@@ -1597,7 +1597,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.put("/api/messages/:id/read", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.session?.user?.id;
       await storage.updateMessageStatus(req.params.id, userId, 'read');
       res.status(204).send();
     } catch (error) {
@@ -1608,7 +1608,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.put("/api/messages/:id/unread", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.session?.user?.id;
       await storage.updateMessageStatus(req.params.id, userId, 'unread');
       res.status(204).send();
     } catch (error) {
@@ -1619,7 +1619,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.put("/api/messages/:id/archive", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.session?.user?.id;
       await storage.updateMessageStatus(req.params.id, userId, 'archived');
       res.status(204).send();
     } catch (error) {
@@ -1646,7 +1646,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Message content is required" });
       }
       
-      const userId = req.user.claims.sub;
+      const userId = req.session?.user?.id;
       const message = await storage.createChannelMessage(userId, content.trim(), priority);
       res.status(201).json(message);
     } catch (error) {
@@ -1826,7 +1826,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Object storage routes
   app.get("/objects/:objectPath(*)", isAuthenticated, async (req: any, res) => {
-    const userId = req.user?.claims?.sub;
+    const userId = req.session?.user?.id;
     const objectStorageService = new ObjectStorageService();
     try {
       const objectFile = await objectStorageService.getObjectEntityFile(
@@ -1879,7 +1879,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Profile image upload route
   app.post("/api/profile/upload-image", isAuthenticated, upload.single("profileImage"), async (req: any, res) => {
     try {
-      const userId = req.user?.claims?.sub;
+      const userId = req.session?.user?.id;
       if (!userId) {
         return res.status(400).json({ message: "User ID not found" });
       }
@@ -2152,7 +2152,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           
           // Log audit trail
           await storage.createAuditLog({
-            userId: req.user.claims.sub,
+            userId: req.session?.user?.id,
             action: "bulk_import_create",
             entityType: "user",
             entityId: user.id,
@@ -2218,7 +2218,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const validatedData = insertIncidentReportSchema.parse({
         ...req.body,
-        reportedBy: req.user.claims.sub,
+        reportedBy: req.session?.user?.id,
       });
       const incident = await storage.createIncidentReport(validatedData);
       res.status(201).json(incident);
@@ -2257,7 +2257,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Family member management routes
   app.get("/api/family-members/me", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.session?.user?.id;
       const user = await storage.getUser(userId);
       
       if (user?.role !== "family") {
@@ -2279,7 +2279,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get clients for the family member
   app.get("/api/family-members/me/clients", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.session?.user?.id;
       const user = await storage.getUser(userId);
       
       if (user?.role !== "family") {
@@ -2302,7 +2302,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get client details with access permissions
   app.get("/api/family-portal/client/:clientId", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.session?.user?.id;
       const user = await storage.getUser(userId);
       const { clientId } = req.params;
       
@@ -2342,7 +2342,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get care plans for a client (with permission check)
   app.get("/api/family-portal/client/:clientId/care-plans", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.session?.user?.id;
       const user = await storage.getUser(userId);
       const { clientId } = req.params;
       
@@ -2374,7 +2374,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get progress notes for a client (with permission check)
   app.get("/api/family-portal/client/:clientId/progress-notes", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.session?.user?.id;
       const user = await storage.getUser(userId);
       const { clientId } = req.params;
       
@@ -2406,7 +2406,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Submit family update request
   app.post("/api/family-portal/client/:clientId/update-request", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.session?.user?.id;
       const user = await storage.getUser(userId);
       const { clientId } = req.params;
       
@@ -2444,7 +2444,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get family update requests
   app.get("/api/family-portal/client/:clientId/update-requests", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.session?.user?.id;
       const user = await storage.getUser(userId);
       const { clientId } = req.params;
       
@@ -2476,7 +2476,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Staff routes for managing family update requests
   app.get("/api/admin/family-updates", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.session?.user?.id;
       const user = await storage.getUser(userId);
       
       // Only admin, supervisor roles can view all family updates
@@ -2494,7 +2494,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.put("/api/admin/family-updates/:id/review", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.session?.user?.id;
       const user = await storage.getUser(userId);
       const { id } = req.params;
       const { status, reviewNotes } = req.body;
@@ -2810,7 +2810,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ...req.body,
         startDate: coerceDate(req.body.startDate),
         endDate: coerceDate(req.body.endDate),
-        createdBy: req.user?.claims?.sub,
+        createdBy: req.session?.user?.id,
       });
       const template = await storage.createMasterWeekTemplate(validatedData);
       res.status(201).json(template);
@@ -2917,7 +2917,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const validatedData = insertClientScheduleSchema.parse({
         ...req.body,
-        createdBy: req.user?.claims?.sub,
+        createdBy: req.session?.user?.id,
       });
       const schedule = await storage.createClientSchedule(validatedData);
       
@@ -2926,7 +2926,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         scheduleId: schedule.id,
         changeType: 'created',
         newValues: schedule,
-        changedBy: req.user?.claims?.sub,
+        changedBy: req.session?.user?.id,
         reason: 'Schedule created manually'
       });
       
@@ -2947,7 +2947,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         scheduleId: schedule.id,
         changeType: 'updated',
         newValues: validatedData,
-        changedBy: req.user?.claims?.sub,
+        changedBy: req.session?.user?.id,
         reason: req.body.reason || 'Schedule updated'
       });
       
@@ -2964,7 +2964,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await storage.createScheduleChangeLog({
         scheduleId: req.params.id,
         changeType: 'cancelled',
-        changedBy: req.user?.claims?.sub,
+        changedBy: req.session?.user?.id,
         reason: req.body.reason || 'Schedule cancelled'
       });
       
@@ -2995,7 +2995,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           scheduleId: schedule.id,
           changeType: 'created',
           newValues: schedule,
-          changedBy: req.user?.claims?.sub,
+          changedBy: req.session?.user?.id,
           reason: 'Schedule created from master week template rollover'
         });
       }
@@ -3106,7 +3106,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const check = await storage.createEligibilityCheck({
         ...validatedBody,
         clientId: req.params.clientId,
-        verifiedBy: req.user.claims.sub,
+        verifiedBy: req.session?.user?.id,
       });
       res.status(201).json(check);
     } catch (error) {
@@ -3128,7 +3128,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const validatedData = insertEligibilityCheckSchema.partial().parse(coercedData);
       const check = await storage.updateEligibilityCheck(req.params.id, {
         ...validatedData,
-        verifiedBy: req.user.claims.sub,
+        verifiedBy: req.session?.user?.id,
       });
       res.json(check);
     } catch (error) {
@@ -3185,7 +3185,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const item = await storage.createCaregiverCompliance({
         ...validatedBody,
         caregiverId: req.params.caregiverId,
-        createdBy: req.user.claims.sub,
+        createdBy: req.session?.user?.id,
       });
       res.status(201).json(item);
     } catch (error) {
@@ -3252,7 +3252,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/ai-issues/:id/resolve", isAuthenticated, async (req: any, res) => {
     try {
       const { aiIssueService } = await import("./aiService");
-      await aiIssueService.resolveIssue(req.params.id, req.user.claims.sub, req.body.resolutionNotes);
+      await aiIssueService.resolveIssue(req.params.id, req.session?.user?.id, req.body.resolutionNotes);
       const issue = await storage.getAiDetectedIssue(req.params.id);
       res.json(issue);
     } catch (error) {
@@ -3264,7 +3264,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/ai-issues/:id/dismiss", isAuthenticated, async (req: any, res) => {
     try {
       const { aiIssueService } = await import("./aiService");
-      await aiIssueService.dismissIssue(req.params.id, req.user.claims.sub, req.body.reason);
+      await aiIssueService.dismissIssue(req.params.id, req.session?.user?.id, req.body.reason);
       const issue = await storage.getAiDetectedIssue(req.params.id);
       res.json(issue);
     } catch (error) {
@@ -3276,7 +3276,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/ai-issues/:id/auto-fix", isAuthenticated, async (req: any, res) => {
     try {
       const { aiIssueService } = await import("./aiService");
-      const result = await aiIssueService.applyAutoFix(req.params.id, req.user.claims.sub);
+      const result = await aiIssueService.applyAutoFix(req.params.id, req.session?.user?.id);
       if (result.success) {
         const issue = await storage.getAiDetectedIssue(req.params.id);
         res.json({ ...result, issue });
@@ -3316,7 +3316,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         method,
         errorMessage,
         statusCode,
-        userId: req.user?.claims?.sub,
+        userId: req.session?.user?.id,
       });
       
       // Get diagnosis using local pattern-matching only (no external AI calls)
@@ -3377,8 +3377,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Message is required" });
       }
       
-      const userRole = req.user?.role || "caregiver";
-      const userId = req.user?.id || req.user?.claims?.sub;
+      const userRole = req.session?.user?.role || "caregiver";
+      const userId = req.session?.user?.id;
       const result = await processAIAssistantMessage(message, conversationHistory || [], userRole, userId);
       res.json(result);
     } catch (error) {
@@ -3430,14 +3430,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Convert numeric fields to strings for Drizzle's numeric type
       const requestData = {
         ...req.body,
-        createdBy: req.user.claims.sub,
+        createdBy: req.session?.user?.id,
         percentage: req.body.percentage != null ? String(req.body.percentage) : undefined,
       };
       const validatedData = insertEvvDataSchema.parse(requestData);
       const evvDataItem = await storage.createEvvData(validatedData);
       
       await storage.createAuditLog({
-        userId: req.user.claims.sub,
+        userId: req.session?.user?.id,
         action: "create",
         entityType: "evv_data",
         entityId: evvDataItem.id,
@@ -3469,7 +3469,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const evvDataItem = await storage.updateEvvData(req.params.id, validatedData);
       
       await storage.createAuditLog({
-        userId: req.user.claims.sub,
+        userId: req.session?.user?.id,
         action: "update",
         entityType: "evv_data",
         entityId: evvDataItem.id,
@@ -3496,7 +3496,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await storage.deleteEvvData(req.params.id);
       
       await storage.createAuditLog({
-        userId: req.user.claims.sub,
+        userId: req.session?.user?.id,
         action: "delete",
         entityType: "evv_data",
         entityId: req.params.id,
@@ -3543,7 +3543,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       await storage.createAuditLog({
-        userId: req.user.claims.sub,
+        userId: req.session?.user?.id,
         action: "ocr_extract",
         entityType: "caregiver",
         entityId: null,
@@ -3587,7 +3587,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       await storage.createAuditLog({
-        userId: req.user.claims.sub,
+        userId: req.session?.user?.id,
         action: "ocr_extract",
         entityType: "client",
         entityId: null,
@@ -3635,7 +3635,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const mcoType = await storage.createMcoType(validatedData);
       
       await storage.createAuditLog({
-        userId: req.user.claims.sub,
+        userId: req.session?.user?.id,
         action: "create",
         entityType: "mco_type",
         entityId: mcoType.id,
@@ -3658,7 +3658,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const mcoType = await storage.updateMcoType(req.params.id, validatedData);
       
       await storage.createAuditLog({
-        userId: req.user.claims.sub,
+        userId: req.session?.user?.id,
         action: "update",
         entityType: "mco_type",
         entityId: mcoType.id,
@@ -3693,7 +3693,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await storage.deleteMcoType(req.params.id);
       
       await storage.createAuditLog({
-        userId: req.user.claims.sub,
+        userId: req.session?.user?.id,
         action: "delete",
         entityType: "mco_type",
         entityId: req.params.id,
@@ -3740,7 +3740,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const mco = await storage.createMco(validatedData);
       
       await storage.createAuditLog({
-        userId: req.user.claims.sub,
+        userId: req.session?.user?.id,
         action: "create",
         entityType: "mco",
         entityId: mco.id,
@@ -3763,7 +3763,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const mco = await storage.updateMco(req.params.id, validatedData);
       
       await storage.createAuditLog({
-        userId: req.user.claims.sub,
+        userId: req.session?.user?.id,
         action: "update",
         entityType: "mco",
         entityId: mco.id,
@@ -3790,7 +3790,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await storage.deleteMco(req.params.id);
       
       await storage.createAuditLog({
-        userId: req.user.claims.sub,
+        userId: req.session?.user?.id,
         action: "delete",
         entityType: "mco",
         entityId: req.params.id,
@@ -3835,13 +3835,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const requestData = {
         ...req.body,
         officeId: req.params.officeId,
-        createdBy: req.user.claims.sub,
+        createdBy: req.session?.user?.id,
       };
       const validatedData = insertOfficeLicenseSchema.parse(requestData);
       const license = await storage.createOfficeLicense(validatedData);
       
       await storage.createAuditLog({
-        userId: req.user.claims.sub,
+        userId: req.session?.user?.id,
         action: "create",
         entityType: "office_license",
         entityId: license.id,
@@ -3864,7 +3864,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const license = await storage.updateOfficeLicense(req.params.id, validatedData);
       
       await storage.createAuditLog({
-        userId: req.user.claims.sub,
+        userId: req.session?.user?.id,
         action: "update",
         entityType: "office_license",
         entityId: license.id,
@@ -3891,7 +3891,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await storage.deleteOfficeLicense(req.params.id);
       
       await storage.createAuditLog({
-        userId: req.user.claims.sub,
+        userId: req.session?.user?.id,
         action: "delete",
         entityType: "office_license",
         entityId: req.params.id,
@@ -3928,7 +3928,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const staff = await storage.createOfficeStaff(validatedData);
       
       await storage.createAuditLog({
-        userId: req.user.claims.sub,
+        userId: req.session?.user?.id,
         action: "create",
         entityType: "office_staff",
         entityId: staff.id,
@@ -3951,7 +3951,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const staff = await storage.updateOfficeStaff(req.params.id, validatedData);
       
       await storage.createAuditLog({
-        userId: req.user.claims.sub,
+        userId: req.session?.user?.id,
         action: "update",
         entityType: "office_staff",
         entityId: staff.id,
@@ -3978,7 +3978,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await storage.deleteOfficeStaff(req.params.id);
       
       await storage.createAuditLog({
-        userId: req.user.claims.sub,
+        userId: req.session?.user?.id,
         action: "delete",
         entityType: "office_staff",
         entityId: req.params.id,
@@ -4010,14 +4010,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const requestData = {
         ...req.body,
         officeId: req.params.officeId,
-        createdBy: req.user.claims.sub,
+        createdBy: req.session?.user?.id,
         amount: req.body.amount != null ? String(req.body.amount) : undefined,
       };
       const validatedData = insertOfficeExpenseSchema.parse(requestData);
       const expense = await storage.createOfficeExpense(validatedData);
       
       await storage.createAuditLog({
-        userId: req.user.claims.sub,
+        userId: req.session?.user?.id,
         action: "create",
         entityType: "office_expense",
         entityId: expense.id,
@@ -4044,7 +4044,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const expense = await storage.updateOfficeExpense(req.params.id, validatedData);
       
       await storage.createAuditLog({
-        userId: req.user.claims.sub,
+        userId: req.session?.user?.id,
         action: "update",
         entityType: "office_expense",
         entityId: expense.id,
@@ -4071,7 +4071,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await storage.deleteOfficeExpense(req.params.id);
       
       await storage.createAuditLog({
-        userId: req.user.claims.sub,
+        userId: req.session?.user?.id,
         action: "delete",
         entityType: "office_expense",
         entityId: req.params.id,
@@ -4117,7 +4117,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const mco = await storage.createMco(validatedData);
       
       await storage.createAuditLog({
-        userId: req.user.claims.sub,
+        userId: req.session?.user?.id,
         action: "create",
         entityType: "mco",
         entityId: mco.id,
@@ -4140,7 +4140,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const mco = await storage.updateMco(req.params.id, validatedData);
       
       await storage.createAuditLog({
-        userId: req.user.claims.sub,
+        userId: req.session?.user?.id,
         action: "update",
         entityType: "mco",
         entityId: mco.id,
@@ -4167,7 +4167,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await storage.deleteMco(req.params.id);
       
       await storage.createAuditLog({
-        userId: req.user.claims.sub,
+        userId: req.session?.user?.id,
         action: "delete",
         entityType: "mco",
         entityId: req.params.id,
@@ -4213,7 +4213,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const setting = await storage.createSystemSetting(validatedData);
       
       await storage.createAuditLog({
-        userId: req.user.claims.sub,
+        userId: req.session?.user?.id,
         action: "create",
         entityType: "system_setting",
         entityId: setting.id,
@@ -4236,7 +4236,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const setting = await storage.updateSystemSetting(req.params.key, validatedData);
       
       await storage.createAuditLog({
-        userId: req.user.claims.sub,
+        userId: req.session?.user?.id,
         action: "update",
         entityType: "system_setting",
         entityId: setting.id,
@@ -4263,7 +4263,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await storage.deleteSystemSetting(req.params.key);
       
       await storage.createAuditLog({
-        userId: req.user.claims.sub,
+        userId: req.session?.user?.id,
         action: "delete",
         entityType: "system_setting",
         entityId: setting.id,
@@ -4317,7 +4317,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const config = await storage.createEntityFieldConfig(validatedData);
       
       await storage.createAuditLog({
-        userId: req.user.claims.sub,
+        userId: req.session?.user?.id,
         action: "create",
         entityType: "entity_field_config",
         entityId: config.id,
@@ -4340,7 +4340,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const config = await storage.updateEntityFieldConfig(req.params.id, validatedData);
       
       await storage.createAuditLog({
-        userId: req.user.claims.sub,
+        userId: req.session?.user?.id,
         action: "update",
         entityType: "entity_field_config",
         entityId: config.id,
@@ -4367,7 +4367,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await storage.deleteEntityFieldConfig(req.params.id);
       
       await storage.createAuditLog({
-        userId: req.user.claims.sub,
+        userId: req.session?.user?.id,
         action: "delete",
         entityType: "entity_field_config",
         entityId: req.params.id,
@@ -4446,7 +4446,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         serviceEndDate,
         billDate,
         dueDate,
-        createdBy: req.user.claims.sub,
+        createdBy: req.session?.user?.id,
       });
       res.status(201).json(record);
     } catch (error) {
@@ -4596,7 +4596,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const data = {
         ...req.body,
-        createdBy: req.user.claims.sub,
+        createdBy: req.session?.user?.id,
         payPeriodStart: req.body.payPeriodStart ? new Date(req.body.payPeriodStart) : null,
         payPeriodEnd: req.body.payPeriodEnd ? new Date(req.body.payPeriodEnd) : null,
         paycheckDate: req.body.paycheckDate ? new Date(req.body.paycheckDate) : null,
@@ -4618,7 +4618,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         paycheckDate: req.body.paycheckDate ? new Date(req.body.paycheckDate) : undefined,
       };
       if (req.body.status === "approved") {
-        updateData.approvedBy = req.user.claims.sub;
+        updateData.approvedBy = req.session?.user?.id;
         updateData.approvedAt = new Date();
       }
       const run = await storage.updatePayrollRun(req.params.id, updateData);
@@ -5192,12 +5192,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         officeId: req.params.officeId,
         checklistItemId: req.params.checklistItemId,
         ...req.body,
-        updatedBy: req.user.claims.sub,
+        updatedBy: req.session?.user?.id,
       };
       
       if (req.body.status === 'complete') {
         updateData.completedAt = new Date();
-        updateData.completedBy = req.user.claims.sub;
+        updateData.completedBy = req.session?.user?.id;
       }
       
       const status = await storage.upsertOfficePaSurveyStatus(updateData);
@@ -5228,7 +5228,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const note = await storage.createCaregiverNote({
         ...validatedBody,
         caregiverId: req.params.caregiverId,
-        authorId: req.user.claims.sub,
+        authorId: req.session?.user?.id,
       });
       res.status(201).json(note);
     } catch (error) {
@@ -5689,7 +5689,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const move = await storage.createCaregiverOfficeMove({
         ...validatedBody,
         caregiverId: req.params.caregiverId,
-        approvedBy: req.user.claims.sub,
+        approvedBy: req.session?.user?.id,
       });
       res.status(201).json(move);
     } catch (error) {
@@ -5743,7 +5743,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const schedule = await storage.createCaregiverSchedule({
         ...validatedBody,
         caregiverId: req.params.caregiverId,
-        createdBy: req.user.claims.sub,
+        createdBy: req.session?.user?.id,
       });
       res.status(201).json(schedule);
     } catch (error) {
@@ -5784,7 +5784,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/bulk-paystub-upload", isAuthenticated, upload.single("file"), async (req: any, res) => {
     const tempFiles: string[] = [];
     try {
-      const userRole = req.user?.claims?.metadata?.role || "caregiver";
+      const userRole = req.session?.user?.role || "caregiver";
       const allowedRoles = ["admin", "super_admin", "supervisor"];
       if (!allowedRoles.includes(userRole)) {
         return res.status(403).json({ message: "Insufficient permissions for bulk paystub upload" });

@@ -119,10 +119,10 @@ export default function Dashboard() {
     return <div>Loading...</div>;
   }
 
-  const recentClients = clients?.slice(0, 3) || [];
-  const pendingTasks = tasks?.filter(task => task.status === "pending").slice(0, 4) || [];
-  const recentMessages = messages?.slice(0, 2) || [];
-  const recentDocuments = documents?.slice(0, 3) || [];
+  const recentClients = Array.isArray(clients) ? clients.slice(0, 3) : [];
+  const pendingTasks = Array.isArray(tasks) ? tasks.filter(task => task.status === "pending").slice(0, 4) : [];
+  const recentMessages = Array.isArray(messages) ? messages.slice(0, 2) : [];
+  const recentDocuments = Array.isArray(documents) ? documents.slice(0, 3) : [];
 
   return (
     <div className="flex h-screen overflow-hidden">

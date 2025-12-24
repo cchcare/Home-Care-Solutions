@@ -33,11 +33,17 @@ export function TopBar({
   selectedOfficeId,
   onOfficeChange 
 }: TopBarProps) {
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
   const [, setLocation] = useLocation();
 
-  const handleLogout = () => {
-    window.location.href = "/api/logout";
+  const handleLogout = async () => {
+    try {
+      await logout();
+      window.location.href = "/";
+    } catch (error) {
+      console.error("Logout failed:", error);
+      window.location.href = "/";
+    }
   };
 
   const navigateToAccountSettings = () => {

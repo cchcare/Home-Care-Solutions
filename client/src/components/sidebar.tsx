@@ -92,8 +92,16 @@ export function Sidebar() {
 
   const navigation = getNavigation();
 
-  const handleLogout = () => {
-    window.location.href = "/api/logout";
+  const { logout } = useAuth();
+  
+  const handleLogout = async () => {
+    try {
+      await logout();
+      window.location.href = "/";
+    } catch (error) {
+      console.error("Logout failed:", error);
+      window.location.href = "/";
+    }
   };
 
   const isActiveRoute = (href?: string) => {

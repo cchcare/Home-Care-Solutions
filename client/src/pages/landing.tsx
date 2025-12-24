@@ -1,15 +1,128 @@
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useState } from "react";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Heart, Shield, Users, FileText, Bell, BarChart3 } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Heart, Shield, Users, FileText, Bell, BarChart3, Loader2, Eye, EyeOff } from "lucide-react";
+import { useAuth } from "@/hooks/useAuth";
+import { useToast } from "@/hooks/use-toast";
 
 export default function Landing() {
-  const handleLogin = () => {
-    window.location.href = "/api/login";
+  const [showLoginForm, setShowLoginForm] = useState(false);
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const { login, isLoggingIn, loginError } = useAuth();
+  const { toast } = useToast();
+
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (!username || !password) {
+      toast({
+        title: "Error",
+        description: "Please enter both username and password",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      await login({ username, password });
+    } catch (error: any) {
+      const errorMessage = error?.message || "Invalid credentials. Please try again.";
+      toast({
+        title: "Login Failed",
+        description: errorMessage,
+        variant: "destructive",
+      });
+    }
   };
+
+  const LoginForm = () => (
+    <Card className="w-full max-w-md mx-auto">
+      <CardHeader className="text-center">
+        <div className="w-12 h-12 bg-primary rounded-lg flex items-center justify-center mx-auto mb-4">
+          <Heart className="w-7 h-7 text-primary-foreground" />
+        </div>
+        <CardTitle className="text-2xl">Welcome Back</CardTitle>
+        <CardDescription>Sign in to your Home Care account</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <form onSubmit={handleLogin} className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="username">Username or Email</Label>
+            <Input
+              id="username"
+              type="text"
+              placeholder="Enter your username or email"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              disabled={isLoggingIn}
+              data-testid="input-username"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="password">Password</Label>
+            <div className="relative">
+              <Input
+                id="password"
+                type={showPassword ? "text" : "password"}
+                placeholder="Enter your password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                disabled={isLoggingIn}
+                data-testid="input-password"
+              />
+              <button
+                type="button"
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                onClick={() => setShowPassword(!showPassword)}
+                tabIndex={-1}
+              >
+                {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
+            </div>
+          </div>
+          <Button
+            type="submit"
+            className="w-full"
+            disabled={isLoggingIn}
+            data-testid="button-submit-login"
+          >
+            {isLoggingIn ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Signing In...
+              </>
+            ) : (
+              "Sign In"
+            )}
+          </Button>
+        </form>
+        <div className="mt-4 text-center">
+          <button
+            type="button"
+            className="text-sm text-muted-foreground hover:text-primary"
+            onClick={() => setShowLoginForm(false)}
+          >
+            Back to Home
+          </button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+
+  if (showLoginForm) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center p-4">
+        <LoginForm />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Header */}
       <header className="border-b border-border bg-card">
         <div className="container mx-auto px-4 py-6">
           <div className="flex items-center justify-between">
@@ -19,14 +132,13 @@ export default function Landing() {
               </div>
               <h1 className="text-2xl font-bold text-foreground">Home Care</h1>
             </div>
-            <Button onClick={handleLogin} className="px-6" data-testid="button-login">
+            <Button onClick={() => setShowLoginForm(true)} className="px-6" data-testid="button-login">
               Sign In
             </Button>
           </div>
         </div>
       </header>
 
-      {/* Hero Section */}
       <section className="py-20 px-4">
         <div className="container mx-auto text-center max-w-4xl">
           <h2 className="text-5xl font-bold text-foreground mb-6">
@@ -37,7 +149,7 @@ export default function Landing() {
             and regulatory compliance. Everything you need in one secure platform.
           </p>
           <Button 
-            onClick={handleLogin} 
+            onClick={() => setShowLoginForm(true)} 
             size="lg" 
             className="px-8 py-3 text-lg"
             data-testid="button-get-started"
@@ -47,7 +159,6 @@ export default function Landing() {
         </div>
       </section>
 
-      {/* Features Grid */}
       <section className="py-16 px-4 bg-muted/30">
         <div className="container mx-auto">
           <h3 className="text-3xl font-bold text-center text-foreground mb-12">
@@ -147,7 +258,6 @@ export default function Landing() {
         </div>
       </section>
 
-      {/* Security Notice */}
       <section className="py-16 px-4">
         <div className="container mx-auto max-w-4xl">
           <Card className="bg-primary/5 border-primary/20">
@@ -161,7 +271,7 @@ export default function Landing() {
                 and compliance with all healthcare privacy regulations. We take security seriously.
               </p>
               <Button 
-                onClick={handleLogin} 
+                onClick={() => setShowLoginForm(true)} 
                 className="px-8"
                 data-testid="button-secure-login"
               >
@@ -172,7 +282,6 @@ export default function Landing() {
         </div>
       </section>
 
-      {/* Footer */}
       <footer className="border-t border-border bg-card py-8">
         <div className="container mx-auto px-4">
           <div className="flex items-center justify-between">
