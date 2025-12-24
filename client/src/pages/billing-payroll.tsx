@@ -178,10 +178,9 @@ export default function BillingPayroll() {
     queryKey: ["/api/offices"],
   });
 
+  // Fetch MCOs from admin settings for the MCO Rate dropdown
   const { data: mcos = [] } = useQuery<Mco[]>({
-    queryKey: ["/api/offices", actualOfficeId, "mcos"],
-    queryFn: () => actualOfficeId ? fetch(`/api/offices/${actualOfficeId}/mcos`).then(r => r.json()) : [],
-    enabled: !!actualOfficeId,
+    queryKey: ["/api/admin/mcos"],
   });
 
   const { data: allMcos = [] } = useQuery<Mco[]>({
