@@ -62,6 +62,19 @@ Preferred communication style: Simple, everyday language.
   - MCO displayed on profile as read-only (auto-assigned from client)
   - Only the first client with an active MCO is used for assignment
 
+### Caregiver Compliance Tracking
+- **-9 Requirements**: Track PA State Form -9 compliance with expiration dates and document references
+- **Background Checks**: Track FBI, PA State, Child Abuse, and Adult Protective clearances
+  - Fields: Performed Date, Result Date, Result (Pass/Fail/Pending/Conditional)
+- **Medical Requirements**: Track TB Test, Physical Exam, Drug Test, Hepatitis B, Flu Shot, COVID-19 vaccines
+  - Fields: Performed Date, Expiration Date, Result
+- **API Routes**:
+  - GET/POST /api/caregivers/:id/compliance (list/create)
+  - PUT/DELETE /api/caregiver-compliance/:id (update/delete)
+- **UI**: Three separate cards in caregiver profile Compliance section with Add/Edit/Delete buttons
+  - Each category shows relevant columns based on data type (expiration for -9, performed/result for background checks, etc.)
+  - Shared dialog with conditional fields based on compliance category
+
 ### Payroll Management
 - **Bulk Paystub Upload**: AI-powered feature to upload PDF files containing multiple paystubs
   - Extracts employee name, pay period, hours, gross/net pay, and deductions using OCR
