@@ -1662,3 +1662,90 @@ export const clientMcos = pgTable("client_mcos", {
 export type ClientMco = typeof clientMcos.$inferSelect;
 export type InsertClientMco = typeof clientMcos.$inferInsert;
 export const insertClientMcoSchema = createInsertSchema(clientMcos).omit({ id: true, createdAt: true, updatedAt: true });
+
+// Office Licenses - tracks health licenses with renewal history
+export const officeLicenses = pgTable("office_licenses", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  officeId: varchar("office_id").references(() => offices.id).notNull(),
+  licenseNumber: varchar("license_number").notNull(),
+  licenseType: varchar("license_type").default("health"), // health, business, etc.
+  issuedDate: timestamp("issued_date").notNull(),
+  expirationDate: timestamp("expiration_date").notNull(),
+  documentId: varchar("document_id").references(() => documents.id), // uploaded license document
+  status: varchar("status").default("active"), // active, expired, pending_renewal
+  notes: text("notes"),
+  isActive: boolean("is_active").default(true), // false for historical/replaced licenses
+  createdBy: varchar("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const officeLicensesRelations = relations(officeLicenses, ({ one }) => ({
+  office: one(offices, { fields: [officeLicenses.officeId], references: [offices.id] }),
+  document: one(documents, { fields: [officeLicenses.documentId], references: [documents.id] }),
+  createdByUser: one(users, { fields: [officeLicenses.createdBy], references: [users.id] }),
+}));
+
+export type OfficeLicense = typeof officeLicenses.$inferSelect;
+export type InsertOfficeLicense = typeof officeLicenses.$inferInsert;
+export const insertOfficeLicenseSchema = createInsertSchema(officeLicenses).omit({ id: true, createdAt: true, updatedAt: true });
+
+// Office Staff - tracks staff members assigned to offices
+export const officeStaff = pgTable("office_staff", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  officeId: varchar("office_id").references(() => offices.id).notNull(),
+  userId: varchar("user_id").references(() => users.id).notNull(),
+  position: varchar("position"), // Office Manager, Coordinator, Admin, etc.
+  department: varchar("department"),
+  startDate: timestamp("start_date"),
+  endDate: timestamp("end_date"),
+  isPrimary: boolean("is_primary").default(false), // primary office assignment
+  isActive: boolean("is_active").default(true),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const officeStaffRelations = relations(officeStaff, ({ one }) => ({
+  office: one(offices, { fields: [officeStaff.officeId], references: [offices.id] }),
+  user: one(users, { fields: [officeStaff.userId], references: [users.id] }),
+}));
+
+export type OfficeStaff = typeof officeStaff.$inferSelect;
+export type InsertOfficeStaff = typeof officeStaff.$inferInsert;
+export const insertOfficeStaffSchema = createInsertSchema(officeStaff).omit({ id: true, createdAt: true, updatedAt: true });
+
+// Office Expenses - tracks office-level expenses
+export const officeExpenses = pgTable("office_expenses", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  officeId: varchar("office_id").references(() => offices.id).notNull(),
+  expenseDate: timestamp("expense_date").notNull(),
+  expenseType: varchar("expense_type").notNull(), // rent, utilities, supplies, equipment, insurance, other
+  category: varchar("category"), // subcategory for detailed tracking
+  description: text("description").notNull(),
+  vendor: varchar("vendor"),
+  amount: numeric("amount", { precision: 10, scale: 2 }).notNull(),
+  paymentMethod: varchar("payment_method"), // check, card, wire, cash
+  receiptDocumentId: varchar("receipt_document_id").references(() => documents.id),
+  recurring: boolean("recurring").default(false),
+  recurringFrequency: varchar("recurring_frequency"), // monthly, quarterly, annually
+  status: varchar("status").default("pending"), // pending, approved, paid, rejected
+  approvedBy: varchar("approved_by").references(() => users.id),
+  approvedAt: timestamp("approved_at"),
+  paidAt: timestamp("paid_at"),
+  notes: text("notes"),
+  createdBy: varchar("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const officeExpensesRelations = relations(officeExpenses, ({ one }) => ({
+  office: one(offices, { fields: [officeExpenses.officeId], references: [offices.id] }),
+  receipt: one(documents, { fields: [officeExpenses.receiptDocumentId], references: [documents.id] }),
+  approvedByUser: one(users, { fields: [officeExpenses.approvedBy], references: [users.id] }),
+  createdByUser: one(users, { fields: [officeExpenses.createdBy], references: [users.id] }),
+}));
+
+export type OfficeExpense = typeof officeExpenses.$inferSelect;
+export type InsertOfficeExpense = typeof officeExpenses.$inferInsert;
+export const insertOfficeExpenseSchema = createInsertSchema(officeExpenses).omit({ id: true, createdAt: true, updatedAt: true });
