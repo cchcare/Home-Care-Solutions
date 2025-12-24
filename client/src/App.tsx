@@ -31,6 +31,9 @@ import AdminSettings from "@/pages/admin-settings";
 import BillingPayroll from "@/pages/billing-payroll";
 import AIAssistant from "@/pages/ai-assistant";
 import ResetPassword from "@/pages/reset-password";
+import PrivacyPolicy from "@/pages/privacy-policy";
+import TermsOfUse from "@/pages/terms-of-use";
+import SystemStatus from "@/pages/system-status";
 
 function Router() {
   const { isAuthenticated, isLoading, error } = useAuth();
@@ -50,6 +53,9 @@ function Router() {
   return (
     <Switch>
       <Route path="/reset-password" component={ResetPassword} />
+      <Route path="/privacy-policy" component={PrivacyPolicy} />
+      <Route path="/terms-of-use" component={TermsOfUse} />
+      <Route path="/system-status" component={SystemStatus} />
       {!isAuthenticated ? (
         <Route path="/" component={Landing} />
       ) : (

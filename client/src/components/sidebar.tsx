@@ -258,6 +258,20 @@ export function Sidebar() {
             })}
           </nav>
 
+          <div className="px-4 py-2 border-t border-sidebar-border">
+            <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-sidebar-foreground/60">
+              <Link href="/privacy-policy" className="hover:text-sidebar-foreground" data-testid="link-privacy-policy">
+                Privacy
+              </Link>
+              <Link href="/terms-of-use" className="hover:text-sidebar-foreground" data-testid="link-terms-of-use">
+                Terms
+              </Link>
+              <Link href="/system-status" className="hover:text-sidebar-foreground" data-testid="link-system-status">
+                Status
+              </Link>
+            </div>
+          </div>
+
           <div className="p-4 border-t border-sidebar-border">
             <div className="flex items-center space-x-3 p-3 rounded-lg bg-sidebar-accent">
               <div className="w-8 h-8 bg-accent rounded-full flex items-center justify-center">

@@ -376,15 +376,26 @@ export default function Landing() {
 
       <footer className="border-t border-border bg-card py-8">
         <div className="container mx-auto px-4">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col md:flex-row items-center justify-between gap-4">
             <div className="flex items-center space-x-3">
               <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
                 <Heart className="w-5 h-5 text-primary-foreground" />
               </div>
-              <span className="font-semibold text-foreground">CareConnect</span>
+              <span className="font-semibold text-foreground">Home Care</span>
+            </div>
+            <div className="flex items-center gap-4 text-sm text-muted-foreground">
+              <a href="/privacy-policy" className="hover:text-foreground" data-testid="link-privacy-policy">
+                Privacy Policy
+              </a>
+              <a href="/terms-of-use" className="hover:text-foreground" data-testid="link-terms-of-use">
+                Terms of Use
+              </a>
+              <a href="/system-status" className="hover:text-foreground" data-testid="link-system-status">
+                System Status
+              </a>
             </div>
             <p className="text-sm text-muted-foreground">
-              © 2024 CareConnect. HIPAA-compliant home care management.
+              © 2024 Home Care. HIPAA-compliant home care management.
             </p>
           </div>
         </div>
