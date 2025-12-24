@@ -18,7 +18,7 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { 
-  User, 
+  User as UserIcon, 
   Mail, 
   Building2, 
   Shield, 
@@ -29,9 +29,11 @@ import {
   EyeOff,
   Camera,
   Upload,
-  Loader2
+  Loader2,
+  KeyRound
 } from "lucide-react";
 import { format } from "date-fns";
+import type { User } from "@shared/schema";
 
 // Form schema for updating user profile
 const accountSettingsSchema = z.object({
@@ -42,12 +44,27 @@ const accountSettingsSchema = z.object({
 
 type AccountSettingsFormData = z.infer<typeof accountSettingsSchema>;
 
+// Form schema for changing password
+const changePasswordSchema = z.object({
+  currentPassword: z.string().min(1, "Current password is required"),
+  newPassword: z.string().min(8, "New password must be at least 8 characters"),
+  confirmPassword: z.string().min(1, "Please confirm your new password"),
+}).refine((data) => data.newPassword === data.confirmPassword, {
+  message: "Passwords don't match",
+  path: ["confirmPassword"],
+});
+
+type ChangePasswordFormData = z.infer<typeof changePasswordSchema>;
+
 export default function AccountSettingsPage() {
   const { user, isAuthenticated, isLoading } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [showSensitiveInfo, setShowSensitiveInfo] = useState(false);
   const [isUploadingImage, setIsUploadingImage] = useState(false);
+  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   // Redirect if not authenticated
   useEffect(() => {
@@ -65,7 +82,7 @@ export default function AccountSettingsPage() {
   }, [isAuthenticated, isLoading, toast]);
 
   // Fetch current user data
-  const { data: currentUser, isLoading: isLoadingUser, error } = useQuery({
+  const { data: currentUser, isLoading: isLoadingUser, error } = useQuery<User>({
     queryKey: ["/api/auth/user"],
     retry: false,
   });
@@ -96,6 +113,15 @@ export default function AccountSettingsPage() {
       firstName: "",
       lastName: "",
       profileImageUrl: "",
+    },
+  });
+
+  const passwordForm = useForm<ChangePasswordFormData>({
+    resolver: zodResolver(changePasswordSchema),
+    defaultValues: {
+      currentPassword: "",
+      newPassword: "",
+      confirmPassword: "",
     },
   });
 
@@ -146,6 +172,47 @@ export default function AccountSettingsPage() {
 
   const onSubmit = (data: AccountSettingsFormData) => {
     updateProfileMutation.mutate(data);
+  };
+
+  // Change password mutation
+  const changePasswordMutation = useMutation({
+    mutationFn: async (data: ChangePasswordFormData) => {
+      return await apiRequest("POST", "/api/auth/change-password", {
+        currentPassword: data.currentPassword,
+        newPassword: data.newPassword,
+      });
+    },
+    onSuccess: () => {
+      passwordForm.reset();
+      toast({
+        title: "Success",
+        description: "Your password has been changed successfully",
+      });
+    },
+    onError: (error: any) => {
+      if (isUnauthorizedError(error)) {
+        toast({
+          title: "Unauthorized",
+          description: "You are logged out. Logging in again...",
+          variant: "destructive",
+        });
+        setTimeout(() => {
+          window.location.href = "/api/login";
+        }, 500);
+        return;
+      }
+      
+      console.error("Error changing password:", error);
+      toast({
+        title: "Error",
+        description: error.message || "Failed to change password",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const onPasswordSubmit = (data: ChangePasswordFormData) => {
+    changePasswordMutation.mutate(data);
   };
 
   const handleImageUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -229,8 +296,8 @@ export default function AccountSettingsPage() {
     switch (role) {
       case "super_admin": return Shield;
       case "admin": return Shield;
-      case "supervisor": return User;
-      default: return User;
+      case "supervisor": return UserIcon;
+      default: return UserIcon;
     }
   };
 
@@ -305,7 +372,7 @@ export default function AccountSettingsPage() {
               <Card className="lg:col-span-1">
                 <CardHeader>
                   <CardTitle className="flex items-center">
-                    <User className="mr-2 h-5 w-5" />
+                    <UserIcon className="mr-2 h-5 w-5" />
                     Profile Overview
                   </CardTitle>
                   <CardDescription>
@@ -521,6 +588,149 @@ export default function AccountSettingsPage() {
               </Card>
             </div>
 
+            {/* Change Password Section */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center">
+                  <KeyRound className="mr-2 h-5 w-5" />
+                  Change Password
+                </CardTitle>
+                <CardDescription>
+                  Update your account password for security
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Form {...passwordForm}>
+                  <form onSubmit={passwordForm.handleSubmit(onPasswordSubmit)} className="space-y-4">
+                    <FormField
+                      control={passwordForm.control}
+                      name="currentPassword"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Current Password</FormLabel>
+                          <FormControl>
+                            <div className="relative">
+                              <Input 
+                                type={showCurrentPassword ? "text" : "password"}
+                                placeholder="Enter your current password"
+                                {...field} 
+                                data-testid="input-current-password"
+                              />
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="absolute right-0 top-0 h-full px-3 hover:bg-transparent"
+                                onClick={() => setShowCurrentPassword(!showCurrentPassword)}
+                                data-testid="button-toggle-current-password"
+                              >
+                                {showCurrentPassword ? (
+                                  <EyeOff className="h-4 w-4 text-muted-foreground" />
+                                ) : (
+                                  <Eye className="h-4 w-4 text-muted-foreground" />
+                                )}
+                              </Button>
+                            </div>
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={passwordForm.control}
+                      name="newPassword"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>New Password</FormLabel>
+                          <FormControl>
+                            <div className="relative">
+                              <Input 
+                                type={showNewPassword ? "text" : "password"}
+                                placeholder="Enter your new password (min 8 characters)"
+                                {...field} 
+                                data-testid="input-new-password"
+                              />
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="absolute right-0 top-0 h-full px-3 hover:bg-transparent"
+                                onClick={() => setShowNewPassword(!showNewPassword)}
+                                data-testid="button-toggle-new-password"
+                              >
+                                {showNewPassword ? (
+                                  <EyeOff className="h-4 w-4 text-muted-foreground" />
+                                ) : (
+                                  <Eye className="h-4 w-4 text-muted-foreground" />
+                                )}
+                              </Button>
+                            </div>
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={passwordForm.control}
+                      name="confirmPassword"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Confirm New Password</FormLabel>
+                          <FormControl>
+                            <div className="relative">
+                              <Input 
+                                type={showConfirmPassword ? "text" : "password"}
+                                placeholder="Confirm your new password"
+                                {...field} 
+                                data-testid="input-confirm-password"
+                              />
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="absolute right-0 top-0 h-full px-3 hover:bg-transparent"
+                                onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                                data-testid="button-toggle-confirm-password"
+                              >
+                                {showConfirmPassword ? (
+                                  <EyeOff className="h-4 w-4 text-muted-foreground" />
+                                ) : (
+                                  <Eye className="h-4 w-4 text-muted-foreground" />
+                                )}
+                              </Button>
+                            </div>
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <div className="flex justify-end pt-4">
+                      <Button 
+                        type="submit" 
+                        disabled={changePasswordMutation.isPending}
+                        data-testid="button-change-password"
+                      >
+                        {changePasswordMutation.isPending ? (
+                          <>
+                            <Loader2 className="animate-spin h-4 w-4 mr-2" />
+                            Changing...
+                          </>
+                        ) : (
+                          <>
+                            <KeyRound className="mr-2 h-4 w-4" />
+                            Change Password
+                          </>
+                        )}
+                      </Button>
+                    </div>
+                  </form>
+                </Form>
+              </CardContent>
+            </Card>
+
             {/* Additional Information Section */}
             <Card>
               <CardHeader>
@@ -573,7 +783,7 @@ export default function AccountSettingsPage() {
                     <Alert>
                       <AlertCircle className="h-4 w-4" />
                       <AlertDescription>
-                        For security reasons, password changes and role modifications must be done by your administrator.
+                        For security reasons, role modifications must be done by your administrator.
                         If you need to update your email address or change your role, please contact your system administrator.
                       </AlertDescription>
                     </Alert>

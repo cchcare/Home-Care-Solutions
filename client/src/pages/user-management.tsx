@@ -15,7 +15,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { insertUserSchema, type User } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
-import { Users, Plus, Edit, Trash2, Search, UserCheck, Shield, Eye, User as UserIcon, Download, Upload } from "lucide-react";
+import { Users, Plus, Edit, Trash2, Search, UserCheck, Shield, Eye, User as UserIcon, Download, Upload, KeyRound, Loader2 } from "lucide-react";
 import { ExcelImport } from "@/components/excel-import";
 import { ExcelExport } from "@/components/excel-export";
 import { format } from "date-fns";
@@ -45,6 +45,9 @@ export default function UserManagementPage() {
   const [showUserDetails, setShowUserDetails] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [roleFilter, setRoleFilter] = useState<string>("all");
+  const [resetPasswordOpen, setResetPasswordOpen] = useState(false);
+  const [userToReset, setUserToReset] = useState<User | null>(null);
+  const [newPassword, setNewPassword] = useState("");
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -136,6 +139,47 @@ export default function UserManagementPage() {
       });
     },
   });
+
+  const resetPasswordMutation = useMutation({
+    mutationFn: async ({ userId, newPassword }: { userId: string; newPassword: string }) => {
+      return await apiRequest("POST", `/api/auth/reset-password/${userId}`, { newPassword });
+    },
+    onSuccess: () => {
+      setResetPasswordOpen(false);
+      setUserToReset(null);
+      setNewPassword("");
+      toast({
+        title: "Success",
+        description: "Password reset successfully. The user will be required to change their password on next login.",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to reset password",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleResetPassword = (user: User) => {
+    setUserToReset(user);
+    setNewPassword("");
+    setResetPasswordOpen(true);
+  };
+
+  const confirmResetPassword = () => {
+    if (!userToReset || !newPassword) return;
+    if (newPassword.length < 8) {
+      toast({
+        title: "Error",
+        description: "Password must be at least 8 characters",
+        variant: "destructive",
+      });
+      return;
+    }
+    resetPasswordMutation.mutate({ userId: userToReset.id, newPassword });
+  };
 
   const form = useForm<UserFormData>({
     resolver: zodResolver(userFormSchema),
@@ -698,6 +742,18 @@ export default function UserManagementPage() {
                         <Edit className="mr-2 h-4 w-4" />
                         Edit
                       </Button>
+                      {/* Only admins (super_admin, admin, office_admin) can reset passwords */}
+                      {["super_admin", "admin", "office_admin"].includes((currentUser as any)?.role) && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleResetPassword(user)}
+                          data-testid={`button-reset-password-${user.id}`}
+                        >
+                          <KeyRound className="mr-2 h-4 w-4" />
+                          Reset Password
+                        </Button>
+                      )}
                       <AlertDialog>
                         <AlertDialogTrigger asChild>
                           <Button
@@ -879,6 +935,73 @@ export default function UserManagementPage() {
               </div>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Reset Password Dialog */}
+      <Dialog open={resetPasswordOpen} onOpenChange={(open) => {
+        if (!open) {
+          setResetPasswordOpen(false);
+          setUserToReset(null);
+          setNewPassword("");
+        }
+      }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center">
+              <KeyRound className="mr-2 h-5 w-5" />
+              Reset Password
+            </DialogTitle>
+            <DialogDescription>
+              Set a new password for {userToReset?.firstName} {userToReset?.lastName || userToReset?.email}.
+              The user will be required to change their password on next login.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">New Password</label>
+              <Input
+                type="password"
+                placeholder="Enter new password (min 8 characters)"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                data-testid="input-reset-new-password"
+              />
+              <p className="text-xs text-muted-foreground">
+                Password must be at least 8 characters long.
+              </p>
+            </div>
+          </div>
+          <div className="flex justify-end space-x-2">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setResetPasswordOpen(false);
+                setUserToReset(null);
+                setNewPassword("");
+              }}
+              data-testid="button-cancel-reset-password"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={confirmResetPassword}
+              disabled={resetPasswordMutation.isPending || newPassword.length < 8}
+              data-testid="button-confirm-reset-password"
+            >
+              {resetPasswordMutation.isPending ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Resetting...
+                </>
+              ) : (
+                <>
+                  <KeyRound className="mr-2 h-4 w-4" />
+                  Reset Password
+                </>
+              )}
+            </Button>
+          </div>
         </DialogContent>
       </Dialog>
     </div>

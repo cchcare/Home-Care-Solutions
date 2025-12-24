@@ -20,7 +20,7 @@ Preferred communication style: Simple, everyday language.
 
 ### Backend Architecture
 - **Express.js Server**: RESTful API with middleware for logging, error handling, and request parsing
-- **Authentication**: OpenID Connect (OIDC) integration with Replit authentication using Passport.js
+- **Authentication**: Local session-based authentication with bcrypt password hashing
 - **Session Management**: Express sessions with PostgreSQL storage using connect-pg-simple
 - **File Handling**: Multer middleware for secure HIPAA-compliant file uploads with type validation
 - **API Structure**: Modular route organization with centralized error handling
@@ -135,6 +135,14 @@ Preferred communication style: Simple, everyday language.
   - Dedicated reset password page (/reset-password)
   - Token validation before allowing password change
   - Duplicate emails allowed (only username must be unique)
+- **Self-Service Password Change**: Users can change their own password in Account Settings
+  - Requires current password verification
+  - Minimum 8 character new password requirement
+  - Password confirmation field for error prevention
+- **Admin Password Reset**: Admins and office admins can reset user passwords
+  - Available in User Management for authorized roles (super_admin, admin, office_admin)
+  - Supervisors cannot reset passwords (view-only for them)
+  - Sets mustResetPassword flag requiring user to change on next login
 
 ### File Management
 - **Secure Upload**: Multi-part form uploads with file type validation and size limits
