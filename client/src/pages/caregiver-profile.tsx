@@ -76,7 +76,7 @@ import {
   ArrowRightLeft,
   Search
 } from "lucide-react";
-import type { Caregiver, User as UserType, Document, Office, Client, ComplianceItem, Coordinator } from "@shared/schema";
+import type { Caregiver, User as UserType, Document, Office, Client, ComplianceItem, Coordinator, CaregiverCompliance } from "@shared/schema";
 
 type EnrichedCaregiver = Caregiver & { firstName?: string | null; lastName?: string | null; email?: string | null };
 
@@ -94,6 +94,49 @@ const DOCUMENT_CATEGORIES = [
 ];
 
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+// -9 Requirements (PA State Form Requirements)
+const REQUIREMENT_9_TYPES = [
+  { value: "application", label: "Application Form" },
+  { value: "fingerprinting", label: "Fingerprinting" },
+  { value: "dhs_verification", label: "DHS Verification" },
+  { value: "form_submission", label: "Form -9 Submission" },
+  { value: "approval", label: "Final Approval" },
+];
+
+// Background Check Types
+const BACKGROUND_CHECK_TYPES = [
+  { value: "fbi", label: "FBI Background Check" },
+  { value: "pa_state", label: "PA State Police Check" },
+  { value: "child_abuse", label: "Child Abuse Clearance" },
+  { value: "adult_abuse", label: "Adult Protective Services" },
+];
+
+// Medical Requirement Types
+const MEDICAL_REQUIREMENT_TYPES = [
+  { value: "tb_test", label: "TB Test" },
+  { value: "physical_exam", label: "Physical Exam" },
+  { value: "drug_test", label: "Drug Test" },
+  { value: "hepatitis_b", label: "Hepatitis B Vaccine" },
+  { value: "flu_shot", label: "Flu Shot" },
+  { value: "covid_vaccine", label: "COVID-19 Vaccine" },
+];
+
+// Background Check Results
+const BACKGROUND_CHECK_RESULTS = [
+  { value: "pass", label: "Pass" },
+  { value: "fail", label: "Fail" },
+  { value: "pending", label: "Pending" },
+  { value: "conditional", label: "Conditional" },
+];
+
+// Compliance Status Options
+const COMPLIANCE_STATUS_OPTIONS = [
+  { value: "pending", label: "Pending" },
+  { value: "compliant", label: "Compliant" },
+  { value: "expired", label: "Expired" },
+  { value: "non_compliant", label: "Non-Compliant" },
+];
 
 const CAREGIVER_MENU_ITEMS = [
   { id: "profile", label: "Profile", icon: User },
@@ -132,6 +175,19 @@ export default function CaregiverProfile() {
   const [searchQuery, setSearchQuery] = useState("");
   const [showAssignClientDialog, setShowAssignClientDialog] = useState(false);
   const [selectedClientId, setSelectedClientId] = useState<string>("");
+  const [showComplianceDialog, setShowComplianceDialog] = useState(false);
+  const [complianceCategory, setComplianceCategory] = useState<"requirement_9" | "background_check" | "medical">("requirement_9");
+  const [editingCompliance, setEditingCompliance] = useState<CaregiverCompliance | null>(null);
+  const [complianceForm, setComplianceForm] = useState({
+    category: "requirement_9" as string,
+    itemType: "",
+    status: "pending",
+    expirationDate: "",
+    performedDate: "",
+    resultDate: "",
+    result: "",
+    notes: "",
+  });
 
   const { data: caregiver, isLoading: caregiverLoading } = useQuery<EnrichedCaregiver>({
     queryKey: ["/api/caregivers", caregiverId],
@@ -349,6 +405,123 @@ export default function CaregiverProfile() {
       toast({ title: "Error", description: "Failed to unassign client", variant: "destructive" });
     },
   });
+
+  const createComplianceMutation = useMutation({
+    mutationFn: async (data: any) => {
+      return await apiRequest("POST", `/api/caregivers/${caregiverId}/compliance`, data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/caregivers", caregiverId, "compliance"] });
+      setShowComplianceDialog(false);
+      resetComplianceForm();
+      toast({ title: "Success", description: "Compliance item added successfully" });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to add compliance item", variant: "destructive" });
+    },
+  });
+
+  const updateComplianceMutation = useMutation({
+    mutationFn: async ({ id, data }: { id: string; data: any }) => {
+      return await apiRequest("PUT", `/api/caregiver-compliance/${id}`, data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/caregivers", caregiverId, "compliance"] });
+      setShowComplianceDialog(false);
+      setEditingCompliance(null);
+      resetComplianceForm();
+      toast({ title: "Success", description: "Compliance item updated successfully" });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to update compliance item", variant: "destructive" });
+    },
+  });
+
+  const deleteComplianceMutation = useMutation({
+    mutationFn: async (id: string) => {
+      return await apiRequest("DELETE", `/api/caregiver-compliance/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/caregivers", caregiverId, "compliance"] });
+      toast({ title: "Success", description: "Compliance item deleted successfully" });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to delete compliance item", variant: "destructive" });
+    },
+  });
+
+  const resetComplianceForm = () => {
+    setComplianceForm({
+      category: "requirement_9",
+      itemType: "",
+      status: "pending",
+      expirationDate: "",
+      performedDate: "",
+      resultDate: "",
+      result: "",
+      notes: "",
+    });
+    setEditingCompliance(null);
+  };
+
+  const handleAddCompliance = (category: "requirement_9" | "background_check" | "medical") => {
+    resetComplianceForm();
+    setComplianceForm(prev => ({ ...prev, category }));
+    setComplianceCategory(category);
+    setShowComplianceDialog(true);
+  };
+
+  const handleEditCompliance = (item: CaregiverCompliance) => {
+    setEditingCompliance(item);
+    setComplianceForm({
+      category: item.category,
+      itemType: item.itemType,
+      status: item.status || "pending",
+      expirationDate: item.expirationDate ? format(new Date(item.expirationDate), "yyyy-MM-dd") : "",
+      performedDate: item.performedDate ? format(new Date(item.performedDate), "yyyy-MM-dd") : "",
+      resultDate: item.resultDate ? format(new Date(item.resultDate), "yyyy-MM-dd") : "",
+      result: item.result || "",
+      notes: item.notes || "",
+    });
+    setComplianceCategory(item.category as "requirement_9" | "background_check" | "medical");
+    setShowComplianceDialog(true);
+  };
+
+  const handleSaveCompliance = () => {
+    const data = {
+      ...complianceForm,
+      officeId: caregiver?.officeId,
+    };
+    
+    if (editingCompliance) {
+      updateComplianceMutation.mutate({ id: editingCompliance.id, data });
+    } else {
+      createComplianceMutation.mutate(data);
+    }
+  };
+
+  const getItemTypeOptions = (category: string) => {
+    switch (category) {
+      case "requirement_9":
+        return REQUIREMENT_9_TYPES;
+      case "background_check":
+        return BACKGROUND_CHECK_TYPES;
+      case "medical":
+        return MEDICAL_REQUIREMENT_TYPES;
+      default:
+        return [];
+    }
+  };
+
+  const getItemTypeLabel = (category: string, itemType: string) => {
+    const options = getItemTypeOptions(category);
+    return options.find(o => o.value === itemType)?.label || itemType;
+  };
+
+  // Filter compliance items by category
+  const requirement9Items = complianceItems.filter((item: any) => item.category === "requirement_9");
+  const backgroundCheckItems = complianceItems.filter((item: any) => item.category === "background_check");
+  const medicalItems = complianceItems.filter((item: any) => item.category === "medical");
 
   const handleStartEditing = () => {
     if (caregiver) {
@@ -897,39 +1070,58 @@ export default function CaregiverProfile() {
 
               {activeSection === "compliance" && (
                 <div className="space-y-6">
+                  {/* -9 Requirements Section */}
                   <Card>
                     <CardHeader>
-                      <CardTitle className="flex items-center gap-2">
-                        <Shield className="w-5 h-5" />
-                        Compliance Items
-                      </CardTitle>
-                      <CardDescription>Track certifications, clearances, and compliance requirements</CardDescription>
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <CardTitle className="flex items-center gap-2">
+                            <FileText className="w-5 h-5" />
+                            -9 Requirements
+                          </CardTitle>
+                          <CardDescription>PA State Form -9 compliance requirements</CardDescription>
+                        </div>
+                        <Button size="sm" onClick={() => handleAddCompliance("requirement_9")} data-testid="button-add-requirement-9">
+                          <Plus className="w-4 h-4 mr-1" /> Add
+                        </Button>
+                      </div>
                     </CardHeader>
                     <CardContent>
-                      {complianceItems.length === 0 ? (
-                        <p className="text-muted-foreground text-sm">No compliance items found</p>
+                      {requirement9Items.length === 0 ? (
+                        <p className="text-muted-foreground text-sm">No -9 requirements tracked</p>
                       ) : (
                         <Table>
                           <TableHeader>
                             <TableRow>
-                              <TableHead>Item</TableHead>
-                              <TableHead>Type</TableHead>
+                              <TableHead>Requirement</TableHead>
                               <TableHead>Status</TableHead>
-                              <TableHead>Due Date</TableHead>
+                              <TableHead>Expiration Date</TableHead>
+                              <TableHead>Notes</TableHead>
+                              <TableHead className="w-[100px]">Actions</TableHead>
                             </TableRow>
                           </TableHeader>
                           <TableBody>
-                            {complianceItems.map((item) => (
-                              <TableRow key={item.id} data-testid={`row-compliance-${item.id}`}>
-                                <TableCell className="font-medium">{item.itemName}</TableCell>
-                                <TableCell>{item.itemType}</TableCell>
+                            {requirement9Items.map((item: any) => (
+                              <TableRow key={item.id} data-testid={`row-req9-${item.id}`}>
+                                <TableCell className="font-medium">{getItemTypeLabel("requirement_9", item.itemType)}</TableCell>
                                 <TableCell>
                                   <Badge variant={item.status === "compliant" ? "default" : item.status === "pending" ? "secondary" : "destructive"}>
                                     {item.status}
                                   </Badge>
                                 </TableCell>
                                 <TableCell>
-                                  {item.dueDate ? format(new Date(item.dueDate), "MMM d, yyyy") : "N/A"}
+                                  {item.expirationDate ? format(new Date(item.expirationDate), "MMM d, yyyy") : "N/A"}
+                                </TableCell>
+                                <TableCell className="max-w-[200px] truncate">{item.notes || "—"}</TableCell>
+                                <TableCell>
+                                  <div className="flex gap-1">
+                                    <Button variant="ghost" size="icon" onClick={() => handleEditCompliance(item)} data-testid={`button-edit-req9-${item.id}`}>
+                                      <Edit className="w-4 h-4" />
+                                    </Button>
+                                    <Button variant="ghost" size="icon" onClick={() => deleteComplianceMutation.mutate(item.id)} data-testid={`button-delete-req9-${item.id}`}>
+                                      <Trash2 className="w-4 h-4" />
+                                    </Button>
+                                  </div>
                                 </TableCell>
                               </TableRow>
                             ))}
@@ -939,6 +1131,149 @@ export default function CaregiverProfile() {
                     </CardContent>
                   </Card>
 
+                  {/* Background Checks Section */}
+                  <Card>
+                    <CardHeader>
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <CardTitle className="flex items-center gap-2">
+                            <Shield className="w-5 h-5" />
+                            Background Checks
+                          </CardTitle>
+                          <CardDescription>Criminal background and clearance checks</CardDescription>
+                        </div>
+                        <Button size="sm" onClick={() => handleAddCompliance("background_check")} data-testid="button-add-background-check">
+                          <Plus className="w-4 h-4 mr-1" /> Add
+                        </Button>
+                      </div>
+                    </CardHeader>
+                    <CardContent>
+                      {backgroundCheckItems.length === 0 ? (
+                        <p className="text-muted-foreground text-sm">No background checks tracked</p>
+                      ) : (
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Check Type</TableHead>
+                              <TableHead>Performed Date</TableHead>
+                              <TableHead>Result Date</TableHead>
+                              <TableHead>Result</TableHead>
+                              <TableHead>Status</TableHead>
+                              <TableHead className="w-[100px]">Actions</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {backgroundCheckItems.map((item: any) => (
+                              <TableRow key={item.id} data-testid={`row-bgcheck-${item.id}`}>
+                                <TableCell className="font-medium">{getItemTypeLabel("background_check", item.itemType)}</TableCell>
+                                <TableCell>
+                                  {item.performedDate ? format(new Date(item.performedDate), "MMM d, yyyy") : "N/A"}
+                                </TableCell>
+                                <TableCell>
+                                  {item.resultDate ? format(new Date(item.resultDate), "MMM d, yyyy") : "N/A"}
+                                </TableCell>
+                                <TableCell>
+                                  {item.result && (
+                                    <Badge variant={item.result === "pass" ? "default" : item.result === "fail" ? "destructive" : "secondary"}>
+                                      {BACKGROUND_CHECK_RESULTS.find(r => r.value === item.result)?.label || item.result}
+                                    </Badge>
+                                  )}
+                                </TableCell>
+                                <TableCell>
+                                  <Badge variant={item.status === "compliant" ? "default" : item.status === "pending" ? "secondary" : "destructive"}>
+                                    {item.status}
+                                  </Badge>
+                                </TableCell>
+                                <TableCell>
+                                  <div className="flex gap-1">
+                                    <Button variant="ghost" size="icon" onClick={() => handleEditCompliance(item)} data-testid={`button-edit-bgcheck-${item.id}`}>
+                                      <Edit className="w-4 h-4" />
+                                    </Button>
+                                    <Button variant="ghost" size="icon" onClick={() => deleteComplianceMutation.mutate(item.id)} data-testid={`button-delete-bgcheck-${item.id}`}>
+                                      <Trash2 className="w-4 h-4" />
+                                    </Button>
+                                  </div>
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      )}
+                    </CardContent>
+                  </Card>
+
+                  {/* Medical Requirements Section */}
+                  <Card>
+                    <CardHeader>
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <CardTitle className="flex items-center gap-2">
+                            <Heart className="w-5 h-5" />
+                            Medical Requirements
+                          </CardTitle>
+                          <CardDescription>TB tests, physicals, and other medical requirements</CardDescription>
+                        </div>
+                        <Button size="sm" onClick={() => handleAddCompliance("medical")} data-testid="button-add-medical">
+                          <Plus className="w-4 h-4 mr-1" /> Add
+                        </Button>
+                      </div>
+                    </CardHeader>
+                    <CardContent>
+                      {medicalItems.length === 0 ? (
+                        <p className="text-muted-foreground text-sm">No medical requirements tracked</p>
+                      ) : (
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Requirement</TableHead>
+                              <TableHead>Status</TableHead>
+                              <TableHead>Performed Date</TableHead>
+                              <TableHead>Expiration Date</TableHead>
+                              <TableHead>Result</TableHead>
+                              <TableHead className="w-[100px]">Actions</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {medicalItems.map((item: any) => (
+                              <TableRow key={item.id} data-testid={`row-medical-${item.id}`}>
+                                <TableCell className="font-medium">{getItemTypeLabel("medical", item.itemType)}</TableCell>
+                                <TableCell>
+                                  <Badge variant={item.status === "compliant" ? "default" : item.status === "pending" ? "secondary" : "destructive"}>
+                                    {item.status}
+                                  </Badge>
+                                </TableCell>
+                                <TableCell>
+                                  {item.performedDate ? format(new Date(item.performedDate), "MMM d, yyyy") : "N/A"}
+                                </TableCell>
+                                <TableCell>
+                                  {item.expirationDate ? format(new Date(item.expirationDate), "MMM d, yyyy") : "N/A"}
+                                </TableCell>
+                                <TableCell>
+                                  {item.result && (
+                                    <Badge variant={item.result === "pass" ? "default" : item.result === "fail" ? "destructive" : "secondary"}>
+                                      {item.result}
+                                    </Badge>
+                                  )}
+                                </TableCell>
+                                <TableCell>
+                                  <div className="flex gap-1">
+                                    <Button variant="ghost" size="icon" onClick={() => handleEditCompliance(item)} data-testid={`button-edit-medical-${item.id}`}>
+                                      <Edit className="w-4 h-4" />
+                                    </Button>
+                                    <Button variant="ghost" size="icon" onClick={() => deleteComplianceMutation.mutate(item.id)} data-testid={`button-delete-medical-${item.id}`}>
+                                      <Trash2 className="w-4 h-4" />
+                                    </Button>
+                                  </div>
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      )}
+                    </CardContent>
+                  </Card>
+
+                  {/* Certifications Section (existing) */}
                   <Card>
                     <CardHeader>
                       <CardTitle className="flex items-center gap-2">
@@ -1967,6 +2302,152 @@ export default function CaregiverProfile() {
               data-testid="button-confirm-assign"
             >
               {assignClientMutation.isPending ? "Assigning..." : "Assign Client"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Compliance Dialog */}
+      <Dialog open={showComplianceDialog} onOpenChange={(open) => { setShowComplianceDialog(open); if (!open) resetComplianceForm(); }} data-testid="dialog-compliance">
+        <DialogContent className="max-w-lg" data-testid="dialog-compliance-content">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              {complianceCategory === "requirement_9" && <FileText className="w-5 h-5" />}
+              {complianceCategory === "background_check" && <Shield className="w-5 h-5" />}
+              {complianceCategory === "medical" && <Heart className="w-5 h-5" />}
+              {editingCompliance ? "Edit" : "Add"} {
+                complianceCategory === "requirement_9" ? "-9 Requirement" :
+                complianceCategory === "background_check" ? "Background Check" :
+                "Medical Requirement"
+              }
+            </DialogTitle>
+          </DialogHeader>
+          <div className="py-4 space-y-4">
+            <div className="space-y-2">
+              <Label>Type</Label>
+              <Select value={complianceForm.itemType} onValueChange={(v) => setComplianceForm({ ...complianceForm, itemType: v })} data-testid="select-compliance-type">
+                <SelectTrigger data-testid="select-compliance-type-trigger">
+                  <SelectValue placeholder="Select type" />
+                </SelectTrigger>
+                <SelectContent>
+                  {getItemTypeOptions(complianceForm.category).map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Status</Label>
+              <Select value={complianceForm.status} onValueChange={(v) => setComplianceForm({ ...complianceForm, status: v })} data-testid="select-compliance-status">
+                <SelectTrigger data-testid="select-compliance-status-trigger">
+                  <SelectValue placeholder="Select status" />
+                </SelectTrigger>
+                <SelectContent>
+                  {COMPLIANCE_STATUS_OPTIONS.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {complianceCategory === "background_check" && (
+              <>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Performed Date</Label>
+                    <Input 
+                      type="date" 
+                      value={complianceForm.performedDate} 
+                      onChange={(e) => setComplianceForm({ ...complianceForm, performedDate: e.target.value })}
+                      data-testid="input-performed-date"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Result Date</Label>
+                    <Input 
+                      type="date" 
+                      value={complianceForm.resultDate} 
+                      onChange={(e) => setComplianceForm({ ...complianceForm, resultDate: e.target.value })}
+                      data-testid="input-result-date"
+                    />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label>Result</Label>
+                  <Select value={complianceForm.result} onValueChange={(v) => setComplianceForm({ ...complianceForm, result: v })} data-testid="select-result">
+                    <SelectTrigger data-testid="select-result-trigger">
+                      <SelectValue placeholder="Select result" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {BACKGROUND_CHECK_RESULTS.map((opt) => (
+                        <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </>
+            )}
+
+            {complianceCategory === "medical" && (
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Performed Date</Label>
+                  <Input 
+                    type="date" 
+                    value={complianceForm.performedDate} 
+                    onChange={(e) => setComplianceForm({ ...complianceForm, performedDate: e.target.value })}
+                    data-testid="input-medical-performed-date"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Expiration Date</Label>
+                  <Input 
+                    type="date" 
+                    value={complianceForm.expirationDate} 
+                    onChange={(e) => setComplianceForm({ ...complianceForm, expirationDate: e.target.value })}
+                    data-testid="input-medical-expiration-date"
+                  />
+                </div>
+              </div>
+            )}
+
+            {complianceCategory === "requirement_9" && (
+              <div className="space-y-2">
+                <Label>Expiration Date</Label>
+                <Input 
+                  type="date" 
+                  value={complianceForm.expirationDate} 
+                  onChange={(e) => setComplianceForm({ ...complianceForm, expirationDate: e.target.value })}
+                  data-testid="input-req9-expiration-date"
+                />
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <Label>Notes</Label>
+              <Textarea 
+                value={complianceForm.notes} 
+                onChange={(e) => setComplianceForm({ ...complianceForm, notes: e.target.value })}
+                placeholder="Add any additional notes..."
+                data-testid="textarea-compliance-notes"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button 
+              variant="outline" 
+              onClick={() => { setShowComplianceDialog(false); resetComplianceForm(); }}
+              data-testid="button-cancel-compliance"
+            >
+              Cancel
+            </Button>
+            <Button 
+              onClick={handleSaveCompliance}
+              disabled={!complianceForm.itemType || createComplianceMutation.isPending || updateComplianceMutation.isPending}
+              data-testid="button-save-compliance"
+            >
+              {(createComplianceMutation.isPending || updateComplianceMutation.isPending) ? "Saving..." : "Save"}
             </Button>
           </DialogFooter>
         </DialogContent>
