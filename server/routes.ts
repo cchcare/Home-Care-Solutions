@@ -57,6 +57,7 @@ import {
 } from "@shared/schema";
 import { ObjectStorageService, ObjectNotFoundError } from "./objectStorage";
 import { ObjectPermission } from "./objectAcl";
+import { extractPaystubsFromPdf, cleanupPaystubTempFiles, ExtractedPaystubData } from "./ocr-service";
 
 // Configure multer for HIPAA-compliant file uploads
 const upload = multer({
@@ -4992,6 +4993,190 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error deleting caregiver schedule:", error);
       res.status(500).json({ message: "Failed to delete caregiver schedule" });
+    }
+  });
+
+  // ==================== BULK PAYSTUB UPLOAD ====================
+  app.post("/api/bulk-paystub-upload", isAuthenticated, upload.single("file"), async (req: any, res) => {
+    const tempFiles: string[] = [];
+    try {
+      const userRole = req.user?.claims?.metadata?.role || "caregiver";
+      const allowedRoles = ["admin", "super_admin", "supervisor"];
+      if (!allowedRoles.includes(userRole)) {
+        return res.status(403).json({ message: "Insufficient permissions for bulk paystub upload" });
+      }
+
+      if (!req.file) {
+        return res.status(400).json({ message: "No file uploaded" });
+      }
+
+      const fileExt = path.extname(req.file.originalname).toLowerCase();
+      if (fileExt !== ".pdf") {
+        fs.unlinkSync(req.file.path);
+        return res.status(400).json({ message: "Only PDF files are supported for paystub extraction" });
+      }
+
+      const officeId = req.body.officeId;
+      if (!officeId) {
+        fs.unlinkSync(req.file.path);
+        return res.status(400).json({ message: "Office ID is required" });
+      }
+
+      // Extract paystubs from PDF
+      const extractedPages = await extractPaystubsFromPdf(req.file.path);
+      tempFiles.push(...extractedPages.map(p => p.imagePath));
+
+      // Get all caregivers for matching
+      const caregivers = await storage.getAllCaregivers(officeId);
+
+      // Process results
+      const results: {
+        pageNumber: number;
+        status: "matched" | "unmatched" | "not_paystub" | "error";
+        caregiverId?: string;
+        caregiverName?: string;
+        extractedName?: string;
+        payPeriod?: { start?: string; end?: string };
+        grossPay?: number;
+        netPay?: number;
+        message?: string;
+        paycheckId?: string;
+      }[] = [];
+
+      for (const page of extractedPages) {
+        const { pageNumber, data } = page;
+
+        if (!data.isPaystub) {
+          results.push({
+            pageNumber,
+            status: "not_paystub",
+            message: "Page does not appear to be a paystub",
+          });
+          continue;
+        }
+
+        // Try to match employee name to caregiver
+        const extractedFirstName = (data.employeeFirstName || "").toLowerCase().trim();
+        const extractedLastName = (data.employeeLastName || "").toLowerCase().trim();
+        const extractedFullName = (data.employeeName || "").toLowerCase().trim();
+
+        let matchedCaregiver = null;
+
+        // First try exact first+last name match
+        for (const caregiver of caregivers) {
+          const cgFirstName = (caregiver.firstName || "").toLowerCase().trim();
+          const cgLastName = (caregiver.lastName || "").toLowerCase().trim();
+          
+          if (extractedFirstName && extractedLastName) {
+            if (cgFirstName === extractedFirstName && cgLastName === extractedLastName) {
+              matchedCaregiver = caregiver;
+              break;
+            }
+          }
+        }
+
+        // If no match, try partial matching with full name
+        if (!matchedCaregiver && extractedFullName) {
+          for (const caregiver of caregivers) {
+            const cgFullName = `${caregiver.firstName} ${caregiver.lastName}`.toLowerCase().trim();
+            const cgFullNameReversed = `${caregiver.lastName} ${caregiver.firstName}`.toLowerCase().trim();
+            
+            if (extractedFullName === cgFullName || extractedFullName === cgFullNameReversed) {
+              matchedCaregiver = caregiver;
+              break;
+            }
+            
+            // Partial match - check if names are contained
+            if (extractedFullName.includes(cgFullName) || cgFullName.includes(extractedFullName)) {
+              matchedCaregiver = caregiver;
+              break;
+            }
+          }
+        }
+
+        if (!matchedCaregiver) {
+          results.push({
+            pageNumber,
+            status: "unmatched",
+            extractedName: data.employeeName || `${data.employeeFirstName} ${data.employeeLastName}`,
+            payPeriod: { start: data.payPeriodStart, end: data.payPeriodEnd },
+            grossPay: data.grossPay,
+            netPay: data.netPay,
+            message: "Could not match employee name to any caregiver",
+          });
+          continue;
+        }
+
+        // Create paycheck record
+        try {
+          const paycheck = await storage.createCaregiverPaycheck({
+            caregiverId: matchedCaregiver.id,
+            payPeriodStart: data.payPeriodStart ? new Date(data.payPeriodStart) : null,
+            payPeriodEnd: data.payPeriodEnd ? new Date(data.payPeriodEnd) : null,
+            payDate: data.payDate ? new Date(data.payDate) : null,
+            regularHours: data.regularHours?.toString() || null,
+            overtimeHours: data.overtimeHours?.toString() || null,
+            grossPay: data.grossPay?.toString() || null,
+            netPay: data.netPay?.toString() || null,
+            federalTax: data.federalTax?.toString() || null,
+            stateTax: data.stateTax?.toString() || null,
+            socialSecurity: data.socialSecurity?.toString() || null,
+            medicare: data.medicare?.toString() || null,
+            otherDeductions: data.otherDeductions?.toString() || null,
+            checkNumber: data.checkNumber || null,
+            notes: `Extracted from bulk paystub upload (page ${pageNumber})`,
+          });
+
+          results.push({
+            pageNumber,
+            status: "matched",
+            caregiverId: matchedCaregiver.id,
+            caregiverName: `${matchedCaregiver.firstName} ${matchedCaregiver.lastName}`,
+            extractedName: data.employeeName,
+            payPeriod: { start: data.payPeriodStart, end: data.payPeriodEnd },
+            grossPay: data.grossPay,
+            netPay: data.netPay,
+            paycheckId: paycheck.id,
+          });
+        } catch (err) {
+          console.error("Error creating paycheck record:", err);
+          results.push({
+            pageNumber,
+            status: "error",
+            caregiverId: matchedCaregiver.id,
+            caregiverName: `${matchedCaregiver.firstName} ${matchedCaregiver.lastName}`,
+            message: "Failed to create paycheck record",
+          });
+        }
+      }
+
+      // Clean up
+      cleanupPaystubTempFiles(tempFiles);
+      fs.unlinkSync(req.file.path);
+
+      const matched = results.filter(r => r.status === "matched").length;
+      const unmatched = results.filter(r => r.status === "unmatched").length;
+      const notPaystub = results.filter(r => r.status === "not_paystub").length;
+      const errors = results.filter(r => r.status === "error").length;
+
+      res.json({
+        success: true,
+        summary: {
+          totalPages: extractedPages.length,
+          matched,
+          unmatched,
+          notPaystub,
+          errors,
+        },
+        results,
+      });
+    } catch (error) {
+      console.error("Error processing bulk paystub upload:", error);
+      cleanupPaystubTempFiles(tempFiles);
+      if (req.file && fs.existsSync(req.file.path)) {
+        fs.unlinkSync(req.file.path);
+      }
+      res.status(500).json({ message: "Failed to process paystub upload" });
     }
   });
 
