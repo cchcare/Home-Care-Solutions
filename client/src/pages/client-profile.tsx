@@ -4,6 +4,7 @@ import { useRoute, Link } from "wouter";
 import { useToast } from "@/hooks/use-toast";
 import { Sidebar } from "@/components/sidebar";
 import { TopBar } from "@/components/topbar";
+import { MasterWeekTemplateModal } from "@/components/master-week-template-modal";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -152,6 +153,12 @@ export default function ClientProfile() {
     notes: "",
     expirationDate: "",
   });
+
+  // Master week template state
+  const [showMasterWeekModal, setShowMasterWeekModal] = useState(false);
+  const [editingTemplate, setEditingTemplate] = useState<MasterWeekTemplate | null>(null);
+  const [showApplyDialog, setShowApplyDialog] = useState(false);
+  const [applyWeekStartDate, setApplyWeekStartDate] = useState(new Date().toISOString().split('T')[0]);
 
   const { data: client, isLoading: clientLoading } = useQuery<Client>({
     queryKey: ["/api/clients", clientId],
@@ -333,6 +340,24 @@ export default function ClientProfile() {
     },
     onError: () => {
       toast({ title: "Error", description: "Failed to create template", variant: "destructive" });
+    },
+  });
+
+  const applyToCalendarMutation = useMutation({
+    mutationFn: async ({ templateId, weekStartDate }: { templateId: string; weekStartDate: string }) => {
+      const response = await apiRequest("POST", `/api/master-week-templates/${templateId}/apply`, { weekStartDate });
+      return response.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/clients", clientId, "schedules"] });
+      setShowApplyDialog(false);
+      toast({ 
+        title: "Success", 
+        description: `Created ${data.schedules?.length || 0} schedule entries from master week template` 
+      });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to apply template to calendar", variant: "destructive" });
     },
   });
 
@@ -1581,39 +1606,130 @@ export default function ClientProfile() {
                         </CardTitle>
                         <CardDescription>Define the standard weekly schedule for this client</CardDescription>
                       </div>
-                      <Button
-                        onClick={() => createMasterWeekMutation.mutate({ name: "Default Schedule" })}
-                        disabled={createMasterWeekMutation.isPending || masterWeekTemplates.length > 0}
-                        data-testid="button-create-master-week"
-                      >
-                        <Plus className="w-4 h-4 mr-2" />
-                        Create Template
-                      </Button>
+                      <div className="flex gap-2">
+                        {masterWeekTemplates.length > 0 && (
+                          <>
+                            <Button
+                              variant="outline"
+                              onClick={() => {
+                                setEditingTemplate(masterWeekTemplates[0]);
+                                setShowMasterWeekModal(true);
+                              }}
+                              data-testid="button-edit-master-week"
+                            >
+                              <Edit className="w-4 h-4 mr-2" />
+                              Edit Template
+                            </Button>
+                            <Button
+                              onClick={() => setShowApplyDialog(true)}
+                              data-testid="button-apply-to-calendar"
+                            >
+                              <Calendar className="w-4 h-4 mr-2" />
+                              Apply to Calendar
+                            </Button>
+                          </>
+                        )}
+                        {masterWeekTemplates.length === 0 && (
+                          <Button
+                            onClick={() => {
+                              setEditingTemplate(null);
+                              setShowMasterWeekModal(true);
+                            }}
+                            data-testid="button-create-master-week"
+                          >
+                            <Plus className="w-4 h-4 mr-2" />
+                            Create Template
+                          </Button>
+                        )}
+                      </div>
                     </CardHeader>
                     <CardContent>
                       {masterWeekTemplates.length === 0 ? (
                         <p className="text-muted-foreground text-center py-8">No master week template defined. Click "Create Template" to get started.</p>
                       ) : (
                         <div>
+                          <div className="mb-4 p-4 border rounded-lg bg-muted/30">
+                            <div className="flex justify-between items-center">
+                              <div>
+                                <h4 className="font-medium">{masterWeekTemplates[0]?.name}</h4>
+                                <p className="text-sm text-muted-foreground">{masterWeekTemplates[0]?.description || "Weekly schedule template"}</p>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <Badge variant={masterWeekTemplates[0]?.isActive ? "default" : "secondary"}>
+                                  {masterWeekTemplates[0]?.isActive ? "Active" : "Inactive"}
+                                </Badge>
+                                {masterWeekTemplates[0]?.startDate && (
+                                  <span className="text-xs text-muted-foreground">
+                                    From: {format(new Date(masterWeekTemplates[0].startDate), "MMM d, yyyy")}
+                                  </span>
+                                )}
+                                {masterWeekTemplates[0]?.endDate && (
+                                  <span className="text-xs text-muted-foreground">
+                                    To: {format(new Date(masterWeekTemplates[0].endDate), "MMM d, yyyy")}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
                           <div className="grid grid-cols-7 gap-2">
                             {DAY_NAMES.map((day, index) => (
-                              <div key={day} className="border rounded-lg p-3">
-                                <h4 className="font-medium text-center mb-2">{day}</h4>
+                              <div key={day} className="border rounded-lg p-3 bg-primary/5">
+                                <h4 className="font-medium text-center mb-2 text-primary">{day}</h4>
                                 <div className="text-center text-xs text-muted-foreground">
                                   Day {index}
                                 </div>
                               </div>
                             ))}
                           </div>
-                          <p className="text-sm text-muted-foreground mt-4 text-center">
-                            Template: {masterWeekTemplates[0]?.name}
-                          </p>
                         </div>
                       )}
                     </CardContent>
                   </Card>
                 </div>
               )}
+
+              {/* Apply to Calendar Dialog */}
+              <Dialog open={showApplyDialog} onOpenChange={setShowApplyDialog}>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>Apply Master Week to Calendar</DialogTitle>
+                  </DialogHeader>
+                  <div className="space-y-4 py-4">
+                    <p className="text-sm text-muted-foreground">
+                      Select the start date for the week you want to generate schedules for. 
+                      This will create calendar entries for each day based on the master week template.
+                    </p>
+                    <div className="space-y-2">
+                      <Label>Week Start Date (Sunday)</Label>
+                      <Input
+                        type="date"
+                        value={applyWeekStartDate}
+                        onChange={(e) => setApplyWeekStartDate(e.target.value)}
+                        data-testid="input-apply-week-start-date"
+                      />
+                    </div>
+                  </div>
+                  <div className="flex justify-end gap-2">
+                    <Button variant="outline" onClick={() => setShowApplyDialog(false)}>
+                      Cancel
+                    </Button>
+                    <Button
+                      onClick={() => {
+                        if (masterWeekTemplates[0]?.id) {
+                          applyToCalendarMutation.mutate({
+                            templateId: masterWeekTemplates[0].id,
+                            weekStartDate: applyWeekStartDate,
+                          });
+                        }
+                      }}
+                      disabled={applyToCalendarMutation.isPending}
+                      data-testid="button-confirm-apply"
+                    >
+                      {applyToCalendarMutation.isPending ? "Applying..." : "Apply to Calendar"}
+                    </Button>
+                  </div>
+                </DialogContent>
+              </Dialog>
 
               {/* Visits Section */}
               {activeSection === "visits" && (
@@ -2642,6 +2758,20 @@ export default function ClientProfile() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Master Week Template Modal */}
+      {client && (
+        <MasterWeekTemplateModal
+          isOpen={showMasterWeekModal}
+          onClose={() => {
+            setShowMasterWeekModal(false);
+            setEditingTemplate(null);
+          }}
+          client={client}
+          template={editingTemplate}
+          caregivers={allCaregivers}
+        />
+      )}
     </div>
   );
 }

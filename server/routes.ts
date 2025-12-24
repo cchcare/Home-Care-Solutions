@@ -2749,6 +2749,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const validatedData = insertMasterWeekTemplateSchema.parse({
         ...req.body,
+        startDate: coerceDate(req.body.startDate),
+        endDate: coerceDate(req.body.endDate),
         createdBy: req.user?.claims?.sub,
       });
       const template = await storage.createMasterWeekTemplate(validatedData);
@@ -2761,7 +2763,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.put("/api/master-week-templates/:id", isAuthenticated, async (req, res) => {
     try {
-      const validatedData = insertMasterWeekTemplateSchema.partial().parse(req.body);
+      const validatedData = insertMasterWeekTemplateSchema.partial().parse({
+        ...req.body,
+        startDate: coerceDate(req.body.startDate),
+        endDate: coerceDate(req.body.endDate),
+      });
       const template = await storage.updateMasterWeekTemplate(req.params.id, validatedData);
       res.json(template);
     } catch (error) {

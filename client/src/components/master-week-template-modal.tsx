@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -7,11 +7,10 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { Switch } from "@/components/ui/switch";
 import {
   Select,
   SelectContent,
@@ -27,20 +26,75 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Plus, Trash2 } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
+import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
+import { Copy, Calendar } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
-import { insertMasterWeekTemplateSchema, insertMasterWeekSlotSchema } from "@shared/schema";
+import { insertMasterWeekTemplateSchema } from "@shared/schema";
 import type { Client, MasterWeekTemplate, MasterWeekSlot, Caregiver } from "@shared/schema";
 import { z } from "zod";
 
 const templateFormSchema = insertMasterWeekTemplateSchema.extend({
-  startDate: z.string().optional(),
+  startDate: z.string().min(1, "From date is required"),
   endDate: z.string().optional(),
+  recurrenceWeeks: z.number().min(1).default(1),
 });
 
-const slotFormSchema = insertMasterWeekSlotSchema.omit({ templateId: true });
+interface DaySlot {
+  dayOfWeek: number;
+  scheduleType: string;
+  startTime: string;
+  endTime: string;
+  caregiverId: string | null;
+  payCode: string;
+  poc: string;
+  primaryBillTo: string;
+  serviceCode: string;
+  budgetNumber: string;
+  rateType: string;
+  hourlyRate: string;
+  includeMileage: boolean;
+  serviceType: string;
+  notes: string;
+}
+
+const DAYS = [
+  { value: 0, label: "Sunday", short: "Sun" },
+  { value: 1, label: "Monday", short: "Mon" },
+  { value: 2, label: "Tuesday", short: "Tue" },
+  { value: 3, label: "Wednesday", short: "Wed" },
+  { value: 4, label: "Thursday", short: "Thu" },
+  { value: 5, label: "Friday", short: "Fri" },
+  { value: 6, label: "Saturday", short: "Sat" },
+];
+
+const SCHEDULE_TYPES = [
+  { value: "daily_fixed", label: "Daily Fixed" },
+  { value: "weekly", label: "Weekly" },
+  { value: "as_needed", label: "As Needed" },
+];
+
+const SERVICE_CODES = [
+  { value: "S5125", label: "S5125" },
+  { value: "S5126", label: "S5126" },
+  { value: "S5130", label: "S5130" },
+  { value: "S5131", label: "S5131" },
+  { value: "T1019", label: "T1019" },
+  { value: "T1020", label: "T1020" },
+];
+
+const PAY_CODES = [
+  { value: "regular", label: "Regular" },
+  { value: "overtime", label: "Overtime" },
+  { value: "holiday", label: "Holiday" },
+];
+
+const PRIMARY_BILL_TO_OPTIONS = [
+  { value: "LTC - FC (RQ2)", label: "LTC - FC (RQ2)" },
+  { value: "LTC - CL", label: "LTC - CL" },
+  { value: "Private Pay", label: "Private Pay" },
+];
 
 interface MasterWeekTemplateModalProps {
   isOpen: boolean;
@@ -50,6 +104,41 @@ interface MasterWeekTemplateModalProps {
   caregivers: Caregiver[];
 }
 
+function calculateDuration(startTime: string, endTime: string): { hours: number; minutes: number } {
+  if (!startTime || !endTime) return { hours: 0, minutes: 0 };
+  
+  const [startH, startM] = startTime.split(":").map(Number);
+  const [endH, endM] = endTime.split(":").map(Number);
+  
+  let totalMinutes = (endH * 60 + endM) - (startH * 60 + startM);
+  if (totalMinutes < 0) totalMinutes += 24 * 60; // Handle overnight
+  
+  return {
+    hours: Math.floor(totalMinutes / 60),
+    minutes: totalMinutes % 60,
+  };
+}
+
+function createEmptySlot(dayOfWeek: number): DaySlot {
+  return {
+    dayOfWeek,
+    scheduleType: "daily_fixed",
+    startTime: "",
+    endTime: "",
+    caregiverId: null,
+    payCode: "",
+    poc: "",
+    primaryBillTo: "LTC - FC (RQ2)",
+    serviceCode: "S5125",
+    budgetNumber: "",
+    rateType: "Hourly",
+    hourlyRate: "",
+    includeMileage: false,
+    serviceType: "",
+    notes: "",
+  };
+}
+
 export function MasterWeekTemplateModal({ 
   isOpen, 
   onClose, 
@@ -57,20 +146,23 @@ export function MasterWeekTemplateModal({
   template,
   caregivers 
 }: MasterWeekTemplateModalProps) {
-  const [slots, setSlots] = useState<Array<z.infer<typeof slotFormSchema> & { tempId: string }>>([]);
+  const [daySlots, setDaySlots] = useState<DaySlot[]>(
+    DAYS.map(d => createEmptySlot(d.value))
+  );
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
   const form = useForm<z.infer<typeof templateFormSchema>>({
     resolver: zodResolver(templateFormSchema),
     defaultValues: {
-      name: "",
+      name: `Master Week - ${client.firstName} ${client.lastName}`,
       description: "",
       clientId: client.id,
       isActive: true,
       autoRollover: false,
       startDate: "",
       endDate: "",
+      recurrenceWeeks: 1,
     },
   });
 
@@ -85,20 +177,22 @@ export function MasterWeekTemplateModal({
         autoRollover: template.autoRollover ?? false,
         startDate: template.startDate ? new Date(template.startDate).toISOString().split('T')[0] : "",
         endDate: template.endDate ? new Date(template.endDate).toISOString().split('T')[0] : "",
+        recurrenceWeeks: (template as any).recurrenceWeeks || 1,
       });
     } else {
       form.reset({
-        name: "",
+        name: `Master Week - ${client.firstName} ${client.lastName}`,
         description: "",
         clientId: client.id,
         isActive: true,
         autoRollover: false,
         startDate: "",
         endDate: "",
+        recurrenceWeeks: 1,
       });
-      setSlots([]);
+      setDaySlots(DAYS.map(d => createEmptySlot(d.value)));
     }
-  }, [template, client.id, form]);
+  }, [template, client, form]);
 
   // Fetch existing slots if editing template
   const { data: existingSlots = [] } = useQuery<MasterWeekSlot[]>({
@@ -109,12 +203,53 @@ export function MasterWeekTemplateModal({
 
   useEffect(() => {
     if (existingSlots.length > 0) {
-      setSlots(existingSlots.map((slot: MasterWeekSlot) => ({
-        ...slot,
-        tempId: slot.id || Math.random().toString(),
-      })));
+      const newDaySlots = DAYS.map(d => {
+        const existing = existingSlots.find(s => s.dayOfWeek === d.value);
+        if (existing) {
+          return {
+            dayOfWeek: existing.dayOfWeek,
+            scheduleType: (existing as any).scheduleType || "daily_fixed",
+            startTime: existing.startTime || "",
+            endTime: existing.endTime || "",
+            caregiverId: existing.caregiverId,
+            payCode: (existing as any).payCode || "",
+            poc: (existing as any).poc || "",
+            primaryBillTo: (existing as any).primaryBillTo || "LTC - FC (RQ2)",
+            serviceCode: (existing as any).serviceCode || "S5125",
+            budgetNumber: (existing as any).budgetNumber || "",
+            rateType: (existing as any).rateType || "Hourly",
+            hourlyRate: (existing as any).hourlyRate?.toString() || "",
+            includeMileage: (existing as any).includeMileage || false,
+            serviceType: existing.serviceType || "",
+            notes: existing.notes || "",
+          };
+        }
+        return createEmptySlot(d.value);
+      });
+      setDaySlots(newDaySlots);
     }
   }, [existingSlots]);
+
+  const updateDaySlot = (dayOfWeek: number, field: keyof DaySlot, value: any) => {
+    setDaySlots(prev => prev.map(slot => 
+      slot.dayOfWeek === dayOfWeek ? { ...slot, [field]: value } : slot
+    ));
+  };
+
+  const getCaregiverName = (caregiverId: string | null) => {
+    if (!caregiverId) return "";
+    const caregiver = caregivers.find(c => c.id === caregiverId);
+    if (!caregiver) return "";
+    return (caregiver as any).firstName && (caregiver as any).lastName 
+      ? `${(caregiver as any).firstName} ${(caregiver as any).lastName}`
+      : `Caregiver`;
+  };
+
+  const getCaregiverAssignmentId = (caregiverId: string | null) => {
+    if (!caregiverId) return "";
+    const caregiver = caregivers.find(c => c.id === caregiverId);
+    return (caregiver as any)?.assignmentId || "";
+  };
 
   const createTemplateMutation = useMutation({
     mutationFn: async (data: z.infer<typeof templateFormSchema>) => {
@@ -127,13 +262,30 @@ export function MasterWeekTemplateModal({
       const response = await apiRequest("POST", "/api/master-week-templates", templateData);
       const newTemplate = await response.json();
 
-      // Create slots
-      for (const slot of slots) {
-        const slotData = {
-          ...slot,
-          templateId: newTemplate.id,
-        };
-        await apiRequest("POST", "/api/master-week-slots", slotData);
+      // Create slots for each day that has data
+      for (const slot of daySlots) {
+        if (slot.startTime && slot.endTime) {
+          const slotData = {
+            templateId: newTemplate.id,
+            dayOfWeek: slot.dayOfWeek,
+            startTime: slot.startTime,
+            endTime: slot.endTime,
+            caregiverId: slot.caregiverId,
+            serviceType: slot.serviceType,
+            notes: slot.notes,
+            isRecurring: true,
+            scheduleType: slot.scheduleType,
+            payCode: slot.payCode,
+            poc: slot.poc,
+            primaryBillTo: slot.primaryBillTo,
+            serviceCode: slot.serviceCode,
+            budgetNumber: slot.budgetNumber,
+            rateType: slot.rateType,
+            hourlyRate: slot.hourlyRate ? parseFloat(slot.hourlyRate) : null,
+            includeMileage: slot.includeMileage,
+          };
+          await apiRequest("POST", "/api/master-week-slots", slotData);
+        }
       }
 
       return newTemplate;
@@ -168,8 +320,7 @@ export function MasterWeekTemplateModal({
       const response = await apiRequest("PUT", `/api/master-week-templates/${template.id}`, templateData);
       const updatedTemplate = await response.json();
 
-      // For simplicity, delete existing slots and recreate them
-      // In production, you might want to implement more granular updates
+      // Delete existing slots and recreate
       const existingSlotsResponse = await fetch(`/api/master-week-templates/${template.id}/slots`);
       const existingSlotsData = await existingSlotsResponse.json();
       
@@ -178,12 +329,29 @@ export function MasterWeekTemplateModal({
       }
 
       // Create new slots
-      for (const slot of slots) {
-        const slotData = {
-          ...slot,
-          templateId: template.id,
-        };
-        await apiRequest("POST", "/api/master-week-slots", slotData);
+      for (const slot of daySlots) {
+        if (slot.startTime && slot.endTime) {
+          const slotData = {
+            templateId: template.id,
+            dayOfWeek: slot.dayOfWeek,
+            startTime: slot.startTime,
+            endTime: slot.endTime,
+            caregiverId: slot.caregiverId,
+            serviceType: slot.serviceType,
+            notes: slot.notes,
+            isRecurring: true,
+            scheduleType: slot.scheduleType,
+            payCode: slot.payCode,
+            poc: slot.poc,
+            primaryBillTo: slot.primaryBillTo,
+            serviceCode: slot.serviceCode,
+            budgetNumber: slot.budgetNumber,
+            rateType: slot.rateType,
+            hourlyRate: slot.hourlyRate ? parseFloat(slot.hourlyRate) : null,
+            includeMileage: slot.includeMileage,
+          };
+          await apiRequest("POST", "/api/master-week-slots", slotData);
+        }
       }
 
       return updatedTemplate;
@@ -213,125 +381,38 @@ export function MasterWeekTemplateModal({
     }
   };
 
-  const addSlot = () => {
-    setSlots([...slots, {
-      tempId: Math.random().toString(),
-      dayOfWeek: 1, // Monday
-      startTime: "09:00",
-      endTime: "10:00",
-      caregiverId: null,
-      serviceType: "",
-      notes: "",
-      isRecurring: true,
-    }]);
-  };
-
-  const removeSlot = (tempId: string) => {
-    setSlots(slots.filter(slot => slot.tempId !== tempId));
-  };
-
-  const updateSlot = (tempId: string, field: string, value: any) => {
-    setSlots(slots.map(slot => 
-      slot.tempId === tempId ? { ...slot, [field]: value } : slot
-    ));
-  };
-
-  const getDayName = (dayOfWeek: number) => {
-    const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-    return days[dayOfWeek];
-  };
-
-  const getCaregiverName = (caregiverId: string) => {
-    const caregiver = caregivers.find(c => c.id === caregiverId);
-    return caregiver ? `${caregiver.userId || 'Caregiver'}` : 'Unknown';
+  const copyPreviousMasterWeek = () => {
+    toast({
+      title: "Info",
+      description: "Copy from previous master week feature coming soon",
+    });
   };
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-[95vw] max-h-[95vh] overflow-hidden">
         <DialogHeader>
-          <DialogTitle>
-            {template ? "Edit Master Week Template" : "Create Master Week Template"}
+          <DialogTitle className="flex items-center gap-2">
+            <Calendar className="w-5 h-5" />
+            {template ? "Edit Master Week" : "Add Master Week"}
           </DialogTitle>
+          <DialogDescription>
+            Define the recurring weekly schedule for {client.firstName} {client.lastName}
+          </DialogDescription>
         </DialogHeader>
 
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <FormField
-                control={form.control}
-                name="name"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Template Name</FormLabel>
-                    <FormControl>
-                      <Input {...field} placeholder="e.g., Standard Weekly Care" data-testid="input-template-name" />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              
-              <div className="space-y-4">
-                <FormField
-                  control={form.control}
-                  name="isActive"
-                  render={({ field }) => (
-                    <FormItem className="flex items-center justify-between">
-                      <FormLabel>Active Template</FormLabel>
-                      <FormControl>
-                        <Switch
-                          checked={field.value ?? false}
-                          onCheckedChange={field.onChange}
-                          data-testid="switch-is-active"
-                        />
-                      </FormControl>
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name="autoRollover"
-                  render={({ field }) => (
-                    <FormItem className="flex items-center justify-between">
-                      <FormLabel>Auto Rollover (Midnight Updates)</FormLabel>
-                      <FormControl>
-                        <Switch
-                          checked={field.value ?? false}
-                          onCheckedChange={field.onChange}
-                          data-testid="switch-auto-rollover"
-                        />
-                      </FormControl>
-                    </FormItem>
-                  )}
-                />
-              </div>
-            </div>
-
-            <FormField
-              control={form.control}
-              name="description"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Description</FormLabel>
-                  <FormControl>
-                    <Textarea {...field} value={field.value || ""} placeholder="Describe this template..." data-testid="textarea-description" />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+            {/* Header Row: From Date, To Date, Recurrence, Copy Button */}
+            <div className="flex flex-wrap items-end gap-4 pb-4 border-b">
               <FormField
                 control={form.control}
                 name="startDate"
                 render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Start Date (Optional)</FormLabel>
+                  <FormItem className="flex-1 min-w-[150px]">
+                    <FormLabel>From Date *</FormLabel>
                     <FormControl>
-                      <Input type="date" {...field} data-testid="input-start-date" />
+                      <Input type="date" {...field} data-testid="input-from-date" />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -342,143 +423,300 @@ export function MasterWeekTemplateModal({
                 control={form.control}
                 name="endDate"
                 render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>End Date (Optional)</FormLabel>
+                  <FormItem className="flex-1 min-w-[150px]">
+                    <FormLabel>To Date</FormLabel>
                     <FormControl>
-                      <Input type="date" {...field} data-testid="input-end-date" />
+                      <Input type="date" {...field} data-testid="input-to-date" />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
                 )}
               />
+
+              <div className="flex items-end gap-2">
+                <FormField
+                  control={form.control}
+                  name="recurrenceWeeks"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Recurrence</FormLabel>
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm text-muted-foreground">Every</span>
+                        <FormControl>
+                          <Input 
+                            type="number" 
+                            min="1"
+                            className="w-16"
+                            {...field}
+                            value={field.value || 1}
+                            onChange={(e) => field.onChange(parseInt(e.target.value) || 1)}
+                            data-testid="input-recurrence-weeks"
+                          />
+                        </FormControl>
+                        <span className="text-sm text-muted-foreground">Week(s)</span>
+                      </div>
+                    </FormItem>
+                  )}
+                />
+              </div>
+
+              <Button 
+                type="button" 
+                variant="default"
+                onClick={copyPreviousMasterWeek}
+                className="bg-blue-600 hover:bg-blue-700"
+                data-testid="button-copy-previous"
+              >
+                <Copy className="w-4 h-4 mr-2" />
+                Copy Previous Master Week
+              </Button>
             </div>
 
-            {/* Weekly Schedule Slots */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex justify-between items-center">
-                  Weekly Schedule
-                  <Button type="button" onClick={addSlot} size="sm" data-testid="button-add-slot">
-                    <Plus className="w-4 h-4 mr-2" />
-                    Add Time Slot
-                  </Button>
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {slots.length === 0 ? (
-                  <p className="text-center text-muted-foreground py-8">
-                    No time slots added yet. Click "Add Time Slot" to create the weekly schedule.
-                  </p>
-                ) : (
-                  slots.map((slot) => (
-                    <Card key={slot.tempId} className="border">
-                      <CardContent className="pt-4">
-                        <div className="grid grid-cols-1 md:grid-cols-5 gap-4 items-end">
-                          <div>
-                            <label className="block text-sm font-medium mb-2">Day</label>
-                            <Select 
-                              value={slot.dayOfWeek.toString()}
-                              onValueChange={(value) => updateSlot(slot.tempId, 'dayOfWeek', parseInt(value))}
-                            >
-                              <SelectTrigger data-testid={`select-day-${slot.tempId}`}>
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {[0, 1, 2, 3, 4, 5, 6].map(day => (
-                                  <SelectItem key={day} value={day.toString()}>
-                                    {getDayName(day)}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          </div>
+            {/* Day Columns Grid */}
+            <ScrollArea className="w-full">
+              <div className="min-w-[1200px]">
+                <div className="grid grid-cols-7 gap-2">
+                  {DAYS.map((day) => {
+                    const slot = daySlots.find(s => s.dayOfWeek === day.value)!;
+                    const duration = calculateDuration(slot.startTime, slot.endTime);
+                    
+                    return (
+                      <div key={day.value} className="space-y-2 p-2 bg-muted/30 rounded-lg">
+                        {/* Day Header */}
+                        <div className="text-center font-semibold text-sm py-2 bg-primary text-primary-foreground rounded">
+                          {day.label}
+                        </div>
 
-                          <div>
-                            <label className="block text-sm font-medium mb-2">Start Time</label>
-                            <Input
-                              type="time"
-                              value={slot.startTime}
-                              onChange={(e) => updateSlot(slot.tempId, 'startTime', e.target.value)}
-                              data-testid={`input-start-time-${slot.tempId}`}
-                            />
-                          </div>
-
-                          <div>
-                            <label className="block text-sm font-medium mb-2">End Time</label>
-                            <Input
-                              type="time"
-                              value={slot.endTime}
-                              onChange={(e) => updateSlot(slot.tempId, 'endTime', e.target.value)}
-                              data-testid={`input-end-time-${slot.tempId}`}
-                            />
-                          </div>
-
-                          <div>
-                            <label className="block text-sm font-medium mb-2">Caregiver</label>
-                            <Select 
-                              value={slot.caregiverId || "__unassigned__"}
-                              onValueChange={(value) => updateSlot(slot.tempId, 'caregiverId', value === "__unassigned__" ? null : value)}
-                            >
-                              <SelectTrigger data-testid={`select-caregiver-${slot.tempId}`}>
-                                <SelectValue placeholder="Select caregiver" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="__unassigned__">Unassigned</SelectItem>
-                                {caregivers.map(caregiver => (
-                                  <SelectItem key={caregiver.id} value={caregiver.id}>
-                                    {(caregiver as any).firstName && (caregiver as any).lastName 
-                                      ? `${(caregiver as any).firstName} ${(caregiver as any).lastName}`
-                                      : `Caregiver ${caregiver.id.slice(0, 8)}`}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          </div>
-
-                          <Button
-                            type="button"
-                            variant="destructive"
-                            size="sm"
-                            onClick={() => removeSlot(slot.tempId)}
-                            data-testid={`button-remove-slot-${slot.tempId}`}
+                        {/* Schedule Type */}
+                        <div>
+                          <label className="text-xs text-muted-foreground">Schedule Type</label>
+                          <Select
+                            value={slot.scheduleType}
+                            onValueChange={(v) => updateDaySlot(day.value, "scheduleType", v)}
                           >
-                            <Trash2 className="w-4 h-4" />
-                          </Button>
+                            <SelectTrigger className="h-8 text-xs" data-testid={`select-schedule-type-${day.value}`}>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {SCHEDULE_TYPES.map(t => (
+                                <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
                         </div>
 
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                        {/* Hours (Start - End) */}
+                        <div>
+                          <label className="text-xs text-muted-foreground">Hours</label>
+                          <div className="flex gap-1 items-center">
+                            <Input
+                              type="time"
+                              className="h-8 text-xs p-1"
+                              value={slot.startTime}
+                              onChange={(e) => updateDaySlot(day.value, "startTime", e.target.value)}
+                              data-testid={`input-start-time-${day.value}`}
+                            />
+                            <span className="text-xs">-</span>
+                            <Input
+                              type="time"
+                              className="h-8 text-xs p-1"
+                              value={slot.endTime}
+                              onChange={(e) => updateDaySlot(day.value, "endTime", e.target.value)}
+                              data-testid={`input-end-time-${day.value}`}
+                            />
+                          </div>
+                        </div>
+
+                        {/* Service Provider (Caregiver) */}
+                        <div>
+                          <label className="text-xs text-muted-foreground">Service Provider</label>
+                          <Select
+                            value={slot.caregiverId || "__none__"}
+                            onValueChange={(v) => updateDaySlot(day.value, "caregiverId", v === "__none__" ? null : v)}
+                          >
+                            <SelectTrigger className="h-8 text-xs" data-testid={`select-caregiver-${day.value}`}>
+                              <SelectValue placeholder="Select..." />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="__none__">--</SelectItem>
+                              {caregivers.map(c => (
+                                <SelectItem key={c.id} value={c.id}>
+                                  {(c as any).firstName} {(c as any).lastName}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+
+                        {/* Service Provider Name (Auto) */}
+                        <div>
+                          <label className="text-xs text-muted-foreground">Service Provider Name</label>
                           <Input
-                            placeholder="Service type (e.g., Personal care, Medication reminder)"
-                            value={slot.serviceType || ""}
-                            onChange={(e) => updateSlot(slot.tempId, 'serviceType', e.target.value)}
-                            data-testid={`input-service-type-${slot.tempId}`}
-                          />
-                          <Input
-                            placeholder="Notes (optional)"
-                            value={slot.notes || ""}
-                            onChange={(e) => updateSlot(slot.tempId, 'notes', e.target.value)}
-                            data-testid={`input-notes-${slot.tempId}`}
+                            className="h-8 text-xs bg-muted"
+                            value={getCaregiverName(slot.caregiverId)}
+                            readOnly
+                            data-testid={`input-provider-name-${day.value}`}
                           />
                         </div>
-                      </CardContent>
-                    </Card>
-                  ))
-                )}
-              </CardContent>
-            </Card>
 
-            <div className="flex justify-end space-x-2 pt-4">
-              <Button type="button" variant="outline" onClick={onClose} data-testid="button-cancel">
-                Cancel
+                        {/* Assignment ID (Auto) */}
+                        <div>
+                          <label className="text-xs text-muted-foreground">Assignment ID</label>
+                          <Input
+                            className="h-8 text-xs bg-muted"
+                            value={getCaregiverAssignmentId(slot.caregiverId)}
+                            readOnly
+                            data-testid={`input-assignment-id-${day.value}`}
+                          />
+                        </div>
+
+                        {/* Pay Code */}
+                        <div>
+                          <label className="text-xs text-muted-foreground">Pay Code</label>
+                          <Select
+                            value={slot.payCode || "__none__"}
+                            onValueChange={(v) => updateDaySlot(day.value, "payCode", v === "__none__" ? "" : v)}
+                          >
+                            <SelectTrigger className="h-8 text-xs" data-testid={`select-pay-code-${day.value}`}>
+                              <SelectValue placeholder="--Select--" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="__none__">--Select--</SelectItem>
+                              {PAY_CODES.map(p => (
+                                <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+
+                        {/* POC */}
+                        <div>
+                          <label className="text-xs text-muted-foreground">POC</label>
+                          <Select
+                            value={slot.poc || "__none__"}
+                            onValueChange={(v) => updateDaySlot(day.value, "poc", v === "__none__" ? "" : v)}
+                          >
+                            <SelectTrigger className="h-8 text-xs" data-testid={`select-poc-${day.value}`}>
+                              <SelectValue placeholder="--Select--" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="__none__">--Select--</SelectItem>
+                              <SelectItem value="poc1">POC 1</SelectItem>
+                              <SelectItem value="poc2">POC 2</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+
+                        {/* Primary Bill To */}
+                        <div>
+                          <label className="text-xs text-muted-foreground">Primary Bill To</label>
+                          <Select
+                            value={slot.primaryBillTo}
+                            onValueChange={(v) => updateDaySlot(day.value, "primaryBillTo", v)}
+                          >
+                            <SelectTrigger className="h-8 text-xs" data-testid={`select-bill-to-${day.value}`}>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {PRIMARY_BILL_TO_OPTIONS.map(o => (
+                                <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+
+                        {/* Duration (Auto-calculated) */}
+                        <div>
+                          <label className="text-xs text-muted-foreground">Duration</label>
+                          <div className="flex gap-1 items-center">
+                            <Input
+                              className="h-8 text-xs bg-muted w-12 text-center"
+                              value={duration.hours}
+                              readOnly
+                            />
+                            <span className="text-xs">h</span>
+                            <Input
+                              className="h-8 text-xs bg-muted w-12 text-center"
+                              value={duration.minutes}
+                              readOnly
+                            />
+                            <span className="text-xs">m</span>
+                          </div>
+                        </div>
+
+                        {/* Service Code */}
+                        <div>
+                          <label className="text-xs text-muted-foreground">Service Code</label>
+                          <Select
+                            value={slot.serviceCode}
+                            onValueChange={(v) => updateDaySlot(day.value, "serviceCode", v)}
+                          >
+                            <SelectTrigger className="h-8 text-xs" data-testid={`select-service-code-${day.value}`}>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {SERVICE_CODES.map(s => (
+                                <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+
+                        {/* Budget Number */}
+                        <div>
+                          <label className="text-xs text-muted-foreground text-amber-600 font-medium">Budget Number</label>
+                          <Input
+                            className="h-8 text-xs"
+                            value={slot.budgetNumber}
+                            onChange={(e) => updateDaySlot(day.value, "budgetNumber", e.target.value)}
+                            data-testid={`input-budget-number-${day.value}`}
+                          />
+                        </div>
+
+                        {/* Rate Type */}
+                        <div>
+                          <label className="text-xs text-muted-foreground">Rate Type</label>
+                          <Input
+                            className="h-8 text-xs bg-muted"
+                            value={slot.rateType}
+                            readOnly
+                            data-testid={`input-rate-type-${day.value}`}
+                          />
+                        </div>
+
+                        {/* Mileage */}
+                        <div className="flex items-center gap-2 pt-1">
+                          <Checkbox
+                            id={`mileage-${day.value}`}
+                            checked={slot.includeMileage}
+                            onCheckedChange={(checked) => updateDaySlot(day.value, "includeMileage", checked)}
+                            data-testid={`checkbox-mileage-${day.value}`}
+                          />
+                          <label htmlFor={`mileage-${day.value}`} className="text-xs text-muted-foreground">
+                            Include in Mileage
+                          </label>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+              <ScrollBar orientation="horizontal" />
+            </ScrollArea>
+
+            {/* Footer Buttons */}
+            <div className="flex justify-end gap-2 pt-4 border-t">
+              <Button type="button" variant="outline" onClick={onClose} data-testid="button-close">
+                Close
               </Button>
               <Button 
                 type="submit" 
                 disabled={createTemplateMutation.isPending || updateTemplateMutation.isPending}
-                data-testid="button-save-template"
+                data-testid="button-save"
               >
                 {(createTemplateMutation.isPending || updateTemplateMutation.isPending) 
                   ? "Saving..." 
-                  : template ? "Update Template" : "Create Template"
+                  : "Save"
                 }
               </Button>
             </div>

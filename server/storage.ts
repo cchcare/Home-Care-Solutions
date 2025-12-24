@@ -1790,10 +1790,25 @@ export class DatabaseStorage implements IStorage {
     const slots = await this.getMasterWeekSlots(templateId);
     const newSchedules: ClientSchedule[] = [];
 
+    // Helper to calculate hours from start/end time
+    const calculateHours = (startTime: string, endTime: string): number => {
+      if (!startTime || !endTime) return 0;
+      const [startH, startM] = startTime.split(':').map(Number);
+      const [endH, endM] = endTime.split(':').map(Number);
+      let totalMinutes = (endH * 60 + endM) - (startH * 60 + startM);
+      if (totalMinutes < 0) totalMinutes += 24 * 60; // Handle overnight
+      return totalMinutes / 60;
+    };
+
     // Create schedules for each slot for the week
     for (const slot of slots) {
       const scheduleDate = new Date(weekStartDate);
       scheduleDate.setDate(scheduleDate.getDate() + slot.dayOfWeek);
+
+      // Calculate hours and billing amount
+      const totalHours = calculateHours(slot.startTime, slot.endTime);
+      const hourlyRate = (slot as any).hourlyRate ? parseFloat((slot as any).hourlyRate) : null;
+      const billingAmount = hourlyRate ? totalHours * hourlyRate : null;
 
       const scheduleData: InsertClientSchedule = {
         clientId: template.clientId,
@@ -1806,6 +1821,17 @@ export class DatabaseStorage implements IStorage {
         notes: slot.notes,
         masterWeekSlotId: slot.id,
         createdBy: template.createdBy,
+        scheduleType: (slot as any).scheduleType,
+        payCode: (slot as any).payCode,
+        poc: (slot as any).poc,
+        primaryBillTo: (slot as any).primaryBillTo,
+        serviceCode: (slot as any).serviceCode,
+        budgetNumber: (slot as any).budgetNumber,
+        rateType: (slot as any).rateType,
+        hourlyRate: hourlyRate?.toString(),
+        totalHours: totalHours.toFixed(2),
+        billingAmount: billingAmount?.toFixed(2),
+        includeMileage: (slot as any).includeMileage,
       };
 
       const newSchedule = await this.createClientSchedule(scheduleData);
