@@ -130,6 +130,8 @@ export default function CaregiverProfile() {
   const [dialogType, setDialogType] = useState<string>("");
   const [showSearchDialog, setShowSearchDialog] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [showAssignClientDialog, setShowAssignClientDialog] = useState(false);
+  const [selectedClientId, setSelectedClientId] = useState<string>("");
 
   const { data: caregiver, isLoading: caregiverLoading } = useQuery<EnrichedCaregiver>({
     queryKey: ["/api/caregivers", caregiverId],
@@ -192,6 +194,10 @@ export default function CaregiverProfile() {
     queryKey: ["/api/caregivers", caregiverId, "clients"],
     queryFn: () => fetch(`/api/caregivers/${caregiverId}/clients`).then(r => r.json()),
     enabled: !!caregiverId,
+  });
+
+  const { data: allClients = [] } = useQuery<Client[]>({
+    queryKey: ["/api/clients"],
   });
 
   const { data: allCaregivers = [] } = useQuery<EnrichedCaregiver[]>({
@@ -308,6 +314,34 @@ export default function CaregiverProfile() {
     },
     onError: () => {
       toast({ title: "Error", description: "Failed to update caregiver", variant: "destructive" });
+    },
+  });
+
+  const assignClientMutation = useMutation({
+    mutationFn: async (clientId: string) => {
+      return await apiRequest("POST", `/api/caregivers/${caregiverId}/clients`, { clientId });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/caregivers", caregiverId, "clients"] });
+      setShowAssignClientDialog(false);
+      setSelectedClientId("");
+      toast({ title: "Success", description: "Client assigned successfully" });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to assign client", variant: "destructive" });
+    },
+  });
+
+  const unassignClientMutation = useMutation({
+    mutationFn: async (clientId: string) => {
+      return await apiRequest("DELETE", `/api/caregivers/${caregiverId}/clients/${clientId}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/caregivers", caregiverId, "clients"] });
+      toast({ title: "Success", description: "Client unassigned successfully" });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to unassign client", variant: "destructive" });
     },
   });
 
@@ -1396,10 +1430,19 @@ export default function CaregiverProfile() {
                 <div className="space-y-6">
                   <Card>
                     <CardHeader>
-                      <CardTitle className="flex items-center gap-2">
-                        <History className="w-5 h-5" />
-                        Client Assignment History
-                      </CardTitle>
+                      <div className="flex items-center justify-between">
+                        <CardTitle className="flex items-center gap-2">
+                          <History className="w-5 h-5" />
+                          Client Assignment History
+                        </CardTitle>
+                        <Button 
+                          onClick={() => setShowAssignClientDialog(true)}
+                          data-testid="button-assign-client"
+                        >
+                          <Plus className="w-4 h-4 mr-2" />
+                          Assign Client
+                        </Button>
+                      </div>
                     </CardHeader>
                     <CardContent>
                       {assignedClients.length === 0 ? (
@@ -1417,7 +1460,18 @@ export default function CaregiverProfile() {
                                   <p className="text-sm text-muted-foreground">{client.memberId || "No member ID"}</p>
                                 </div>
                               </div>
-                              <Badge variant="default">Current</Badge>
+                              <div className="flex items-center gap-2">
+                                <Badge variant="default">Current</Badge>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={() => unassignClientMutation.mutate(client.id)}
+                                  disabled={unassignClientMutation.isPending}
+                                  data-testid={`button-unassign-client-${client.id}`}
+                                >
+                                  <Trash2 className="w-4 h-4 text-destructive" />
+                                </Button>
+                              </div>
                             </div>
                           ))}
                         </div>
@@ -1711,6 +1765,54 @@ export default function CaregiverProfile() {
               )}
             </div>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showAssignClientDialog} onOpenChange={setShowAssignClientDialog} data-testid="dialog-assign-client">
+        <DialogContent className="max-w-md" data-testid="dialog-assign-client">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Users className="w-5 h-5" />
+              Assign Client
+            </DialogTitle>
+          </DialogHeader>
+          <div className="py-4 space-y-4">
+            <div className="space-y-2">
+              <Label>Select Client</Label>
+              <Select value={selectedClientId} onValueChange={setSelectedClientId} data-testid="select-client">
+                <SelectTrigger data-testid="select-client">
+                  <SelectValue placeholder="Choose a client to assign" />
+                </SelectTrigger>
+                <SelectContent>
+                  {allClients
+                    .filter((client) => !assignedClients.some((ac) => ac.id === client.id))
+                    .map((client) => (
+                      <SelectItem key={client.id} value={client.id}>
+                        {client.firstName} {client.lastName} {client.memberId ? `(${client.memberId})` : ""}
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button 
+              variant="outline" 
+              onClick={() => {
+                setShowAssignClientDialog(false);
+                setSelectedClientId("");
+              }}
+            >
+              Cancel
+            </Button>
+            <Button 
+              onClick={() => assignClientMutation.mutate(selectedClientId)}
+              disabled={!selectedClientId || assignClientMutation.isPending}
+              data-testid="button-confirm-assign"
+            >
+              {assignClientMutation.isPending ? "Assigning..." : "Assign Client"}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

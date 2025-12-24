@@ -117,6 +117,8 @@ export default function ClientProfile() {
   const [searchQuery, setSearchQuery] = useState("");
   const [showMcoDialog, setShowMcoDialog] = useState(false);
   const [editingMco, setEditingMco] = useState<ClientMco | null>(null);
+  const [showAssignCaregiverDialog, setShowAssignCaregiverDialog] = useState(false);
+  const [selectedCaregiverId, setSelectedCaregiverId] = useState("");
   const [mcoFormData, setMcoFormData] = useState<{
     mcoId: string;
     startDate: string;
@@ -377,6 +379,34 @@ export default function ClientProfile() {
     },
     onError: () => {
       toast({ title: "Error", description: "Failed to remove MCO", variant: "destructive" });
+    },
+  });
+
+  const assignCaregiverMutation = useMutation({
+    mutationFn: async (caregiverId: string) => {
+      return await apiRequest("POST", `/api/clients/${clientId}/caregivers`, { caregiverId });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/clients", clientId, "caregivers"] });
+      setShowAssignCaregiverDialog(false);
+      setSelectedCaregiverId("");
+      toast({ title: "Success", description: "Caregiver assigned successfully" });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to assign caregiver", variant: "destructive" });
+    },
+  });
+
+  const unassignCaregiverMutation = useMutation({
+    mutationFn: async (caregiverId: string) => {
+      return await apiRequest("DELETE", `/api/clients/${clientId}/caregivers/${caregiverId}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/clients", clientId, "caregivers"] });
+      toast({ title: "Success", description: "Caregiver unassigned successfully" });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to unassign caregiver", variant: "destructive" });
     },
   });
 
@@ -1600,11 +1630,23 @@ export default function ClientProfile() {
                 <div className="space-y-6">
                   <Card>
                     <CardHeader>
-                      <CardTitle className="flex items-center gap-2">
-                        <History className="w-5 h-5" />
-                        Caregiver History
-                      </CardTitle>
-                      <CardDescription>View history of caregivers assigned to this client</CardDescription>
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <CardTitle className="flex items-center gap-2">
+                            <History className="w-5 h-5" />
+                            Caregiver History
+                          </CardTitle>
+                          <CardDescription>View history of caregivers assigned to this client</CardDescription>
+                        </div>
+                        <Button 
+                          size="sm" 
+                          onClick={() => setShowAssignCaregiverDialog(true)}
+                          data-testid="button-assign-caregiver"
+                        >
+                          <Plus className="w-4 h-4 mr-2" />
+                          Assign Caregiver
+                        </Button>
+                      </div>
                     </CardHeader>
                     <CardContent>
                       {caregivers.length === 0 ? (
@@ -1617,9 +1659,21 @@ export default function ClientProfile() {
                                 <p className="font-medium">{(cg as any).firstName} {(cg as any).lastName}</p>
                                 <p className="text-sm text-muted-foreground">Employee ID: {cg.employeeId || "N/A"}</p>
                               </div>
-                              <Badge variant={cg.isActive ? "default" : "secondary"}>
-                                {cg.isActive ? "Active" : "Inactive"}
-                              </Badge>
+                              <div className="flex items-center gap-2">
+                                <Badge variant={cg.isActive ? "default" : "secondary"}>
+                                  {cg.isActive ? "Active" : "Inactive"}
+                                </Badge>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-8 w-8 text-destructive hover:text-destructive"
+                                  onClick={() => unassignCaregiverMutation.mutate(cg.id)}
+                                  disabled={unassignCaregiverMutation.isPending}
+                                  data-testid={`button-unassign-caregiver-${cg.id}`}
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </Button>
+                              </div>
                             </div>
                           ))}
                         </div>
@@ -1854,6 +1908,71 @@ export default function ClientProfile() {
               }).length === 0 && (
                 <p className="text-muted-foreground text-center py-4">No clients found</p>
               )}
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog 
+        open={showAssignCaregiverDialog} 
+        onOpenChange={(open) => {
+          setShowAssignCaregiverDialog(open);
+          if (!open) {
+            setSelectedCaregiverId("");
+          }
+        }}
+        data-testid="dialog-assign-caregiver"
+      >
+        <DialogContent className="max-w-md" data-testid="dialog-assign-caregiver">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Users className="w-5 h-5" />
+              Assign Caregiver
+            </DialogTitle>
+          </DialogHeader>
+          <div className="py-4 space-y-4">
+            <div className="space-y-2">
+              <Label>Select Caregiver *</Label>
+              <Select
+                value={selectedCaregiverId}
+                onValueChange={setSelectedCaregiverId}
+              >
+                <SelectTrigger data-testid="select-caregiver">
+                  <SelectValue placeholder="Select a caregiver" />
+                </SelectTrigger>
+                <SelectContent>
+                  {allCaregivers
+                    .filter((cg) => !caregivers.some((assigned) => assigned.id === cg.id))
+                    .map((cg) => (
+                      <SelectItem key={cg.id} value={cg.id}>
+                        {(cg as any).firstName || ""} {(cg as any).lastName || ""} {cg.employeeId ? `(${cg.employeeId})` : ""}
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-4">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setShowAssignCaregiverDialog(false);
+                  setSelectedCaregiverId("");
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={() => {
+                  if (selectedCaregiverId) {
+                    assignCaregiverMutation.mutate(selectedCaregiverId);
+                  }
+                }}
+                disabled={!selectedCaregiverId || assignCaregiverMutation.isPending}
+                data-testid="button-confirm-assign"
+              >
+                {assignCaregiverMutation.isPending ? "Assigning..." : "Assign Caregiver"}
+              </Button>
             </div>
           </div>
         </DialogContent>

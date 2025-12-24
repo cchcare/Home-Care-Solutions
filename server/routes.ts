@@ -967,6 +967,101 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Assign caregiver to client (requires admin, supervisor, or super_admin role)
+  app.post("/api/clients/:clientId/caregivers", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.claims.sub);
+      if (!user || (user.role !== "admin" && user.role !== "supervisor" && user.role !== "super_admin")) {
+        return res.status(403).json({ message: "Access denied. Admin or supervisor role required." });
+      }
+      const { caregiverId } = req.body;
+      if (!caregiverId || typeof caregiverId !== "string") {
+        return res.status(400).json({ message: "caregiverId is required and must be a string" });
+      }
+      const caregiver = await storage.getCaregiver(caregiverId);
+      if (!caregiver) {
+        return res.status(404).json({ message: "Caregiver not found" });
+      }
+      const client = await storage.getClient(req.params.clientId);
+      if (!client) {
+        return res.status(404).json({ message: "Client not found" });
+      }
+      await storage.assignClientsToCaregiver(caregiverId, [req.params.clientId]);
+      res.status(201).json({ message: "Caregiver assigned successfully" });
+    } catch (error) {
+      console.error("Error assigning caregiver:", error);
+      res.status(500).json({ message: "Failed to assign caregiver" });
+    }
+  });
+
+  // Unassign caregiver from client (requires admin, supervisor, or super_admin role)
+  app.delete("/api/clients/:clientId/caregivers/:caregiverId", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.claims.sub);
+      if (!user || (user.role !== "admin" && user.role !== "supervisor" && user.role !== "super_admin")) {
+        return res.status(403).json({ message: "Access denied. Admin or supervisor role required." });
+      }
+      await storage.unassignClientsFromCaregiver(req.params.caregiverId, [req.params.clientId]);
+      res.json({ message: "Caregiver unassigned successfully" });
+    } catch (error) {
+      console.error("Error unassigning caregiver:", error);
+      res.status(500).json({ message: "Failed to unassign caregiver" });
+    }
+  });
+
+  // Get clients assigned to caregiver
+  app.get("/api/caregivers/:caregiverId/clients", isAuthenticated, async (req, res) => {
+    try {
+      const clients = await storage.getAssignedClientsByCaregiver(req.params.caregiverId);
+      res.json(clients);
+    } catch (error) {
+      console.error("Error fetching assigned clients:", error);
+      res.status(500).json({ message: "Failed to fetch assigned clients" });
+    }
+  });
+
+  // Assign client to caregiver (requires admin, supervisor, or super_admin role)
+  app.post("/api/caregivers/:caregiverId/clients", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.claims.sub);
+      if (!user || (user.role !== "admin" && user.role !== "supervisor" && user.role !== "super_admin")) {
+        return res.status(403).json({ message: "Access denied. Admin or supervisor role required." });
+      }
+      const { clientId } = req.body;
+      if (!clientId || typeof clientId !== "string") {
+        return res.status(400).json({ message: "clientId is required and must be a string" });
+      }
+      const client = await storage.getClient(clientId);
+      if (!client) {
+        return res.status(404).json({ message: "Client not found" });
+      }
+      const caregiver = await storage.getCaregiver(req.params.caregiverId);
+      if (!caregiver) {
+        return res.status(404).json({ message: "Caregiver not found" });
+      }
+      await storage.assignClientsToCaregiver(req.params.caregiverId, [clientId]);
+      res.status(201).json({ message: "Client assigned successfully" });
+    } catch (error) {
+      console.error("Error assigning client:", error);
+      res.status(500).json({ message: "Failed to assign client" });
+    }
+  });
+
+  // Unassign client from caregiver (requires admin, supervisor, or super_admin role)
+  app.delete("/api/caregivers/:caregiverId/clients/:clientId", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.user.claims.sub);
+      if (!user || (user.role !== "admin" && user.role !== "supervisor" && user.role !== "super_admin")) {
+        return res.status(403).json({ message: "Access denied. Admin or supervisor role required." });
+      }
+      await storage.unassignClientsFromCaregiver(req.params.caregiverId, [req.params.clientId]);
+      res.json({ message: "Client unassigned successfully" });
+    } catch (error) {
+      console.error("Error unassigning client:", error);
+      res.status(500).json({ message: "Failed to unassign client" });
+    }
+  });
+
   // Client Communications routes
   app.get("/api/clients/:clientId/communications", isAuthenticated, async (req, res) => {
     try {
