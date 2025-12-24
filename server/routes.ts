@@ -856,6 +856,71 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.get("/api/documents/:id", isAuthenticated, async (req, res) => {
+    try {
+      const document = await storage.getDocument(req.params.id);
+      if (!document) {
+        return res.status(404).json({ message: "Document not found" });
+      }
+      res.json(document);
+    } catch (error) {
+      console.error("Error fetching document:", error);
+      res.status(500).json({ message: "Failed to fetch document" });
+    }
+  });
+
+  app.put("/api/documents/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const document = await storage.updateDocument(req.params.id, req.body);
+      res.json(document);
+    } catch (error) {
+      console.error("Error updating document:", error);
+      res.status(500).json({ message: "Failed to update document" });
+    }
+  });
+
+  app.get("/api/documents/:id/download", isAuthenticated, async (req, res) => {
+    try {
+      const document = await storage.getDocument(req.params.id);
+      if (!document) {
+        return res.status(404).json({ message: "Document not found" });
+      }
+      
+      const filePath = path.join("uploads", document.fileName);
+      if (!fs.existsSync(filePath)) {
+        return res.status(404).json({ message: "File not found on server" });
+      }
+      
+      res.setHeader("Content-Disposition", `attachment; filename="${document.originalName}"`);
+      res.setHeader("Content-Type", document.fileType || "application/octet-stream");
+      res.sendFile(path.resolve(filePath));
+    } catch (error) {
+      console.error("Error downloading document:", error);
+      res.status(500).json({ message: "Failed to download document" });
+    }
+  });
+
+  app.get("/api/documents/:id/view", isAuthenticated, async (req, res) => {
+    try {
+      const document = await storage.getDocument(req.params.id);
+      if (!document) {
+        return res.status(404).json({ message: "Document not found" });
+      }
+      
+      const filePath = path.join("uploads", document.fileName);
+      if (!fs.existsSync(filePath)) {
+        return res.status(404).json({ message: "File not found on server" });
+      }
+      
+      res.setHeader("Content-Disposition", `inline; filename="${document.originalName}"`);
+      res.setHeader("Content-Type", document.fileType || "application/octet-stream");
+      res.sendFile(path.resolve(filePath));
+    } catch (error) {
+      console.error("Error viewing document:", error);
+      res.status(500).json({ message: "Failed to view document" });
+    }
+  });
+
   app.get("/api/clients/:clientId/caregivers", isAuthenticated, async (req, res) => {
     try {
       const caregivers = await storage.getAssignedCaregiversByClient(req.params.clientId);

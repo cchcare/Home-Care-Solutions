@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Sidebar } from "@/components/sidebar";
 import { TopBar } from "@/components/topbar";
 import { FileUpload } from "@/components/file-upload";
+import { DocumentPreview } from "@/components/document-preview";
 import { apiRequest } from "@/lib/queryClient";
 import { isUnauthorizedError } from "@/lib/authUtils";
 import { 
@@ -32,6 +33,7 @@ export default function Documents() {
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedDocumentType, setSelectedDocumentType] = useState<string>("all");
   const [showUploadModal, setShowUploadModal] = useState(false);
+  const [previewDocument, setPreviewDocument] = useState<Document | null>(null);
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -368,10 +370,29 @@ export default function Documents() {
                             </td>
                             <td className="p-4">
                               <div className="flex space-x-2">
-                                <Button variant="ghost" size="sm" data-testid={`button-view-document-${document.id}`}>
+                                <Button 
+                                  variant="ghost" 
+                                  size="sm" 
+                                  onClick={() => setPreviewDocument(document)}
+                                  title="View document"
+                                  data-testid={`button-view-document-${document.id}`}
+                                >
                                   <Eye className="w-4 h-4" />
                                 </Button>
-                                <Button variant="ghost" size="sm" data-testid={`button-download-document-${document.id}`}>
+                                <Button 
+                                  variant="ghost" 
+                                  size="sm" 
+                                  onClick={() => {
+                                    const link = window.document.createElement("a");
+                                    link.href = `/api/documents/${document.id}/download`;
+                                    link.download = document.originalName;
+                                    window.document.body.appendChild(link);
+                                    link.click();
+                                    window.document.body.removeChild(link);
+                                  }}
+                                  title="Download document"
+                                  data-testid={`button-download-document-${document.id}`}
+                                >
                                   <Download className="w-4 h-4" />
                                 </Button>
                                 {document.isSignatureRequired && !document.isSigned && (
@@ -450,6 +471,12 @@ export default function Documents() {
           </div>
         </div>
       </main>
+
+      <DocumentPreview
+        document={previewDocument}
+        isOpen={previewDocument !== null}
+        onClose={() => setPreviewDocument(null)}
+      />
     </div>
   );
 }
