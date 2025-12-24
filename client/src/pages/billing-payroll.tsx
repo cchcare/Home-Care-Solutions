@@ -41,7 +41,11 @@ import {
   Clock,
   RefreshCw,
   Download,
-  Send
+  Send,
+  Upload,
+  FileUp,
+  AlertCircle,
+  Loader2
 } from "lucide-react";
 import type { Office, BillingRecord, PayrollRun, OfficePayrollConfig, Mco, OfficeMcoBillingRate, Client, Caregiver, PayrollHoliday } from "@shared/schema";
 import { queryClient } from "@/lib/queryClient";
@@ -146,6 +150,27 @@ export default function BillingPayroll() {
   const [newMcoName, setNewMcoName] = useState("");
   const [newMcoTypeId, setNewMcoTypeId] = useState("");
   const printRef = useRef<HTMLDivElement>(null);
+  
+  // Bulk paystub upload state
+  const [showBulkPaystubDialog, setShowBulkPaystubDialog] = useState(false);
+  const [bulkPaystubFile, setBulkPaystubFile] = useState<File | null>(null);
+  const [bulkPaystubResults, setBulkPaystubResults] = useState<{
+    summary: { totalPages: number; matched: number; unmatched: number; notPaystub: number; errors: number };
+    results: Array<{
+      pageNumber: number;
+      status: "matched" | "unmatched" | "not_paystub" | "error";
+      caregiverId?: string;
+      caregiverName?: string;
+      extractedName?: string;
+      payPeriod?: { start?: string; end?: string };
+      grossPay?: number;
+      netPay?: number;
+      message?: string;
+      paycheckId?: string;
+    }>;
+  } | null>(null);
+  const [isUploadingPaystubs, setIsUploadingPaystubs] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const actualOfficeId = selectedOfficeId === "all" ? "" : selectedOfficeId;
 
@@ -509,6 +534,57 @@ export default function BillingPayroll() {
 
   const handlePrint = () => {
     window.print();
+  };
+
+  const handleBulkPaystubUpload = async () => {
+    if (!bulkPaystubFile || !actualOfficeId) return;
+    
+    setIsUploadingPaystubs(true);
+    setBulkPaystubResults(null);
+    
+    try {
+      const formData = new FormData();
+      formData.append("file", bulkPaystubFile);
+      formData.append("officeId", actualOfficeId);
+      
+      const response = await fetch("/api/bulk-paystub-upload", {
+        method: "POST",
+        body: formData,
+        credentials: "include",
+      });
+      
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || "Failed to process paystubs");
+      }
+      
+      const data = await response.json();
+      setBulkPaystubResults(data);
+      
+      if (data.summary.matched > 0) {
+        toast({
+          title: "Paystubs processed",
+          description: `${data.summary.matched} paychecks created, ${data.summary.unmatched} unmatched`,
+        });
+        queryClient.invalidateQueries({ queryKey: ["/api/caregivers"] });
+      }
+    } catch (error: any) {
+      toast({
+        title: "Upload failed",
+        description: error.message || "Failed to process paystub file",
+        variant: "destructive",
+      });
+    } finally {
+      setIsUploadingPaystubs(false);
+    }
+  };
+
+  const resetBulkPaystubUpload = () => {
+    setBulkPaystubFile(null);
+    setBulkPaystubResults(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
   };
 
   const handleEditRate = (rate: OfficeMcoBillingRate) => {
@@ -1186,6 +1262,178 @@ export default function BillingPayroll() {
                             ))}
                           </tbody>
                         </table>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+
+                {/* Bulk Paystub Upload Section */}
+                <Card className="mt-6">
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <FileUp className="w-5 h-5" />
+                      Bulk Paystub Upload
+                    </CardTitle>
+                    <CardDescription>
+                      Upload a PDF containing multiple paystubs to automatically extract and match them to caregivers
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    {!actualOfficeId ? (
+                      <p className="text-center text-muted-foreground py-8">Select an office to upload paystubs</p>
+                    ) : (
+                      <div className="space-y-6">
+                        <div className="border-2 border-dashed rounded-lg p-6 text-center">
+                          <input
+                            ref={fileInputRef}
+                            type="file"
+                            accept=".pdf"
+                            className="hidden"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (file) {
+                                setBulkPaystubFile(file);
+                                setBulkPaystubResults(null);
+                              }
+                            }}
+                            data-testid="input-paystub-file"
+                          />
+                          
+                          {!bulkPaystubFile ? (
+                            <div className="space-y-4">
+                              <Upload className="w-12 h-12 mx-auto text-muted-foreground" />
+                              <div>
+                                <p className="text-lg font-medium">Drop your paystub PDF here</p>
+                                <p className="text-sm text-muted-foreground">or click to browse</p>
+                              </div>
+                              <Button
+                                variant="outline"
+                                onClick={() => fileInputRef.current?.click()}
+                                data-testid="button-browse-paystub"
+                              >
+                                Browse Files
+                              </Button>
+                            </div>
+                          ) : (
+                            <div className="space-y-4">
+                              <FileText className="w-12 h-12 mx-auto text-primary" />
+                              <div>
+                                <p className="text-lg font-medium">{bulkPaystubFile.name}</p>
+                                <p className="text-sm text-muted-foreground">
+                                  {(bulkPaystubFile.size / 1024 / 1024).toFixed(2)} MB
+                                </p>
+                              </div>
+                              <div className="flex gap-2 justify-center">
+                                <Button
+                                  onClick={handleBulkPaystubUpload}
+                                  disabled={isUploadingPaystubs}
+                                  data-testid="button-upload-paystubs"
+                                >
+                                  {isUploadingPaystubs ? (
+                                    <>
+                                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                      Processing...
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Upload className="w-4 h-4 mr-2" />
+                                      Extract Paystubs
+                                    </>
+                                  )}
+                                </Button>
+                                <Button
+                                  variant="outline"
+                                  onClick={resetBulkPaystubUpload}
+                                  disabled={isUploadingPaystubs}
+                                  data-testid="button-reset-paystub"
+                                >
+                                  Clear
+                                </Button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Results */}
+                        {bulkPaystubResults && (
+                          <div className="space-y-4">
+                            <Separator />
+                            <div className="grid grid-cols-4 gap-4">
+                              <div className="text-center p-4 bg-muted rounded-lg">
+                                <p className="text-2xl font-bold">{bulkPaystubResults.summary.totalPages}</p>
+                                <p className="text-sm text-muted-foreground">Total Pages</p>
+                              </div>
+                              <div className="text-center p-4 bg-green-50 rounded-lg border border-green-200">
+                                <p className="text-2xl font-bold text-green-700">{bulkPaystubResults.summary.matched}</p>
+                                <p className="text-sm text-green-600">Matched</p>
+                              </div>
+                              <div className="text-center p-4 bg-yellow-50 rounded-lg border border-yellow-200">
+                                <p className="text-2xl font-bold text-yellow-700">{bulkPaystubResults.summary.unmatched}</p>
+                                <p className="text-sm text-yellow-600">Unmatched</p>
+                              </div>
+                              <div className="text-center p-4 bg-gray-50 rounded-lg border border-gray-200">
+                                <p className="text-2xl font-bold text-gray-700">{bulkPaystubResults.summary.notPaystub}</p>
+                                <p className="text-sm text-gray-600">Not Paystubs</p>
+                              </div>
+                            </div>
+
+                            {/* Detailed Results Table */}
+                            <div className="overflow-x-auto">
+                              <table className="w-full">
+                                <thead className="border-b bg-muted/50">
+                                  <tr>
+                                    <th className="text-left p-3 text-sm font-medium">Page</th>
+                                    <th className="text-left p-3 text-sm font-medium">Status</th>
+                                    <th className="text-left p-3 text-sm font-medium">Employee Name</th>
+                                    <th className="text-left p-3 text-sm font-medium">Matched To</th>
+                                    <th className="text-left p-3 text-sm font-medium">Pay Period</th>
+                                    <th className="text-left p-3 text-sm font-medium">Gross Pay</th>
+                                    <th className="text-left p-3 text-sm font-medium">Net Pay</th>
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y">
+                                  {bulkPaystubResults.results.map((result, idx) => (
+                                    <tr key={idx} data-testid={`paystub-result-${result.pageNumber}`}>
+                                      <td className="p-3">{result.pageNumber}</td>
+                                      <td className="p-3">
+                                        {result.status === "matched" && (
+                                          <Badge className="bg-green-100 text-green-800">
+                                            <CheckCircle className="w-3 h-3 mr-1" />
+                                            Matched
+                                          </Badge>
+                                        )}
+                                        {result.status === "unmatched" && (
+                                          <Badge className="bg-yellow-100 text-yellow-800">
+                                            <AlertCircle className="w-3 h-3 mr-1" />
+                                            Unmatched
+                                          </Badge>
+                                        )}
+                                        {result.status === "not_paystub" && (
+                                          <Badge variant="secondary">Not Paystub</Badge>
+                                        )}
+                                        {result.status === "error" && (
+                                          <Badge variant="destructive">
+                                            <XCircle className="w-3 h-3 mr-1" />
+                                            Error
+                                          </Badge>
+                                        )}
+                                      </td>
+                                      <td className="p-3">{result.extractedName || "-"}</td>
+                                      <td className="p-3 font-medium">{result.caregiverName || "-"}</td>
+                                      <td className="p-3">
+                                        {result.payPeriod?.start && result.payPeriod?.end
+                                          ? `${result.payPeriod.start} - ${result.payPeriod.end}`
+                                          : "-"}
+                                      </td>
+                                      <td className="p-3">{result.grossPay ? `$${result.grossPay.toFixed(2)}` : "-"}</td>
+                                      <td className="p-3 font-medium">{result.netPay ? `$${result.netPay.toFixed(2)}` : "-"}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     )}
                   </CardContent>
