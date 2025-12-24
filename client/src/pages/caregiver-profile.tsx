@@ -357,6 +357,12 @@ export default function CaregiverProfile() {
         startDate: caregiver.startDate,
         specializations: caregiver.specializations || [],
         officeId: caregiver.officeId,
+        address: caregiver.address || "",
+        address2: caregiver.address2 || "",
+        city: caregiver.city || "",
+        state: caregiver.state || "",
+        zipCode: caregiver.zipCode || "",
+        hhaxCaregiverCode: caregiver.hhaxCaregiverCode || "",
       });
       setIsEditing(true);
     }
@@ -627,6 +633,78 @@ export default function CaregiverProfile() {
                             <Badge variant={caregiver.isActive ? "default" : "secondary"} data-testid="badge-status">
                               {caregiver.isActive ? "Active" : "Inactive"}
                             </Badge>
+                          )}
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-muted-foreground text-sm">Address</Label>
+                          {isEditing ? (
+                            <Input
+                              value={editFormData.address || ""}
+                              onChange={(e) => setEditFormData({ ...editFormData, address: e.target.value })}
+                              data-testid="input-address"
+                            />
+                          ) : (
+                            <p className="font-medium" data-testid="text-address">{caregiver.address || "N/A"}</p>
+                          )}
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-muted-foreground text-sm">Address 2</Label>
+                          {isEditing ? (
+                            <Input
+                              value={editFormData.address2 || ""}
+                              onChange={(e) => setEditFormData({ ...editFormData, address2: e.target.value })}
+                              data-testid="input-address2"
+                            />
+                          ) : (
+                            <p className="font-medium" data-testid="text-address2">{caregiver.address2 || "N/A"}</p>
+                          )}
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-muted-foreground text-sm">City</Label>
+                          {isEditing ? (
+                            <Input
+                              value={editFormData.city || ""}
+                              onChange={(e) => setEditFormData({ ...editFormData, city: e.target.value })}
+                              data-testid="input-city"
+                            />
+                          ) : (
+                            <p className="font-medium" data-testid="text-city">{caregiver.city || "N/A"}</p>
+                          )}
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-muted-foreground text-sm">State</Label>
+                          {isEditing ? (
+                            <Input
+                              value={editFormData.state || ""}
+                              onChange={(e) => setEditFormData({ ...editFormData, state: e.target.value })}
+                              data-testid="input-state"
+                            />
+                          ) : (
+                            <p className="font-medium" data-testid="text-state">{caregiver.state || "N/A"}</p>
+                          )}
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-muted-foreground text-sm">Zip Code</Label>
+                          {isEditing ? (
+                            <Input
+                              value={editFormData.zipCode || ""}
+                              onChange={(e) => setEditFormData({ ...editFormData, zipCode: e.target.value })}
+                              data-testid="input-zip-code"
+                            />
+                          ) : (
+                            <p className="font-medium" data-testid="text-zip-code">{caregiver.zipCode || "N/A"}</p>
+                          )}
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-muted-foreground text-sm">HHAX Caregiver Code</Label>
+                          {isEditing ? (
+                            <Input
+                              value={editFormData.hhaxCaregiverCode || ""}
+                              onChange={(e) => setEditFormData({ ...editFormData, hhaxCaregiverCode: e.target.value })}
+                              data-testid="input-hhax-caregiver-code"
+                            />
+                          ) : (
+                            <p className="font-medium" data-testid="text-hhax-caregiver-code">{caregiver.hhaxCaregiverCode || "N/A"}</p>
                           )}
                         </div>
                       </div>

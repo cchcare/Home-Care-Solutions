@@ -460,6 +460,11 @@ export default function ClientProfile() {
         lastName: client.lastName || "",
         phone: client.phone || "",
         address: client.address || "",
+        address2: client.address2 || "",
+        city: client.city || "",
+        state: client.state || "",
+        zipCode: client.zipCode || "",
+        hhaxAdmissionId: client.hhaxAdmissionId || "",
         dateOfBirth: client.dateOfBirth,
         memberId: client.memberId || "",
         serviceStartDate: client.serviceStartDate,
@@ -809,6 +814,76 @@ export default function ClientProfile() {
                         ) : (
                           <p className="font-medium" data-testid="text-client-address">
                             {client.address || "N/A"}
+                          </p>
+                        )}
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-muted-foreground text-sm">Address 2</Label>
+                        {isEditing ? (
+                          <Input
+                            value={editFormData.address2 || ""}
+                            onChange={(e) => setEditFormData({ ...editFormData, address2: e.target.value })}
+                            data-testid="input-address2"
+                          />
+                        ) : (
+                          <p className="font-medium" data-testid="text-client-address2">
+                            {client.address2 || "N/A"}
+                          </p>
+                        )}
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-muted-foreground text-sm">City</Label>
+                        {isEditing ? (
+                          <Input
+                            value={editFormData.city || ""}
+                            onChange={(e) => setEditFormData({ ...editFormData, city: e.target.value })}
+                            data-testid="input-city"
+                          />
+                        ) : (
+                          <p className="font-medium" data-testid="text-client-city">
+                            {client.city || "N/A"}
+                          </p>
+                        )}
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-muted-foreground text-sm">State</Label>
+                        {isEditing ? (
+                          <Input
+                            value={editFormData.state || ""}
+                            onChange={(e) => setEditFormData({ ...editFormData, state: e.target.value })}
+                            data-testid="input-state"
+                          />
+                        ) : (
+                          <p className="font-medium" data-testid="text-client-state">
+                            {client.state || "N/A"}
+                          </p>
+                        )}
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-muted-foreground text-sm">Zip Code</Label>
+                        {isEditing ? (
+                          <Input
+                            value={editFormData.zipCode || ""}
+                            onChange={(e) => setEditFormData({ ...editFormData, zipCode: e.target.value })}
+                            data-testid="input-zip-code"
+                          />
+                        ) : (
+                          <p className="font-medium" data-testid="text-client-zip-code">
+                            {client.zipCode || "N/A"}
+                          </p>
+                        )}
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-muted-foreground text-sm">HHAX Admission ID</Label>
+                        {isEditing ? (
+                          <Input
+                            value={editFormData.hhaxAdmissionId || ""}
+                            onChange={(e) => setEditFormData({ ...editFormData, hhaxAdmissionId: e.target.value })}
+                            data-testid="input-hhax-admission-id"
+                          />
+                        ) : (
+                          <p className="font-medium" data-testid="text-client-hhax-admission-id">
+                            {client.hhaxAdmissionId || "N/A"}
                           </p>
                         )}
                       </div>

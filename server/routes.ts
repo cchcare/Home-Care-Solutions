@@ -698,6 +698,51 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Update caregiver
+  app.put("/api/caregivers/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const oldCaregiver = await storage.getCaregiver(req.params.id);
+      if (!oldCaregiver) {
+        return res.status(404).json({ message: "Caregiver not found" });
+      }
+
+      // Convert date strings to Date objects if they're strings
+      const processedHireDate = req.body.hireDate && typeof req.body.hireDate === 'string' ? new Date(req.body.hireDate) : req.body.hireDate;
+      const processedStartDate = req.body.startDate && typeof req.body.startDate === 'string' ? new Date(req.body.startDate) : req.body.startDate;
+      
+      // Convert hourlyWage to string if it's a number (numeric type expects string)
+      if (req.body.hourlyWage !== undefined && typeof req.body.hourlyWage === 'number') {
+        req.body.hourlyWage = String(req.body.hourlyWage);
+      }
+      
+      const processedBody = {
+        ...req.body,
+        hireDate: processedHireDate,
+        startDate: processedStartDate,
+      };
+      
+      const validatedData = insertCaregiverSchema.partial().parse(processedBody);
+      const caregiver = await storage.updateCaregiver(req.params.id, validatedData);
+      
+      // Log audit trail
+      await storage.createAuditLog({
+        userId: req.user.claims.sub,
+        action: "update",
+        entityType: "caregiver",
+        entityId: caregiver.id,
+        oldValues: oldCaregiver,
+        newValues: caregiver,
+        ipAddress: req.ip,
+        userAgent: req.get("User-Agent"),
+      });
+      
+      res.json(caregiver);
+    } catch (error) {
+      console.error("Error updating caregiver:", error);
+      res.status(400).json({ message: "Failed to update caregiver" });
+    }
+  });
+
   // Caregiver bulk import
   app.post("/api/caregivers/bulk-import", isAuthenticated, async (req: any, res) => {
     try {

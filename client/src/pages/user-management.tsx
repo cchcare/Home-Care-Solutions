@@ -137,6 +137,11 @@ export default function UserManagementPage() {
       profileImageUrl: "",
       role: "caregiver",
       primaryOfficeId: "",
+      address: "",
+      address2: "",
+      city: "",
+      state: "",
+      zipCode: "",
       isActive: true,
     },
   });
@@ -166,6 +171,11 @@ export default function UserManagementPage() {
       profileImageUrl: user.profileImageUrl || "",
       role: user.role as any,
       primaryOfficeId: user.primaryOfficeId || "",
+      address: user.address || "",
+      address2: user.address2 || "",
+      city: user.city || "",
+      state: user.state || "",
+      zipCode: user.zipCode || "",
       isActive: user.isActive,
     });
     setOpen(true);
@@ -362,6 +372,105 @@ export default function UserManagementPage() {
                             ))}
                           </SelectContent>
                         </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+
+                <FormField
+                  control={form.control}
+                  name="address"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Address</FormLabel>
+                      <FormControl>
+                        <Input 
+                          placeholder="123 Main Street"
+                          {...field} 
+                          value={field.value || ""}
+                          data-testid="input-user-address"
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <FormField
+                    control={form.control}
+                    name="address2"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Address 2</FormLabel>
+                        <FormControl>
+                          <Input 
+                            placeholder="Apt, Suite, etc."
+                            {...field} 
+                            value={field.value || ""}
+                            data-testid="input-user-address2"
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name="city"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>City</FormLabel>
+                        <FormControl>
+                          <Input 
+                            placeholder="City"
+                            {...field} 
+                            value={field.value || ""}
+                            data-testid="input-user-city"
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <FormField
+                    control={form.control}
+                    name="state"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>State</FormLabel>
+                        <FormControl>
+                          <Input 
+                            placeholder="State"
+                            {...field} 
+                            value={field.value || ""}
+                            data-testid="input-user-state"
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name="zipCode"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Zip Code</FormLabel>
+                        <FormControl>
+                          <Input 
+                            placeholder="12345"
+                            {...field} 
+                            value={field.value || ""}
+                            data-testid="input-user-zipCode"
+                          />
+                        </FormControl>
                         <FormMessage />
                       </FormItem>
                     )}
@@ -616,6 +725,26 @@ export default function UserManagementPage() {
                           <p className="font-medium">
                             {offices.find((o: any) => o.id === selectedUser.primaryOfficeId)?.name || "No office assigned"}
                           </p>
+                        </div>
+                        <div>
+                          <label className="text-sm font-medium text-muted-foreground">Address</label>
+                          <p className="font-medium" data-testid="text-user-address">{selectedUser.address || "Not provided"}</p>
+                        </div>
+                        <div>
+                          <label className="text-sm font-medium text-muted-foreground">Address 2</label>
+                          <p className="font-medium" data-testid="text-user-address2">{selectedUser.address2 || "Not provided"}</p>
+                        </div>
+                        <div>
+                          <label className="text-sm font-medium text-muted-foreground">City</label>
+                          <p className="font-medium" data-testid="text-user-city">{selectedUser.city || "Not provided"}</p>
+                        </div>
+                        <div>
+                          <label className="text-sm font-medium text-muted-foreground">State</label>
+                          <p className="font-medium" data-testid="text-user-state">{selectedUser.state || "Not provided"}</p>
+                        </div>
+                        <div>
+                          <label className="text-sm font-medium text-muted-foreground">Zip Code</label>
+                          <p className="font-medium" data-testid="text-user-zipCode">{selectedUser.zipCode || "Not provided"}</p>
                         </div>
                       </div>
                     </div>
