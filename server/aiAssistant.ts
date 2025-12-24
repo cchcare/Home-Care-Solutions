@@ -14,27 +14,35 @@ const ROLE_PERMISSIONS: Record<UserRole, string[]> = {
     "search_clients", "search_caregivers", "list_clients", "list_caregivers",
     "assign_client_to_caregiver", "create_caregiver_note", "update_client_mco_status",
     "get_client_mcos", "create_client_schedule", "get_client_details",
-    "get_caregiver_details", "deactivate_client", "activate_client"
+    "get_caregiver_details", "deactivate_client", "activate_client",
+    "get_dashboard_stats", "get_upcoming_tasks", "create_task", "get_compliance_alerts",
+    "get_schedule_by_date", "send_message", "get_recent_documents", "get_office_summary"
   ],
   admin: [
     "search_clients", "search_caregivers", "list_clients", "list_caregivers",
     "assign_client_to_caregiver", "create_caregiver_note", "update_client_mco_status",
     "get_client_mcos", "create_client_schedule", "get_client_details",
-    "get_caregiver_details", "deactivate_client", "activate_client"
+    "get_caregiver_details", "deactivate_client", "activate_client",
+    "get_dashboard_stats", "get_upcoming_tasks", "create_task", "get_compliance_alerts",
+    "get_schedule_by_date", "send_message", "get_recent_documents", "get_office_summary"
   ],
   supervisor: [
     "search_clients", "search_caregivers", "list_clients", "list_caregivers",
     "assign_client_to_caregiver", "create_caregiver_note", "update_client_mco_status",
     "get_client_mcos", "create_client_schedule", "get_client_details",
-    "get_caregiver_details"
+    "get_caregiver_details",
+    "get_dashboard_stats", "get_upcoming_tasks", "create_task", "get_compliance_alerts",
+    "get_schedule_by_date", "get_recent_documents", "get_office_summary"
   ],
   caregiver: [
     "search_clients", "search_caregivers", "list_clients", "list_caregivers",
     "get_client_details", "get_caregiver_details", "create_caregiver_note",
-    "get_client_mcos"
+    "get_client_mcos",
+    "get_dashboard_stats", "get_upcoming_tasks", "get_schedule_by_date", "get_recent_documents"
   ],
   family: [
-    "search_clients", "list_clients", "get_client_details"
+    "search_clients", "list_clients", "get_client_details",
+    "get_dashboard_stats", "get_schedule_by_date"
   ]
 };
 
@@ -52,6 +60,10 @@ function getPermissionDenialMessage(role: UserRole, toolName: string): string {
     create_client_schedule: "Schedule creation requires supervisor access or higher. I can help you view existing information instead.",
     create_caregiver_note: "Note creation requires at least caregiver access. Please contact a staff member for assistance.",
     list_caregivers: "Viewing caregiver lists requires staff access. I can help you find client information instead.",
+    create_task: "Task creation requires supervisor access or higher. Please contact your supervisor to create tasks.",
+    send_message: "Sending messages requires administrator access. Please contact an admin for this request.",
+    get_compliance_alerts: "Viewing compliance alerts requires supervisor access or higher.",
+    get_office_summary: "Office summary access requires supervisor access or higher.",
   };
   return denialMessages[toolName] || `This action requires higher access privileges than your current ${role} role provides.`;
 }
@@ -313,6 +325,196 @@ const AVAILABLE_TOOLS: ChatCompletionTool[] = [
         required: ["clientId"]
       }
     }
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_dashboard_stats",
+      description: "Get overall agency statistics including active clients, active caregivers, and pending tasks count",
+      parameters: {
+        type: "object",
+        properties: {
+          officeId: {
+            type: "string",
+            description: "Optional office ID to filter stats by a specific office"
+          }
+        },
+        required: []
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_upcoming_tasks",
+      description: "Get tasks that are due soon (pending or in progress)",
+      parameters: {
+        type: "object",
+        properties: {
+          userId: {
+            type: "string",
+            description: "Optional user ID to filter tasks assigned to a specific user"
+          },
+          daysAhead: {
+            type: "number",
+            description: "Number of days ahead to look for upcoming tasks (default: 7)"
+          }
+        },
+        required: []
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "create_task",
+      description: "Create a new task with title, description, due date, and assignee",
+      parameters: {
+        type: "object",
+        properties: {
+          title: {
+            type: "string",
+            description: "Title of the task"
+          },
+          description: {
+            type: "string",
+            description: "Detailed description of the task"
+          },
+          dueDate: {
+            type: "string",
+            description: "Due date in YYYY-MM-DD format"
+          },
+          assigneeId: {
+            type: "string",
+            description: "User ID of the person to assign the task to"
+          },
+          priority: {
+            type: "string",
+            enum: ["low", "medium", "high", "critical"],
+            description: "Priority level of the task"
+          },
+          clientId: {
+            type: "string",
+            description: "Optional client ID if the task is related to a specific client"
+          }
+        },
+        required: ["title"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_compliance_alerts",
+      description: "Get clients and caregivers with expiring certifications or compliance issues",
+      parameters: {
+        type: "object",
+        properties: {
+          daysUntilExpiry: {
+            type: "number",
+            description: "Number of days to look ahead for expiring items (default: 30)"
+          }
+        },
+        required: []
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_schedule_by_date",
+      description: "Get all schedules for a specific date",
+      parameters: {
+        type: "object",
+        properties: {
+          date: {
+            type: "string",
+            description: "Date in YYYY-MM-DD format"
+          },
+          clientId: {
+            type: "string",
+            description: "Optional client ID to filter schedules for a specific client"
+          },
+          caregiverId: {
+            type: "string",
+            description: "Optional caregiver ID to filter schedules for a specific caregiver"
+          }
+        },
+        required: ["date"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "send_message",
+      description: "Send an internal message to a user in the system",
+      parameters: {
+        type: "object",
+        properties: {
+          recipientId: {
+            type: "string",
+            description: "User ID of the message recipient"
+          },
+          subject: {
+            type: "string",
+            description: "Subject of the message"
+          },
+          content: {
+            type: "string",
+            description: "Content/body of the message"
+          },
+          priority: {
+            type: "string",
+            enum: ["low", "normal", "high", "urgent"],
+            description: "Priority level of the message (default: normal)"
+          }
+        },
+        required: ["recipientId", "content"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_recent_documents",
+      description: "Get recently uploaded documents",
+      parameters: {
+        type: "object",
+        properties: {
+          limit: {
+            type: "number",
+            description: "Maximum number of documents to return (default: 10)"
+          },
+          clientId: {
+            type: "string",
+            description: "Optional client ID to filter documents for a specific client"
+          },
+          caregiverId: {
+            type: "string",
+            description: "Optional caregiver ID to filter documents for a specific caregiver"
+          }
+        },
+        required: []
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_office_summary",
+      description: "Get summary of an office including client count, caregiver count, and other statistics",
+      parameters: {
+        type: "object",
+        properties: {
+          officeId: {
+            type: "string",
+            description: "The ID of the office to get summary for"
+          }
+        },
+        required: ["officeId"]
+      }
+    }
   }
 ];
 
@@ -554,6 +756,288 @@ async function executeFunction(name: string, args: any, userRole: UserRole): Pro
         });
       }
 
+      case "get_dashboard_stats": {
+        const metrics = await storage.getDashboardMetrics(args.officeId);
+        return JSON.stringify({
+          success: true,
+          stats: {
+            activeClients: metrics.activeClients,
+            activeCaregivers: metrics.activeCaregivers,
+            pendingTasks: metrics.pendingTasks,
+            complianceRate: metrics.complianceRate,
+            criticalAlerts: metrics.criticalAlerts
+          }
+        });
+      }
+
+      case "get_upcoming_tasks": {
+        const allTasks = await storage.getAllTasks();
+        const daysAhead = args.daysAhead || 7;
+        const now = new Date();
+        const futureDate = new Date();
+        futureDate.setDate(now.getDate() + daysAhead);
+        
+        let filteredTasks = allTasks.filter((t: any) => {
+          if (t.status === "completed") return false;
+          if (!t.dueDate) return true;
+          const dueDate = new Date(t.dueDate);
+          return dueDate <= futureDate;
+        });
+        
+        if (args.userId) {
+          filteredTasks = filteredTasks.filter((t: any) => t.assignedTo === args.userId);
+        }
+        
+        const sortedTasks = filteredTasks.sort((a: any, b: any) => {
+          if (!a.dueDate) return 1;
+          if (!b.dueDate) return -1;
+          return new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime();
+        });
+        
+        return JSON.stringify({
+          success: true,
+          tasks: sortedTasks.slice(0, 20).map((t: any) => ({
+            id: t.id,
+            title: t.title,
+            description: t.description,
+            priority: t.priority,
+            status: t.status,
+            dueDate: t.dueDate
+          })),
+          totalCount: filteredTasks.length
+        });
+      }
+
+      case "create_task": {
+        const taskData: any = {
+          title: args.title,
+          description: args.description || "",
+          priority: args.priority || "medium",
+          status: "pending"
+        };
+        
+        if (args.assigneeId) {
+          const assignee = await storage.getUser(args.assigneeId);
+          if (!assignee) {
+            return JSON.stringify({ success: false, message: "Assignee user not found" });
+          }
+          taskData.assignedTo = args.assigneeId;
+        }
+        
+        if (args.dueDate) {
+          taskData.dueDate = new Date(args.dueDate);
+        }
+        
+        if (args.clientId) {
+          const client = await storage.getClient(args.clientId);
+          if (!client) {
+            return JSON.stringify({ success: false, message: "Client not found" });
+          }
+          taskData.clientId = args.clientId;
+        }
+        
+        const task = await storage.createTask(taskData);
+        return JSON.stringify({
+          success: true,
+          message: `Task "${args.title}" created successfully`,
+          taskId: task.id
+        });
+      }
+
+      case "get_compliance_alerts": {
+        const daysUntilExpiry = args.daysUntilExpiry || 30;
+        const certifications = await storage.getAllCertifications();
+        const complianceItems = await storage.getAllComplianceItems();
+        const caregivers = await storage.getAllCaregivers();
+        
+        const now = new Date();
+        const expiryThreshold = new Date();
+        expiryThreshold.setDate(now.getDate() + daysUntilExpiry);
+        
+        const expiringCerts = certifications.filter((cert: any) => {
+          if (!cert.expirationDate) return false;
+          const expDate = new Date(cert.expirationDate);
+          return expDate <= expiryThreshold && expDate >= now;
+        });
+        
+        const expiredCerts = certifications.filter((cert: any) => {
+          if (!cert.expirationDate) return false;
+          return new Date(cert.expirationDate) < now;
+        });
+        
+        const pendingCompliance = complianceItems.filter((item: any) => 
+          item.status === "pending" || item.status === "overdue"
+        );
+        
+        const getCaregiverName = (caregiverId: string) => {
+          const caregiver = caregivers.find((c: any) => c.id === caregiverId);
+          return caregiver ? `Caregiver ${caregiverId}` : "Unknown";
+        };
+        
+        return JSON.stringify({
+          success: true,
+          alerts: {
+            expiringCertifications: expiringCerts.slice(0, 10).map((c: any) => ({
+              id: c.id,
+              caregiverId: c.caregiverId,
+              type: c.certificationType,
+              expirationDate: c.expirationDate
+            })),
+            expiredCertifications: expiredCerts.slice(0, 10).map((c: any) => ({
+              id: c.id,
+              caregiverId: c.caregiverId,
+              type: c.certificationType,
+              expirationDate: c.expirationDate
+            })),
+            pendingComplianceItems: pendingCompliance.slice(0, 10).map((i: any) => ({
+              id: i.id,
+              caregiverId: i.caregiverId,
+              itemName: i.itemName,
+              status: i.status,
+              dueDate: i.dueDate
+            })),
+            summary: {
+              expiringCount: expiringCerts.length,
+              expiredCount: expiredCerts.length,
+              pendingComplianceCount: pendingCompliance.length
+            }
+          }
+        });
+      }
+
+      case "get_schedule_by_date": {
+        const targetDate = new Date(args.date);
+        const startOfDay = new Date(targetDate);
+        startOfDay.setHours(0, 0, 0, 0);
+        const endOfDay = new Date(targetDate);
+        endOfDay.setHours(23, 59, 59, 999);
+        
+        let schedules: any[] = [];
+        
+        if (args.clientId) {
+          schedules = await storage.getClientSchedules(args.clientId, startOfDay, endOfDay);
+        } else if (args.caregiverId) {
+          schedules = await storage.getSchedulesByCaregiver(args.caregiverId, startOfDay, endOfDay);
+        } else {
+          const allClients = await storage.getAllClients();
+          for (const client of allClients.slice(0, 50)) {
+            const clientSchedules = await storage.getClientSchedules(client.id, startOfDay, endOfDay);
+            schedules.push(...clientSchedules);
+          }
+        }
+        
+        const clients = await storage.getAllClients();
+        const caregivers = await storage.getAllCaregivers();
+        
+        const enrichedSchedules = schedules.map((s: any) => {
+          const client = clients.find(c => c.id === s.clientId);
+          const caregiver = caregivers.find((c: any) => c.id === s.caregiverId);
+          return {
+            id: s.id,
+            clientName: client ? `${client.firstName} ${client.lastName}` : "Unknown",
+            clientId: s.clientId,
+            caregiverId: s.caregiverId,
+            startTime: s.startTime,
+            endTime: s.endTime,
+            status: s.status,
+            notes: s.notes
+          };
+        });
+        
+        return JSON.stringify({
+          success: true,
+          date: args.date,
+          schedules: enrichedSchedules,
+          totalCount: schedules.length
+        });
+      }
+
+      case "send_message": {
+        const recipient = await storage.getUser(args.recipientId);
+        if (!recipient) {
+          return JSON.stringify({ success: false, message: "Recipient user not found" });
+        }
+        
+        const message = await storage.createMessage({
+          recipientId: args.recipientId,
+          subject: args.subject || "",
+          content: args.content,
+          priority: args.priority || "normal",
+          messageType: "message",
+          communicationType: "internal"
+        });
+        
+        return JSON.stringify({
+          success: true,
+          message: `Message sent successfully to ${recipient.firstName || recipient.email || "user"}`,
+          messageId: message.id
+        });
+      }
+
+      case "get_recent_documents": {
+        const limit = args.limit || 10;
+        let documents = await storage.getAllDocuments();
+        
+        if (args.clientId) {
+          documents = await storage.getDocumentsByClient(args.clientId);
+        } else if (args.caregiverId) {
+          documents = await storage.getDocumentsByCaregiver(args.caregiverId);
+        }
+        
+        const sortedDocs = documents.sort((a: any, b: any) => {
+          const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+          const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+          return dateB - dateA;
+        });
+        
+        return JSON.stringify({
+          success: true,
+          documents: sortedDocs.slice(0, limit).map((d: any) => ({
+            id: d.id,
+            fileName: d.originalName || d.fileName,
+            documentType: d.documentType,
+            fileType: d.fileType,
+            clientId: d.clientId,
+            caregiverId: d.caregiverId,
+            createdAt: d.createdAt
+          })),
+          totalCount: documents.length
+        });
+      }
+
+      case "get_office_summary": {
+        const office = await storage.getOffice(args.officeId);
+        if (!office) {
+          return JSON.stringify({ success: false, message: "Office not found" });
+        }
+        
+        const clients = await storage.getAllClients(args.officeId);
+        const caregivers = await storage.getAllCaregivers(args.officeId);
+        const metrics = await storage.getDashboardMetrics(args.officeId);
+        
+        const activeClients = clients.filter((c: any) => c.status === "active");
+        const activeCaregivers = caregivers.filter((c: any) => c.isActive);
+        
+        return JSON.stringify({
+          success: true,
+          office: {
+            id: office.id,
+            name: office.name,
+            address: office.address,
+            phone: office.phone,
+            email: office.email
+          },
+          summary: {
+            totalClients: clients.length,
+            activeClients: activeClients.length,
+            totalCaregivers: caregivers.length,
+            activeCaregivers: activeCaregivers.length,
+            pendingTasks: metrics.pendingTasks,
+            complianceRate: metrics.complianceRate
+          }
+        });
+      }
+
       default:
         return JSON.stringify({ success: false, message: `Unknown function: ${name}` });
     }
@@ -580,10 +1064,44 @@ export async function processAIAssistantMessage(
       content: `You are an AI assistant for a home care agency management system. The user has a "${userRole}" role.
 
 Based on their role, you can help with:
-${userRole === "admin" || userRole === "super_admin" ? `- Full access: search, assign clients, create schedules, manage MCO status, activate/deactivate clients, create notes` : ""}
-${userRole === "supervisor" ? `- Search clients and caregivers, assign clients, create schedules, manage MCO status, create notes (cannot activate/deactivate clients)` : ""}
-${userRole === "caregiver" ? `- Search and view client/caregiver details, create notes, view MCO information (cannot assign clients, create schedules, or change client status)` : ""}
-${userRole === "family" ? `- View client information only (limited access for privacy protection)` : ""}
+${userRole === "admin" || userRole === "super_admin" ? `- Full access to all capabilities:
+  * Search, assign clients, create schedules, manage MCO status, activate/deactivate clients, create notes
+  * View dashboard statistics and office summaries
+  * Get upcoming tasks and create new tasks
+  * View compliance alerts for expiring certifications
+  * View schedules by date for any client or caregiver
+  * Send internal messages to any user
+  * View recently uploaded documents` : ""}
+${userRole === "supervisor" ? `- Supervisor access:
+  * Search clients and caregivers, assign clients, create schedules, manage MCO status, create notes
+  * View dashboard statistics and office summaries
+  * Get upcoming tasks and create new tasks
+  * View compliance alerts for expiring certifications
+  * View schedules by date
+  * View recently uploaded documents
+  * Note: Cannot activate/deactivate clients or send messages` : ""}
+${userRole === "caregiver" ? `- Caregiver access:
+  * Search and view client/caregiver details, create notes, view MCO information
+  * View dashboard statistics (limited to your assignments)
+  * Get your upcoming tasks
+  * View schedules by date (for your assigned clients)
+  * View recently uploaded documents (for your clients)
+  * Note: Cannot assign clients, create schedules, change client status, or send messages` : ""}
+${userRole === "family" ? `- Family member access:
+  * View client information (limited to your family member)
+  * View basic dashboard statistics
+  * View schedules for your family member's care
+  * Note: Limited access for privacy protection` : ""}
+
+Available capabilities:
+- Search for clients and caregivers by name
+- Get detailed client and caregiver information
+- View dashboard statistics (active clients, caregivers, pending tasks)
+- Get upcoming tasks and manage task creation
+- View schedules for specific dates
+- Check compliance alerts for expiring certifications
+- View recently uploaded documents
+- Get office summaries with client/caregiver counts
 
 When the user asks you to do something:
 1. First search for the relevant entities (clients, caregivers) if needed

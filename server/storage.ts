@@ -1578,29 +1578,29 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getClientSchedules(clientId: string, startDate?: Date, endDate?: Date): Promise<ClientSchedule[]> {
-    let query = db.select().from(clientSchedules).where(eq(clientSchedules.clientId, clientId));
+    const conditions = [eq(clientSchedules.clientId, clientId)];
     
     if (startDate && endDate) {
-      query = query.where(and(
-        gte(clientSchedules.scheduledDate, startDate),
-        lte(clientSchedules.scheduledDate, endDate)
-      ));
+      conditions.push(gte(clientSchedules.scheduledDate, startDate));
+      conditions.push(lte(clientSchedules.scheduledDate, endDate));
     }
     
-    return await query.orderBy(asc(clientSchedules.scheduledDate), asc(clientSchedules.startTime));
+    return await db.select().from(clientSchedules)
+      .where(and(...conditions))
+      .orderBy(asc(clientSchedules.scheduledDate), asc(clientSchedules.startTime));
   }
 
   async getSchedulesByCaregiver(caregiverId: string, startDate?: Date, endDate?: Date): Promise<ClientSchedule[]> {
-    let query = db.select().from(clientSchedules).where(eq(clientSchedules.caregiverId, caregiverId));
+    const conditions = [eq(clientSchedules.caregiverId, caregiverId)];
     
     if (startDate && endDate) {
-      query = query.where(and(
-        gte(clientSchedules.scheduledDate, startDate),
-        lte(clientSchedules.scheduledDate, endDate)
-      ));
+      conditions.push(gte(clientSchedules.scheduledDate, startDate));
+      conditions.push(lte(clientSchedules.scheduledDate, endDate));
     }
     
-    return await query.orderBy(asc(clientSchedules.scheduledDate), asc(clientSchedules.startTime));
+    return await db.select().from(clientSchedules)
+      .where(and(...conditions))
+      .orderBy(asc(clientSchedules.scheduledDate), asc(clientSchedules.startTime));
   }
 
   async createClientSchedule(schedule: InsertClientSchedule): Promise<ClientSchedule> {
