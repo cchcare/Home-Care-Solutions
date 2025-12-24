@@ -81,17 +81,20 @@ export default function Dashboard() {
   });
 
   const { data: tasks = [], isLoading: tasksLoading } = useQuery<any[]>({
-    queryKey: ["/api/tasks"],
+    queryKey: ["/api/tasks", selectedOfficeId],
+    queryFn: () => fetch(`/api/tasks${officeQuery}`).then(r => r.json()),
     retry: false,
   });
 
   const { data: messages = [], isLoading: messagesLoading } = useQuery<any[]>({
-    queryKey: ["/api/messages"],
+    queryKey: ["/api/messages", selectedOfficeId],
+    queryFn: () => fetch(`/api/messages${officeQuery}`).then(r => r.json()),
     retry: false,
   });
 
   const { data: documents = [], isLoading: documentsLoading } = useQuery<any[]>({
-    queryKey: ["/api/documents"],
+    queryKey: ["/api/documents", selectedOfficeId],
+    queryFn: () => fetch(`/api/documents${officeQuery}`).then(r => r.json()),
     retry: false,
   });
 
@@ -101,7 +104,8 @@ export default function Dashboard() {
     evvPercentage: number;
     clientCount: number;
   }[]>({
-    queryKey: ["/api/dashboard/monthly-stats", new Date().getFullYear()],
+    queryKey: ["/api/dashboard/monthly-stats", new Date().getFullYear(), selectedOfficeId],
+    queryFn: () => fetch(`/api/dashboard/monthly-stats?year=${new Date().getFullYear()}${selectedOfficeId !== "all" ? `&officeId=${selectedOfficeId}` : ""}`).then(r => r.json()),
     retry: false,
   });
 

@@ -218,7 +218,8 @@ export default function BillingPayroll() {
   });
 
   const { data: billingRecords = [] } = useQuery<BillingRecord[]>({
-    queryKey: ["/api/billing"],
+    queryKey: ["/api/billing", actualOfficeId],
+    queryFn: () => fetch(`/api/billing${actualOfficeId ? `?officeId=${actualOfficeId}` : ""}`, { credentials: "include" }).then(r => r.json()),
   });
 
   const { data: payrollRuns = [] } = useQuery<PayrollRun[]>({

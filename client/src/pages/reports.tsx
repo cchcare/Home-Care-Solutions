@@ -4,6 +4,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Sidebar } from "@/components/sidebar";
 import { TopBar } from "@/components/topbar";
+import { OfficeSelector } from "@/components/office-selector";
+import { useOffice } from "@/context/office-context";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
@@ -26,18 +28,22 @@ import { format, subDays, subMonths } from "date-fns";
 
 export default function ReportsPage() {
   const [dateRange, setDateRange] = useState("30");
-  const [selectedOffice, setSelectedOffice] = useState("all");
+  const { selectedOfficeId, setSelectedOfficeId } = useOffice();
+  const officeQuery = selectedOfficeId !== "all" ? `?officeId=${selectedOfficeId}` : "";
 
   const { data: clients = [] } = useQuery<any[]>({
-    queryKey: ["/api/clients"],
+    queryKey: ["/api/clients", selectedOfficeId],
+    queryFn: () => fetch(`/api/clients${officeQuery}`, { credentials: "include" }).then(r => r.json()),
   });
 
   const { data: caregivers = [] } = useQuery<any[]>({
-    queryKey: ["/api/caregivers"],
+    queryKey: ["/api/caregivers", selectedOfficeId],
+    queryFn: () => fetch(`/api/caregivers${officeQuery}`, { credentials: "include" }).then(r => r.json()),
   });
 
   const { data: incidents = [] } = useQuery<any[]>({
-    queryKey: ["/api/incident-reports"],
+    queryKey: ["/api/incident-reports", selectedOfficeId],
+    queryFn: () => fetch(`/api/incident-reports${officeQuery}`, { credentials: "include" }).then(r => r.json()),
   });
 
   const { data: offices = [] } = useQuery<any[]>({
@@ -45,15 +51,18 @@ export default function ReportsPage() {
   });
 
   const { data: trainings = [] } = useQuery<any[]>({
-    queryKey: ["/api/trainings"],
+    queryKey: ["/api/trainings", selectedOfficeId],
+    queryFn: () => fetch(`/api/trainings${officeQuery}`, { credentials: "include" }).then(r => r.json()),
   });
 
   const { data: trainingRecords = [] } = useQuery<any[]>({
-    queryKey: ["/api/training-records"],
+    queryKey: ["/api/training-records", selectedOfficeId],
+    queryFn: () => fetch(`/api/training-records${officeQuery}`, { credentials: "include" }).then(r => r.json()),
   });
 
   const { data: certifications = [] } = useQuery<any[]>({
-    queryKey: ["/api/certifications"],
+    queryKey: ["/api/certifications", selectedOfficeId],
+    queryFn: () => fetch(`/api/certifications${officeQuery}`, { credentials: "include" }).then(r => r.json()),
   });
 
   // Helper function to filter data by date range
@@ -65,8 +74,8 @@ export default function ReportsPage() {
 
   // Helper function to filter by office
   const filterByOffice = (data: any[]) => {
-    if (selectedOffice === "all") return data;
-    return data.filter(item => item.officeId === selectedOffice || item.primaryOfficeId === selectedOffice);
+    if (selectedOfficeId === "all") return data;
+    return data.filter(item => item.officeId === selectedOfficeId || item.primaryOfficeId === selectedOfficeId);
   };
 
   // Client Census Report Data
@@ -276,7 +285,7 @@ export default function ReportsPage() {
             </div>
             <div className="flex-1">
               <label className="text-sm font-medium">Office</label>
-              <Select value={selectedOffice} onValueChange={setSelectedOffice}>
+              <Select value={selectedOfficeId} onValueChange={setSelectedOfficeId}>
                 <SelectTrigger data-testid="select-office-filter">
                   <SelectValue />
                 </SelectTrigger>

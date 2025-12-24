@@ -7,6 +7,8 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Sidebar } from "@/components/sidebar";
 import { TopBar } from "@/components/topbar";
+import { OfficeSelector } from "@/components/office-selector";
+import { useOffice } from "@/context/office-context";
 import { apiRequest } from "@/lib/queryClient";
 import { isUnauthorizedError } from "@/lib/authUtils";
 import {
@@ -93,14 +95,18 @@ export default function Training() {
   const [activeTab, setActiveTab] = useState<"trainings" | "records">("trainings");
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const { selectedOfficeId, setSelectedOfficeId } = useOffice();
+  const officeQuery = selectedOfficeId !== "all" ? `?officeId=${selectedOfficeId}` : "";
 
   const { data: trainings = [], isLoading: trainingsLoading } = useQuery<Training[]>({
-    queryKey: ["/api/trainings", searchTerm],
+    queryKey: ["/api/trainings", selectedOfficeId],
+    queryFn: () => fetch(`/api/trainings${officeQuery}`, { credentials: "include" }).then(r => r.json()),
     retry: false,
   });
 
   const { data: trainingRecords = [], isLoading: recordsLoading } = useQuery<TrainingRecord[]>({
-    queryKey: ["/api/training-records", searchTerm],
+    queryKey: ["/api/training-records", selectedOfficeId],
+    queryFn: () => fetch(`/api/training-records${officeQuery}`, { credentials: "include" }).then(r => r.json()),
     retry: false,
   });
 
@@ -397,7 +403,12 @@ export default function Training() {
             <h1 className="text-2xl font-bold">Training Management</h1>
           </div>
           
-          <div className="flex gap-2">
+          <div className="flex gap-2 items-center">
+            <OfficeSelector
+              selectedOfficeId={selectedOfficeId === "all" ? undefined : selectedOfficeId}
+              onOfficeChange={setSelectedOfficeId}
+              showAllOption={true}
+            />
             <Dialog open={showAddModal} onOpenChange={setShowAddModal}>
               <DialogTrigger asChild>
                 <Button data-testid="button-add-training">

@@ -13,6 +13,8 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Sidebar } from "@/components/sidebar";
 import { TopBar } from "@/components/topbar";
+import { OfficeSelector } from "@/components/office-selector";
+import { useOffice } from "@/context/office-context";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { insertIncidentReportSchema, type IncidentReport } from "@shared/schema";
@@ -35,9 +37,12 @@ export default function IncidentsPage() {
   const [severityFilter, setSeverityFilter] = useState<string>("all");
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const { selectedOfficeId, setSelectedOfficeId } = useOffice();
+  const officeQuery = selectedOfficeId !== "all" ? `?officeId=${selectedOfficeId}` : "";
 
   const { data: incidents = [], isLoading } = useQuery<IncidentReport[]>({
-    queryKey: ["/api/incident-reports"],
+    queryKey: ["/api/incident-reports", selectedOfficeId],
+    queryFn: () => fetch(`/api/incident-reports${officeQuery}`, { credentials: "include" }).then(r => r.json()),
   });
 
   const { data: clients = [] } = useQuery<any[]>({
@@ -187,21 +192,27 @@ export default function IncidentsPage() {
                   Record and track incidents for clients, caregivers, and staff
                 </p>
               </div>
-        <Dialog open={open} onOpenChange={setOpen}>
-          <DialogTrigger asChild>
-            <Button data-testid="button-create-incident">
-              <Plus className="mr-2 h-4 w-4" />
-              Report Incident
-            </Button>
-          </DialogTrigger>
-          <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle>Create Incident Report</DialogTitle>
-              <DialogDescription>
-                Record a critical incident involving a client, caregiver, or staff member
-              </DialogDescription>
-            </DialogHeader>
-            <Form {...form}>
+              <div className="flex items-center gap-4">
+                <OfficeSelector
+                  selectedOfficeId={selectedOfficeId === "all" ? undefined : selectedOfficeId}
+                  onOfficeChange={setSelectedOfficeId}
+                  showAllOption={true}
+                />
+                <Dialog open={open} onOpenChange={setOpen}>
+                  <DialogTrigger asChild>
+                    <Button data-testid="button-create-incident">
+                      <Plus className="mr-2 h-4 w-4" />
+                      Report Incident
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+                    <DialogHeader>
+                      <DialogTitle>Create Incident Report</DialogTitle>
+                      <DialogDescription>
+                        Record a critical incident involving a client, caregiver, or staff member
+                      </DialogDescription>
+                    </DialogHeader>
+                    <Form {...form}>
               <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <FormField
@@ -589,13 +600,14 @@ export default function IncidentsPage() {
                     {createIncidentMutation.isPending ? "Creating..." : "Create Report"}
                   </Button>
                 </div>
-              </form>
-            </Form>
-          </DialogContent>
-        </Dialog>
-      </div>
+                    </form>
+                  </Form>
+                </DialogContent>
+              </Dialog>
+            </div>
+          </div>
 
-      {/* Filters */}
+          {/* Filters */}
       <Card>
         <CardHeader>
           <CardTitle className="text-lg">Filter Incidents</CardTitle>
