@@ -100,7 +100,20 @@ export default function Landing() {
             )}
           </Button>
         </form>
-        <div className="mt-4 text-center">
+        <div className="mt-4 text-center space-y-2">
+          <button
+            type="button"
+            className="text-sm text-primary hover:text-primary/80 block w-full"
+            onClick={() => {
+              toast({
+                title: "Password Recovery",
+                description: "Please contact your administrator to reset your login credentials.",
+              });
+            }}
+            data-testid="button-forgot-password"
+          >
+            Forgot login or password?
+          </button>
           <button
             type="button"
             className="text-sm text-muted-foreground hover:text-primary"
