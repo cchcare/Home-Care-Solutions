@@ -14,7 +14,7 @@ import { Separator } from "@/components/ui/separator";
 import { Sidebar } from "@/components/sidebar";
 import { TopBar } from "@/components/topbar";
 import { OfficeSelector } from "@/components/office-selector";
-import { useOffice } from "@/context/office-context";
+import { useOfficeScope } from "@/context/office-context";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { insertIncidentReportSchema, type IncidentReport } from "@shared/schema";
@@ -37,7 +37,7 @@ export default function IncidentsPage() {
   const [severityFilter, setSeverityFilter] = useState<string>("all");
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const { selectedOfficeId, setSelectedOfficeId } = useOffice();
+  const { selectedOfficeId, setSelectedOfficeId, isAllOffices, canMutate, viewOnlyMessage } = useOfficeScope();
   const officeQuery = selectedOfficeId !== "all" ? `?officeId=${selectedOfficeId}` : "";
 
   const { data: incidents = [], isLoading } = useQuery<IncidentReport[]>({
@@ -185,6 +185,12 @@ export default function IncidentsPage() {
         {/* Content Area */}
         <div className="flex-1 overflow-auto p-6 bg-background">
           <div className="max-w-7xl mx-auto space-y-6">
+            {isAllOffices && (
+              <div className="bg-amber-50 border border-amber-200 text-amber-800 px-4 py-2 rounded-md text-sm flex items-center gap-2">
+                <AlertTriangle className="h-4 w-4" />
+                {viewOnlyMessage}
+              </div>
+            )}
             <div className="flex items-center justify-between">
               <div>
                 <h1 className="text-3xl font-bold tracking-tight">Critical Incident Reports</h1>
@@ -200,7 +206,11 @@ export default function IncidentsPage() {
                 />
                 <Dialog open={open} onOpenChange={setOpen}>
                   <DialogTrigger asChild>
-                    <Button data-testid="button-create-incident">
+                    <Button 
+                      data-testid="button-create-incident"
+                      disabled={!canMutate}
+                      title={!canMutate ? viewOnlyMessage : undefined}
+                    >
                       <Plus className="mr-2 h-4 w-4" />
                       Report Incident
                     </Button>

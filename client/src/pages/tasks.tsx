@@ -13,7 +13,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Sidebar } from "@/components/sidebar";
 import { TopBar } from "@/components/topbar";
 import { OfficeSelector } from "@/components/office-selector";
-import { useOffice } from "@/context/office-context";
+import { useOfficeScope } from "@/context/office-context";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { insertTaskSchema, type Task } from "@shared/schema";
@@ -25,6 +25,7 @@ import {
   Clock, 
   CheckCircle, 
   AlertCircle, 
+  AlertTriangle,
   MoreHorizontal,
   Edit,
   Trash2,
@@ -44,7 +45,7 @@ export default function TasksPage() {
   const [priorityFilter, setPriorityFilter] = useState<string>("all");
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const { selectedOfficeId, setSelectedOfficeId } = useOffice();
+  const { selectedOfficeId, setSelectedOfficeId, isAllOffices, canMutate, viewOnlyMessage } = useOfficeScope();
   const officeQuery = selectedOfficeId !== "all" ? `?officeId=${selectedOfficeId}` : "";
 
   const { data: tasks = [], isLoading } = useQuery<Task[]>({
@@ -221,6 +222,12 @@ export default function TasksPage() {
         {/* Content Area */}
         <div className="flex-1 overflow-auto p-6 bg-background">
           <div className="max-w-7xl mx-auto space-y-6">
+            {isAllOffices && (
+              <div className="bg-amber-50 border border-amber-200 text-amber-800 px-4 py-2 rounded-md text-sm flex items-center gap-2">
+                <AlertTriangle className="h-4 w-4" />
+                {viewOnlyMessage}
+              </div>
+            )}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Tasks & Workflows</h1>
@@ -236,7 +243,11 @@ export default function TasksPage() {
           />
         <Dialog open={open} onOpenChange={setOpen}>
           <DialogTrigger asChild>
-            <Button data-testid="button-create-task">
+            <Button 
+              data-testid="button-create-task"
+              disabled={!canMutate}
+              title={!canMutate ? viewOnlyMessage : undefined}
+            >
               <Plus className="mr-2 h-4 w-4" />
               Create Task
             </Button>
@@ -509,6 +520,7 @@ export default function TasksPage() {
                         <Checkbox
                           checked={task.status === "completed"}
                           onCheckedChange={() => toggleTaskStatus(task)}
+                          disabled={!canMutate}
                           data-testid={`checkbox-task-${task.id}`}
                         />
                       </div>
@@ -555,6 +567,8 @@ export default function TasksPage() {
                         variant="outline"
                         size="sm"
                         onClick={() => handleEdit(task)}
+                        disabled={!canMutate}
+                        title={!canMutate ? viewOnlyMessage : undefined}
                         data-testid={`button-edit-task-${task.id}`}
                       >
                         <Edit className="mr-2 h-4 w-4" />
@@ -565,6 +579,8 @@ export default function TasksPage() {
                         size="sm"
                         onClick={() => handleDelete(task.id)}
                         className="text-red-600 hover:text-red-700"
+                        disabled={!canMutate}
+                        title={!canMutate ? viewOnlyMessage : undefined}
                         data-testid={`button-delete-task-${task.id}`}
                       >
                         <Trash2 className="mr-2 h-4 w-4" />

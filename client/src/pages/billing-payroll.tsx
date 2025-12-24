@@ -45,7 +45,8 @@ import {
   Upload,
   FileUp,
   AlertCircle,
-  Loader2
+  Loader2,
+  AlertTriangle
 } from "lucide-react";
 import type { Office, BillingRecord, PayrollRun, OfficePayrollConfig, Mco, OfficeMcoBillingRate, Client, Caregiver, PayrollHoliday } from "@shared/schema";
 import { queryClient } from "@/lib/queryClient";
@@ -192,6 +193,9 @@ export default function BillingPayroll() {
   const [isUploadingPaystubs, setIsUploadingPaystubs] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const isAllOffices = selectedOfficeId === "all";
+  const canMutate = !isAllOffices;
+  const viewOnlyMessage = "Select a specific office to add, edit, or delete items.";
   const actualOfficeId = selectedOfficeId === "all" ? "" : selectedOfficeId;
 
   const { data: offices = [] } = useQuery<Office[]>({
@@ -955,6 +959,13 @@ export default function BillingPayroll() {
               </Card>
             </div>
 
+            {isAllOffices && (
+              <div className="bg-amber-50 border border-amber-200 text-amber-800 px-4 py-2 rounded-md text-sm flex items-center gap-2">
+                <AlertTriangle className="h-4 w-4" />
+                {viewOnlyMessage}
+              </div>
+            )}
+
             <Tabs defaultValue="billing" className="w-full">
               <TabsList className="grid w-full grid-cols-4">
                 <TabsTrigger value="billing" data-testid="tab-billing">
@@ -987,7 +998,11 @@ export default function BillingPayroll() {
                     </div>
                     <Dialog open={showBillingDialog} onOpenChange={setShowBillingDialog}>
                       <DialogTrigger asChild>
-                        <Button data-testid="button-create-billing">
+                        <Button 
+                          disabled={!canMutate}
+                          title={!canMutate ? viewOnlyMessage : undefined}
+                          data-testid="button-create-billing"
+                        >
                             <Plus className="w-4 h-4 mr-2" />
                             Create Billing
                           </Button>
@@ -1188,6 +1203,8 @@ export default function BillingPayroll() {
                                         size="sm" 
                                         variant="outline"
                                         onClick={() => updateBillingStatusMutation.mutate({ id: record.id, status: "invoiced" })}
+                                        disabled={!canMutate}
+                                        title={!canMutate ? viewOnlyMessage : undefined}
                                         data-testid={`button-invoice-${record.id}`}
                                       >
                                         <Send className="w-3 h-3" />
@@ -1198,6 +1215,8 @@ export default function BillingPayroll() {
                                         size="sm" 
                                         variant="outline"
                                         onClick={() => updateBillingStatusMutation.mutate({ id: record.id, status: "paid" })}
+                                        disabled={!canMutate}
+                                        title={!canMutate ? viewOnlyMessage : undefined}
                                         data-testid={`button-mark-paid-${record.id}`}
                                       >
                                         <CheckCircle className="w-3 h-3" />
@@ -1235,7 +1254,12 @@ export default function BillingPayroll() {
                           }
                         }}>
                           <DialogTrigger asChild>
-                            <Button variant="outline" data-testid="button-import-billing-hours">
+                            <Button 
+                              variant="outline" 
+                              disabled={!canMutate}
+                              title={!canMutate ? viewOnlyMessage : undefined}
+                              data-testid="button-import-billing-hours"
+                            >
                               <Upload className="w-4 h-4 mr-2" />
                               Import Billing Hours
                             </Button>
@@ -1419,7 +1443,12 @@ export default function BillingPayroll() {
                             payrollForm.reset();
                           }
                         }}>
-                          <Button onClick={handleOpenPayrollDialog} data-testid="button-create-payroll">
+                          <Button 
+                            onClick={handleOpenPayrollDialog} 
+                            disabled={!canMutate}
+                            title={!canMutate ? viewOnlyMessage : undefined}
+                            data-testid="button-create-payroll"
+                          >
                             <Plus className="w-4 h-4 mr-2" />
                             Create Payroll Run
                           </Button>
@@ -1537,8 +1566,9 @@ export default function BillingPayroll() {
                                       size="sm" 
                                       variant="ghost"
                                       onClick={() => handleEditPayrollRun(run)}
+                                      disabled={!canMutate}
                                       data-testid={`button-edit-payroll-${run.id}`}
-                                      title="Edit payroll run"
+                                      title={!canMutate ? viewOnlyMessage : "Edit payroll run"}
                                     >
                                       <Edit className="w-3 h-3" />
                                     </Button>
@@ -1546,8 +1576,9 @@ export default function BillingPayroll() {
                                       size="sm" 
                                       variant="outline"
                                       onClick={() => handleOpenImportDialog(run)}
+                                      disabled={!canMutate}
                                       data-testid={`button-import-hours-${run.id}`}
-                                      title="Import hours"
+                                      title={!canMutate ? viewOnlyMessage : "Import hours"}
                                     >
                                       <Upload className="w-3 h-3" />
                                     </Button>
@@ -1555,8 +1586,9 @@ export default function BillingPayroll() {
                                       size="sm" 
                                       variant="outline"
                                       onClick={() => handleExportHours(run.id)}
+                                      disabled={!canMutate}
                                       data-testid={`button-export-hours-${run.id}`}
-                                      title="Export hours"
+                                      title={!canMutate ? viewOnlyMessage : "Export hours"}
                                     >
                                       <Download className="w-3 h-3" />
                                     </Button>
@@ -1564,9 +1596,9 @@ export default function BillingPayroll() {
                                       size="sm" 
                                       variant="outline"
                                       onClick={() => handleCalculateOvertime(run.id)}
-                                      disabled={isCalculatingOvertime === run.id}
+                                      disabled={!canMutate || isCalculatingOvertime === run.id}
                                       data-testid={`button-calculate-overtime-${run.id}`}
-                                      title="Calculate overtime"
+                                      title={!canMutate ? viewOnlyMessage : "Calculate overtime"}
                                     >
                                       {isCalculatingOvertime === run.id ? (
                                         <Loader2 className="w-3 h-3 animate-spin" />
@@ -1580,8 +1612,9 @@ export default function BillingPayroll() {
                                           size="sm" 
                                           variant="outline"
                                           onClick={() => updatePayrollStatusMutation.mutate({ id: run.id, status: "approved" })}
+                                          disabled={!canMutate}
                                           data-testid={`button-approve-${run.id}`}
-                                          title="Approve"
+                                          title={!canMutate ? viewOnlyMessage : "Approve"}
                                         >
                                           <CheckCircle className="w-3 h-3" />
                                         </Button>
@@ -1589,8 +1622,9 @@ export default function BillingPayroll() {
                                           size="sm" 
                                           variant="ghost"
                                           onClick={() => deletePayrollMutation.mutate(run.id)}
+                                          disabled={!canMutate}
                                           data-testid={`button-delete-payroll-${run.id}`}
-                                          title="Delete payroll run"
+                                          title={!canMutate ? viewOnlyMessage : "Delete payroll run"}
                                         >
                                           <Trash2 className="w-3 h-3" />
                                         </Button>
@@ -1601,8 +1635,9 @@ export default function BillingPayroll() {
                                         size="sm" 
                                         variant="outline"
                                         onClick={() => updatePayrollStatusMutation.mutate({ id: run.id, status: "paid" })}
+                                        disabled={!canMutate}
                                         data-testid={`button-pay-${run.id}`}
-                                        title="Mark as paid"
+                                        title={!canMutate ? viewOnlyMessage : "Mark as paid"}
                                       >
                                         <DollarSign className="w-3 h-3" />
                                       </Button>
@@ -1660,6 +1695,8 @@ export default function BillingPayroll() {
                               <Button
                                 variant="outline"
                                 onClick={() => fileInputRef.current?.click()}
+                                disabled={!canMutate}
+                                title={!canMutate ? viewOnlyMessage : undefined}
                                 data-testid="button-browse-paystub"
                               >
                                 Browse Files
@@ -1677,7 +1714,8 @@ export default function BillingPayroll() {
                               <div className="flex gap-2 justify-center">
                                 <Button
                                   onClick={handleBulkPaystubUpload}
-                                  disabled={isUploadingPaystubs}
+                                  disabled={!canMutate || isUploadingPaystubs}
+                                  title={!canMutate ? viewOnlyMessage : undefined}
                                   data-testid="button-upload-paystubs"
                                 >
                                   {isUploadingPaystubs ? (

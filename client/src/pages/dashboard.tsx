@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Sidebar } from "@/components/sidebar";
 import { OfficeSelector } from "@/components/office-selector";
-import { useOffice } from "@/context/office-context";
+import { useOfficeScope } from "@/context/office-context";
 import { isUnauthorizedError } from "@/lib/authUtils";
 import { Link } from "wouter";
 import {
@@ -49,7 +49,7 @@ import { AiIssuesPanel } from "@/components/ai-issues-panel";
 export default function Dashboard() {
   const { toast } = useToast();
   const { isAuthenticated, isLoading, user } = useAuth();
-  const { selectedOfficeId, setSelectedOfficeId } = useOffice();
+  const { selectedOfficeId, setSelectedOfficeId, isAllOffices, canMutate, viewOnlyMessage } = useOfficeScope();
 
   // Redirect to login if not authenticated
   useEffect(() => {
@@ -417,6 +417,8 @@ export default function Dashboard() {
                   <Link href="/clients">
                     <Button 
                       className="flex flex-col items-center p-6 h-auto bg-muted hover:bg-secondary text-foreground w-full"
+                      disabled={!canMutate}
+                      title={!canMutate ? viewOnlyMessage : undefined}
                       data-testid="button-add-client"
                     >
                       <div className="w-12 h-12 bg-primary rounded-lg flex items-center justify-center mb-3">
@@ -429,6 +431,8 @@ export default function Dashboard() {
                   <Link href="/caregivers">
                     <Button 
                       className="flex flex-col items-center p-6 h-auto bg-muted hover:bg-secondary text-foreground w-full"
+                      disabled={!canMutate}
+                      title={!canMutate ? viewOnlyMessage : undefined}
                       data-testid="button-add-caregiver"
                     >
                       <div className="w-12 h-12 bg-accent rounded-lg flex items-center justify-center mb-3">
@@ -441,6 +445,8 @@ export default function Dashboard() {
                   <Link href="/incidents">
                     <Button 
                       className="flex flex-col items-center p-6 h-auto bg-muted hover:bg-secondary text-foreground w-full"
+                      disabled={!canMutate}
+                      title={!canMutate ? viewOnlyMessage : undefined}
                       data-testid="button-incident-report"
                     >
                       <div className="w-12 h-12 bg-destructive rounded-lg flex items-center justify-center mb-3">
@@ -486,7 +492,12 @@ export default function Dashboard() {
                       Export
                     </Button>
                     <Link href="/clients">
-                      <Button size="sm" data-testid="button-add-new-client">
+                      <Button 
+                        size="sm" 
+                        disabled={!canMutate}
+                        title={!canMutate ? viewOnlyMessage : undefined}
+                        data-testid="button-add-new-client"
+                      >
                         <Plus className="w-4 h-4 mr-2" />
                         Add Client
                       </Button>
@@ -558,6 +569,8 @@ export default function Dashboard() {
                                   variant="ghost" 
                                   size="sm"
                                   onClick={() => toast({ title: "Edit Client", description: `Editing ${client.firstName} ${client.lastName}` })}
+                                  disabled={!canMutate}
+                                  title={!canMutate ? viewOnlyMessage : undefined}
                                   data-testid={`button-edit-client-${client.id}`}
                                 >
                                   <Edit className="w-4 h-4" />

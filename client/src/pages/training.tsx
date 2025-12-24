@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Sidebar } from "@/components/sidebar";
 import { TopBar } from "@/components/topbar";
 import { OfficeSelector } from "@/components/office-selector";
-import { useOffice } from "@/context/office-context";
+import { useOfficeScope } from "@/context/office-context";
 import { apiRequest } from "@/lib/queryClient";
 import { isUnauthorizedError } from "@/lib/authUtils";
 import {
@@ -55,7 +55,8 @@ import {
   Calendar,
   CheckCircle,
   XCircle,
-  AlertCircle
+  AlertCircle,
+  AlertTriangle
 } from "lucide-react";
 
 const trainingTypeLabels = {
@@ -95,7 +96,7 @@ export default function Training() {
   const [activeTab, setActiveTab] = useState<"trainings" | "records">("trainings");
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const { selectedOfficeId, setSelectedOfficeId } = useOffice();
+  const { selectedOfficeId, setSelectedOfficeId, isAllOffices, canMutate, viewOnlyMessage } = useOfficeScope();
   const officeQuery = selectedOfficeId !== "all" ? `?officeId=${selectedOfficeId}` : "";
 
   const { data: trainings = [], isLoading: trainingsLoading } = useQuery<Training[]>({
@@ -397,6 +398,12 @@ export default function Training() {
           subtitle="Manage training programs and resources"
         />
         <div className="flex-1 overflow-auto p-6">
+        {isAllOffices && (
+          <div className="bg-amber-50 border border-amber-200 text-amber-800 px-4 py-2 rounded-md text-sm flex items-center gap-2 mb-4">
+            <AlertTriangle className="h-4 w-4" />
+            {viewOnlyMessage}
+          </div>
+        )}
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center space-x-2">
             <GraduationCap className="w-6 h-6" />
@@ -411,7 +418,11 @@ export default function Training() {
             />
             <Dialog open={showAddModal} onOpenChange={setShowAddModal}>
               <DialogTrigger asChild>
-                <Button data-testid="button-add-training">
+                <Button 
+                  data-testid="button-add-training"
+                  disabled={!canMutate}
+                  title={!canMutate ? viewOnlyMessage : undefined}
+                >
                   <Plus className="w-4 h-4 mr-2" />
                   Add Training
                 </Button>
@@ -585,6 +596,8 @@ export default function Training() {
             variant="outline" 
             onClick={() => setShowAssignModal(true)}
             data-testid="button-assign-training"
+            disabled={!canMutate}
+            title={!canMutate ? viewOnlyMessage : undefined}
           >
             <Users className="w-4 h-4 mr-2" />
             Assign Training
@@ -1021,6 +1034,8 @@ export default function Training() {
                       size="sm"
                       variant="outline"
                       onClick={() => handleEditTraining(training)}
+                      disabled={!canMutate}
+                      title={!canMutate ? viewOnlyMessage : undefined}
                       data-testid={`button-edit-training-${training.id}`}
                     >
                       <Edit className="w-4 h-4" />
@@ -1100,6 +1115,8 @@ export default function Training() {
                       <Button
                         size="sm"
                         variant="outline"
+                        disabled={!canMutate}
+                        title={!canMutate ? viewOnlyMessage : undefined}
                         data-testid={`button-edit-record-${record.id}`}
                       >
                         <Edit className="w-4 h-4" />

@@ -10,7 +10,7 @@ import { TopBar } from "@/components/topbar";
 import { FileUpload } from "@/components/file-upload";
 import { DocumentPreview } from "@/components/document-preview";
 import { OfficeSelector } from "@/components/office-selector";
-import { useOffice } from "@/context/office-context";
+import { useOfficeScope } from "@/context/office-context";
 import { apiRequest } from "@/lib/queryClient";
 import { isUnauthorizedError } from "@/lib/authUtils";
 import { 
@@ -38,7 +38,7 @@ export default function Documents() {
   const [previewDocument, setPreviewDocument] = useState<Document | null>(null);
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const { selectedOfficeId, setSelectedOfficeId } = useOffice();
+  const { selectedOfficeId, setSelectedOfficeId, isAllOffices, canMutate, viewOnlyMessage } = useOfficeScope();
   const officeQuery = selectedOfficeId !== "all" ? `?officeId=${selectedOfficeId}` : "";
 
   const { data: documents = [], isLoading } = useQuery<Document[]>({
@@ -182,7 +182,12 @@ export default function Documents() {
               showAllOption={true}
             />
           </div>
-          <Button onClick={() => setShowUploadModal(true)} data-testid="button-upload-document">
+          <Button 
+            onClick={() => setShowUploadModal(true)} 
+            data-testid="button-upload-document"
+            disabled={!canMutate}
+            title={!canMutate ? viewOnlyMessage : undefined}
+          >
             <Upload className="w-4 h-4 mr-2" />
             Upload Documents
           </Button>
@@ -191,6 +196,12 @@ export default function Documents() {
         {/* Content */}
         <div className="flex-1 overflow-auto p-6 bg-background">
           <div className="max-w-7xl mx-auto space-y-6">
+            {isAllOffices && (
+              <div className="bg-amber-50 border border-amber-200 text-amber-800 px-4 py-2 rounded-md text-sm flex items-center gap-2">
+                <AlertTriangle className="h-4 w-4" />
+                {viewOnlyMessage}
+              </div>
+            )}
             
             {/* Document Statistics */}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -409,7 +420,8 @@ export default function Documents() {
                                     variant="outline" 
                                     size="sm"
                                     onClick={() => handleSignDocument(document.id)}
-                                    disabled={updateDocumentMutation.isPending}
+                                    disabled={!canMutate || updateDocumentMutation.isPending}
+                                    title={!canMutate ? viewOnlyMessage : undefined}
                                     data-testid={`button-sign-document-${document.id}`}
                                   >
                                     Sign
@@ -444,7 +456,13 @@ export default function Documents() {
                   <p className="text-sm text-muted-foreground mb-4">
                     Upload multiple documents at once
                   </p>
-                  <Button className="w-full" onClick={() => setShowUploadModal(true)} data-testid="button-bulk-upload">
+                  <Button 
+                    className="w-full" 
+                    onClick={() => setShowUploadModal(true)} 
+                    data-testid="button-bulk-upload"
+                    disabled={!canMutate}
+                    title={!canMutate ? viewOnlyMessage : undefined}
+                  >
                     <Plus className="w-4 h-4 mr-2" />
                     Start Bulk Upload
                   </Button>

@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, type ReactNode } from "react";
+import { createContext, useContext, useState, type ReactNode } from "react";
 
 interface OfficeContextType {
   selectedOfficeId: string;
@@ -37,4 +37,19 @@ export function useOffice() {
     throw new Error("useOffice must be used within an OfficeProvider");
   }
   return context;
+}
+
+export function useOfficeScope() {
+  const { selectedOfficeId, setSelectedOfficeId } = useOffice();
+  
+  const isAllOffices = selectedOfficeId === "all";
+  const canMutate = !isAllOffices;
+  
+  return {
+    selectedOfficeId,
+    setSelectedOfficeId,
+    isAllOffices,
+    canMutate,
+    viewOnlyMessage: "Select a specific office to add, edit, or delete items.",
+  };
 }
