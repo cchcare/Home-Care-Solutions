@@ -431,7 +431,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Convert date strings to Date objects
       const processedBody = {
         ...req.body,
-        dateOfBirth: req.body.dateOfBirth && typeof req.body.dateOfBirth === 'string' ? new Date(req.body.dateOfBirth) : req.body.dateOfBirth,
+        dateOfBirth: coerceDate(req.body.dateOfBirth),
+        serviceStartDate: coerceDate(req.body.serviceStartDate),
+        snapRenewalDate: coerceDate(req.body.snapRenewalDate),
+        snapExpiryDate: coerceDate(req.body.snapExpiryDate),
+        medicaidRenewalDate: coerceDate(req.body.medicaidRenewalDate),
+        medicaidExpiryDate: coerceDate(req.body.medicaidExpiryDate),
       };
       const validatedData = insertClientSchema.partial().parse(processedBody);
       const client = await storage.updateClient(req.params.id, validatedData);

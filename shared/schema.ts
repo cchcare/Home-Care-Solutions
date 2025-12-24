@@ -110,6 +110,16 @@ export const clients = pgTable("clients", {
   serviceStartDate: timestamp("service_start_date"),
   coordinatorId: varchar("coordinator_id").references(() => coordinators.id),
   memberId: varchar("member_id"),
+  // SNAP (Supplemental Nutrition Assistance Program) tracking
+  snapRenewalDate: timestamp("snap_renewal_date"),
+  snapExpiryDate: timestamp("snap_expiry_date"),
+  snapStatus: varchar("snap_status").default("unknown"), // active, pending, expired, not_enrolled, unknown
+  snapNotes: text("snap_notes"),
+  // Medicaid tracking
+  medicaidRenewalDate: timestamp("medicaid_renewal_date"),
+  medicaidExpiryDate: timestamp("medicaid_expiry_date"),
+  medicaidStatus: varchar("medicaid_status").default("unknown"), // active, pending, expired, not_enrolled, unknown
+  medicaidNotes: text("medicaid_notes"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });

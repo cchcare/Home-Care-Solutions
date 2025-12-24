@@ -607,6 +607,16 @@ export default function ClientProfile() {
         status: client.status,
         officeId: client.officeId || "",
         mcoId: client.mcoId || "",
+        // SNAP fields
+        snapStatus: client.snapStatus || "unknown",
+        snapRenewalDate: client.snapRenewalDate,
+        snapExpiryDate: client.snapExpiryDate,
+        snapNotes: client.snapNotes || "",
+        // Medicaid fields
+        medicaidStatus: client.medicaidStatus || "unknown",
+        medicaidRenewalDate: client.medicaidRenewalDate,
+        medicaidExpiryDate: client.medicaidExpiryDate,
+        medicaidNotes: client.medicaidNotes || "",
       });
       setIsEditing(true);
     }
@@ -1778,6 +1788,188 @@ export default function ClientProfile() {
               {/* Eligibility Check Section */}
               {activeSection === "eligibility" && (
                 <div className="space-y-6">
+                  {/* SNAP and Medicaid Tracking Cards */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {/* SNAP Card */}
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="flex items-center gap-2 text-lg">
+                          <Wallet className="w-5 h-5 text-green-600" />
+                          SNAP Benefits
+                        </CardTitle>
+                        <CardDescription>Supplemental Nutrition Assistance Program</CardDescription>
+                      </CardHeader>
+                      <CardContent className="space-y-4">
+                        <div className="flex items-center justify-between">
+                          <Label className="text-muted-foreground">Status</Label>
+                          {isEditing ? (
+                            <Select
+                              value={editFormData.snapStatus || "unknown"}
+                              onValueChange={(value) => setEditFormData({ ...editFormData, snapStatus: value })}
+                            >
+                              <SelectTrigger className="w-40" data-testid="select-snap-status">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="active">Active</SelectItem>
+                                <SelectItem value="pending">Pending</SelectItem>
+                                <SelectItem value="expired">Expired</SelectItem>
+                                <SelectItem value="not_enrolled">Not Enrolled</SelectItem>
+                                <SelectItem value="unknown">Unknown</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          ) : (
+                            <Badge 
+                              variant={client?.snapStatus === "active" ? "default" : client?.snapStatus === "expired" ? "destructive" : "secondary"}
+                              data-testid="badge-snap-status"
+                            >
+                              {client?.snapStatus === "active" ? "Active" : 
+                               client?.snapStatus === "pending" ? "Pending" : 
+                               client?.snapStatus === "expired" ? "Expired" : 
+                               client?.snapStatus === "not_enrolled" ? "Not Enrolled" : "Unknown"}
+                            </Badge>
+                          )}
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <Label className="text-muted-foreground">Renewal Date</Label>
+                          {isEditing ? (
+                            <Input
+                              type="date"
+                              className="w-40"
+                              value={editFormData.snapRenewalDate ? format(new Date(editFormData.snapRenewalDate), "yyyy-MM-dd") : ""}
+                              onChange={(e) => setEditFormData({ ...editFormData, snapRenewalDate: e.target.value ? new Date(e.target.value) : undefined })}
+                              data-testid="input-snap-renewal-date"
+                            />
+                          ) : (
+                            <span className="font-medium" data-testid="text-snap-renewal-date">
+                              {client?.snapRenewalDate ? format(new Date(client.snapRenewalDate), "MMM d, yyyy") : "Not set"}
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <Label className="text-muted-foreground">Expiry Date</Label>
+                          {isEditing ? (
+                            <Input
+                              type="date"
+                              className="w-40"
+                              value={editFormData.snapExpiryDate ? format(new Date(editFormData.snapExpiryDate), "yyyy-MM-dd") : ""}
+                              onChange={(e) => setEditFormData({ ...editFormData, snapExpiryDate: e.target.value ? new Date(e.target.value) : undefined })}
+                              data-testid="input-snap-expiry-date"
+                            />
+                          ) : (
+                            <span className={`font-medium ${client?.snapExpiryDate && new Date(client.snapExpiryDate) < new Date() ? "text-destructive" : ""}`} data-testid="text-snap-expiry-date">
+                              {client?.snapExpiryDate ? format(new Date(client.snapExpiryDate), "MMM d, yyyy") : "Not set"}
+                            </span>
+                          )}
+                        </div>
+                        <div className="space-y-2">
+                          <Label className="text-muted-foreground">Notes</Label>
+                          {isEditing ? (
+                            <Textarea
+                              value={editFormData.snapNotes || ""}
+                              onChange={(e) => setEditFormData({ ...editFormData, snapNotes: e.target.value })}
+                              placeholder="Add SNAP-related notes..."
+                              rows={2}
+                              data-testid="input-snap-notes"
+                            />
+                          ) : (
+                            <p className="text-sm" data-testid="text-snap-notes">{client?.snapNotes || "No notes"}</p>
+                          )}
+                        </div>
+                      </CardContent>
+                    </Card>
+
+                    {/* Medicaid Card */}
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="flex items-center gap-2 text-lg">
+                          <Shield className="w-5 h-5 text-blue-600" />
+                          Medicaid
+                        </CardTitle>
+                        <CardDescription>Medical Assistance Program</CardDescription>
+                      </CardHeader>
+                      <CardContent className="space-y-4">
+                        <div className="flex items-center justify-between">
+                          <Label className="text-muted-foreground">Status</Label>
+                          {isEditing ? (
+                            <Select
+                              value={editFormData.medicaidStatus || "unknown"}
+                              onValueChange={(value) => setEditFormData({ ...editFormData, medicaidStatus: value })}
+                            >
+                              <SelectTrigger className="w-40" data-testid="select-medicaid-status">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="active">Active</SelectItem>
+                                <SelectItem value="pending">Pending</SelectItem>
+                                <SelectItem value="expired">Expired</SelectItem>
+                                <SelectItem value="not_enrolled">Not Enrolled</SelectItem>
+                                <SelectItem value="unknown">Unknown</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          ) : (
+                            <Badge 
+                              variant={client?.medicaidStatus === "active" ? "default" : client?.medicaidStatus === "expired" ? "destructive" : "secondary"}
+                              data-testid="badge-medicaid-status"
+                            >
+                              {client?.medicaidStatus === "active" ? "Active" : 
+                               client?.medicaidStatus === "pending" ? "Pending" : 
+                               client?.medicaidStatus === "expired" ? "Expired" : 
+                               client?.medicaidStatus === "not_enrolled" ? "Not Enrolled" : "Unknown"}
+                            </Badge>
+                          )}
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <Label className="text-muted-foreground">Renewal Date</Label>
+                          {isEditing ? (
+                            <Input
+                              type="date"
+                              className="w-40"
+                              value={editFormData.medicaidRenewalDate ? format(new Date(editFormData.medicaidRenewalDate), "yyyy-MM-dd") : ""}
+                              onChange={(e) => setEditFormData({ ...editFormData, medicaidRenewalDate: e.target.value ? new Date(e.target.value) : undefined })}
+                              data-testid="input-medicaid-renewal-date"
+                            />
+                          ) : (
+                            <span className="font-medium" data-testid="text-medicaid-renewal-date">
+                              {client?.medicaidRenewalDate ? format(new Date(client.medicaidRenewalDate), "MMM d, yyyy") : "Not set"}
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <Label className="text-muted-foreground">Expiry Date</Label>
+                          {isEditing ? (
+                            <Input
+                              type="date"
+                              className="w-40"
+                              value={editFormData.medicaidExpiryDate ? format(new Date(editFormData.medicaidExpiryDate), "yyyy-MM-dd") : ""}
+                              onChange={(e) => setEditFormData({ ...editFormData, medicaidExpiryDate: e.target.value ? new Date(e.target.value) : undefined })}
+                              data-testid="input-medicaid-expiry-date"
+                            />
+                          ) : (
+                            <span className={`font-medium ${client?.medicaidExpiryDate && new Date(client.medicaidExpiryDate) < new Date() ? "text-destructive" : ""}`} data-testid="text-medicaid-expiry-date">
+                              {client?.medicaidExpiryDate ? format(new Date(client.medicaidExpiryDate), "MMM d, yyyy") : "Not set"}
+                            </span>
+                          )}
+                        </div>
+                        <div className="space-y-2">
+                          <Label className="text-muted-foreground">Notes</Label>
+                          {isEditing ? (
+                            <Textarea
+                              value={editFormData.medicaidNotes || ""}
+                              onChange={(e) => setEditFormData({ ...editFormData, medicaidNotes: e.target.value })}
+                              placeholder="Add Medicaid-related notes..."
+                              rows={2}
+                              data-testid="input-medicaid-notes"
+                            />
+                          ) : (
+                            <p className="text-sm" data-testid="text-medicaid-notes">{client?.medicaidNotes || "No notes"}</p>
+                          )}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </div>
+
+                  {/* Eligibility Verification Card */}
                   <Card>
                     <CardHeader className="flex flex-row items-center justify-between">
                       <div>
