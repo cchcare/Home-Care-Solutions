@@ -76,7 +76,7 @@ import {
   ArrowRightLeft,
   Search
 } from "lucide-react";
-import type { Caregiver, User as UserType, Document, Office, Client, ComplianceItem } from "@shared/schema";
+import type { Caregiver, User as UserType, Document, Office, Client, ComplianceItem, Coordinator } from "@shared/schema";
 
 type EnrichedCaregiver = Caregiver & { firstName?: string | null; lastName?: string | null; email?: string | null };
 
@@ -157,6 +157,17 @@ export default function CaregiverProfile() {
 
   const { data: offices = [] } = useQuery<Office[]>({
     queryKey: ["/api/offices"],
+  });
+
+  const { data: coordinator } = useQuery<Coordinator>({
+    queryKey: ["/api/coordinators", caregiver?.coordinatorId],
+    queryFn: () => fetch(`/api/coordinators/${caregiver?.coordinatorId}`).then(r => r.json()),
+    enabled: !!caregiver?.coordinatorId,
+  });
+
+  const { data: allCoordinators = [] } = useQuery<Coordinator[]>({
+    queryKey: ["/api/coordinators"],
+    queryFn: () => fetch(`/api/coordinators`).then(r => r.json()),
   });
 
   const { data: documents = [] } = useQuery<Document[]>({
@@ -536,6 +547,31 @@ export default function CaregiverProfile() {
                             </Select>
                           ) : (
                             <p className="font-medium" data-testid="text-office">{office?.name || "N/A"}</p>
+                          )}
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-muted-foreground text-sm">Coordinator</Label>
+                          {isEditing ? (
+                            <Select
+                              value={editFormData.coordinatorId || ""}
+                              onValueChange={(value) => setEditFormData({ ...editFormData, coordinatorId: value || null })}
+                            >
+                              <SelectTrigger data-testid="select-coordinator">
+                                <SelectValue placeholder="Select Coordinator" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="">None</SelectItem>
+                                {allCoordinators.filter(c => c.isActive).map((c) => (
+                                  <SelectItem key={c.id} value={c.id}>
+                                    {c.firstName} {c.lastName}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          ) : (
+                            <p className="font-medium" data-testid="text-coordinator">
+                              {coordinator ? `${coordinator.firstName} ${coordinator.lastName}` : "N/A"}
+                            </p>
                           )}
                         </div>
                         <div className="space-y-1">

@@ -66,7 +66,7 @@ import {
   UserPlus,
   Search
 } from "lucide-react";
-import type { Client, Document, Office, Mco, User as UserType, ClientCommunication, OfficeMcoBillingRate, ClientSchedule, MasterWeekTemplate, MasterWeekSlot, Caregiver, ClientMco } from "@shared/schema";
+import type { Client, Document, Office, Mco, User as UserType, ClientCommunication, OfficeMcoBillingRate, ClientSchedule, MasterWeekTemplate, MasterWeekSlot, Caregiver, ClientMco, Coordinator } from "@shared/schema";
 
 const DOCUMENT_CATEGORIES = [
   { value: "id_card", label: "ID Card" },
@@ -157,10 +157,15 @@ export default function ClientProfile() {
     enabled: !!client?.mcoId,
   });
 
-  const { data: coordinator } = useQuery<UserType>({
-    queryKey: ["/api/users", client?.coordinatorId],
-    queryFn: () => fetch(`/api/users/${client?.coordinatorId}`).then(r => r.json()),
+  const { data: coordinator } = useQuery<Coordinator>({
+    queryKey: ["/api/coordinators", client?.coordinatorId],
+    queryFn: () => fetch(`/api/coordinators/${client?.coordinatorId}`).then(r => r.json()),
     enabled: !!client?.coordinatorId,
+  });
+
+  const { data: allCoordinators = [] } = useQuery<Coordinator[]>({
+    queryKey: ["/api/coordinators"],
+    queryFn: () => fetch(`/api/coordinators`).then(r => r.json()),
   });
 
   const { data: documents = [] } = useQuery<Document[]>({
@@ -625,9 +630,28 @@ export default function ClientProfile() {
                       </div>
                       <div className="space-y-1">
                         <Label className="text-muted-foreground text-sm">Coordinator</Label>
-                        <p className="font-medium" data-testid="text-coordinator">
-                          {coordinator ? `${coordinator.firstName} ${coordinator.lastName}` : "N/A"}
-                        </p>
+                        {isEditing ? (
+                          <Select
+                            value={editFormData.coordinatorId || ""}
+                            onValueChange={(value) => setEditFormData({ ...editFormData, coordinatorId: value || null })}
+                          >
+                            <SelectTrigger data-testid="select-coordinator">
+                              <SelectValue placeholder="Select Coordinator" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="">None</SelectItem>
+                              {allCoordinators.filter(c => c.isActive).map((c) => (
+                                <SelectItem key={c.id} value={c.id}>
+                                  {c.firstName} {c.lastName}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        ) : (
+                          <p className="font-medium" data-testid="text-coordinator">
+                            {coordinator ? `${coordinator.firstName} ${coordinator.lastName}` : "N/A"}
+                          </p>
+                        )}
                       </div>
                       <div className="space-y-1">
                         <Label className="text-muted-foreground text-sm">MCO</Label>

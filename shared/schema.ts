@@ -98,7 +98,7 @@ export const clients = pgTable("clients", {
   mcoId: varchar("mco_id"),
   status: varchar("status").default("active"),
   serviceStartDate: timestamp("service_start_date"),
-  coordinatorId: varchar("coordinator_id").references(() => users.id),
+  coordinatorId: varchar("coordinator_id").references(() => coordinators.id),
   memberId: varchar("member_id"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
