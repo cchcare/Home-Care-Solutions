@@ -282,11 +282,14 @@ export default function BillingPayroll() {
 
   const createBillingMutation = useMutation({
     mutationFn: async (data: any) => {
-      const response = await apiRequest("POST", "/api/billing", data);
+      const response = await apiRequest("POST", "/api/billing", {
+        ...data,
+        officeId: actualOfficeId,
+      });
       return response.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/billing"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/billing", selectedOfficeId] });
       setShowBillingDialog(false);
       billingForm.reset();
       toast({ title: "Billing record created" });
