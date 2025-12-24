@@ -192,7 +192,8 @@ export function MasterWeekTemplateModal({
       });
       setDaySlots(DAYS.map(d => createEmptySlot(d.value)));
     }
-  }, [template, client, form]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [template, client]);
 
   // Fetch existing slots if editing template
   const { data: existingSlots = [] } = useQuery<MasterWeekSlot[]>({
