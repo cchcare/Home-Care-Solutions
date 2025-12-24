@@ -30,6 +30,7 @@ import AccountSettings from "@/pages/account-settings";
 import AdminSettings from "@/pages/admin-settings";
 import BillingPayroll from "@/pages/billing-payroll";
 import AIAssistant from "@/pages/ai-assistant";
+import ResetPassword from "@/pages/reset-password";
 
 function Router() {
   const { isAuthenticated, isLoading, error } = useAuth();
@@ -48,6 +49,7 @@ function Router() {
 
   return (
     <Switch>
+      <Route path="/reset-password" component={ResetPassword} />
       {!isAuthenticated ? (
         <Route path="/" component={Landing} />
       ) : (

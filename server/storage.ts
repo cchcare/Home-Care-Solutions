@@ -196,6 +196,9 @@ export interface IStorage {
   getUserByUsernameOrEmail(identifier: string): Promise<User | undefined>;
   updateUserLastLogin(id: string): Promise<void>;
   updateUserPassword(id: string, passwordHash: string, mustResetPassword?: boolean): Promise<void>;
+  setUserResetToken(id: string, token: string, expiry: Date): Promise<void>;
+  getUserByResetToken(token: string): Promise<User | undefined>;
+  clearUserResetToken(id: string): Promise<void>;
 
   // Office operations
   getAllOffices(): Promise<Office[]>;
@@ -623,6 +626,33 @@ export class DatabaseStorage implements IStorage {
     await db.update(users).set({ 
       passwordHash, 
       mustResetPassword,
+      updatedAt: new Date() 
+    }).where(eq(users.id, id));
+  }
+
+  async setUserResetToken(id: string, token: string, expiry: Date): Promise<void> {
+    await db.update(users).set({ 
+      resetToken: token,
+      resetTokenExpiry: expiry,
+      updatedAt: new Date() 
+    }).where(eq(users.id, id));
+  }
+
+  async getUserByResetToken(token: string): Promise<User | undefined> {
+    const [user] = await db
+      .select()
+      .from(users)
+      .where(and(
+        eq(users.resetToken, token),
+        gte(users.resetTokenExpiry, new Date())
+      ));
+    return user;
+  }
+
+  async clearUserResetToken(id: string): Promise<void> {
+    await db.update(users).set({ 
+      resetToken: null,
+      resetTokenExpiry: null,
       updatedAt: new Date() 
     }).where(eq(users.id, id));
   }
