@@ -53,6 +53,29 @@ export interface ExtractedClientData {
   medications?: string[];
 }
 
+export interface ExtractedPaystubData {
+  employeeName?: string;
+  employeeFirstName?: string;
+  employeeLastName?: string;
+  employeeId?: string;
+  ssn?: string;
+  payPeriodStart?: string;
+  payPeriodEnd?: string;
+  payDate?: string;
+  regularHours?: number;
+  overtimeHours?: number;
+  grossPay?: number;
+  federalTax?: number;
+  stateTax?: number;
+  socialSecurity?: number;
+  medicare?: number;
+  otherDeductions?: number;
+  netPay?: number;
+  checkNumber?: string;
+  companyName?: string;
+  isPaystub?: boolean;
+}
+
 const CAREGIVER_EXTRACTION_PROMPT = `You are an OCR extraction assistant for a home care agency management system.
 Analyze this document image and extract all personal information for a caregiver/employee.
 
@@ -106,6 +129,37 @@ Extract the following fields if present:
 - medications: Array of current medications
 
 Return ONLY a valid JSON object with the extracted fields. Use null for fields that cannot be found.
+Do not include any explanation or markdown formatting.`;
+
+const PAYSTUB_EXTRACTION_PROMPT = `You are an OCR extraction assistant for a home care agency payroll system.
+Analyze this document image and determine if it is a paystub/pay statement. If it is, extract the payroll information.
+
+IMPORTANT: First determine if this page is actually a paystub or pay statement. Set isPaystub to true only if it contains payroll/payment information for an employee.
+
+Extract the following fields if this is a paystub:
+- isPaystub: boolean - true if this is a paystub/pay statement, false otherwise
+- employeeName: Full name of the employee (as shown on the paystub)
+- employeeFirstName: First name only
+- employeeLastName: Last name only
+- employeeId: Employee ID number if shown
+- ssn: Last 4 digits of SSN only (e.g., "XXX-XX-1234" -> "1234")
+- payPeriodStart: Start date of pay period (format: YYYY-MM-DD)
+- payPeriodEnd: End date of pay period (format: YYYY-MM-DD)
+- payDate: Payment/check date (format: YYYY-MM-DD)
+- regularHours: Regular hours worked (number)
+- overtimeHours: Overtime hours worked (number)
+- grossPay: Gross pay amount (number, no currency symbol)
+- federalTax: Federal tax withheld (number)
+- stateTax: State tax withheld (number)
+- socialSecurity: Social Security tax withheld (number)
+- medicare: Medicare tax withheld (number)
+- otherDeductions: Total of other deductions (number)
+- netPay: Net pay / take-home amount (number)
+- checkNumber: Check number if shown
+- companyName: Employer/company name
+
+Return ONLY a valid JSON object with the extracted fields. Use null for fields that cannot be found.
+If this is NOT a paystub, return {"isPaystub": false} and null for all other fields.
 Do not include any explanation or markdown formatting.`;
 
 async function convertPdfToImages(pdfPath: string): Promise<string[]> {
@@ -276,4 +330,84 @@ export async function extractFromImageFile(
   } else {
     return extractDataFromImages<ExtractedClientData>([imagePath], prompt);
   }
+}
+
+export interface PageImageInfo {
+  pageNumber: number;
+  imagePath: string;
+}
+
+export async function convertPdfToAllPageImages(pdfPath: string): Promise<PageImageInfo[]> {
+  const outputDir = path.join("uploads", "paystub-pages");
+  
+  if (!fs.existsSync(outputDir)) {
+    fs.mkdirSync(outputDir, { recursive: true });
+  }
+
+  const timestamp = Date.now();
+  const baseFileName = `paystub-${timestamp}`;
+
+  const options = {
+    density: 150,
+    saveFilename: baseFileName,
+    savePath: outputDir,
+    format: "png",
+    width: 1200,
+    height: 1600,
+  };
+
+  const convert = fromPath(pdfPath, options);
+  const pageImages: PageImageInfo[] = [];
+
+  try {
+    const pageCount = await getPageCount(pdfPath);
+
+    for (let page = 1; page <= pageCount; page++) {
+      const result = await convert(page);
+      if (result.path) {
+        pageImages.push({
+          pageNumber: page,
+          imagePath: result.path,
+        });
+      }
+    }
+  } catch (error) {
+    console.error("Error converting PDF to page images:", error);
+    throw new Error("Failed to convert PDF to individual page images");
+  }
+
+  return pageImages;
+}
+
+export async function extractPaystubFromImage(imagePath: string): Promise<ExtractedPaystubData> {
+  return extractDataFromImages<ExtractedPaystubData>([imagePath], PAYSTUB_EXTRACTION_PROMPT);
+}
+
+export async function extractPaystubsFromPdf(pdfPath: string): Promise<{ pageNumber: number; data: ExtractedPaystubData; imagePath: string }[]> {
+  const pageImages = await convertPdfToAllPageImages(pdfPath);
+  const results: { pageNumber: number; data: ExtractedPaystubData; imagePath: string }[] = [];
+
+  for (const pageInfo of pageImages) {
+    try {
+      const data = await extractPaystubFromImage(pageInfo.imagePath);
+      results.push({
+        pageNumber: pageInfo.pageNumber,
+        data,
+        imagePath: pageInfo.imagePath,
+      });
+    } catch (error) {
+      console.error(`Error extracting paystub from page ${pageInfo.pageNumber}:`, error);
+      results.push({
+        pageNumber: pageInfo.pageNumber,
+        data: { isPaystub: false },
+        imagePath: pageInfo.imagePath,
+      });
+    }
+  }
+
+  return results;
+}
+
+export function cleanupPaystubTempFiles(imagePaths: string[]): void {
+  cleanupTempFiles(imagePaths);
 }
