@@ -1249,7 +1249,7 @@ export const billingRecords = pgTable("billing_records", {
   totalAmount: numeric("total_amount", { precision: 12, scale: 2 }).notNull(),
   billDate: timestamp("bill_date").notNull(),
   dueDate: timestamp("due_date"),
-  status: billingStatusEnum("status").default("pending"),
+  status: varchar("status").default("pending"), // pending, invoiced, paid, overdue, cancelled
   notes: text("notes"),
   createdBy: varchar("created_by").references(() => users.id),
   createdAt: timestamp("created_at").defaultNow(),
@@ -1464,6 +1464,7 @@ export const caregiverPaychecks = pgTable("caregiver_paychecks", {
   netPay: numeric("net_pay", { precision: 10, scale: 2 }).notNull(),
   status: varchar("status").default("pending"), // pending, processed, paid
   checkNumber: varchar("check_number"),
+  paystubDocumentId: varchar("paystub_document_id").references(() => documents.id),
   notes: text("notes"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
