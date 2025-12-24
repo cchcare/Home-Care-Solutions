@@ -1805,9 +1805,15 @@ export default function ClientProfile() {
                   <SelectValue placeholder="Select MCO" />
                 </SelectTrigger>
                 <SelectContent>
-                  {allMcos.map((m) => (
-                    <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>
-                  ))}
+                  {officeMcos.length > 0 ? (
+                    officeMcos.map((m) => (
+                      <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>
+                    ))
+                  ) : (
+                    <div className="p-2 text-sm text-muted-foreground">
+                      No MCOs configured for this office. Please set up MCOs in the office settings first.
+                    </div>
+                  )}
                 </SelectContent>
               </Select>
             </div>
