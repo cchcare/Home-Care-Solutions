@@ -1240,21 +1240,16 @@ export const payrollLineItemsRelations = relations(payrollLineItems, ({ one }) =
 // Billing Records - Track invoices and payments
 export const billingRecords = pgTable("billing_records", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  officeId: varchar("office_id").references(() => offices.id).notNull(),
-  clientId: varchar("client_id").references(() => clients.id).notNull(),
-  caregiverId: varchar("caregiver_id").references(() => caregivers.id),
   mcoId: varchar("mco_id").references(() => mcos.id),
-  invoiceNumber: varchar("invoice_number"),
-  servicePeriodStart: timestamp("service_period_start").notNull(),
-  servicePeriodEnd: timestamp("service_period_end").notNull(),
+  serviceStartDate: timestamp("service_start_date").notNull(),
+  serviceEndDate: timestamp("service_end_date").notNull(),
   serviceCode: varchar("service_code"),
-  hoursOrUnits: numeric("hours_or_units", { precision: 8, scale: 2 }),
+  hours: numeric("hours", { precision: 8, scale: 2 }),
   rate: numeric("rate", { precision: 10, scale: 2 }),
-  amount: numeric("amount", { precision: 12, scale: 2 }).notNull(),
-  status: billingStatusEnum("status").default("pending"),
-  invoicedAt: timestamp("invoiced_at"),
-  paidAt: timestamp("paid_at"),
+  totalAmount: numeric("total_amount", { precision: 12, scale: 2 }).notNull(),
+  billDate: timestamp("bill_date").notNull(),
   dueDate: timestamp("due_date"),
+  status: billingStatusEnum("status").default("pending"),
   notes: text("notes"),
   createdBy: varchar("created_by").references(() => users.id),
   createdAt: timestamp("created_at").defaultNow(),
@@ -1262,18 +1257,6 @@ export const billingRecords = pgTable("billing_records", {
 });
 
 export const billingRecordsRelations = relations(billingRecords, ({ one }) => ({
-  office: one(offices, {
-    fields: [billingRecords.officeId],
-    references: [offices.id],
-  }),
-  client: one(clients, {
-    fields: [billingRecords.clientId],
-    references: [clients.id],
-  }),
-  caregiver: one(caregivers, {
-    fields: [billingRecords.caregiverId],
-    references: [caregivers.id],
-  }),
   mco: one(mcos, {
     fields: [billingRecords.mcoId],
     references: [mcos.id],
