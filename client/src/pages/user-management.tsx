@@ -23,8 +23,17 @@ import { z } from "zod";
 import { useAuth } from "@/hooks/useAuth";
 
 const userFormSchema = insertUserSchema.extend({
+  password: z.string().min(8, "Password must be at least 8 characters").optional(),
   passwordConfirm: z.string().optional(),
-}).omit({ id: true, createdAt: true, updatedAt: true });
+}).omit({ id: true, createdAt: true, updatedAt: true }).refine((data) => {
+  if (data.password && data.passwordConfirm && data.password !== data.passwordConfirm) {
+    return false;
+  }
+  return true;
+}, {
+  message: "Passwords do not match",
+  path: ["passwordConfirm"],
+});
 
 type UserFormData = z.infer<typeof userFormSchema>;
 
@@ -131,7 +140,10 @@ export default function UserManagementPage() {
   const form = useForm<UserFormData>({
     resolver: zodResolver(userFormSchema),
     defaultValues: {
+      username: "",
       email: "",
+      password: "",
+      passwordConfirm: "",
       firstName: "",
       lastName: "",
       profileImageUrl: "",
@@ -165,7 +177,10 @@ export default function UserManagementPage() {
   const handleEdit = (user: User) => {
     setEditingUser(user);
     form.reset({
+      username: user.username || "",
       email: user.email || "",
+      password: "",
+      passwordConfirm: "",
       firstName: user.firstName || "",
       lastName: user.lastName || "",
       profileImageUrl: user.profileImageUrl || "",
@@ -195,6 +210,7 @@ export default function UserManagementPage() {
 
   const filteredUsers = users.filter((user: User) => {
     const matchesSearch = 
+      user.username?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       user.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       user.firstName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       user.lastName?.toLowerCase().includes(searchTerm.toLowerCase());
@@ -265,25 +281,90 @@ export default function UserManagementPage() {
             </DialogHeader>
             <Form {...form}>
               <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-                <FormField
-                  control={form.control}
-                  name="email"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Email Address</FormLabel>
-                      <FormControl>
-                        <Input 
-                          type="email"
-                          placeholder="user@example.com"
-                          {...field} 
-                          value={field.value || ""}
-                          data-testid="input-user-email"
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <FormField
+                    control={form.control}
+                    name="username"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Username</FormLabel>
+                        <FormControl>
+                          <Input 
+                            placeholder="johndoe"
+                            {...field} 
+                            value={field.value || ""}
+                            data-testid="input-user-username"
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name="email"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Email Address</FormLabel>
+                        <FormControl>
+                          <Input 
+                            type="email"
+                            placeholder="user@example.com"
+                            {...field} 
+                            value={field.value || ""}
+                            data-testid="input-user-email"
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+
+                {!editingUser && (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <FormField
+                      control={form.control}
+                      name="password"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Password</FormLabel>
+                          <FormControl>
+                            <Input 
+                              type="password"
+                              placeholder="Min 8 characters"
+                              {...field} 
+                              value={field.value || ""}
+                              data-testid="input-user-password"
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={form.control}
+                      name="passwordConfirm"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Confirm Password</FormLabel>
+                          <FormControl>
+                            <Input 
+                              type="password"
+                              placeholder="Confirm password"
+                              {...field} 
+                              value={field.value || ""}
+                              data-testid="input-user-password-confirm"
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+                )}
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <FormField
