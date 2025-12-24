@@ -195,6 +195,7 @@ export const documents = pgTable("documents", {
   clientId: varchar("client_id").references(() => clients.id),
   caregiverId: varchar("caregiver_id").references(() => caregivers.id),
   uploadedBy: varchar("uploaded_by").references(() => users.id),
+  officeId: varchar("office_id").references(() => offices.id),
   fileName: varchar("file_name").notNull(),
   originalName: varchar("original_name").notNull(),
   fileType: varchar("file_type"),
@@ -216,6 +217,7 @@ export const incidentReports = pgTable("incident_reports", {
   clientId: varchar("client_id").references(() => clients.id), // For client incidents or incidents involving clients
   caregiverId: varchar("caregiver_id").references(() => caregivers.id), // For caregiver incidents
   reportedBy: varchar("reported_by").references(() => users.id),
+  officeId: varchar("office_id").references(() => offices.id),
   incidentDate: timestamp("incident_date").notNull(),
   incidentType: varchar("incident_type").notNull(), // fall, medication_error, injury, behavioral, etc.
   incidentCategory: varchar("incident_category").notNull(), // safety, medical, behavioral, environmental
@@ -246,6 +248,7 @@ export const tasks = pgTable("tasks", {
   assignedTo: varchar("assigned_to").references(() => users.id),
   createdBy: varchar("created_by").references(() => users.id),
   clientId: varchar("client_id").references(() => clients.id),
+  officeId: varchar("office_id").references(() => offices.id),
   title: varchar("title").notNull(),
   description: text("description"),
   priority: varchar("priority").default("medium"), // low, medium, high, critical
@@ -1282,6 +1285,7 @@ export const payrollLineItemsRelations = relations(payrollLineItems, ({ one }) =
 // Billing Records - Track invoices and payments
 export const billingRecords = pgTable("billing_records", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  officeId: varchar("office_id").references(() => offices.id),
   mcoId: varchar("mco_id").references(() => mcos.id),
   serviceStartDate: timestamp("service_start_date").notNull(),
   serviceEndDate: timestamp("service_end_date").notNull(),
