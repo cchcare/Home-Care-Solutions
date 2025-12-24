@@ -59,6 +59,17 @@ import { ObjectStorageService, ObjectNotFoundError } from "./objectStorage";
 import { ObjectPermission } from "./objectAcl";
 import { extractPaystubsFromPdf, cleanupPaystubTempFiles, ExtractedPaystubData } from "./ocr-service";
 
+// Helper function to coerce date strings to Date objects
+function coerceDate(value: string | Date | null | undefined): Date | null | undefined {
+  if (value === null) return null;
+  if (value === undefined) return undefined;
+  if (value instanceof Date) return value;
+  if (typeof value === 'string' && value.trim() !== '') {
+    return new Date(value);
+  }
+  return undefined;
+}
+
 // Configure multer for HIPAA-compliant file uploads
 const upload = multer({
   dest: "uploads/",
@@ -1382,10 +1393,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/incident-reports", isAuthenticated, async (req: any, res) => {
     try {
-      const validatedData = insertIncidentReportSchema.parse({
+      const coercedData = {
         ...req.body,
+        incidentDate: coerceDate(req.body.incidentDate),
+        followUpDate: coerceDate(req.body.followUpDate),
         reportedBy: req.user.claims.sub,
-      });
+      };
+      const validatedData = insertIncidentReportSchema.parse(coercedData);
       const report = await storage.createIncidentReport(validatedData);
       res.status(201).json(report);
     } catch (error) {
@@ -1428,10 +1442,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/tasks", isAuthenticated, async (req: any, res) => {
     try {
-      const validatedData = insertTaskSchema.parse({
+      const coercedData = {
         ...req.body,
+        dueDate: coerceDate(req.body.dueDate),
+        completedAt: coerceDate(req.body.completedAt),
         createdBy: req.user.claims.sub,
-      });
+      };
+      const validatedData = insertTaskSchema.parse(coercedData);
       const task = await storage.createTask(validatedData);
       res.status(201).json(task);
     } catch (error) {
@@ -1442,7 +1459,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.put("/api/tasks/:id", isAuthenticated, async (req: any, res) => {
     try {
-      const validatedData = insertTaskSchema.partial().parse(req.body);
+      const coercedData = {
+        ...req.body,
+        dueDate: coerceDate(req.body.dueDate),
+        completedAt: coerceDate(req.body.completedAt),
+      };
+      const validatedData = insertTaskSchema.partial().parse(coercedData);
       const task = await storage.updateTask(req.params.id, validatedData);
       res.json(task);
     } catch (error) {
@@ -1663,7 +1685,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/compliance", isAuthenticated, async (req: any, res) => {
     try {
-      const validatedData = insertComplianceItemSchema.parse(req.body);
+      const coercedData = {
+        ...req.body,
+        dueDate: coerceDate(req.body.dueDate),
+        completedDate: coerceDate(req.body.completedDate),
+      };
+      const validatedData = insertComplianceItemSchema.parse(coercedData);
       const item = await storage.createComplianceItem(validatedData);
       res.status(201).json(item);
     } catch (error) {
@@ -1674,7 +1701,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.put("/api/compliance/:id", isAuthenticated, async (req, res) => {
     try {
-      const validatedData = insertComplianceItemSchema.partial().parse(req.body);
+      const coercedData = {
+        ...req.body,
+        dueDate: coerceDate(req.body.dueDate),
+        completedDate: coerceDate(req.body.completedDate),
+      };
+      const validatedData = insertComplianceItemSchema.partial().parse(coercedData);
       const item = await storage.updateComplianceItem(req.params.id, validatedData);
       res.json(item);
     } catch (error) {
@@ -1731,7 +1763,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/training-records", isAuthenticated, async (req: any, res) => {
     try {
-      const validatedData = insertTrainingRecordSchema.parse(req.body);
+      const coercedData = {
+        ...req.body,
+        startDate: coerceDate(req.body.startDate),
+        completionDate: coerceDate(req.body.completionDate),
+        expirationDate: coerceDate(req.body.expirationDate),
+      };
+      const validatedData = insertTrainingRecordSchema.parse(coercedData);
       const record = await storage.createTrainingRecord(validatedData);
       res.status(201).json(record);
     } catch (error) {
@@ -2912,7 +2950,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/clients/:clientId/mcos", isAuthenticated, async (req, res) => {
     try {
       const { clientId: _, ...userBody } = req.body;
-      const validatedBody = insertClientMcoSchema.omit({ clientId: true }).parse(userBody);
+      const coercedData = {
+        ...userBody,
+        startDate: coerceDate(userBody.startDate),
+        dischargeDate: coerceDate(userBody.dischargeDate),
+      };
+      const validatedBody = insertClientMcoSchema.omit({ clientId: true }).parse(coercedData);
       const mco = await storage.createClientMco({
         ...validatedBody,
         clientId: req.params.clientId,
@@ -2927,7 +2970,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put("/api/client-mcos/:id", isAuthenticated, async (req, res) => {
     try {
       const { clientId, ...updateData } = req.body;
-      const validatedData = insertClientMcoSchema.partial().parse(updateData);
+      const coercedData = {
+        ...updateData,
+        startDate: coerceDate(updateData.startDate),
+        dischargeDate: coerceDate(updateData.dischargeDate),
+      };
+      const validatedData = insertClientMcoSchema.partial().parse(coercedData);
       const mco = await storage.updateClientMco(req.params.id, validatedData);
       res.json(mco);
     } catch (error) {
@@ -5044,7 +5092,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/caregivers/:caregiverId/absences", isAuthenticated, async (req, res) => {
     try {
       const { caregiverId: _, ...userBody } = req.body;
-      const validatedBody = insertCaregiverAbsenceSchema.omit({ caregiverId: true }).parse(userBody);
+      const coercedData = {
+        ...userBody,
+        startDate: coerceDate(userBody.startDate),
+        endDate: coerceDate(userBody.endDate),
+        approvedAt: coerceDate(userBody.approvedAt),
+      };
+      const validatedBody = insertCaregiverAbsenceSchema.omit({ caregiverId: true }).parse(coercedData);
       const absence = await storage.createCaregiverAbsence({
         ...validatedBody,
         caregiverId: req.params.caregiverId,
@@ -5059,7 +5113,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put("/api/caregiver-absences/:id", isAuthenticated, async (req, res) => {
     try {
       const { caregiverId, ...updateData } = req.body;
-      const validatedData = insertCaregiverAbsenceSchema.partial().parse(updateData);
+      const coercedData = {
+        ...updateData,
+        startDate: coerceDate(updateData.startDate),
+        endDate: coerceDate(updateData.endDate),
+        approvedAt: coerceDate(updateData.approvedAt),
+      };
+      const validatedData = insertCaregiverAbsenceSchema.partial().parse(coercedData);
       const absence = await storage.updateCaregiverAbsence(req.params.id, validatedData);
       res.json(absence);
     } catch (error) {
@@ -5166,7 +5226,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/caregivers/:caregiverId/expenses", isAuthenticated, async (req, res) => {
     try {
       const { caregiverId: _, ...userBody } = req.body;
-      const validatedBody = insertCaregiverExpenseSchema.omit({ caregiverId: true }).parse(userBody);
+      const coercedData = {
+        ...userBody,
+        expenseDate: coerceDate(userBody.expenseDate),
+        approvedAt: coerceDate(userBody.approvedAt),
+        paidAt: coerceDate(userBody.paidAt),
+      };
+      const validatedBody = insertCaregiverExpenseSchema.omit({ caregiverId: true }).parse(coercedData);
       const expense = await storage.createCaregiverExpense({
         ...validatedBody,
         caregiverId: req.params.caregiverId,
@@ -5181,7 +5247,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put("/api/caregiver-expenses/:id", isAuthenticated, async (req, res) => {
     try {
       const { caregiverId, ...updateData } = req.body;
-      const validatedData = insertCaregiverExpenseSchema.partial().parse(updateData);
+      const coercedData = {
+        ...updateData,
+        expenseDate: coerceDate(updateData.expenseDate),
+        approvedAt: coerceDate(updateData.approvedAt),
+        paidAt: coerceDate(updateData.paidAt),
+      };
+      const validatedData = insertCaregiverExpenseSchema.partial().parse(coercedData);
       const expense = await storage.updateCaregiverExpense(req.params.id, validatedData);
       res.json(expense);
     } catch (error) {
@@ -5214,7 +5286,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/caregivers/:caregiverId/paychecks", isAuthenticated, async (req, res) => {
     try {
       const { caregiverId: _, ...userBody } = req.body;
-      const validatedBody = insertCaregiverPaycheckSchema.omit({ caregiverId: true }).parse(userBody);
+      const coercedData = {
+        ...userBody,
+        payPeriodStart: coerceDate(userBody.payPeriodStart),
+        payPeriodEnd: coerceDate(userBody.payPeriodEnd),
+        payDate: coerceDate(userBody.payDate),
+      };
+      const validatedBody = insertCaregiverPaycheckSchema.omit({ caregiverId: true }).parse(coercedData);
       const paycheck = await storage.createCaregiverPaycheck({
         ...validatedBody,
         caregiverId: req.params.caregiverId,
@@ -5229,7 +5307,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put("/api/caregiver-paychecks/:id", isAuthenticated, async (req, res) => {
     try {
       const { caregiverId, ...updateData } = req.body;
-      const validatedData = insertCaregiverPaycheckSchema.partial().parse(updateData);
+      const coercedData = {
+        ...updateData,
+        payPeriodStart: coerceDate(updateData.payPeriodStart),
+        payPeriodEnd: coerceDate(updateData.payPeriodEnd),
+        payDate: coerceDate(updateData.payDate),
+      };
+      const validatedData = insertCaregiverPaycheckSchema.partial().parse(coercedData);
       const paycheck = await storage.updateCaregiverPaycheck(req.params.id, validatedData);
       res.json(paycheck);
     } catch (error) {
@@ -5252,7 +5336,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/caregivers/:caregiverId/rates", isAuthenticated, async (req, res) => {
     try {
       const { caregiverId: _, ...userBody } = req.body;
-      const validatedBody = insertCaregiverRateSchema.omit({ caregiverId: true }).parse(userBody);
+      const coercedData = {
+        ...userBody,
+        effectiveFrom: coerceDate(userBody.effectiveFrom),
+        effectiveTo: coerceDate(userBody.effectiveTo),
+      };
+      const validatedBody = insertCaregiverRateSchema.omit({ caregiverId: true }).parse(coercedData);
       const rate = await storage.createCaregiverRate({
         ...validatedBody,
         caregiverId: req.params.caregiverId,
@@ -5267,7 +5356,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put("/api/caregiver-rates/:id", isAuthenticated, async (req, res) => {
     try {
       const { caregiverId, ...updateData } = req.body;
-      const validatedData = insertCaregiverRateSchema.partial().parse(updateData);
+      const coercedData = {
+        ...updateData,
+        effectiveFrom: coerceDate(updateData.effectiveFrom),
+        effectiveTo: coerceDate(updateData.effectiveTo),
+      };
+      const validatedData = insertCaregiverRateSchema.partial().parse(coercedData);
       const rate = await storage.updateCaregiverRate(req.params.id, validatedData);
       res.json(rate);
     } catch (error) {
@@ -5300,7 +5394,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/caregivers/:caregiverId/in-services", isAuthenticated, async (req, res) => {
     try {
       const { caregiverId: _, ...userBody } = req.body;
-      const validatedBody = insertCaregiverInServiceSchema.omit({ caregiverId: true }).parse(userBody);
+      const coercedData = {
+        ...userBody,
+        trainingDate: coerceDate(userBody.trainingDate),
+        expirationDate: coerceDate(userBody.expirationDate),
+      };
+      const validatedBody = insertCaregiverInServiceSchema.omit({ caregiverId: true }).parse(coercedData);
       const inService = await storage.createCaregiverInService({
         ...validatedBody,
         caregiverId: req.params.caregiverId,
@@ -5315,7 +5414,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put("/api/caregiver-in-services/:id", isAuthenticated, async (req, res) => {
     try {
       const { caregiverId, ...updateData } = req.body;
-      const validatedData = insertCaregiverInServiceSchema.partial().parse(updateData);
+      const coercedData = {
+        ...updateData,
+        trainingDate: coerceDate(updateData.trainingDate),
+        expirationDate: coerceDate(updateData.expirationDate),
+      };
+      const validatedData = insertCaregiverInServiceSchema.partial().parse(coercedData);
       const inService = await storage.updateCaregiverInService(req.params.id, validatedData);
       res.json(inService);
     } catch (error) {
@@ -5348,7 +5452,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/caregivers/:caregiverId/office-moves", isAuthenticated, async (req: any, res) => {
     try {
       const { caregiverId: _, approvedBy: __, ...userBody } = req.body;
-      const validatedBody = insertCaregiverOfficeMoveSchema.omit({ caregiverId: true, approvedBy: true }).parse(userBody);
+      const coercedData = {
+        ...userBody,
+        moveDate: coerceDate(userBody.moveDate),
+      };
+      const validatedBody = insertCaregiverOfficeMoveSchema.omit({ caregiverId: true, approvedBy: true }).parse(coercedData);
       const move = await storage.createCaregiverOfficeMove({
         ...validatedBody,
         caregiverId: req.params.caregiverId,
@@ -5364,7 +5472,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put("/api/caregiver-office-moves/:id", isAuthenticated, async (req, res) => {
     try {
       const { caregiverId, approvedBy, ...updateData } = req.body;
-      const validatedData = insertCaregiverOfficeMoveSchema.partial().parse(updateData);
+      const coercedData = {
+        ...updateData,
+        moveDate: coerceDate(updateData.moveDate),
+      };
+      const validatedData = insertCaregiverOfficeMoveSchema.partial().parse(coercedData);
       const move = await storage.updateCaregiverOfficeMove(req.params.id, validatedData);
       res.json(move);
     } catch (error) {
@@ -5392,7 +5504,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/caregivers/:caregiverId/schedules", isAuthenticated, async (req: any, res) => {
     try {
       const { caregiverId: _, createdBy: __, ...userBody } = req.body;
-      const validatedBody = insertCaregiverScheduleSchema.omit({ caregiverId: true, createdBy: true }).parse(userBody);
+      const coercedData = {
+        ...userBody,
+        scheduledDate: coerceDate(userBody.scheduledDate),
+        clockInTime: coerceDate(userBody.clockInTime),
+        clockOutTime: coerceDate(userBody.clockOutTime),
+      };
+      const validatedBody = insertCaregiverScheduleSchema.omit({ caregiverId: true, createdBy: true }).parse(coercedData);
       const schedule = await storage.createCaregiverSchedule({
         ...validatedBody,
         caregiverId: req.params.caregiverId,
@@ -5408,7 +5526,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put("/api/caregiver-schedules/:id", isAuthenticated, async (req, res) => {
     try {
       const { caregiverId, createdBy, ...updateData } = req.body;
-      const validatedData = insertCaregiverScheduleSchema.partial().parse(updateData);
+      const coercedData = {
+        ...updateData,
+        scheduledDate: coerceDate(updateData.scheduledDate),
+        clockInTime: coerceDate(updateData.clockInTime),
+        clockOutTime: coerceDate(updateData.clockOutTime),
+      };
+      const validatedData = insertCaregiverScheduleSchema.partial().parse(coercedData);
       const schedule = await storage.updateCaregiverSchedule(req.params.id, validatedData);
       res.json(schedule);
     } catch (error) {
