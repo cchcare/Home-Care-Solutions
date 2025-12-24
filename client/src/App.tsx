@@ -14,6 +14,7 @@ import ClientProfile from "@/pages/client-profile";
 import Caregivers from "@/pages/caregivers";
 import CaregiverProfile from "@/pages/caregiver-profile";
 import Offices from "@/pages/offices";
+import OfficeProfile from "@/pages/office-profile";
 import Compliance from "@/pages/compliance";
 import Documents from "@/pages/documents";
 import Training from "@/pages/training";
@@ -58,6 +59,7 @@ function Router() {
           <Route path="/caregivers" component={Caregivers} />
           <Route path="/caregivers/:id" component={CaregiverProfile} />
           <Route path="/offices" component={Offices} />
+          <Route path="/offices/:id" component={OfficeProfile} />
           <Route path="/compliance" component={Compliance} />
           <Route path="/documents" component={Documents} />
           <Route path="/training" component={Training} />

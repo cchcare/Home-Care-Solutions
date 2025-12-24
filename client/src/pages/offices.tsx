@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useLocation } from "wouter";
 import { apiRequest } from "@/lib/queryClient";
-import { OfficeDetailsSidebar } from "@/components/office-details-sidebar";
 import {
   Card,
   CardContent,
@@ -40,10 +40,9 @@ import { Plus, Building2, MapPin, Phone, Mail, Edit, Trash2 } from "lucide-react
 export default function Offices() {
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [editingOffice, setEditingOffice] = useState<Office | null>(null);
-  const [selectedOffice, setSelectedOffice] = useState<Office | null>(null);
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const [, navigate] = useLocation();
 
   const { data: offices = [], isLoading } = useQuery<Office[]>({
     queryKey: ["/api/offices"],
@@ -164,13 +163,7 @@ export default function Offices() {
   };
 
   const handleOfficeClick = (office: Office) => {
-    setSelectedOffice(office);
-    setIsSidebarOpen(true);
-  };
-
-  const handleCloseSidebar = () => {
-    setIsSidebarOpen(false);
-    setSelectedOffice(null);
+    navigate(`/offices/${office.id}`);
   };
 
   if (isLoading) {
@@ -527,14 +520,6 @@ export default function Offices() {
         </DialogContent>
       </Dialog>
 
-      {/* Office Details Sidebar */}
-      <OfficeDetailsSidebar
-        office={selectedOffice}
-        isOpen={isSidebarOpen}
-        onClose={handleCloseSidebar}
-        onEdit={handleEditOffice}
-        onDelete={handleDeleteOffice}
-      />
       </main>
     </div>
   );

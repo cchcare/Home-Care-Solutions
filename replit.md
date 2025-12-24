@@ -28,9 +28,15 @@ Preferred communication style: Simple, everyday language.
 ### Database Design
 - **PostgreSQL**: Primary database with connection pooling via Neon serverless
 - **ORM**: Drizzle ORM for type-safe database operations and schema management
-- **Schema**: Comprehensive relational design including users, clients, caregivers, care plans, progress notes, documents, incident reports, tasks, messages, certifications, compliance items, and audit logs
+- **Schema**: Comprehensive relational design including users, clients, caregivers, care plans, progress notes, documents, incident reports, tasks, messages, certifications, compliance items, audit logs, office licenses, office staff, and office expenses
 - **Data Relationships**: Well-defined foreign key relationships supporting complex healthcare workflows
 - **Migration System**: Drizzle Kit for database schema versioning and deployment
+
+### Office Management
+- **Office Profile Page**: Detailed view at /offices/:id with submenu navigation
+- **License Tracking**: Track health licenses with license number, issued date, expiration date, renewal history
+- **Staff Management**: Assign users to offices with position, department, and start date tracking
+- **Expense Tracking**: Record and track office expenses with type, vendor, amount, and payment status
 
 ### Authentication & Authorization
 - **OIDC Integration**: Secure authentication flow with Replit's identity provider
