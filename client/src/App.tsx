@@ -2,6 +2,7 @@ import { Switch, Route } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
+import { ErrorDiagnosisToast } from "@/components/error-diagnosis-toast";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useAuth } from "@/hooks/useAuth";
 import { OfficeProvider } from "@/context/office-context";
@@ -84,6 +85,7 @@ function App() {
       <OfficeProvider>
         <TooltipProvider>
           <Toaster />
+          <ErrorDiagnosisToast />
           <Router />
         </TooltipProvider>
       </OfficeProvider>

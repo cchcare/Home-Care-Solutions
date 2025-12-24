@@ -2572,3 +2572,49 @@ export class DatabaseStorage implements IStorage {
 }
 
 export const storage = new DatabaseStorage();
+
+// In-memory error log storage for AI diagnosis (last 100 errors)
+// HIPAA COMPLIANCE: requestBody intentionally excluded - may contain PHI/PII
+export interface ApiErrorLog {
+  id: string;
+  timestamp: Date;
+  endpoint: string;
+  method: string;
+  errorMessage: string;
+  statusCode?: number;
+  userId?: string;
+}
+
+class ErrorLogStorage {
+  private errors: ApiErrorLog[] = [];
+  private maxErrors = 100;
+
+  logError(error: Omit<ApiErrorLog, 'id' | 'timestamp'>): ApiErrorLog {
+    const logEntry: ApiErrorLog = {
+      ...error,
+      id: `err_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      timestamp: new Date(),
+    };
+    
+    this.errors.unshift(logEntry);
+    if (this.errors.length > this.maxErrors) {
+      this.errors = this.errors.slice(0, this.maxErrors);
+    }
+    
+    return logEntry;
+  }
+
+  getRecentErrors(limit: number = 10): ApiErrorLog[] {
+    return this.errors.slice(0, limit);
+  }
+
+  getErrorById(id: string): ApiErrorLog | undefined {
+    return this.errors.find(e => e.id === id);
+  }
+
+  clearErrors(): void {
+    this.errors = [];
+  }
+}
+
+export const errorLogStorage = new ErrorLogStorage();

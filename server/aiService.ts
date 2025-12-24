@@ -332,3 +332,82 @@ export class AiIssueDetectionService {
 }
 
 export const aiIssueService = new AiIssueDetectionService();
+
+// Error Diagnosis Types - HIPAA compliant: no PHI/PII accepted
+export interface ErrorDiagnosisContext {
+  endpoint: string;
+  method: string;
+  errorMessage: string;
+  statusCode?: number;
+  // requestBody intentionally excluded for HIPAA compliance
+}
+
+export interface ErrorDiagnosisResult {
+  diagnosis: string;
+  suggestedFix: string;
+  severity: "low" | "medium" | "high" | "critical";
+  possibleCauses: string[];
+}
+
+export async function diagnoseApiError(context: ErrorDiagnosisContext): Promise<ErrorDiagnosisResult> {
+  // HIPAA COMPLIANCE: Use local pattern-matching only - never send any patient/user data to external AI services
+  // Request bodies may contain PHI/PII and must never be transmitted to third-party services
+  return getFallbackDiagnosis(context);
+}
+
+function getFallbackDiagnosis(context: ErrorDiagnosisContext): ErrorDiagnosisResult {
+  const errorLower = context.errorMessage.toLowerCase();
+  
+  // Common pattern matching for fallback
+  if (errorLower.includes("validation") || errorLower.includes("required") || errorLower.includes("invalid")) {
+    return {
+      diagnosis: "The request contained invalid or missing data that failed validation checks.",
+      suggestedFix: "Review the form fields and ensure all required information is provided correctly.",
+      severity: "medium",
+      possibleCauses: ["Missing required fields", "Invalid data format", "Field constraints not met"]
+    };
+  }
+  
+  if (errorLower.includes("not found") || errorLower.includes("404")) {
+    return {
+      diagnosis: "The requested resource could not be found in the system.",
+      suggestedFix: "Verify that the referenced item (client, caregiver, etc.) exists and try again.",
+      severity: "medium",
+      possibleCauses: ["Record was deleted", "Invalid ID provided", "Resource never existed"]
+    };
+  }
+  
+  if (errorLower.includes("unauthorized") || errorLower.includes("permission") || errorLower.includes("403")) {
+    return {
+      diagnosis: "You don't have permission to perform this action.",
+      suggestedFix: "Contact your administrator to request the necessary permissions.",
+      severity: "low",
+      possibleCauses: ["Insufficient role permissions", "Session expired", "Resource belongs to another office"]
+    };
+  }
+  
+  if (errorLower.includes("duplicate") || errorLower.includes("unique") || errorLower.includes("already exists")) {
+    return {
+      diagnosis: "A record with this information already exists in the system.",
+      suggestedFix: "Check for existing records before creating new ones, or update the existing record instead.",
+      severity: "low",
+      possibleCauses: ["Duplicate entry attempt", "Unique constraint violation", "Record already exists"]
+    };
+  }
+  
+  if (context.statusCode && context.statusCode >= 500) {
+    return {
+      diagnosis: "A server error occurred while processing your request.",
+      suggestedFix: "Please try again in a few moments. If the problem persists, contact support.",
+      severity: "high",
+      possibleCauses: ["Server overload", "Database connection issue", "Internal processing error"]
+    };
+  }
+  
+  return {
+    diagnosis: "An unexpected error occurred during the operation.",
+    suggestedFix: "Please check your input and try again. If the issue continues, report it to your administrator.",
+    severity: "medium",
+    possibleCauses: ["Unexpected system state", "Data inconsistency", "Temporary service disruption"]
+  };
+}

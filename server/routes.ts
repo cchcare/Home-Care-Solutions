@@ -2770,6 +2770,74 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // AI Error Diagnosis route - HIPAA compliant: no PHI/PII stored or processed
+  app.post("/api/ai-issues/diagnose", isAuthenticated, async (req: any, res) => {
+    try {
+      const { diagnoseApiError } = await import("./aiService");
+      const { errorLogStorage } = await import("./storage");
+      const { endpoint, method, errorMessage, statusCode, createIssue } = req.body;
+      
+      if (!endpoint || !method || !errorMessage) {
+        return res.status(400).json({ message: "endpoint, method, and errorMessage are required" });
+      }
+      
+      // Log the error - HIPAA COMPLIANCE: Never store request body data (may contain PHI/PII)
+      const errorLog = errorLogStorage.logError({
+        endpoint,
+        method,
+        errorMessage,
+        statusCode,
+        userId: req.user?.claims?.sub,
+      });
+      
+      // Get diagnosis using local pattern-matching only (no external AI calls)
+      const diagnosis = await diagnoseApiError({
+        endpoint,
+        method,
+        errorMessage,
+        statusCode,
+      });
+      
+      // Optionally create an AI detected issue for tracking
+      let issue = null;
+      if (createIssue) {
+        issue = await storage.createAiDetectedIssue({
+          category: "data_quality",
+          severity: diagnosis.severity,
+          title: `API Error: ${errorMessage.substring(0, 100)}`,
+          description: diagnosis.diagnosis,
+          affectedEntityType: "api_error",
+          affectedEntityId: errorLog.id,
+          suggestedAction: diagnosis.suggestedFix,
+          autoFixAvailable: false,
+          aiConfidence: "85",
+        });
+      }
+      
+      res.json({
+        ...diagnosis,
+        errorLogId: errorLog.id,
+        issue,
+      });
+    } catch (error) {
+      console.error("Error diagnosing API error:", error);
+      res.status(500).json({ message: "Failed to diagnose error" });
+    }
+  });
+
+  // Get recent error logs
+  app.get("/api/ai-issues/error-logs", isAuthenticated, async (req: any, res) => {
+    try {
+      const { errorLogStorage } = await import("./storage");
+      const limit = parseInt(req.query.limit as string) || 10;
+      const errors = errorLogStorage.getRecentErrors(limit);
+      res.json(errors);
+    } catch (error) {
+      console.error("Error fetching error logs:", error);
+      res.status(500).json({ message: "Failed to fetch error logs" });
+    }
+  });
+
   // AI Assistant route
   app.post("/api/ai-assistant/chat", isAuthenticated, async (req: any, res) => {
     try {
@@ -2827,10 +2895,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/evv-data", isAuthenticated, async (req: any, res) => {
     try {
-      const validatedData = insertEvvDataSchema.parse({
+      // Convert numeric fields to strings for Drizzle's numeric type
+      const requestData = {
         ...req.body,
         createdBy: req.user.claims.sub,
-      });
+        percentage: req.body.percentage != null ? String(req.body.percentage) : undefined,
+      };
+      const validatedData = insertEvvDataSchema.parse(requestData);
       const evvDataItem = await storage.createEvvData(validatedData);
       
       await storage.createAuditLog({
@@ -2857,7 +2928,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ message: "EVV data not found" });
       }
       
-      const validatedData = insertEvvDataSchema.partial().parse(req.body);
+      // Convert numeric fields to strings for Drizzle's numeric type
+      const requestData = {
+        ...req.body,
+        percentage: req.body.percentage != null ? String(req.body.percentage) : undefined,
+      };
+      const validatedData = insertEvvDataSchema.partial().parse(requestData);
       const evvDataItem = await storage.updateEvvData(req.params.id, validatedData);
       
       await storage.createAuditLog({

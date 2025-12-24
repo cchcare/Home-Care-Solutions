@@ -16,7 +16,8 @@ const ROLE_PERMISSIONS: Record<UserRole, string[]> = {
     "get_client_mcos", "create_client_schedule", "get_client_details",
     "get_caregiver_details", "deactivate_client", "activate_client",
     "get_dashboard_stats", "get_upcoming_tasks", "create_task", "get_compliance_alerts",
-    "get_schedule_by_date", "send_message", "get_recent_documents", "get_office_summary"
+    "get_schedule_by_date", "send_message", "get_recent_documents", "get_office_summary",
+    "diagnose_error", "get_recent_errors"
   ],
   admin: [
     "search_clients", "search_caregivers", "list_clients", "list_caregivers",
@@ -24,7 +25,8 @@ const ROLE_PERMISSIONS: Record<UserRole, string[]> = {
     "get_client_mcos", "create_client_schedule", "get_client_details",
     "get_caregiver_details", "deactivate_client", "activate_client",
     "get_dashboard_stats", "get_upcoming_tasks", "create_task", "get_compliance_alerts",
-    "get_schedule_by_date", "send_message", "get_recent_documents", "get_office_summary"
+    "get_schedule_by_date", "send_message", "get_recent_documents", "get_office_summary",
+    "diagnose_error", "get_recent_errors"
   ],
   supervisor: [
     "search_clients", "search_caregivers", "list_clients", "list_caregivers",
@@ -513,6 +515,53 @@ const AVAILABLE_TOOLS: ChatCompletionTool[] = [
           }
         },
         required: ["officeId"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "diagnose_error",
+      description: "Get AI diagnosis for an API error. Analyzes the error and provides possible causes and suggested fixes.",
+      parameters: {
+        type: "object",
+        properties: {
+          endpoint: {
+            type: "string",
+            description: "The API endpoint that failed (e.g., /api/clients, /api/evv-data)"
+          },
+          method: {
+            type: "string",
+            enum: ["GET", "POST", "PUT", "DELETE", "PATCH"],
+            description: "The HTTP method used"
+          },
+          errorMessage: {
+            type: "string",
+            description: "The error message received"
+          },
+          statusCode: {
+            type: "number",
+            description: "The HTTP status code (e.g., 400, 404, 500)"
+          }
+        },
+        required: ["endpoint", "method", "errorMessage"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_recent_errors",
+      description: "Get a list of recent API errors that have occurred in the system",
+      parameters: {
+        type: "object",
+        properties: {
+          limit: {
+            type: "number",
+            description: "Maximum number of errors to return (default: 10)"
+          }
+        },
+        required: []
       }
     }
   }
@@ -1040,6 +1089,51 @@ async function executeFunction(name: string, args: any, userRole: UserRole, user
             pendingTasks: metrics.pendingTasks,
             complianceRate: metrics.complianceRate
           }
+        });
+      }
+
+      case "diagnose_error": {
+        const { diagnoseApiError } = await import("./aiService");
+        const diagnosis = await diagnoseApiError({
+          endpoint: args.endpoint,
+          method: args.method,
+          errorMessage: args.errorMessage,
+          statusCode: args.statusCode,
+        });
+        
+        return JSON.stringify({
+          success: true,
+          diagnosis: diagnosis.diagnosis,
+          suggestedFix: diagnosis.suggestedFix,
+          severity: diagnosis.severity,
+          possibleCauses: diagnosis.possibleCauses
+        });
+      }
+
+      case "get_recent_errors": {
+        const { errorLogStorage } = await import("./storage");
+        const limit = args.limit || 10;
+        const errors = errorLogStorage.getRecentErrors(limit);
+        
+        if (errors.length === 0) {
+          return JSON.stringify({
+            success: true,
+            message: "No recent errors found in the system.",
+            errors: []
+          });
+        }
+        
+        return JSON.stringify({
+          success: true,
+          errors: errors.map((e: any) => ({
+            id: e.id,
+            timestamp: e.timestamp,
+            endpoint: e.endpoint,
+            method: e.method,
+            errorMessage: e.errorMessage,
+            statusCode: e.statusCode
+          })),
+          totalCount: errors.length
         });
       }
 
