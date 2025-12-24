@@ -857,6 +857,7 @@ export const masterWeekTemplates = pgTable("master_week_templates", {
   createdBy: varchar("created_by").references(() => users.id),
   startDate: timestamp("start_date"), // When to start applying this template
   endDate: timestamp("end_date"), // When to stop applying this template
+  recurrenceWeeks: integer("recurrence_weeks").default(1), // Every N weeks
   isActive: boolean("is_active").default(true),
   autoRollover: boolean("auto_rollover").default(false), // Automatic midnight updates
   createdAt: timestamp("created_at").defaultNow(),
@@ -873,6 +874,15 @@ export const masterWeekSlots = pgTable("master_week_slots", {
   serviceType: varchar("service_type"), // Personal care, medication reminder, etc.
   notes: text("notes"),
   isRecurring: boolean("is_recurring").default(true),
+  scheduleType: varchar("schedule_type").default("daily_fixed"), // daily_fixed, weekly, etc.
+  payCode: varchar("pay_code"),
+  poc: varchar("poc"), // Point of Contact
+  primaryBillTo: varchar("primary_bill_to"), // e.g., LTC - FC (RQ2)
+  serviceCode: varchar("service_code"), // e.g., S5125
+  budgetNumber: varchar("budget_number"),
+  rateType: varchar("rate_type").default("hourly"), // hourly, fixed, etc.
+  hourlyRate: numeric("hourly_rate", { precision: 10, scale: 2 }),
+  includeMileage: boolean("include_mileage").default(false),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -889,6 +899,17 @@ export const clientSchedules = pgTable("client_schedules", {
   masterWeekSlotId: varchar("master_week_slot_id").references(() => masterWeekSlots.id), // Link to template if auto-generated
   createdBy: varchar("created_by").references(() => users.id),
   completedAt: timestamp("completed_at"),
+  scheduleType: varchar("schedule_type"),
+  payCode: varchar("pay_code"),
+  poc: varchar("poc"),
+  primaryBillTo: varchar("primary_bill_to"),
+  serviceCode: varchar("service_code"),
+  budgetNumber: varchar("budget_number"),
+  rateType: varchar("rate_type"),
+  hourlyRate: numeric("hourly_rate", { precision: 10, scale: 2 }),
+  totalHours: numeric("total_hours", { precision: 10, scale: 2 }),
+  billingAmount: numeric("billing_amount", { precision: 10, scale: 2 }),
+  includeMileage: boolean("include_mileage").default(false),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
