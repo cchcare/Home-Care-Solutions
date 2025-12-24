@@ -37,6 +37,12 @@ Preferred communication style: Simple, everyday language.
 - **License Tracking**: Track health licenses with license number, issued date, expiration date, renewal history
 - **Staff Management**: Assign users to offices with position, department, and start date tracking
 - **Expense Tracking**: Record and track office expenses with type, vendor, amount, and payment status
+- **Office-Based Filtering**: All modules filter data by selected office:
+  - Dashboard metrics, clients, tasks, documents, messages, and monthly stats
+  - Incident reports, trainings, billing records, and payroll runs
+  - When "All Offices" is selected, shows data from all offices
+  - When a specific office is selected, shows only that office's data
+  - OfficeSelector component available on all relevant pages
 
 ### Billing System
 - **MCO-Focused Billing**: Simplified billing records focused on MCO (Managed Care Organization) payments
