@@ -84,6 +84,25 @@ Preferred communication style: Simple, everyday language.
   - Week 1 Regular, Week 1 OT, Week 2 Regular, Week 2 OT
   - Total Regular Hours, Total Overtime Hours
 
+### Master Week Templates
+- **Weekly Schedule Templates**: Define recurring weekly schedules for clients
+- **Columnar Day-Based Layout**: Visual 7-day layout (Sunday through Saturday) for scheduling
+- **Per-Day Configuration**: Each day has configurable fields:
+  - Schedule Type (Daily Fixed, etc.)
+  - Hours (Start/End time with auto-calculated duration)
+  - Service Provider (Caregiver dropdown)
+  - Service Provider Name (auto-populated from caregiver)
+  - Assignment ID, Pay Code, POC, Primary Bill To
+  - Service Code, Budget Number, Rate Type, Hourly Rate
+  - Include in Mileage checkbox
+- **Template Settings**: From Date (required), To Date (optional), Recurrence (Every N weeks)
+- **Apply to Calendar**: Generate client schedules from master week template for specific weeks
+- **API Routes**: 
+  - GET/POST /api/clients/:clientId/master-week-templates
+  - PUT/DELETE /api/master-week-templates/:id
+  - POST /api/master-week-templates/:id/apply (apply to calendar)
+  - GET/POST/PUT/DELETE /api/master-week-slots
+
 ### Authentication & Authorization
 - **OIDC Integration**: Secure authentication flow with Replit's identity provider
 - **Role-Based Access**: Multiple user roles (admin, supervisor, caregiver, family) with appropriate permissions
