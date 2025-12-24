@@ -39,97 +39,93 @@ export default function Landing() {
     }
   };
 
-  const LoginForm = () => (
-    <Card className="w-full max-w-md mx-auto">
-      <CardHeader className="text-center">
-        <div className="w-12 h-12 bg-primary rounded-lg flex items-center justify-center mx-auto mb-4">
-          <Heart className="w-7 h-7 text-primary-foreground" />
-        </div>
-        <CardTitle className="text-2xl">Welcome Back</CardTitle>
-        <CardDescription>Sign in to your Home Care account</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <form onSubmit={handleLogin} className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="username">Username or Email</Label>
-            <Input
-              id="username"
-              type="text"
-              placeholder="Enter your username or email"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              disabled={isLoggingIn}
-              data-testid="input-username"
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="password">Password</Label>
-            <div className="relative">
-              <Input
-                id="password"
-                type={showPassword ? "text" : "password"}
-                placeholder="Enter your password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                disabled={isLoggingIn}
-                data-testid="input-password"
-              />
-              <button
-                type="button"
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                onClick={() => setShowPassword(!showPassword)}
-                tabIndex={-1}
-              >
-                {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-              </button>
-            </div>
-          </div>
-          <Button
-            type="submit"
-            className="w-full"
-            disabled={isLoggingIn}
-            data-testid="button-submit-login"
-          >
-            {isLoggingIn ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Signing In...
-              </>
-            ) : (
-              "Sign In"
-            )}
-          </Button>
-        </form>
-        <div className="mt-4 text-center space-y-2">
-          <button
-            type="button"
-            className="text-sm text-primary hover:text-primary/80 block w-full"
-            onClick={() => {
-              toast({
-                title: "Password Recovery",
-                description: "Please contact your administrator to reset your login credentials.",
-              });
-            }}
-            data-testid="button-forgot-password"
-          >
-            Forgot login or password?
-          </button>
-          <button
-            type="button"
-            className="text-sm text-muted-foreground hover:text-primary"
-            onClick={() => setShowLoginForm(false)}
-          >
-            Back to Home
-          </button>
-        </div>
-      </CardContent>
-    </Card>
-  );
-
   if (showLoginForm) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center p-4">
-        <LoginForm />
+        <Card className="w-full max-w-md mx-auto">
+          <CardHeader className="text-center">
+            <div className="w-12 h-12 bg-primary rounded-lg flex items-center justify-center mx-auto mb-4">
+              <Heart className="w-7 h-7 text-primary-foreground" />
+            </div>
+            <CardTitle className="text-2xl">Welcome Back</CardTitle>
+            <CardDescription>Sign in to your Home Care account</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={handleLogin} className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="username">Username or Email</Label>
+                <Input
+                  id="username"
+                  type="text"
+                  placeholder="Enter your username or email"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  disabled={isLoggingIn}
+                  data-testid="input-username"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="password">Password</Label>
+                <div className="relative">
+                  <Input
+                    id="password"
+                    type={showPassword ? "text" : "password"}
+                    placeholder="Enter your password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    disabled={isLoggingIn}
+                    data-testid="input-password"
+                  />
+                  <button
+                    type="button"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    onClick={() => setShowPassword(!showPassword)}
+                    tabIndex={-1}
+                  >
+                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+              <Button
+                type="submit"
+                className="w-full"
+                disabled={isLoggingIn}
+                data-testid="button-submit-login"
+              >
+                {isLoggingIn ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Signing In...
+                  </>
+                ) : (
+                  "Sign In"
+                )}
+              </Button>
+            </form>
+            <div className="mt-4 text-center space-y-2">
+              <button
+                type="button"
+                className="text-sm text-primary hover:text-primary/80 block w-full"
+                onClick={() => {
+                  toast({
+                    title: "Password Recovery",
+                    description: "Please contact your administrator to reset your login credentials.",
+                  });
+                }}
+                data-testid="button-forgot-password"
+              >
+                Forgot login or password?
+              </button>
+              <button
+                type="button"
+                className="text-sm text-muted-foreground hover:text-primary"
+                onClick={() => setShowLoginForm(false)}
+              >
+                Back to Home
+              </button>
+            </div>
+          </CardContent>
+        </Card>
       </div>
     );
   }
