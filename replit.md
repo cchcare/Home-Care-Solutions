@@ -129,6 +129,12 @@ Preferred communication style: Simple, everyday language.
 - **Session Security**: HTTP-only cookies with secure flags (in production), sameSite=lax, PostgreSQL session storage
 - **HIPAA Compliance**: Secure session storage, password hashing, and user data protection mechanisms
 - **Login Flow**: Username/password form on landing page with client-side validation
+- **Password Reset**: Self-service password reset via email
+  - Secure token generation with 1-hour expiry
+  - Email sent via SendGrid with reset link
+  - Dedicated reset password page (/reset-password)
+  - Token validation before allowing password change
+  - Duplicate emails allowed (only username must be unique)
 
 ### File Management
 - **Secure Upload**: Multi-part form uploads with file type validation and size limits
@@ -149,8 +155,9 @@ Preferred communication style: Simple, everyday language.
 - **File System**: Local storage for document uploads with plans for cloud storage integration
 
 ### Authentication Services
-- **Replit Authentication**: OIDC provider integration for user identity management
+- **Local Authentication**: Server-managed username/password authentication with bcrypt hashing
 - **Session Storage**: PostgreSQL-backed session persistence for scalability
+- **Email Service**: SendGrid integration for password reset emails
 
 ### Third-Party Libraries
 - **UI Components**: Radix UI primitives for accessible, unstyled components
