@@ -140,7 +140,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/dashboard/monthly-stats", isAuthenticated, async (req, res) => {
     try {
       const year = parseInt(req.query.year as string) || new Date().getFullYear();
-      const stats = await storage.getMonthlyStats(year);
+      const { officeId } = req.query;
+      const officeFilter = officeId && officeId !== 'all' ? String(officeId) : undefined;
+      const stats = await storage.getMonthlyStats(year, officeFilter);
       res.json(stats);
     } catch (error) {
       console.error("Error fetching monthly stats:", error);
@@ -1005,7 +1007,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/documents", isAuthenticated, async (req, res) => {
     try {
-      const documents = await storage.getAllDocuments();
+      const { officeId } = req.query;
+      const officeFilter = officeId && officeId !== 'all' ? String(officeId) : undefined;
+      const documents = await storage.getAllDocuments(officeFilter);
       res.json(documents);
     } catch (error) {
       console.error("Error fetching documents:", error);
@@ -1366,7 +1370,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Incident report routes
   app.get("/api/incident-reports", isAuthenticated, async (req, res) => {
     try {
-      const reports = await storage.getAllIncidentReports();
+      const { officeId } = req.query;
+      const officeFilter = officeId && officeId !== 'all' ? String(officeId) : undefined;
+      const reports = await storage.getAllIncidentReports(officeFilter);
       res.json(reports);
     } catch (error) {
       console.error("Error fetching incident reports:", error);
@@ -1403,13 +1409,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Task routes
   app.get("/api/tasks", isAuthenticated, async (req: any, res) => {
     try {
-      const { userId } = req.query;
+      const { userId, officeId } = req.query;
+      const officeFilter = officeId && officeId !== 'all' ? String(officeId) : undefined;
       let tasks;
       
       if (userId) {
         tasks = await storage.getTasksByUser(userId as string);
       } else {
-        tasks = await storage.getAllTasks();
+        tasks = await storage.getAllTasks(officeFilter);
       }
       
       res.json(tasks);
@@ -1457,8 +1464,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Message routes
   app.get("/api/messages", isAuthenticated, async (req: any, res) => {
     try {
-      const { type = 'received', status } = req.query;
+      const { type = 'received', status, officeId } = req.query;
       const userId = req.user.claims.sub;
+      const officeFilter = officeId && officeId !== 'all' ? String(officeId) : undefined;
       let messages;
       
       if (type === 'sent') {
@@ -1678,7 +1686,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Training management routes
   app.get("/api/trainings", isAuthenticated, async (req, res) => {
     try {
-      const trainings = await storage.getAllTrainings();
+      const { officeId } = req.query;
+      const officeFilter = officeId && officeId !== 'all' ? String(officeId) : undefined;
+      const trainings = await storage.getAllTrainings(officeFilter);
       res.json(trainings);
     } catch (error) {
       console.error("Error fetching trainings:", error);
@@ -2090,7 +2100,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Incident reports routes
   app.get("/api/incident-reports", isAuthenticated, async (req, res) => {
     try {
-      const incidents = await storage.getAllIncidentReports();
+      const { officeId } = req.query;
+      const officeFilter = officeId && officeId !== 'all' ? String(officeId) : undefined;
+      const incidents = await storage.getAllIncidentReports(officeFilter);
       res.json(incidents);
     } catch (error) {
       console.error("Error fetching incident reports:", error);
@@ -4117,7 +4129,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/billing", isAuthenticated, async (req, res) => {
     try {
-      const records = await storage.getBillingRecords();
+      const { officeId } = req.query;
+      const officeFilter = officeId && officeId !== 'all' ? String(officeId) : undefined;
+      const records = await storage.getBillingRecords(officeFilter);
       res.json(records);
     } catch (error) {
       console.error("Error fetching billing records:", error);

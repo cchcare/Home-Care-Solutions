@@ -237,7 +237,7 @@ export interface IStorage {
   createProgressNote(note: InsertProgressNote): Promise<ProgressNote>;
 
   // Document operations
-  getAllDocuments(): Promise<Document[]>;
+  getAllDocuments(officeId?: string): Promise<Document[]>;
   getDocument(id: string): Promise<Document | undefined>;
   getDocumentsByClient(clientId: string): Promise<Document[]>;
   getDocumentsByCaregiver(caregiverId: string): Promise<Document[]>;
@@ -246,19 +246,19 @@ export interface IStorage {
   deleteDocument(id: string): Promise<void>;
 
   // Incident report operations
-  getAllIncidentReports(): Promise<IncidentReport[]>;
+  getAllIncidentReports(officeId?: string): Promise<IncidentReport[]>;
   createIncidentReport(report: InsertIncidentReport): Promise<IncidentReport>;
   updateIncidentReport(id: string, report: Partial<InsertIncidentReport>): Promise<IncidentReport>;
 
   // Task operations
-  getAllTasks(): Promise<Task[]>;
+  getAllTasks(officeId?: string): Promise<Task[]>;
   getTasksByUser(userId: string): Promise<Task[]>;
   createTask(task: InsertTask): Promise<Task>;
   updateTask(id: string, task: Partial<InsertTask>): Promise<Task>;
   deleteTask(id: string): Promise<void>;
 
   // Message operations
-  getMessagesByUser(userId: string): Promise<Message[]>;
+  getMessagesByUser(userId: string, officeId?: string): Promise<Message[]>;
   getSentMessagesByUser(userId: string, status?: string): Promise<Message[]>;
   getReceivedMessagesByUser(userId: string, status?: string): Promise<Message[]>;
   createMessage(message: InsertMessage): Promise<Message>;
@@ -295,7 +295,7 @@ export interface IStorage {
 
 
   // Training operations
-  getAllTrainings(): Promise<Training[]>;
+  getAllTrainings(officeId?: string): Promise<Training[]>;
   createTraining(training: InsertTraining): Promise<Training>;
 
   // Training record operations
@@ -314,11 +314,8 @@ export interface IStorage {
   updateUser(id: string, user: Partial<UpsertUser>): Promise<User>;
   deleteUser(id: string): Promise<void>;
 
-  // Incident report operations
-  getAllIncidentReports(): Promise<IncidentReport[]>;
+  // Incident report operations (interface duplicate - already defined above)
   getIncidentReport(id: string): Promise<IncidentReport | undefined>;
-  createIncidentReport(report: InsertIncidentReport): Promise<IncidentReport>;
-  updateIncidentReport(id: string, report: Partial<InsertIncidentReport>): Promise<IncidentReport>;
 
   // Family member operations
   getFamilyMember(id: string): Promise<FamilyMember | undefined>;
@@ -407,7 +404,7 @@ export interface IStorage {
   deleteEvvData(id: string): Promise<void>;
 
   // Monthly dashboard statistics
-  getMonthlyStats(year: number): Promise<{
+  getMonthlyStats(year: number, officeId?: string): Promise<{
     month: number;
     activeDcwCount: number;
     evvPercentage: number;
@@ -852,8 +849,16 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Document operations
-  async getAllDocuments(): Promise<Document[]> {
-    return await db.select().from(documents).orderBy(desc(documents.createdAt));
+  async getAllDocuments(officeId?: string): Promise<Document[]> {
+    const conditions = [];
+    if (officeId) {
+      conditions.push(eq(documents.officeId, officeId));
+    }
+    return await db
+      .select()
+      .from(documents)
+      .where(conditions.length > 0 ? and(...conditions) : undefined)
+      .orderBy(desc(documents.createdAt));
   }
 
   async getDocument(id: string): Promise<Document | undefined> {
@@ -897,8 +902,16 @@ export class DatabaseStorage implements IStorage {
 
 
   // Task operations
-  async getAllTasks(): Promise<Task[]> {
-    return await db.select().from(tasks).orderBy(desc(tasks.createdAt));
+  async getAllTasks(officeId?: string): Promise<Task[]> {
+    const conditions = [];
+    if (officeId) {
+      conditions.push(eq(tasks.officeId, officeId));
+    }
+    return await db
+      .select()
+      .from(tasks)
+      .where(conditions.length > 0 ? and(...conditions) : undefined)
+      .orderBy(desc(tasks.dueDate));
   }
 
   async getTasksByUser(userId: string): Promise<Task[]> {
@@ -928,7 +941,46 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Message operations
-  async getMessagesByUser(userId: string): Promise<Message[]> {
+  async getMessagesByUser(userId: string, officeId?: string): Promise<Message[]> {
+    if (officeId) {
+      return await db
+        .select({
+          id: messages.id,
+          senderId: messages.senderId,
+          recipientId: messages.recipientId,
+          subject: messages.subject,
+          content: messages.content,
+          isRead: messages.isRead,
+          senderStatus: messages.senderStatus,
+          recipientStatus: messages.recipientStatus,
+          messageType: messages.messageType,
+          priority: messages.priority,
+          communicationType: messages.communicationType,
+          recipientEmail: messages.recipientEmail,
+          recipientPhone: messages.recipientPhone,
+          deliveryStatus: messages.deliveryStatus,
+          deliveryAttempts: messages.deliveryAttempts,
+          lastDeliveryAttempt: messages.lastDeliveryAttempt,
+          externalId: messages.externalId,
+          relatedClientId: messages.relatedClientId,
+          attachmentUrl: messages.attachmentUrl,
+          parentMessageId: messages.parentMessageId,
+          createdAt: messages.createdAt,
+          updatedAt: messages.updatedAt,
+        })
+        .from(messages)
+        .leftJoin(clients, eq(messages.relatedClientId, clients.id))
+        .where(
+          and(
+            or(
+              eq(messages.senderId, userId),
+              eq(messages.recipientId, userId)
+            ),
+            eq(clients.officeId, officeId)
+          )
+        )
+        .orderBy(desc(messages.createdAt));
+    }
     return await db
       .select()
       .from(messages)
@@ -1202,8 +1254,16 @@ export class DatabaseStorage implements IStorage {
 
 
   // Training operations
-  async getAllTrainings(): Promise<Training[]> {
-    return await db.select().from(trainings).orderBy(desc(trainings.createdAt));
+  async getAllTrainings(officeId?: string): Promise<Training[]> {
+    const conditions = [];
+    if (officeId) {
+      conditions.push(eq(trainings.officeId, officeId));
+    }
+    return await db
+      .select()
+      .from(trainings)
+      .where(conditions.length > 0 ? and(...conditions) : undefined)
+      .orderBy(desc(trainings.createdAt));
   }
 
   async createTraining(training: InsertTraining): Promise<Training> {
@@ -1286,8 +1346,16 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Incident report operations
-  async getAllIncidentReports(): Promise<IncidentReport[]> {
-    return await db.select().from(incidentReports).orderBy(desc(incidentReports.createdAt));
+  async getAllIncidentReports(officeId?: string): Promise<IncidentReport[]> {
+    const conditions = [];
+    if (officeId) {
+      conditions.push(eq(incidentReports.officeId, officeId));
+    }
+    return await db
+      .select()
+      .from(incidentReports)
+      .where(conditions.length > 0 ? and(...conditions) : undefined)
+      .orderBy(desc(incidentReports.createdAt));
   }
 
   async getIncidentReport(id: string): Promise<IncidentReport | undefined> {
@@ -1801,7 +1869,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Monthly dashboard statistics
-  async getMonthlyStats(year: number): Promise<{
+  async getMonthlyStats(year: number, officeId?: string): Promise<{
     month: number;
     activeDcwCount: number;
     evvPercentage: number;
@@ -1813,37 +1881,43 @@ export class DatabaseStorage implements IStorage {
       const monthEnd = new Date(year, month, 0, 23, 59, 59);
       
       // Count active caregivers (DCWs) - those created before or during this month and still active
+      const dcwConditions = [
+        lte(caregivers.createdAt, monthEnd),
+        eq(caregivers.isActive, true)
+      ];
+      if (officeId) {
+        dcwConditions.push(eq(caregivers.officeId, officeId));
+      }
       const dcwResult = await db
         .select({ count: count() })
         .from(caregivers)
-        .where(
-          and(
-            lte(caregivers.createdAt, monthEnd),
-            eq(caregivers.isActive, true)
-          )
-        );
+        .where(and(...dcwConditions));
       
       // Count active clients - those created before or during this month and active
+      const clientConditions = [
+        lte(clients.createdAt, monthEnd),
+        eq(clients.status, "active")
+      ];
+      if (officeId) {
+        clientConditions.push(eq(clients.officeId, officeId));
+      }
       const clientResult = await db
         .select({ count: count() })
         .from(clients)
-        .where(
-          and(
-            lte(clients.createdAt, monthEnd),
-            eq(clients.status, "active")
-          )
-        );
+        .where(and(...clientConditions));
       
       // Get average EVV percentage for this month from evv_data table
+      const evvConditions = [
+        eq(evvData.month, month),
+        eq(evvData.year, year)
+      ];
+      if (officeId) {
+        evvConditions.push(eq(evvData.officeId, officeId));
+      }
       const evvResult = await db
         .select({ percentage: evvData.percentage })
         .from(evvData)
-        .where(
-          and(
-            eq(evvData.month, month),
-            eq(evvData.year, year)
-          )
-        );
+        .where(and(...evvConditions));
       
       // Calculate average EVV percentage if there are multiple MCOs
       let avgEvvPercentage = 0;
@@ -2142,8 +2216,16 @@ export class DatabaseStorage implements IStorage {
   }
 
   // ==================== BILLING RECORDS ====================
-  async getBillingRecords(): Promise<BillingRecord[]> {
-    return await db.select().from(billingRecords).orderBy(desc(billingRecords.createdAt));
+  async getBillingRecords(officeId?: string): Promise<BillingRecord[]> {
+    const conditions = [];
+    if (officeId) {
+      conditions.push(eq(billingRecords.officeId, officeId));
+    }
+    return await db
+      .select()
+      .from(billingRecords)
+      .where(conditions.length > 0 ? and(...conditions) : undefined)
+      .orderBy(desc(billingRecords.createdAt));
   }
 
   async getBillingRecord(id: string): Promise<BillingRecord | undefined> {
