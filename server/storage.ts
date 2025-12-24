@@ -193,6 +193,9 @@ export interface IStorage {
   // User operations
   getUser(id: string): Promise<User | undefined>;
   upsertUser(user: UpsertUser): Promise<User>;
+  getUserByUsernameOrEmail(identifier: string): Promise<User | undefined>;
+  updateUserLastLogin(id: string): Promise<void>;
+  updateUserPassword(id: string, passwordHash: string, mustResetPassword?: boolean): Promise<void>;
 
   // Office operations
   getAllOffices(): Promise<Office[]>;
@@ -598,6 +601,30 @@ export class DatabaseStorage implements IStorage {
       })
       .returning();
     return user;
+  }
+
+  async getUserByUsernameOrEmail(identifier: string): Promise<User | undefined> {
+    const lowerIdentifier = identifier.toLowerCase();
+    const [user] = await db
+      .select()
+      .from(users)
+      .where(or(
+        sql`LOWER(${users.username}) = ${lowerIdentifier}`,
+        sql`LOWER(${users.email}) = ${lowerIdentifier}`
+      ));
+    return user;
+  }
+
+  async updateUserLastLogin(id: string): Promise<void> {
+    await db.update(users).set({ lastLoginAt: new Date() }).where(eq(users.id, id));
+  }
+
+  async updateUserPassword(id: string, passwordHash: string, mustResetPassword: boolean = false): Promise<void> {
+    await db.update(users).set({ 
+      passwordHash, 
+      mustResetPassword,
+      updatedAt: new Date() 
+    }).where(eq(users.id, id));
   }
 
   // Office operations

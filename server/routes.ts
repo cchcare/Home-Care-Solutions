@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { setupAuth, isAuthenticated } from "./replitAuth";
+import { setupAuth, isAuthenticated, hashPassword } from "./localAuth";
 import multer from "multer";
 import crypto from "crypto";
 import path from "path";
@@ -124,12 +124,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
     fs.mkdirSync("uploads", { recursive: true });
   }
 
-  // Auth routes
+  // Auth routes - get current user from session
   app.get('/api/auth/user', isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
-      const user = await storage.getUser(userId);
-      res.json(user);
+      const sessionUser = req.session.user;
+      if (!sessionUser) {
+        return res.status(401).json({ message: "Not authenticated" });
+      }
+      // Return fresh user data from database
+      const user = await storage.getUser(sessionUser.id);
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
+      }
+      // Exclude password hash from response
+      const { passwordHash, ...safeUser } = user as any;
+      res.json(safeUser);
     } catch (error) {
       console.error("Error fetching user:", error);
       res.status(500).json({ message: "Failed to fetch user" });
@@ -1953,9 +1962,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // User management routes (admin, supervisor, and super admin)
   const requireAdminOrSupervisor = async (req: any, res: any, next: any) => {
     try {
-      const userId = req.user?.claims?.sub;
+      const userId = req.session?.user?.id;
+      if (!userId) {
+        return res.status(401).json({ message: "Not authenticated" });
+      }
       const user = await storage.getUser(userId);
-      if (!user || (user.role !== "admin" && user.role !== "supervisor" && user.role !== "super_admin")) {
+      if (!user || (user.role !== "admin" && user.role !== "supervisor" && user.role !== "super_admin" && user.role !== "office_admin")) {
         return res.status(403).json({ message: "Access denied. Admin, supervisor, or super admin role required." });
       }
       next();
@@ -1967,7 +1979,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Super admin only routes
   const requireSuperAdmin = async (req: any, res: any, next: any) => {
     try {
-      const userId = req.user?.claims?.sub;
+      const userId = req.session?.user?.id;
+      if (!userId) {
+        return res.status(401).json({ message: "Not authenticated" });
+      }
       const user = await storage.getUser(userId);
       if (!user || user.role !== "super_admin") {
         return res.status(403).json({ message: "Access denied. Super admin role required." });
@@ -1978,11 +1993,54 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   };
 
+  // Create user with password (for office managers to create staff/caregiver accounts)
   app.post("/api/users", isAuthenticated, requireAdminOrSupervisor, async (req: any, res) => {
     try {
-      const validatedData = insertUserSchema.omit({ id: true, createdAt: true, updatedAt: true }).parse(req.body);
+      const { password, ...userData } = req.body;
+      const currentUser = req.session?.user;
+      
+      if (!password || password.length < 8) {
+        return res.status(400).json({ message: "Password must be at least 8 characters" });
+      }
+
+      // Office admins can only create users in their office
+      if (currentUser.role === "office_admin") {
+        if (!userData.primaryOfficeId) {
+          userData.primaryOfficeId = currentUser.primaryOfficeId;
+        } else if (userData.primaryOfficeId !== currentUser.primaryOfficeId) {
+          return res.status(403).json({ message: "Cannot create users for other offices" });
+        }
+        // Office admins cannot create super_admin or admin users
+        if (userData.role === "super_admin" || userData.role === "admin") {
+          return res.status(403).json({ message: "Cannot create admin or super admin users" });
+        }
+      }
+
+      // Check if username or email already exists
+      if (userData.username) {
+        const existingUser = await storage.getUserByUsernameOrEmail(userData.username);
+        if (existingUser) {
+          return res.status(400).json({ message: "Username already exists" });
+        }
+      }
+      if (userData.email) {
+        const existingUser = await storage.getUserByUsernameOrEmail(userData.email);
+        if (existingUser) {
+          return res.status(400).json({ message: "Email already exists" });
+        }
+      }
+
+      const passwordHash = await hashPassword(password);
+      const validatedData = insertUserSchema.omit({ id: true, createdAt: true, updatedAt: true }).parse({
+        ...userData,
+        passwordHash,
+        mustResetPassword: true, // Force password change on first login
+      });
       const user = await storage.createUser(validatedData);
-      res.status(201).json(user);
+      
+      // Return user without password hash
+      const { passwordHash: _, ...safeUser } = user as any;
+      res.status(201).json(safeUser);
     } catch (error) {
       console.error("Error creating user:", error);
       res.status(400).json({ message: "Failed to create user" });
@@ -1992,7 +2050,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Allow users to update their own profile (limited fields)
   app.put("/api/profile", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user?.claims?.sub;
+      const userId = req.session?.user?.id;
       if (!userId) {
         return res.status(400).json({ message: "User ID not found" });
       }

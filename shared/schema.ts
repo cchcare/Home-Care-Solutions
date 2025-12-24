@@ -66,6 +66,10 @@ export const coordinators = pgTable("coordinators", {
 export const users = pgTable("users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   email: varchar("email").unique(),
+  username: varchar("username").unique(),
+  passwordHash: varchar("password_hash"),
+  mustResetPassword: boolean("must_reset_password").default(false),
+  lastLoginAt: timestamp("last_login_at"),
   firstName: varchar("first_name"),
   middleName: varchar("middle_name"),
   lastName: varchar("last_name"),
