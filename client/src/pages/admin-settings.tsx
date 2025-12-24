@@ -17,6 +17,7 @@ import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Plus, Pencil, Trash2, Settings, Building2, FileText, Users, Loader2 } from "lucide-react";
+import { Sidebar } from "@/components/sidebar";
 import type { McoType, Mco, SystemSetting, EntityFieldConfig } from "@shared/schema";
 
 const mcoTypeSchema = z.object({
@@ -785,44 +786,49 @@ function SystemSettingsTab() {
 
 export default function AdminSettings() {
   return (
-    <div className="container mx-auto py-6 space-y-6">
-      <div className="flex items-center gap-3">
-        <Settings className="h-8 w-8" />
-        <div>
-          <h1 className="text-3xl font-bold">Admin Settings</h1>
-          <p className="text-muted-foreground">Manage system configuration, MCOs, and field settings</p>
+    <div className="flex min-h-screen bg-background">
+      <Sidebar />
+      <main className="flex-1 p-8 overflow-auto">
+        <div className="container mx-auto space-y-6">
+          <div className="flex items-center gap-3">
+            <Settings className="h-8 w-8" />
+            <div>
+              <h1 className="text-3xl font-bold">Admin Settings</h1>
+              <p className="text-muted-foreground">Manage system configuration, MCOs, and field settings</p>
+            </div>
+          </div>
+
+          <Tabs defaultValue="mco-types" className="space-y-4">
+            <TabsList className="grid w-full grid-cols-5">
+              <TabsTrigger value="mco-types" className="flex items-center gap-2" data-testid="tab-mco-types">
+                <Building2 className="h-4 w-4" />MCO Types
+              </TabsTrigger>
+              <TabsTrigger value="mcos" className="flex items-center gap-2" data-testid="tab-mcos">
+                <Building2 className="h-4 w-4" />MCO List
+              </TabsTrigger>
+              <TabsTrigger value="client-fields" className="flex items-center gap-2" data-testid="tab-client-fields">
+                <Users className="h-4 w-4" />Client Fields
+              </TabsTrigger>
+              <TabsTrigger value="caregiver-fields" className="flex items-center gap-2" data-testid="tab-caregiver-fields">
+                <Users className="h-4 w-4" />Caregiver Fields
+              </TabsTrigger>
+              <TabsTrigger value="system" className="flex items-center gap-2" data-testid="tab-system-settings">
+                <FileText className="h-4 w-4" />System Config
+              </TabsTrigger>
+            </TabsList>
+
+            <Card>
+              <CardContent className="pt-6">
+                <TabsContent value="mco-types" className="mt-0"><McoTypesTab /></TabsContent>
+                <TabsContent value="mcos" className="mt-0"><McosTab /></TabsContent>
+                <TabsContent value="client-fields" className="mt-0"><FieldConfigsTab entityType="client" /></TabsContent>
+                <TabsContent value="caregiver-fields" className="mt-0"><FieldConfigsTab entityType="caregiver" /></TabsContent>
+                <TabsContent value="system" className="mt-0"><SystemSettingsTab /></TabsContent>
+              </CardContent>
+            </Card>
+          </Tabs>
         </div>
-      </div>
-
-      <Tabs defaultValue="mco-types" className="space-y-4">
-        <TabsList className="grid w-full grid-cols-5">
-          <TabsTrigger value="mco-types" className="flex items-center gap-2" data-testid="tab-mco-types">
-            <Building2 className="h-4 w-4" />MCO Types
-          </TabsTrigger>
-          <TabsTrigger value="mcos" className="flex items-center gap-2" data-testid="tab-mcos">
-            <Building2 className="h-4 w-4" />MCO List
-          </TabsTrigger>
-          <TabsTrigger value="client-fields" className="flex items-center gap-2" data-testid="tab-client-fields">
-            <Users className="h-4 w-4" />Client Fields
-          </TabsTrigger>
-          <TabsTrigger value="caregiver-fields" className="flex items-center gap-2" data-testid="tab-caregiver-fields">
-            <Users className="h-4 w-4" />Caregiver Fields
-          </TabsTrigger>
-          <TabsTrigger value="system" className="flex items-center gap-2" data-testid="tab-system-settings">
-            <FileText className="h-4 w-4" />System Config
-          </TabsTrigger>
-        </TabsList>
-
-        <Card>
-          <CardContent className="pt-6">
-            <TabsContent value="mco-types" className="mt-0"><McoTypesTab /></TabsContent>
-            <TabsContent value="mcos" className="mt-0"><McosTab /></TabsContent>
-            <TabsContent value="client-fields" className="mt-0"><FieldConfigsTab entityType="client" /></TabsContent>
-            <TabsContent value="caregiver-fields" className="mt-0"><FieldConfigsTab entityType="caregiver" /></TabsContent>
-            <TabsContent value="system" className="mt-0"><SystemSettingsTab /></TabsContent>
-          </CardContent>
-        </Card>
-      </Tabs>
+      </main>
     </div>
   );
 }
