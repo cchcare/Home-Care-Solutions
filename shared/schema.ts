@@ -122,6 +122,7 @@ export const caregivers = pgTable("caregivers", {
   middleName: varchar("middle_name"),
   lastName: varchar("last_name"),
   employeeId: varchar("employee_id").unique(),
+  assignmentId: varchar("assignment_id").unique(), // External assignment ID for billing import matching
   gender: genderEnum("gender"),
   hireDate: timestamp("hire_date"),
   startDate: timestamp("start_date"),
@@ -1223,6 +1224,12 @@ export const payrollLineItems = pgTable("payroll_line_items", {
   payrollRunId: varchar("payroll_run_id").references(() => payrollRuns.id).notNull(),
   caregiverId: varchar("caregiver_id").references(() => caregivers.id).notNull(),
   hoursWorked: numeric("hours_worked", { precision: 8, scale: 2 }).default("0"),
+  regularHours: numeric("regular_hours", { precision: 8, scale: 2 }).default("0"),
+  overtimeHours: numeric("overtime_hours", { precision: 8, scale: 2 }).default("0"),
+  week1RegularHours: numeric("week1_regular_hours", { precision: 8, scale: 2 }).default("0"),
+  week1OvertimeHours: numeric("week1_overtime_hours", { precision: 8, scale: 2 }).default("0"),
+  week2RegularHours: numeric("week2_regular_hours", { precision: 8, scale: 2 }).default("0"),
+  week2OvertimeHours: numeric("week2_overtime_hours", { precision: 8, scale: 2 }).default("0"),
   hourlyRate: numeric("hourly_rate", { precision: 8, scale: 2 }),
   grossPay: numeric("gross_pay", { precision: 10, scale: 2 }).default("0"),
   deductions: jsonb("deductions"), // {tax: X, insurance: Y, etc}
@@ -1230,6 +1237,36 @@ export const payrollLineItems = pgTable("payroll_line_items", {
   notes: text("notes"),
   createdAt: timestamp("created_at").defaultNow(),
 });
+
+// Caregiver Time Entries - Imported billing hours for payroll calculation
+export const caregiverTimeEntries = pgTable("caregiver_time_entries", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  payrollRunId: varchar("payroll_run_id").references(() => payrollRuns.id).notNull(),
+  caregiverId: varchar("caregiver_id").references(() => caregivers.id).notNull(),
+  clientId: varchar("client_id").references(() => clients.id),
+  entryDate: timestamp("entry_date").notNull(),
+  hoursWorked: numeric("hours_worked", { precision: 8, scale: 2 }).notNull(),
+  weekNumber: integer("week_number").notNull(), // 1 or 2 within the pay period
+  sourceRowNumber: integer("source_row_number"), // Row from imported spreadsheet
+  importBatchId: varchar("import_batch_id"), // Track which import created this entry
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const caregiverTimeEntriesRelations = relations(caregiverTimeEntries, ({ one }) => ({
+  payrollRun: one(payrollRuns, {
+    fields: [caregiverTimeEntries.payrollRunId],
+    references: [payrollRuns.id],
+  }),
+  caregiver: one(caregivers, {
+    fields: [caregiverTimeEntries.caregiverId],
+    references: [caregivers.id],
+  }),
+  client: one(clients, {
+    fields: [caregiverTimeEntries.clientId],
+    references: [clients.id],
+  }),
+}));
 
 export const payrollLineItemsRelations = relations(payrollLineItems, ({ one }) => ({
   payrollRun: one(payrollRuns, {
@@ -1335,6 +1372,10 @@ export const insertPayrollRunSchema = createInsertSchema(payrollRuns).omit({ id:
 export type PayrollLineItem = typeof payrollLineItems.$inferSelect;
 export type InsertPayrollLineItem = typeof payrollLineItems.$inferInsert;
 export const insertPayrollLineItemSchema = createInsertSchema(payrollLineItems).omit({ id: true, createdAt: true });
+
+export type CaregiverTimeEntry = typeof caregiverTimeEntries.$inferSelect;
+export type InsertCaregiverTimeEntry = typeof caregiverTimeEntries.$inferInsert;
+export const insertCaregiverTimeEntrySchema = createInsertSchema(caregiverTimeEntries).omit({ id: true, createdAt: true });
 
 export type BillingRecord = typeof billingRecords.$inferSelect;
 export type InsertBillingRecord = typeof billingRecords.$inferInsert;
