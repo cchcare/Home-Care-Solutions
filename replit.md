@@ -48,6 +48,16 @@ Preferred communication style: Simple, everyday language.
   - Other MCOs: 14 days default
 - **Status Tracking**: Pending, Invoiced, Paid status workflow
 
+### Payroll Management
+- **Bulk Paystub Upload**: AI-powered feature to upload PDF files containing multiple paystubs
+  - Extracts employee name, pay period, hours, gross/net pay, and deductions using OCR
+  - Automatically matches extracted names to existing caregivers in the selected office
+  - Creates paycheck records for matched employees
+  - Displays detailed results showing matched, unmatched, and non-paystub pages
+  - Role-based access: admin, super_admin, and supervisor roles only
+- **Payroll Runs**: Create and manage biweekly payroll cycles
+- **Paycheck Records**: Track individual caregiver paychecks with hours, deductions, and net pay
+
 ### Authentication & Authorization
 - **OIDC Integration**: Secure authentication flow with Replit's identity provider
 - **Role-Based Access**: Multiple user roles (admin, supervisor, caregiver, family) with appropriate permissions
