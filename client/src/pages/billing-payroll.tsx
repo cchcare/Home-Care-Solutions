@@ -96,16 +96,14 @@ const getUSHolidays = (year: number): { date: Date; name: string }[] => {
 };
 
 const billingFormSchema = z.object({
-  clientId: z.string().min(1, "Client is required"),
-  caregiverId: z.string().optional(),
-  mcoId: z.string().optional(),
+  mcoId: z.string().min(1, "MCO is required"),
+  serviceStartDate: z.string().min(1, "Service start date is required"),
+  serviceEndDate: z.string().min(1, "Service end date is required"),
   serviceCode: z.string().optional(),
-  servicePeriodStart: z.string().min(1, "Start date is required"),
-  servicePeriodEnd: z.string().min(1, "End date is required"),
-  hoursOrUnits: z.string().optional(),
+  hours: z.string().optional(),
   rate: z.string().optional(),
-  amount: z.string().min(1, "Amount is required"),
-  dueDate: z.string().optional(),
+  totalAmount: z.string().min(1, "Total amount is required"),
+  billDate: z.string().min(1, "Bill date is required"),
   notes: z.string().optional(),
 });
 
@@ -161,6 +159,10 @@ export default function BillingPayroll() {
     enabled: !!actualOfficeId,
   });
 
+  const { data: allMcos = [] } = useQuery<Mco[]>({
+    queryKey: ["/api/mcos"],
+  });
+
   const { data: clients = [] } = useQuery<Client[]>({
     queryKey: ["/api/clients", actualOfficeId],
     queryFn: () => fetch(`/api/clients${actualOfficeId ? `?officeId=${actualOfficeId}` : ""}`).then(r => r.json()),
@@ -172,8 +174,7 @@ export default function BillingPayroll() {
   });
 
   const { data: billingRecords = [] } = useQuery<BillingRecord[]>({
-    queryKey: ["/api/billing", actualOfficeId],
-    queryFn: () => fetch(`/api/billing${actualOfficeId ? `?officeId=${actualOfficeId}` : ""}`).then(r => r.json()),
+    queryKey: ["/api/billing"],
   });
 
   const { data: payrollRuns = [] } = useQuery<PayrollRun[]>({
@@ -232,10 +233,7 @@ export default function BillingPayroll() {
 
   const createBillingMutation = useMutation({
     mutationFn: async (data: any) => {
-      const response = await apiRequest("POST", "/api/billing", {
-        ...data,
-        officeId: actualOfficeId,
-      });
+      const response = await apiRequest("POST", "/api/billing", data);
       return response.json();
     },
     onSuccess: () => {
@@ -404,16 +402,14 @@ export default function BillingPayroll() {
   const billingForm = useForm({
     resolver: zodResolver(billingFormSchema),
     defaultValues: {
-      clientId: "",
-      caregiverId: "",
       mcoId: "",
+      serviceStartDate: format(startOfMonth(subMonths(new Date(), 1)), "yyyy-MM-dd"),
+      serviceEndDate: format(endOfMonth(subMonths(new Date(), 1)), "yyyy-MM-dd"),
       serviceCode: "",
-      servicePeriodStart: format(startOfMonth(subMonths(new Date(), 1)), "yyyy-MM-dd"),
-      servicePeriodEnd: format(endOfMonth(subMonths(new Date(), 1)), "yyyy-MM-dd"),
-      hoursOrUnits: "",
+      hours: "",
       rate: "",
-      amount: "",
-      dueDate: "",
+      totalAmount: "",
+      billDate: format(new Date(), "yyyy-MM-dd"),
       notes: "",
     },
   });
@@ -561,7 +557,7 @@ export default function BillingPayroll() {
 
   const getMcoName = (mcoId: string | null) => {
     if (!mcoId) return "-";
-    const mco = mcos.find(m => m.id === mcoId);
+    const mco = allMcos.find(m => m.id === mcoId);
     return mco?.name || "-";
   };
 
@@ -571,9 +567,9 @@ export default function BillingPayroll() {
     return client ? `${client.firstName} ${client.lastName}` : "-";
   };
 
-  const totalBilled = billingRecords.reduce((sum, r) => sum + parseFloat(r.amount || "0"), 0);
-  const totalPaid = billingRecords.filter(r => r.status === "paid").reduce((sum, r) => sum + parseFloat(r.amount || "0"), 0);
-  const totalPending = billingRecords.filter(r => r.status === "pending" || r.status === "invoiced").reduce((sum, r) => sum + parseFloat(r.amount || "0"), 0);
+  const totalBilled = billingRecords.reduce((sum, r) => sum + parseFloat(r.totalAmount || "0"), 0);
+  const totalPaid = billingRecords.filter(r => r.status === "paid").reduce((sum, r) => sum + parseFloat(r.totalAmount || "0"), 0);
+  const totalPending = billingRecords.filter(r => r.status === "pending" || r.status === "invoiced").reduce((sum, r) => sum + parseFloat(r.totalAmount || "0"), 0);
 
   return (
     <div className="flex h-screen overflow-hidden">
@@ -781,10 +777,9 @@ export default function BillingPayroll() {
                       </CardTitle>
                       <CardDescription>Create and manage billing invoices</CardDescription>
                     </div>
-                    {actualOfficeId && (
-                      <Dialog open={showBillingDialog} onOpenChange={setShowBillingDialog}>
-                        <DialogTrigger asChild>
-                          <Button data-testid="button-create-billing">
+                    <Dialog open={showBillingDialog} onOpenChange={setShowBillingDialog}>
+                      <DialogTrigger asChild>
+                        <Button data-testid="button-create-billing">
                             <Plus className="w-4 h-4 mr-2" />
                             Create Billing
                           </Button>
@@ -795,64 +790,37 @@ export default function BillingPayroll() {
                           </DialogHeader>
                           <Form {...billingForm}>
                             <form onSubmit={billingForm.handleSubmit((data) => createBillingMutation.mutate(data))} className="space-y-4">
+                              <FormField
+                                control={billingForm.control}
+                                name="mcoId"
+                                render={({ field }) => (
+                                  <FormItem>
+                                    <FormLabel>MCO *</FormLabel>
+                                    <Select onValueChange={field.onChange} value={field.value}>
+                                      <FormControl>
+                                        <SelectTrigger data-testid="select-billing-mco">
+                                          <SelectValue placeholder="Select MCO" />
+                                        </SelectTrigger>
+                                      </FormControl>
+                                      <SelectContent>
+                                        {allMcos.map(mco => (
+                                          <SelectItem key={mco.id} value={mco.id}>
+                                            {mco.name}
+                                          </SelectItem>
+                                        ))}
+                                      </SelectContent>
+                                    </Select>
+                                    <FormMessage />
+                                  </FormItem>
+                                )}
+                              />
                               <div className="grid grid-cols-2 gap-4">
                                 <FormField
                                   control={billingForm.control}
-                                  name="clientId"
+                                  name="serviceStartDate"
                                   render={({ field }) => (
                                     <FormItem>
-                                      <FormLabel>Client *</FormLabel>
-                                      <Select onValueChange={field.onChange} value={field.value}>
-                                        <FormControl>
-                                          <SelectTrigger data-testid="select-billing-client">
-                                            <SelectValue placeholder="Select client" />
-                                          </SelectTrigger>
-                                        </FormControl>
-                                        <SelectContent>
-                                          {clients.map(client => (
-                                            <SelectItem key={client.id} value={client.id}>
-                                              {client.firstName} {client.lastName}
-                                            </SelectItem>
-                                          ))}
-                                        </SelectContent>
-                                      </Select>
-                                      <FormMessage />
-                                    </FormItem>
-                                  )}
-                                />
-                                <FormField
-                                  control={billingForm.control}
-                                  name="mcoId"
-                                  render={({ field }) => (
-                                    <FormItem>
-                                      <FormLabel>MCO (Payer)</FormLabel>
-                                      <Select onValueChange={field.onChange} value={field.value}>
-                                        <FormControl>
-                                          <SelectTrigger data-testid="select-billing-mco">
-                                            <SelectValue placeholder="Select MCO" />
-                                          </SelectTrigger>
-                                        </FormControl>
-                                        <SelectContent>
-                                          <SelectItem value="private">Private Pay</SelectItem>
-                                          {mcos.map(mco => (
-                                            <SelectItem key={mco.id} value={mco.id}>
-                                              {mco.name}
-                                            </SelectItem>
-                                          ))}
-                                        </SelectContent>
-                                      </Select>
-                                      <FormMessage />
-                                    </FormItem>
-                                  )}
-                                />
-                              </div>
-                              <div className="grid grid-cols-2 gap-4">
-                                <FormField
-                                  control={billingForm.control}
-                                  name="servicePeriodStart"
-                                  render={({ field }) => (
-                                    <FormItem>
-                                      <FormLabel>Service Period Start *</FormLabel>
+                                      <FormLabel>Service Start Date *</FormLabel>
                                       <FormControl>
                                         <Input type="date" {...field} data-testid="input-billing-start" />
                                       </FormControl>
@@ -862,10 +830,10 @@ export default function BillingPayroll() {
                                 />
                                 <FormField
                                   control={billingForm.control}
-                                  name="servicePeriodEnd"
+                                  name="serviceEndDate"
                                   render={({ field }) => (
                                     <FormItem>
-                                      <FormLabel>Service Period End *</FormLabel>
+                                      <FormLabel>Service End Date *</FormLabel>
                                       <FormControl>
                                         <Input type="date" {...field} data-testid="input-billing-end" />
                                       </FormControl>
@@ -890,10 +858,10 @@ export default function BillingPayroll() {
                                 />
                                 <FormField
                                   control={billingForm.control}
-                                  name="hoursOrUnits"
+                                  name="hours"
                                   render={({ field }) => (
                                     <FormItem>
-                                      <FormLabel>Hours/Units</FormLabel>
+                                      <FormLabel>Hours</FormLabel>
                                       <FormControl>
                                         <Input type="number" step="0.25" {...field} data-testid="input-hours" />
                                       </FormControl>
@@ -918,7 +886,7 @@ export default function BillingPayroll() {
                               <div className="grid grid-cols-2 gap-4">
                                 <FormField
                                   control={billingForm.control}
-                                  name="amount"
+                                  name="totalAmount"
                                   render={({ field }) => (
                                     <FormItem>
                                       <FormLabel>Total Amount *</FormLabel>
@@ -931,18 +899,21 @@ export default function BillingPayroll() {
                                 />
                                 <FormField
                                   control={billingForm.control}
-                                  name="dueDate"
+                                  name="billDate"
                                   render={({ field }) => (
                                     <FormItem>
-                                      <FormLabel>Due Date</FormLabel>
+                                      <FormLabel>Bill Date *</FormLabel>
                                       <FormControl>
-                                        <Input type="date" {...field} data-testid="input-due-date" />
+                                        <Input type="date" {...field} data-testid="input-bill-date" />
                                       </FormControl>
                                       <FormMessage />
                                     </FormItem>
                                   )}
                                 />
                               </div>
+                              <p className="text-sm text-muted-foreground">
+                                Due date is automatically calculated based on MCO: UPMC (7 days), PA Health and Wellness (14 days), Amerihealth (24 days)
+                              </p>
                               <FormField
                                 control={billingForm.control}
                                 name="notes"
@@ -964,24 +935,23 @@ export default function BillingPayroll() {
                             </form>
                           </Form>
                         </DialogContent>
-                      </Dialog>
-                    )}
+                    </Dialog>
                   </CardHeader>
                   <CardContent>
-                    {!actualOfficeId ? (
-                      <p className="text-center text-muted-foreground py-8">Select an office to manage billing</p>
-                    ) : billingRecords.length === 0 ? (
+                    {billingRecords.length === 0 ? (
                       <p className="text-center text-muted-foreground py-8">No billing records found. Create your first billing record.</p>
                     ) : (
                       <div className="overflow-x-auto">
                         <table className="w-full">
                           <thead className="border-b">
                             <tr>
-                              <th className="text-left p-3 text-sm font-medium">Client</th>
                               <th className="text-left p-3 text-sm font-medium">MCO</th>
                               <th className="text-left p-3 text-sm font-medium">Service Period</th>
                               <th className="text-left p-3 text-sm font-medium">Code</th>
+                              <th className="text-left p-3 text-sm font-medium">Hours</th>
                               <th className="text-left p-3 text-sm font-medium">Amount</th>
+                              <th className="text-left p-3 text-sm font-medium">Bill Date</th>
+                              <th className="text-left p-3 text-sm font-medium">Due Date</th>
                               <th className="text-left p-3 text-sm font-medium">Status</th>
                               <th className="text-left p-3 text-sm font-medium">Actions</th>
                             </tr>
@@ -989,17 +959,19 @@ export default function BillingPayroll() {
                           <tbody className="divide-y">
                             {billingRecords.map((record) => (
                               <tr key={record.id} data-testid={`billing-row-${record.id}`}>
-                                <td className="p-3">{getClientName(record.clientId)}</td>
                                 <td className="p-3">{getMcoName(record.mcoId)}</td>
                                 <td className="p-3">
-                                  {record.servicePeriodStart && record.servicePeriodEnd ? (
+                                  {record.serviceStartDate && record.serviceEndDate ? (
                                     <>
-                                      {format(new Date(record.servicePeriodStart), "MMM d")} - {format(new Date(record.servicePeriodEnd), "MMM d, yyyy")}
+                                      {format(new Date(record.serviceStartDate), "MMM d")} - {format(new Date(record.serviceEndDate), "MMM d, yyyy")}
                                     </>
                                   ) : "-"}
                                 </td>
                                 <td className="p-3 font-mono">{record.serviceCode || "-"}</td>
-                                <td className="p-3 font-medium">${record.amount}</td>
+                                <td className="p-3">{record.hours || "-"}</td>
+                                <td className="p-3 font-medium">${record.totalAmount}</td>
+                                <td className="p-3">{record.billDate ? format(new Date(record.billDate), "MMM d, yyyy") : "-"}</td>
+                                <td className="p-3">{record.dueDate ? format(new Date(record.dueDate), "MMM d, yyyy") : "-"}</td>
                                 <td className="p-3">{getStatusBadge(record.status || "pending")}</td>
                                 <td className="p-3">
                                   <div className="flex gap-1">

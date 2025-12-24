@@ -2107,10 +2107,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   // ==================== BILLING RECORDS ====================
-  async getBillingRecords(officeId?: string): Promise<BillingRecord[]> {
-    if (officeId) {
-      return await db.select().from(billingRecords).where(eq(billingRecords.officeId, officeId)).orderBy(desc(billingRecords.createdAt));
-    }
+  async getBillingRecords(): Promise<BillingRecord[]> {
     return await db.select().from(billingRecords).orderBy(desc(billingRecords.createdAt));
   }
 

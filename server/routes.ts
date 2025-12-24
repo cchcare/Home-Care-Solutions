@@ -3995,10 +3995,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ==================== BILLING ROUTES ====================
+  // MCO due date calculation: UPMC = 7 days, PA Health and Wellness = 14 days, Amerihealth = 24 days
+  const calculateDueDate = async (mcoId: string | null | undefined, billDate: Date): Promise<Date> => {
+    if (!mcoId) {
+      return new Date(billDate.getTime() + 14 * 24 * 60 * 60 * 1000); // Default 14 days
+    }
+    const mco = await storage.getMco(mcoId);
+    if (!mco) {
+      return new Date(billDate.getTime() + 14 * 24 * 60 * 60 * 1000); // Default 14 days
+    }
+    
+    const mcoName = mco.name.toLowerCase();
+    let dueDays = 14; // Default
+    
+    if (mcoName.includes('upmc')) {
+      dueDays = 7;
+    } else if (mcoName.includes('pa health') || mcoName.includes('health and wellness')) {
+      dueDays = 14;
+    } else if (mcoName.includes('amerihealth')) {
+      dueDays = 24;
+    }
+    
+    return new Date(billDate.getTime() + dueDays * 24 * 60 * 60 * 1000);
+  };
+
   app.get("/api/billing", isAuthenticated, async (req, res) => {
     try {
-      const officeId = req.query.officeId as string | undefined;
-      const records = await storage.getBillingRecords(officeId);
+      const records = await storage.getBillingRecords();
       res.json(records);
     } catch (error) {
       console.error("Error fetching billing records:", error);
@@ -4021,8 +4044,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/billing", isAuthenticated, async (req: any, res) => {
     try {
+      const billDate = new Date(req.body.billDate);
+      const dueDate = await calculateDueDate(req.body.mcoId, billDate);
+      
       const record = await storage.createBillingRecord({
         ...req.body,
+        billDate,
+        dueDate,
         createdBy: req.user.claims.sub,
       });
       res.status(201).json(record);
@@ -4032,9 +4060,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/billing/:id", isAuthenticated, async (req, res) => {
+  app.put("/api/billing/:id", isAuthenticated, async (req: any, res) => {
     try {
-      const record = await storage.updateBillingRecord(req.params.id, req.body);
+      // Recalculate due date if MCO or billDate changed
+      let dueDate;
+      if (req.body.mcoId || req.body.billDate) {
+        const existingRecord = await storage.getBillingRecord(req.params.id);
+        const mcoId = req.body.mcoId || existingRecord?.mcoId;
+        const billDate = req.body.billDate ? new Date(req.body.billDate) : existingRecord?.billDate;
+        if (billDate) {
+          dueDate = await calculateDueDate(mcoId, billDate);
+        }
+      }
+      
+      const record = await storage.updateBillingRecord(req.params.id, {
+        ...req.body,
+        ...(dueDate && { dueDate }),
+      });
       res.json(record);
     } catch (error) {
       console.error("Error updating billing record:", error);
