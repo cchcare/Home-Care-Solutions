@@ -5,13 +5,15 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Sidebar } from "@/components/sidebar";
 import { TopBar } from "@/components/topbar";
 import { AddCaregiverModal } from "@/components/add-caregiver-modal";
 import { OcrUploadDialog } from "@/components/ocr-upload-dialog";
 import { OfficeSelector } from "@/components/office-selector";
+import { BulkUpdateCaregiverModal } from "@/components/bulk-update-caregiver-modal";
 import { useOffice } from "@/context/office-context";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 import { isUnauthorizedError } from "@/lib/authUtils";
 import { useLocation } from "wouter";
 import { 
@@ -23,9 +25,21 @@ import {
   AlertCircle,
   Eye,
   Edit,
-  Scan
+  Scan,
+  Trash2,
+  RefreshCw
 } from "lucide-react";
 import type { Caregiver } from "@shared/schema";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 type EnrichedCaregiver = Caregiver & { firstName?: string | null; lastName?: string | null; email?: string | null };
 import { ExcelImport } from "@/components/excel-import";
@@ -36,6 +50,9 @@ export default function Caregivers() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [showOcrDialog, setShowOcrDialog] = useState(false);
   const [ocrExtractedData, setOcrExtractedData] = useState<any>(null);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [showBulkUpdateModal, setShowBulkUpdateModal] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { selectedOfficeId, setSelectedOfficeId } = useOffice();
@@ -82,6 +99,62 @@ export default function Caregivers() {
       });
     },
   });
+
+  const bulkDeleteMutation = useMutation({
+    mutationFn: async (caregiverIds: string[]) => {
+      const response = await apiRequest("POST", "/api/caregivers/bulk-delete", { caregiverIds });
+      return response.json();
+    },
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/caregivers"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/dashboard/metrics"] });
+      setSelectedIds([]);
+      setShowDeleteConfirm(false);
+      toast({
+        title: "Success",
+        description: `${result.deleted} caregiver(s) deleted successfully`,
+      });
+    },
+    onError: (error: any) => {
+      if (isUnauthorizedError(error as Error)) {
+        toast({
+          title: "Unauthorized",
+          description: "You are logged out. Logging in again...",
+          variant: "destructive",
+        });
+        setTimeout(() => {
+          window.location.href = "/api/login";
+        }, 500);
+        return;
+      }
+      const message = error?.message || "Failed to delete caregivers";
+      toast({
+        title: "Error",
+        description: message.includes("permissions") ? "You don't have permission to delete caregivers" : message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const toggleSelection = (id: string) => {
+    setSelectedIds(prev => 
+      prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
+    );
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.length === filteredCaregivers.length) {
+      setSelectedIds([]);
+    } else {
+      setSelectedIds(filteredCaregivers.map(c => c.id));
+    }
+  };
+
+  const handleBulkUpdateSuccess = () => {
+    queryClient.invalidateQueries({ queryKey: ["/api/caregivers"] });
+    setSelectedIds([]);
+    setShowBulkUpdateModal(false);
+  };
 
   const filteredCaregivers = caregivers.filter((caregiver: Caregiver) =>
     searchTerm === "" || 
@@ -146,6 +219,31 @@ export default function Caregivers() {
                       data-testid="input-search-caregivers"
                     />
                   </div>
+                  {selectedIds.length > 0 && (
+                    <div className="flex items-center space-x-2">
+                      <span className="text-sm text-muted-foreground">
+                        {selectedIds.length} selected
+                      </span>
+                      <Button 
+                        variant="outline" 
+                        size="sm"
+                        onClick={() => setShowBulkUpdateModal(true)}
+                        data-testid="button-bulk-update"
+                      >
+                        <RefreshCw className="w-4 h-4 mr-2" />
+                        Bulk Update
+                      </Button>
+                      <Button 
+                        variant="destructive" 
+                        size="sm"
+                        onClick={() => setShowDeleteConfirm(true)}
+                        data-testid="button-bulk-delete"
+                      >
+                        <Trash2 className="w-4 h-4 mr-2" />
+                        Delete
+                      </Button>
+                    </div>
+                  )}
                 </div>
               </CardContent>
             </Card>
@@ -221,6 +319,13 @@ export default function Caregivers() {
                   <table className="w-full">
                     <thead className="bg-muted/50">
                       <tr>
+                        <th className="w-12 p-4">
+                          <Checkbox 
+                            checked={filteredCaregivers.length > 0 && selectedIds.length === filteredCaregivers.length}
+                            onCheckedChange={toggleSelectAll}
+                            data-testid="checkbox-select-all"
+                          />
+                        </th>
                         <th className="text-left p-4 text-sm font-medium text-muted-foreground">Caregiver Information</th>
                         <th className="text-left p-4 text-sm font-medium text-muted-foreground">Experience</th>
                         <th className="text-left p-4 text-sm font-medium text-muted-foreground">Specializations</th>
@@ -231,13 +336,20 @@ export default function Caregivers() {
                     <tbody className="divide-y divide-border">
                       {isLoading ? (
                         <tr>
-                          <td colSpan={5} className="p-8 text-center text-muted-foreground">
+                          <td colSpan={6} className="p-8 text-center text-muted-foreground">
                             Loading caregivers...
                           </td>
                         </tr>
                       ) : filteredCaregivers.length > 0 ? (
                         filteredCaregivers.map((caregiver: EnrichedCaregiver) => (
                           <tr key={caregiver.id} className="hover:bg-muted/25 transition-colors" data-testid={`row-caregiver-${caregiver.id}`}>
+                            <td className="p-4">
+                              <Checkbox 
+                                checked={selectedIds.includes(caregiver.id)}
+                                onCheckedChange={() => toggleSelection(caregiver.id)}
+                                data-testid={`checkbox-caregiver-${caregiver.id}`}
+                              />
+                            </td>
                             <td className="p-4">
                               <div className="flex items-center space-x-3">
                                 <div className="w-12 h-12 bg-accent rounded-full flex items-center justify-center">
@@ -306,7 +418,7 @@ export default function Caregivers() {
                         ))
                       ) : (
                         <tr>
-                          <td colSpan={5} className="p-8 text-center text-muted-foreground">
+                          <td colSpan={6} className="p-8 text-center text-muted-foreground">
                             {searchTerm ? "No caregivers found matching your search" : "No caregivers found"}
                           </td>
                         </tr>
@@ -346,6 +458,36 @@ export default function Caregivers() {
           });
         }}
       />
+
+      <BulkUpdateCaregiverModal
+        isOpen={showBulkUpdateModal}
+        onClose={() => setShowBulkUpdateModal(false)}
+        caregiverIds={selectedIds}
+        onSuccess={handleBulkUpdateSuccess}
+      />
+
+      <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Caregivers</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete {selectedIds.length} caregiver(s)? 
+              This action cannot be undone and will remove all associated data.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-delete">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => bulkDeleteMutation.mutate(selectedIds)}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={bulkDeleteMutation.isPending}
+              data-testid="button-confirm-delete"
+            >
+              {bulkDeleteMutation.isPending ? "Deleting..." : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
