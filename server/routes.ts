@@ -4160,9 +4160,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const billDate = new Date(req.body.billDate);
       const dueDate = await calculateDueDate(req.body.mcoId, billDate);
+      const serviceStartDate = new Date(req.body.serviceStartDate);
+      const serviceEndDate = new Date(req.body.serviceEndDate);
       
       const record = await storage.createBillingRecord({
         ...req.body,
+        serviceStartDate,
+        serviceEndDate,
         billDate,
         dueDate,
         createdBy: req.user.claims.sub,
