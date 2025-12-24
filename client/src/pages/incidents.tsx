@@ -77,7 +77,7 @@ export default function IncidentsPage() {
       return response.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/incident-reports"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/incident-reports", selectedOfficeId] });
       setOpen(false);
       form.reset();
       toast({

@@ -9,6 +9,8 @@ import { Sidebar } from "@/components/sidebar";
 import { TopBar } from "@/components/topbar";
 import { FileUpload } from "@/components/file-upload";
 import { DocumentPreview } from "@/components/document-preview";
+import { OfficeSelector } from "@/components/office-selector";
+import { useOffice } from "@/context/office-context";
 import { apiRequest } from "@/lib/queryClient";
 import { isUnauthorizedError } from "@/lib/authUtils";
 import { 
@@ -36,9 +38,12 @@ export default function Documents() {
   const [previewDocument, setPreviewDocument] = useState<Document | null>(null);
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const { selectedOfficeId, setSelectedOfficeId } = useOffice();
+  const officeQuery = selectedOfficeId !== "all" ? `?officeId=${selectedOfficeId}` : "";
 
   const { data: documents = [], isLoading } = useQuery<Document[]>({
-    queryKey: ["/api/documents"],
+    queryKey: ["/api/documents", selectedOfficeId],
+    queryFn: () => fetch(`/api/documents${officeQuery}`, { credentials: "include" }).then(r => r.json()),
     retry: false,
   });
 
@@ -64,7 +69,7 @@ export default function Documents() {
       return response.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/documents"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/documents", selectedOfficeId] });
       toast({
         title: "Success",
         description: "Document updated successfully",
@@ -171,7 +176,11 @@ export default function Documents() {
         {/* Header */}
         <header className="bg-card border-b border-border h-16 flex items-center justify-between px-6 flex-shrink-0">
           <div className="flex items-center space-x-4">
-            <div className="flex-1" />
+            <OfficeSelector
+              selectedOfficeId={selectedOfficeId === "all" ? undefined : selectedOfficeId}
+              onOfficeChange={setSelectedOfficeId}
+              showAllOption={true}
+            />
           </div>
           <Button onClick={() => setShowUploadModal(true)} data-testid="button-upload-document">
             <Upload className="w-4 h-4 mr-2" />
@@ -296,7 +305,7 @@ export default function Documents() {
                     documentType="general"
                     onUploadComplete={() => {
                       setShowUploadModal(false);
-                      queryClient.invalidateQueries({ queryKey: ["/api/documents"] });
+                      queryClient.invalidateQueries({ queryKey: ["/api/documents", selectedOfficeId] });
                     }}
                   />
                 </CardContent>

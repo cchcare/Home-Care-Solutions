@@ -12,6 +12,8 @@ import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Sidebar } from "@/components/sidebar";
 import { TopBar } from "@/components/topbar";
+import { OfficeSelector } from "@/components/office-selector";
+import { useOffice } from "@/context/office-context";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { insertTaskSchema, type Task } from "@shared/schema";
@@ -42,9 +44,12 @@ export default function TasksPage() {
   const [priorityFilter, setPriorityFilter] = useState<string>("all");
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const { selectedOfficeId, setSelectedOfficeId } = useOffice();
+  const officeQuery = selectedOfficeId !== "all" ? `?officeId=${selectedOfficeId}` : "";
 
   const { data: tasks = [], isLoading } = useQuery<Task[]>({
-    queryKey: ["/api/tasks"],
+    queryKey: ["/api/tasks", selectedOfficeId],
+    queryFn: () => fetch(`/api/tasks${officeQuery}`, { credentials: "include" }).then(r => r.json()),
   });
 
   const { data: clients = [] } = useQuery<any[]>({
@@ -60,7 +65,7 @@ export default function TasksPage() {
       return await apiRequest("POST", "/api/tasks", data);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/tasks", selectedOfficeId] });
       handleClose();
       toast({
         title: "Success",
@@ -81,7 +86,7 @@ export default function TasksPage() {
       return await apiRequest("PUT", `/api/tasks/${id}`, data);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/tasks", selectedOfficeId] });
       handleClose();
       toast({
         title: "Success",
@@ -102,7 +107,7 @@ export default function TasksPage() {
       return await apiRequest("DELETE", `/api/tasks/${id}`, {});
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/tasks", selectedOfficeId] });
       toast({
         title: "Success",
         description: "Task deleted successfully",
@@ -223,6 +228,12 @@ export default function TasksPage() {
             Manage tasks, assignments, and workflow processes
           </p>
         </div>
+        <div className="flex items-center gap-4">
+          <OfficeSelector
+            selectedOfficeId={selectedOfficeId === "all" ? undefined : selectedOfficeId}
+            onOfficeChange={setSelectedOfficeId}
+            showAllOption={true}
+          />
         <Dialog open={open} onOpenChange={setOpen}>
           <DialogTrigger asChild>
             <Button data-testid="button-create-task">
@@ -419,6 +430,7 @@ export default function TasksPage() {
             </Form>
           </DialogContent>
         </Dialog>
+        </div>
       </div>
 
       {/* Filters */}

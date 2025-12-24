@@ -152,7 +152,7 @@ export default function Training() {
       return response.json();
     },
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/training-records"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/training-records", selectedOfficeId] });
       setShowAssignModal(false);
       setSelectedTraining(null);
       setSelectedCaregivers([]);
@@ -187,7 +187,7 @@ export default function Training() {
       return response.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/trainings"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/trainings", selectedOfficeId] });
       setShowAddModal(false);
       form.reset();
       toast({
@@ -221,7 +221,7 @@ export default function Training() {
       return response.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/trainings"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/trainings", selectedOfficeId] });
       setShowEditModal(false);
       setSelectedTraining(null);
       editForm.reset();
