@@ -384,7 +384,7 @@ export interface IStorage {
   deleteClientSchedule(id: string): Promise<void>;
   
   // Schedule rollover from master week
-  applyMasterWeekToSchedules(templateId: string, weekStartDate: Date): Promise<ClientSchedule[]>;
+  applyMasterWeekToSchedules(templateId: string, fromDate: Date, toDate: Date): Promise<ClientSchedule[]>;
   
   // Schedule change logging
   createScheduleChangeLog(log: InsertScheduleChangeLog): Promise<ScheduleChangeLog>;
@@ -1780,7 +1780,7 @@ export class DatabaseStorage implements IStorage {
     await db.delete(clientSchedules).where(eq(clientSchedules.id, id));
   }
 
-  async applyMasterWeekToSchedules(templateId: string, weekStartDate: Date): Promise<ClientSchedule[]> {
+  async applyMasterWeekToSchedules(templateId: string, fromDate: Date, toDate: Date): Promise<ClientSchedule[]> {
     // Get template and its slots
     const template = await this.getMasterWeekTemplate(templateId);
     if (!template || !template.isActive) {
@@ -1800,42 +1800,66 @@ export class DatabaseStorage implements IStorage {
       return totalMinutes / 60;
     };
 
-    // Create schedules for each slot for the week
-    for (const slot of slots) {
-      const scheduleDate = new Date(weekStartDate);
-      scheduleDate.setDate(scheduleDate.getDate() + slot.dayOfWeek);
+    // Get the start of the week (Sunday) for the fromDate
+    const getWeekStart = (date: Date): Date => {
+      const d = new Date(date);
+      const day = d.getDay();
+      d.setDate(d.getDate() - day);
+      d.setHours(0, 0, 0, 0);
+      return d;
+    };
 
-      // Calculate hours and billing amount
-      const totalHours = calculateHours(slot.startTime, slot.endTime);
-      const hourlyRate = (slot as any).hourlyRate ? parseFloat((slot as any).hourlyRate) : null;
-      const billingAmount = hourlyRate ? totalHours * hourlyRate : null;
+    // Iterate through each week in the date range
+    let currentWeekStart = getWeekStart(fromDate);
+    const endDateObj = new Date(toDate);
+    endDateObj.setHours(23, 59, 59, 999);
 
-      const scheduleData: InsertClientSchedule = {
-        clientId: template.clientId,
-        caregiverId: slot.caregiverId,
-        scheduledDate: scheduleDate,
-        startTime: slot.startTime,
-        endTime: slot.endTime,
-        serviceType: slot.serviceType,
-        status: 'scheduled',
-        notes: slot.notes,
-        masterWeekSlotId: slot.id,
-        createdBy: template.createdBy,
-        scheduleType: (slot as any).scheduleType,
-        payCode: (slot as any).payCode,
-        poc: (slot as any).poc,
-        primaryBillTo: (slot as any).primaryBillTo,
-        serviceCode: (slot as any).serviceCode,
-        budgetNumber: (slot as any).budgetNumber,
-        rateType: (slot as any).rateType,
-        hourlyRate: hourlyRate?.toString(),
-        totalHours: totalHours.toFixed(2),
-        billingAmount: billingAmount?.toFixed(2),
-        includeMileage: (slot as any).includeMileage,
-      };
+    while (currentWeekStart <= endDateObj) {
+      // Create schedules for each slot for this week
+      for (const slot of slots) {
+        const scheduleDate = new Date(currentWeekStart);
+        scheduleDate.setDate(scheduleDate.getDate() + slot.dayOfWeek);
 
-      const newSchedule = await this.createClientSchedule(scheduleData);
-      newSchedules.push(newSchedule);
+        // Skip if schedule date is before fromDate or after toDate
+        if (scheduleDate < fromDate || scheduleDate > endDateObj) {
+          continue;
+        }
+
+        // Calculate hours and billing amount
+        const totalHours = calculateHours(slot.startTime, slot.endTime);
+        const hourlyRate = (slot as any).hourlyRate ? parseFloat((slot as any).hourlyRate) : null;
+        const billingAmount = hourlyRate ? totalHours * hourlyRate : null;
+
+        const scheduleData: InsertClientSchedule = {
+          clientId: template.clientId,
+          caregiverId: slot.caregiverId,
+          scheduledDate: scheduleDate,
+          startTime: slot.startTime,
+          endTime: slot.endTime,
+          serviceType: slot.serviceType,
+          status: 'scheduled',
+          notes: slot.notes,
+          masterWeekSlotId: slot.id,
+          createdBy: template.createdBy,
+          scheduleType: (slot as any).scheduleType,
+          payCode: (slot as any).payCode,
+          poc: (slot as any).poc,
+          primaryBillTo: (slot as any).primaryBillTo,
+          serviceCode: (slot as any).serviceCode,
+          budgetNumber: (slot as any).budgetNumber,
+          rateType: (slot as any).rateType,
+          hourlyRate: hourlyRate?.toString(),
+          totalHours: totalHours.toFixed(2),
+          billingAmount: billingAmount?.toFixed(2),
+          includeMileage: (slot as any).includeMileage,
+        };
+
+        const newSchedule = await this.createClientSchedule(scheduleData);
+        newSchedules.push(newSchedule);
+      }
+
+      // Move to next week
+      currentWeekStart.setDate(currentWeekStart.getDate() + 7);
     }
 
     return newSchedules;

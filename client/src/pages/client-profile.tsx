@@ -158,7 +158,13 @@ export default function ClientProfile() {
   const [showMasterWeekModal, setShowMasterWeekModal] = useState(false);
   const [editingTemplate, setEditingTemplate] = useState<MasterWeekTemplate | null>(null);
   const [showApplyDialog, setShowApplyDialog] = useState(false);
-  const [applyWeekStartDate, setApplyWeekStartDate] = useState(new Date().toISOString().split('T')[0]);
+  const [applyFromDate, setApplyFromDate] = useState(new Date().toISOString().split('T')[0]);
+  const [applyToDate, setApplyToDate] = useState(() => {
+    const date = new Date();
+    date.setDate(date.getDate() + 28);
+    return date.toISOString().split('T')[0];
+  });
+  const [selectedTemplateForApply, setSelectedTemplateForApply] = useState<MasterWeekTemplate | null>(null);
 
   const { data: client, isLoading: clientLoading } = useQuery<Client>({
     queryKey: ["/api/clients", clientId],
@@ -344,13 +350,14 @@ export default function ClientProfile() {
   });
 
   const applyToCalendarMutation = useMutation({
-    mutationFn: async ({ templateId, weekStartDate }: { templateId: string; weekStartDate: string }) => {
-      const response = await apiRequest("POST", `/api/master-week-templates/${templateId}/apply`, { weekStartDate });
+    mutationFn: async ({ templateId, fromDate, toDate }: { templateId: string; fromDate: string; toDate: string }) => {
+      const response = await apiRequest("POST", `/api/master-week-templates/${templateId}/apply`, { fromDate, toDate });
       return response.json();
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/clients", clientId, "schedules"] });
       setShowApplyDialog(false);
+      setSelectedTemplateForApply(null);
       toast({ 
         title: "Success", 
         description: `Created ${data.schedules?.length || 0} schedule entries from master week template` 
@@ -687,6 +694,13 @@ export default function ClientProfile() {
       const scheduleDate = new Date(s.scheduledDate);
       return scheduleDate.toDateString() === date.toDateString();
     });
+  };
+
+  const getCaregiverName = (caregiverId: string | null | undefined) => {
+    if (!caregiverId) return null;
+    const caregiver = allCaregivers.find(c => c.id === caregiverId);
+    if (!caregiver) return null;
+    return `${caregiver.firstName} ${caregiver.lastName}`.trim();
   };
 
   if (clientLoading) {
@@ -1518,15 +1532,21 @@ export default function ClientProfile() {
                           >
                             <div className="text-sm font-medium mb-1">{format(day, "d")}</div>
                             <div className="space-y-1">
-                              {daySchedules.slice(0, 2).map((schedule) => (
-                                <div
-                                  key={schedule.id}
-                                  className="text-xs p-1 bg-primary/20 rounded truncate"
-                                  title={`${schedule.startTime} - ${schedule.endTime}`}
-                                >
-                                  {schedule.startTime}
-                                </div>
-                              ))}
+                              {daySchedules.slice(0, 2).map((schedule) => {
+                                const caregiverName = getCaregiverName(schedule.caregiverId);
+                                return (
+                                  <div
+                                    key={schedule.id}
+                                    className="text-xs p-1 bg-primary/20 rounded truncate"
+                                    title={`${schedule.startTime} - ${schedule.endTime}${caregiverName ? ` (${caregiverName})` : ''}`}
+                                  >
+                                    <div>{schedule.startTime}</div>
+                                    {caregiverName && (
+                                      <div className="text-[10px] text-muted-foreground truncate">{caregiverName}</div>
+                                    )}
+                                  </div>
+                                );
+                              })}
                               {daySchedules.length > 2 && (
                                 <div className="text-xs text-muted-foreground">
                                   +{daySchedules.length - 2} more
@@ -1602,85 +1622,76 @@ export default function ClientProfile() {
                       <div>
                         <CardTitle className="flex items-center gap-2">
                           <CalendarDays className="w-5 h-5" />
-                          Master Week Template
+                          Master Week Templates
                         </CardTitle>
-                        <CardDescription>Define the standard weekly schedule for this client</CardDescription>
+                        <CardDescription>Define recurring weekly schedules for this client</CardDescription>
                       </div>
-                      <div className="flex gap-2">
-                        {masterWeekTemplates.length > 0 && (
-                          <>
-                            <Button
-                              variant="outline"
-                              onClick={() => {
-                                setEditingTemplate(masterWeekTemplates[0]);
-                                setShowMasterWeekModal(true);
-                              }}
-                              data-testid="button-edit-master-week"
-                            >
-                              <Edit className="w-4 h-4 mr-2" />
-                              Edit Template
-                            </Button>
-                            <Button
-                              onClick={() => setShowApplyDialog(true)}
-                              data-testid="button-apply-to-calendar"
-                            >
-                              <Calendar className="w-4 h-4 mr-2" />
-                              Apply to Calendar
-                            </Button>
-                          </>
-                        )}
-                        {masterWeekTemplates.length === 0 && (
-                          <Button
-                            onClick={() => {
-                              setEditingTemplate(null);
-                              setShowMasterWeekModal(true);
-                            }}
-                            data-testid="button-create-master-week"
-                          >
-                            <Plus className="w-4 h-4 mr-2" />
-                            Create Template
-                          </Button>
-                        )}
-                      </div>
+                      <Button
+                        onClick={() => {
+                          setEditingTemplate(null);
+                          setShowMasterWeekModal(true);
+                        }}
+                        data-testid="button-create-master-week"
+                      >
+                        <Plus className="w-4 h-4 mr-2" />
+                        New Template
+                      </Button>
                     </CardHeader>
                     <CardContent>
                       {masterWeekTemplates.length === 0 ? (
-                        <p className="text-muted-foreground text-center py-8">No master week template defined. Click "Create Template" to get started.</p>
+                        <p className="text-muted-foreground text-center py-8">No master week templates defined. Click "New Template" to get started.</p>
                       ) : (
-                        <div>
-                          <div className="mb-4 p-4 border rounded-lg bg-muted/30">
-                            <div className="flex justify-between items-center">
-                              <div>
-                                <h4 className="font-medium">{masterWeekTemplates[0]?.name}</h4>
-                                <p className="text-sm text-muted-foreground">{masterWeekTemplates[0]?.description || "Weekly schedule template"}</p>
-                              </div>
-                              <div className="flex items-center gap-2">
-                                <Badge variant={masterWeekTemplates[0]?.isActive ? "default" : "secondary"}>
-                                  {masterWeekTemplates[0]?.isActive ? "Active" : "Inactive"}
-                                </Badge>
-                                {masterWeekTemplates[0]?.startDate && (
-                                  <span className="text-xs text-muted-foreground">
-                                    From: {format(new Date(masterWeekTemplates[0].startDate), "MMM d, yyyy")}
-                                  </span>
-                                )}
-                                {masterWeekTemplates[0]?.endDate && (
-                                  <span className="text-xs text-muted-foreground">
-                                    To: {format(new Date(masterWeekTemplates[0].endDate), "MMM d, yyyy")}
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-                          </div>
-                          <div className="grid grid-cols-7 gap-2">
-                            {DAY_NAMES.map((day, index) => (
-                              <div key={day} className="border rounded-lg p-3 bg-primary/5">
-                                <h4 className="font-medium text-center mb-2 text-primary">{day}</h4>
-                                <div className="text-center text-xs text-muted-foreground">
-                                  Day {index}
+                        <div className="space-y-4">
+                          {masterWeekTemplates.map((template) => (
+                            <div key={template.id} className="p-4 border rounded-lg bg-muted/30" data-testid={`template-card-${template.id}`}>
+                              <div className="flex justify-between items-start">
+                                <div className="flex-1">
+                                  <div className="flex items-center gap-2 mb-1">
+                                    <h4 className="font-medium">{template.name}</h4>
+                                    <Badge variant={template.isActive ? "default" : "secondary"}>
+                                      {template.isActive ? "Active" : "Inactive"}
+                                    </Badge>
+                                  </div>
+                                  <p className="text-sm text-muted-foreground">{template.description || "Weekly schedule template"}</p>
+                                  <div className="flex items-center gap-4 mt-2 text-xs text-muted-foreground">
+                                    {template.startDate && (
+                                      <span>From: {format(new Date(template.startDate), "MMM d, yyyy")}</span>
+                                    )}
+                                    {template.endDate && (
+                                      <span>To: {format(new Date(template.endDate), "MMM d, yyyy")}</span>
+                                    )}
+                                    {template.recurrence && (
+                                      <span>Every {template.recurrence} week(s)</span>
+                                    )}
+                                  </div>
+                                </div>
+                                <div className="flex gap-2">
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => {
+                                      setEditingTemplate(template);
+                                      setShowMasterWeekModal(true);
+                                    }}
+                                    data-testid={`button-edit-template-${template.id}`}
+                                  >
+                                    <Edit className="w-4 h-4" />
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    onClick={() => {
+                                      setSelectedTemplateForApply(template);
+                                      setShowApplyDialog(true);
+                                    }}
+                                    data-testid={`button-apply-template-${template.id}`}
+                                  >
+                                    <Calendar className="w-4 h-4 mr-1" />
+                                    Apply
+                                  </Button>
                                 </div>
                               </div>
-                            ))}
-                          </div>
+                            </div>
+                          ))}
                         </div>
                       )}
                     </CardContent>
@@ -1689,24 +1700,43 @@ export default function ClientProfile() {
               )}
 
               {/* Apply to Calendar Dialog */}
-              <Dialog open={showApplyDialog} onOpenChange={setShowApplyDialog}>
+              <Dialog open={showApplyDialog} onOpenChange={(open) => {
+                setShowApplyDialog(open);
+                if (!open) setSelectedTemplateForApply(null);
+              }}>
                 <DialogContent>
                   <DialogHeader>
                     <DialogTitle>Apply Master Week to Calendar</DialogTitle>
                   </DialogHeader>
                   <div className="space-y-4 py-4">
+                    {selectedTemplateForApply && (
+                      <div className="p-3 bg-muted/50 rounded-lg">
+                        <p className="text-sm font-medium">Template: {selectedTemplateForApply.name}</p>
+                      </div>
+                    )}
                     <p className="text-sm text-muted-foreground">
-                      Select the start date for the week you want to generate schedules for. 
+                      Select the date range for which you want to generate schedules. 
                       This will create calendar entries for each day based on the master week template.
                     </p>
-                    <div className="space-y-2">
-                      <Label>Week Start Date (Sunday)</Label>
-                      <Input
-                        type="date"
-                        value={applyWeekStartDate}
-                        onChange={(e) => setApplyWeekStartDate(e.target.value)}
-                        data-testid="input-apply-week-start-date"
-                      />
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label>From Date</Label>
+                        <Input
+                          type="date"
+                          value={applyFromDate}
+                          onChange={(e) => setApplyFromDate(e.target.value)}
+                          data-testid="input-apply-from-date"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>To Date</Label>
+                        <Input
+                          type="date"
+                          value={applyToDate}
+                          onChange={(e) => setApplyToDate(e.target.value)}
+                          data-testid="input-apply-to-date"
+                        />
+                      </div>
                     </div>
                   </div>
                   <div className="flex justify-end gap-2">
@@ -1715,14 +1745,15 @@ export default function ClientProfile() {
                     </Button>
                     <Button
                       onClick={() => {
-                        if (masterWeekTemplates[0]?.id) {
+                        if (selectedTemplateForApply?.id) {
                           applyToCalendarMutation.mutate({
-                            templateId: masterWeekTemplates[0].id,
-                            weekStartDate: applyWeekStartDate,
+                            templateId: selectedTemplateForApply.id,
+                            fromDate: applyFromDate,
+                            toDate: applyToDate,
                           });
                         }
                       }}
-                      disabled={applyToCalendarMutation.isPending}
+                      disabled={applyToCalendarMutation.isPending || !selectedTemplateForApply}
                       data-testid="button-confirm-apply"
                     >
                       {applyToCalendarMutation.isPending ? "Applying..." : "Apply to Calendar"}

@@ -2920,12 +2920,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Master Week Rollover
   app.post("/api/master-week-templates/:id/apply", isAuthenticated, async (req: any, res) => {
     try {
-      const { weekStartDate } = req.body;
-      if (!weekStartDate) {
-        return res.status(400).json({ message: "Week start date is required" });
+      const { fromDate, toDate } = req.body;
+      if (!fromDate || !toDate) {
+        return res.status(400).json({ message: "From date and to date are required" });
       }
 
-      const schedules = await storage.applyMasterWeekToSchedules(req.params.id, new Date(weekStartDate));
+      const schedules = await storage.applyMasterWeekToSchedules(req.params.id, new Date(fromDate), new Date(toDate));
       
       // Log the rollover
       for (const schedule of schedules) {
