@@ -48,6 +48,20 @@ export const offices = pgTable("offices", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
+// Coordinators reference table - shared between caregivers and clients
+export const coordinators = pgTable("coordinators", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  firstName: varchar("first_name").notNull(),
+  lastName: varchar("last_name").notNull(),
+  email: varchar("email"),
+  phone: varchar("phone"),
+  officeId: varchar("office_id").references(() => offices.id),
+  title: varchar("title"),
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
 // User storage table.
 export const users = pgTable("users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -102,6 +116,7 @@ export const caregivers = pgTable("caregivers", {
   hourlyWage: numeric("hourly_wage", { precision: 10, scale: 2 }),
   specializations: text("specializations").array(),
   officeId: varchar("office_id").references(() => offices.id),
+  coordinatorId: varchar("coordinator_id").references(() => coordinators.id),
   isActive: boolean("is_active").default(true),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
@@ -654,6 +669,10 @@ export const filesRelations = relations(files, ({ one }) => ({
 export type Office = typeof offices.$inferSelect;
 export type InsertOffice = typeof offices.$inferInsert;
 export const insertOfficeSchema = createInsertSchema(offices);
+
+export type Coordinator = typeof coordinators.$inferSelect;
+export type InsertCoordinator = typeof coordinators.$inferInsert;
+export const insertCoordinatorSchema = createInsertSchema(coordinators);
 
 export type UpsertUser = typeof users.$inferInsert;
 export type User = typeof users.$inferSelect;
