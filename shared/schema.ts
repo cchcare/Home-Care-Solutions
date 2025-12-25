@@ -101,6 +101,7 @@ export const clients = pgTable("clients", {
   lastName: varchar("last_name").notNull(),
   dateOfBirth: timestamp("date_of_birth"),
   phone: varchar("phone"),
+  email: varchar("email"),
   address: text("address"),
   address2: varchar("address_2"),
   city: varchar("city"),
@@ -142,6 +143,9 @@ export const caregivers = pgTable("caregivers", {
   firstName: varchar("first_name"),
   middleName: varchar("middle_name"),
   lastName: varchar("last_name"),
+  dateOfBirth: timestamp("date_of_birth"),
+  email: varchar("email"),
+  phone: varchar("phone"),
   employeeId: varchar("employee_id").unique(),
   assignmentId: varchar("assignment_id").unique(), // External assignment ID for billing import matching
   gender: genderEnum("gender"),
@@ -398,6 +402,22 @@ export const auditLogs = pgTable("audit_logs", {
   ipAddress: varchar("ip_address"),
   userAgent: text("user_agent"),
   createdAt: timestamp("created_at").defaultNow(),
+});
+
+// Birthday notifications tracking
+export const birthdayNotifications = pgTable("birthday_notifications", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  recipientType: varchar("recipient_type").notNull(), // 'client' or 'caregiver'
+  recipientId: varchar("recipient_id").notNull(),
+  recipientName: varchar("recipient_name").notNull(),
+  channel: varchar("channel").notNull(), // 'sms', 'email', or 'both'
+  smsStatus: varchar("sms_status"), // 'sent', 'failed', 'skipped'
+  emailStatus: varchar("email_status"), // 'sent', 'failed', 'skipped'
+  smsError: text("sms_error"),
+  emailError: text("email_error"),
+  birthdayDate: timestamp("birthday_date").notNull(),
+  sentAt: timestamp("sent_at").defaultNow(),
+  officeId: varchar("office_id").references(() => offices.id),
 });
 
 // Relations
@@ -769,6 +789,9 @@ export type AuditLog = typeof auditLogs.$inferSelect;
 export type InsertAuditLog = typeof auditLogs.$inferInsert;
 export const insertAuditLogSchema = createInsertSchema(auditLogs);
 
+export type BirthdayNotification = typeof birthdayNotifications.$inferSelect;
+export type InsertBirthdayNotification = typeof birthdayNotifications.$inferInsert;
+export const insertBirthdayNotificationSchema = createInsertSchema(birthdayNotifications).omit({ id: true, sentAt: true });
 
 export type Training = typeof trainings.$inferSelect;
 export type InsertTraining = typeof trainings.$inferInsert;
