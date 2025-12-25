@@ -60,6 +60,7 @@ import {
 import { ObjectStorageService, ObjectNotFoundError } from "./objectStorage";
 import { ObjectPermission } from "./objectAcl";
 import { extractPaystubsFromPdf, cleanupPaystubTempFiles, ExtractedPaystubData } from "./ocr-service";
+import { sendTodaysBirthdayNotifications, getUpcomingBirthdays, getBirthdayNotificationHistory } from "./birthday-service";
 
 // Helper function to coerce date strings to Date objects
 function coerceDate(value: string | Date | null | undefined): Date | null | undefined {
@@ -5955,6 +5956,64 @@ export async function registerRoutes(app: Express): Promise<Server> {
         fs.unlinkSync(req.file.path);
       }
       res.status(500).json({ message: "Failed to process paystub upload" });
+    }
+  });
+
+  // Birthday notification routes
+  app.get("/api/birthday-notifications", isAuthenticated, async (req, res) => {
+    try {
+      const { officeId, limit } = req.query;
+      const notifications = await getBirthdayNotificationHistory(
+        officeId as string | undefined,
+        limit ? parseInt(limit as string) : undefined
+      );
+      res.json(notifications);
+    } catch (error) {
+      console.error("Error fetching birthday notifications:", error);
+      res.status(500).json({ message: "Failed to fetch birthday notifications" });
+    }
+  });
+
+  app.get("/api/birthday-notifications/upcoming", isAuthenticated, async (req, res) => {
+    try {
+      const { days, officeId } = req.query;
+      const daysAhead = days ? parseInt(days as string) : 7;
+      const upcoming = await getUpcomingBirthdays(daysAhead, officeId as string | undefined);
+      res.json(upcoming);
+    } catch (error) {
+      console.error("Error fetching upcoming birthdays:", error);
+      res.status(500).json({ message: "Failed to fetch upcoming birthdays" });
+    }
+  });
+
+  app.get("/api/birthday-notifications/today", isAuthenticated, async (req, res) => {
+    try {
+      const { officeId } = req.query;
+      const today = await storage.getTodaysBirthdays(officeId as string | undefined);
+      res.json(today);
+    } catch (error) {
+      console.error("Error fetching today's birthdays:", error);
+      res.status(500).json({ message: "Failed to fetch today's birthdays" });
+    }
+  });
+
+  app.post("/api/birthday-notifications/send", isAuthenticated, async (req: any, res) => {
+    try {
+      const userRole = req.user?.role;
+      if (!['super_admin', 'admin', 'office_admin'].includes(userRole)) {
+        return res.status(403).json({ message: "Insufficient permissions to send birthday notifications" });
+      }
+
+      const { officeId } = req.body;
+      const results = await sendTodaysBirthdayNotifications(officeId);
+      res.json({
+        success: true,
+        message: `Sent ${results.length} birthday notifications`,
+        results,
+      });
+    } catch (error) {
+      console.error("Error sending birthday notifications:", error);
+      res.status(500).json({ message: "Failed to send birthday notifications" });
     }
   });
 
