@@ -26,7 +26,8 @@ import {
   UserCog,
   Key,
   DollarSign,
-  Bot
+  Bot,
+  Cake
 } from "lucide-react";
 
 interface NavItem {
@@ -83,6 +84,7 @@ export function Sidebar() {
           { name: "Role & Access Control", href: "/role-wizard", icon: Key },
           { name: "Office Management", href: "/offices", icon: Building2 },
           { name: "MCO Setup", href: "/admin-settings", icon: Settings },
+          { name: "Birthday Notifications", href: "/birthday-notifications", icon: Cake },
         ]
       });
     }
