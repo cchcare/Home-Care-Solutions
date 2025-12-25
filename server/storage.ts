@@ -595,6 +595,8 @@ export interface IStorage {
   // Birthday notification operations
   getBirthdayNotifications(officeId?: string, limit?: number): Promise<BirthdayNotification[]>;
   createBirthdayNotification(notification: InsertBirthdayNotification): Promise<BirthdayNotification>;
+  checkBirthdayNotificationSentToday(recipientType: string, recipientId: string, dateString: string): Promise<boolean>;
+  updateBirthdayNotificationStatus(id: string, smsStatus: string, emailStatus: string, smsError?: string, emailError?: string): Promise<void>;
   getTodaysBirthdays(officeId?: string): Promise<{ clients: Client[]; caregivers: Caregiver[] }>;
   getUpcomingBirthdays(days: number, officeId?: string): Promise<{ clients: Client[]; caregivers: Caregiver[] }>;
 }
@@ -3116,6 +3118,36 @@ export class DatabaseStorage implements IStorage {
   async createBirthdayNotification(notification: InsertBirthdayNotification): Promise<BirthdayNotification> {
     const [newNotification] = await db.insert(birthdayNotifications).values(notification).returning();
     return newNotification;
+  }
+
+  async checkBirthdayNotificationSentToday(recipientType: string, recipientId: string, dateString: string): Promise<boolean> {
+    const today = new Date(dateString);
+    const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 0, 0, 0);
+    const endOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59);
+    
+    // Check by sentAt range (when the notification record was created today)
+    // This ensures we don't resend if a record was already created today for this recipient
+    const existing = await db
+      .select()
+      .from(birthdayNotifications)
+      .where(and(
+        eq(birthdayNotifications.recipientType, recipientType),
+        eq(birthdayNotifications.recipientId, recipientId),
+        sql`${birthdayNotifications.sentAt} >= ${startOfDay}`,
+        sql`${birthdayNotifications.sentAt} <= ${endOfDay}`
+      ))
+      .limit(1);
+    
+    return existing.length > 0;
+  }
+
+  async updateBirthdayNotificationStatus(id: string, smsStatus: string, emailStatus: string, smsError?: string, emailError?: string): Promise<void> {
+    await db.update(birthdayNotifications).set({
+      smsStatus,
+      emailStatus,
+      smsError,
+      emailError,
+    }).where(eq(birthdayNotifications.id, id));
   }
 
   async getTodaysBirthdays(officeId?: string): Promise<{ clients: Client[]; caregivers: Caregiver[] }> {

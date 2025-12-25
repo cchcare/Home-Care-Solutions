@@ -151,49 +151,95 @@ export async function sendTodaysBirthdayNotifications(officeId?: string): Promis
     const { clients, caregivers } = await storage.getTodaysBirthdays(officeId);
     console.log(`[Birthday Service] Found ${clients.length} clients and ${caregivers.length} caregivers with birthdays today`);
 
+    const today = new Date().toISOString().split('T')[0];
+
     // Send birthday wishes to clients
     for (const client of clients) {
-      const result = await sendBirthdayToClient(client);
-      results.push(result);
-      
-      // Log to database
+      // Check if notification was already sent today for this recipient
+      const alreadySent = await storage.checkBirthdayNotificationSentToday('client', client.id, today);
+      if (alreadySent) {
+        console.log(`[Birthday Service] Skipping client ${client.firstName} ${client.lastName} - already sent today`);
+        results.push({
+          recipientType: 'client',
+          recipientId: client.id,
+          recipientName: `${client.firstName} ${client.lastName}`,
+          smsStatus: 'skipped',
+          emailStatus: 'skipped',
+        });
+        continue;
+      }
+
+      // Log to database FIRST (pending) to prevent duplicate sends
       const notification: InsertBirthdayNotification = {
         recipientType: 'client',
         recipientId: client.id,
-        recipientName: result.recipientName,
+        recipientName: `${client.firstName} ${client.lastName}`,
         channel: 'both',
-        smsStatus: result.smsStatus,
-        emailStatus: result.emailStatus,
-        smsError: result.smsError,
-        emailError: result.emailError,
+        smsStatus: 'skipped',
+        emailStatus: 'skipped',
         birthdayDate: client.dateOfBirth!,
         officeId: client.officeId,
       };
-      await storage.createBirthdayNotification(notification);
+      const loggedNotification = await storage.createBirthdayNotification(notification);
+
+      // Send notifications
+      const result = await sendBirthdayToClient(client);
+      results.push(result);
+      
+      // Update notification status
+      await storage.updateBirthdayNotificationStatus(
+        loggedNotification.id,
+        result.smsStatus,
+        result.emailStatus,
+        result.smsError,
+        result.emailError
+      );
     }
 
     // Send birthday wishes to caregivers
     for (const caregiver of caregivers) {
-      const result = await sendBirthdayToCaregiver(caregiver);
-      results.push(result);
-      
-      // Log to database
+      // Check if notification was already sent today for this recipient
+      const alreadySent = await storage.checkBirthdayNotificationSentToday('caregiver', caregiver.id, today);
+      if (alreadySent) {
+        console.log(`[Birthday Service] Skipping caregiver ${caregiver.firstName} ${caregiver.lastName} - already sent today`);
+        results.push({
+          recipientType: 'caregiver',
+          recipientId: caregiver.id,
+          recipientName: `${caregiver.firstName || ''} ${caregiver.lastName || ''}`.trim(),
+          smsStatus: 'skipped',
+          emailStatus: 'skipped',
+        });
+        continue;
+      }
+
+      // Log to database FIRST (pending) to prevent duplicate sends
       const notification: InsertBirthdayNotification = {
         recipientType: 'caregiver',
         recipientId: caregiver.id,
-        recipientName: result.recipientName,
+        recipientName: `${caregiver.firstName || ''} ${caregiver.lastName || ''}`.trim(),
         channel: 'both',
-        smsStatus: result.smsStatus,
-        emailStatus: result.emailStatus,
-        smsError: result.smsError,
-        emailError: result.emailError,
+        smsStatus: 'skipped',
+        emailStatus: 'skipped',
         birthdayDate: caregiver.dateOfBirth!,
         officeId: caregiver.officeId,
       };
-      await storage.createBirthdayNotification(notification);
+      const loggedNotification = await storage.createBirthdayNotification(notification);
+
+      // Send notifications
+      const result = await sendBirthdayToCaregiver(caregiver);
+      results.push(result);
+      
+      // Update notification status
+      await storage.updateBirthdayNotificationStatus(
+        loggedNotification.id,
+        result.smsStatus,
+        result.emailStatus,
+        result.smsError,
+        result.emailError
+      );
     }
 
-    console.log(`[Birthday Service] Sent ${results.length} birthday notifications`);
+    console.log(`[Birthday Service] Processed ${results.length} birthday notifications`);
     return results;
   } catch (error) {
     console.error('[Birthday Service] Error sending birthday notifications:', error);
