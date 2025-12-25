@@ -199,6 +199,12 @@ export interface IStorage {
   setUserResetToken(id: string, token: string, expiry: Date): Promise<void>;
   getUserByResetToken(token: string): Promise<User | undefined>;
   clearUserResetToken(id: string): Promise<void>;
+  
+  // SMS login operations
+  getUserByMobilePhone(phone: string): Promise<User | undefined>;
+  setUserSmsCode(id: string, code: string, expiry: Date): Promise<void>;
+  clearUserSmsCode(id: string): Promise<void>;
+  updateUserMobilePhone(id: string, phone: string, verified: boolean): Promise<void>;
 
   // Office operations
   getAllOffices(): Promise<Office[]>;
@@ -653,6 +659,45 @@ export class DatabaseStorage implements IStorage {
     await db.update(users).set({ 
       resetToken: null,
       resetTokenExpiry: null,
+      updatedAt: new Date() 
+    }).where(eq(users.id, id));
+  }
+
+  // SMS login operations
+  async getUserByMobilePhone(phone: string): Promise<User | undefined> {
+    const [user] = await db
+      .select()
+      .from(users)
+      .where(and(
+        eq(users.mobilePhone, phone),
+        eq(users.mobileVerified, true),
+        eq(users.isActive, true)
+      ));
+    return user;
+  }
+
+  async setUserSmsCode(id: string, code: string, expiry: Date): Promise<void> {
+    await db.update(users).set({ 
+      smsVerificationCode: code,
+      smsCodeExpiry: expiry,
+      updatedAt: new Date() 
+    }).where(eq(users.id, id));
+  }
+
+  async clearUserSmsCode(id: string): Promise<void> {
+    await db.update(users).set({ 
+      smsVerificationCode: null,
+      smsCodeExpiry: null,
+      updatedAt: new Date() 
+    }).where(eq(users.id, id));
+  }
+
+  async updateUserMobilePhone(id: string, phone: string, verified: boolean): Promise<void> {
+    await db.update(users).set({ 
+      mobilePhone: phone,
+      mobileVerified: verified,
+      smsVerificationCode: null,
+      smsCodeExpiry: null,
       updatedAt: new Date() 
     }).where(eq(users.id, id));
   }
