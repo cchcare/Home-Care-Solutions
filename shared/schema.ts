@@ -85,6 +85,11 @@ export const users = pgTable("users", {
   state: varchar("state"),
   zipCode: varchar("zip_code"),
   isActive: boolean("is_active").default(true),
+  // Mobile SMS login fields
+  mobilePhone: varchar("mobile_phone"),
+  mobileVerified: boolean("mobile_verified").default(false),
+  smsVerificationCode: varchar("sms_verification_code"),
+  smsCodeExpiry: timestamp("sms_code_expiry"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
