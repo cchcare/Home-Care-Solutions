@@ -72,7 +72,25 @@ export default function BirthdayNotifications() {
       if (officeQuery) params.set("officeId", officeQuery);
       const response = await fetch(`/api/birthday-notifications/upcoming?${params}`, { credentials: "include" });
       if (!response.ok) throw new Error("Failed to fetch upcoming birthdays");
-      return response.json();
+      const data = await response.json();
+      const today = new Date();
+      const combinedBirthdays: UpcomingBirthday[] = [
+        ...(data.clients || []).map((c: any) => {
+          const dob = new Date(c.dateOfBirth);
+          const nextBirthday = new Date(today.getFullYear(), dob.getMonth(), dob.getDate());
+          if (nextBirthday < today) nextBirthday.setFullYear(nextBirthday.getFullYear() + 1);
+          const daysUntil = Math.ceil((nextBirthday.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+          return { type: "client" as const, id: c.id, name: `${c.firstName} ${c.lastName}`, dateOfBirth: c.dateOfBirth, daysUntil, email: c.email, phone: c.phone, officeId: c.officeId };
+        }),
+        ...(data.caregivers || []).map((c: any) => {
+          const dob = new Date(c.dateOfBirth);
+          const nextBirthday = new Date(today.getFullYear(), dob.getMonth(), dob.getDate());
+          if (nextBirthday < today) nextBirthday.setFullYear(nextBirthday.getFullYear() + 1);
+          const daysUntil = Math.ceil((nextBirthday.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+          return { type: "caregiver" as const, id: c.id, name: `${c.firstName} ${c.lastName}`, dateOfBirth: c.dateOfBirth, daysUntil, email: c.email, phone: c.phone, officeId: c.officeId };
+        }),
+      ];
+      return combinedBirthdays.sort((a, b) => a.daysUntil - b.daysUntil);
     },
   });
 
@@ -83,7 +101,12 @@ export default function BirthdayNotifications() {
       if (officeQuery) params.set("officeId", officeQuery);
       const response = await fetch(`/api/birthday-notifications/today?${params}`, { credentials: "include" });
       if (!response.ok) throw new Error("Failed to fetch today's birthdays");
-      return response.json();
+      const data = await response.json();
+      const combinedBirthdays: UpcomingBirthday[] = [
+        ...(data.clients || []).map((c: any) => ({ type: "client" as const, id: c.id, name: `${c.firstName} ${c.lastName}`, dateOfBirth: c.dateOfBirth, daysUntil: 0, email: c.email, phone: c.phone, officeId: c.officeId })),
+        ...(data.caregivers || []).map((c: any) => ({ type: "caregiver" as const, id: c.id, name: `${c.firstName} ${c.lastName}`, dateOfBirth: c.dateOfBirth, daysUntil: 0, email: c.email, phone: c.phone, officeId: c.officeId })),
+      ];
+      return combinedBirthdays;
     },
   });
 
