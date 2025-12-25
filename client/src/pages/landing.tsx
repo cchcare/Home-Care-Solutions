@@ -4,7 +4,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
-import { Heart, Shield, Users, FileText, Bell, BarChart3, Loader2, Eye, EyeOff } from "lucide-react";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Heart, Shield, Users, FileText, Bell, BarChart3, Loader2, Eye, EyeOff, Smartphone, KeyRound } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
@@ -17,8 +18,73 @@ export default function Landing() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  const [loginTab, setLoginTab] = useState<"password" | "sms">("password");
+  const [smsPhone, setSmsPhone] = useState("");
+  const [smsCode, setSmsCode] = useState("");
+  const [smsCodeSent, setSmsCodeSent] = useState(false);
+  const [isSendingSmsCode, setIsSendingSmsCode] = useState(false);
+  const [isSmsLoggingIn, setIsSmsLoggingIn] = useState(false);
   const { login, isLoggingIn, loginError } = useAuth();
   const { toast } = useToast();
+
+  const handleRequestSmsCode = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (!smsPhone) {
+      toast({
+        title: "Error",
+        description: "Please enter your phone number",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsSendingSmsCode(true);
+    try {
+      await apiRequest("POST", "/api/auth/sms/request-login-code", { phone: smsPhone });
+      setSmsCodeSent(true);
+      toast({
+        title: "Code Sent",
+        description: "If your phone number is registered, a login code has been sent.",
+      });
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to send login code",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSendingSmsCode(false);
+    }
+  };
+
+  const handleSmsLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (!smsPhone || !smsCode) {
+      toast({
+        title: "Error",
+        description: "Please enter your phone number and the 6-digit code",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsSmsLoggingIn(true);
+    try {
+      const response = await apiRequest("POST", "/api/auth/sms/login", { phone: smsPhone, code: smsCode });
+      // Redirect to dashboard on success
+      window.location.href = "/dashboard";
+    } catch (error: any) {
+      toast({
+        title: "Login Failed",
+        description: error.message || "Invalid phone number or code",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSmsLoggingIn(false);
+    }
+  };
 
   const handleForgotPassword = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -88,66 +154,184 @@ export default function Landing() {
             <CardDescription>Sign in to your Home Care account</CardDescription>
           </CardHeader>
           <CardContent>
-            <form onSubmit={handleLogin} className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="username">Username or Email</Label>
-                <Input
-                  id="username"
-                  type="text"
-                  placeholder="Enter your username or email"
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                  disabled={isLoggingIn}
-                  data-testid="input-username"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="password">Password</Label>
-                <div className="relative">
-                  <Input
-                    id="password"
-                    type={showPassword ? "text" : "password"}
-                    placeholder="Enter your password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
+            <Tabs value={loginTab} onValueChange={(v) => setLoginTab(v as "password" | "sms")} className="w-full">
+              <TabsList className="grid w-full grid-cols-2 mb-4">
+                <TabsTrigger value="password" className="flex items-center gap-2" data-testid="tab-password-login">
+                  <KeyRound className="w-4 h-4" />
+                  Password
+                </TabsTrigger>
+                <TabsTrigger value="sms" className="flex items-center gap-2" data-testid="tab-sms-login">
+                  <Smartphone className="w-4 h-4" />
+                  Text Code
+                </TabsTrigger>
+              </TabsList>
+
+              <TabsContent value="password">
+                <form onSubmit={handleLogin} className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="username">Username or Email</Label>
+                    <Input
+                      id="username"
+                      type="text"
+                      placeholder="Enter your username or email"
+                      value={username}
+                      onChange={(e) => setUsername(e.target.value)}
+                      disabled={isLoggingIn}
+                      data-testid="input-username"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="password">Password</Label>
+                    <div className="relative">
+                      <Input
+                        id="password"
+                        type={showPassword ? "text" : "password"}
+                        placeholder="Enter your password"
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        disabled={isLoggingIn}
+                        data-testid="input-password"
+                      />
+                      <button
+                        type="button"
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                        onClick={() => setShowPassword(!showPassword)}
+                        tabIndex={-1}
+                      >
+                        {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
+                  </div>
+                  <Button
+                    type="submit"
+                    className="w-full"
                     disabled={isLoggingIn}
-                    data-testid="input-password"
-                  />
-                  <button
-                    type="button"
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                    onClick={() => setShowPassword(!showPassword)}
-                    tabIndex={-1}
+                    data-testid="button-submit-login"
                   >
-                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
-                </div>
-              </div>
-              <Button
-                type="submit"
-                className="w-full"
-                disabled={isLoggingIn}
-                data-testid="button-submit-login"
-              >
-                {isLoggingIn ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Signing In...
-                  </>
+                    {isLoggingIn ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Signing In...
+                      </>
+                    ) : (
+                      "Sign In"
+                    )}
+                  </Button>
+                  <div className="text-center">
+                    <button
+                      type="button"
+                      className="text-sm text-primary hover:text-primary/80"
+                      onClick={() => setShowForgotPassword(true)}
+                      data-testid="button-forgot-password"
+                    >
+                      Forgot login or password?
+                    </button>
+                  </div>
+                </form>
+              </TabsContent>
+
+              <TabsContent value="sms">
+                {!smsCodeSent ? (
+                  <form onSubmit={handleRequestSmsCode} className="space-y-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="sms-phone">Mobile Phone Number</Label>
+                      <p className="text-xs text-muted-foreground">
+                        Enter the verified mobile number linked to your account
+                      </p>
+                      <Input
+                        id="sms-phone"
+                        type="tel"
+                        placeholder="(555) 123-4567"
+                        value={smsPhone}
+                        onChange={(e) => setSmsPhone(e.target.value)}
+                        disabled={isSendingSmsCode}
+                        data-testid="input-sms-phone"
+                      />
+                    </div>
+                    <Button
+                      type="submit"
+                      className="w-full"
+                      disabled={isSendingSmsCode || !smsPhone}
+                      data-testid="button-request-sms-code"
+                    >
+                      {isSendingSmsCode ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Sending Code...
+                        </>
+                      ) : (
+                        <>
+                          <Smartphone className="mr-2 h-4 w-4" />
+                          Send Login Code
+                        </>
+                      )}
+                    </Button>
+                    <p className="text-xs text-center text-muted-foreground">
+                      SMS login requires a verified mobile number. Set up mobile login in Account Settings after signing in with your password.
+                    </p>
+                  </form>
                 ) : (
-                  "Sign In"
+                  <form onSubmit={handleSmsLogin} className="space-y-4">
+                    <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800 text-sm text-blue-800 dark:text-blue-200">
+                      A 6-digit code has been sent to your phone. Enter it below to sign in.
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="sms-code">6-Digit Code</Label>
+                      <Input
+                        id="sms-code"
+                        type="text"
+                        placeholder="123456"
+                        maxLength={6}
+                        value={smsCode}
+                        onChange={(e) => setSmsCode(e.target.value.replace(/\D/g, ""))}
+                        disabled={isSmsLoggingIn}
+                        data-testid="input-sms-code"
+                      />
+                    </div>
+                    <Button
+                      type="submit"
+                      className="w-full"
+                      disabled={isSmsLoggingIn || smsCode.length !== 6}
+                      data-testid="button-sms-login"
+                    >
+                      {isSmsLoggingIn ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Signing In...
+                        </>
+                      ) : (
+                        "Sign In"
+                      )}
+                    </Button>
+                    <div className="flex items-center justify-center gap-2 text-sm">
+                      <button
+                        type="button"
+                        className="text-primary hover:text-primary/80"
+                        onClick={handleRequestSmsCode}
+                        disabled={isSendingSmsCode}
+                        data-testid="button-resend-sms-code"
+                      >
+                        Resend code
+                      </button>
+                      <span className="text-muted-foreground">or</span>
+                      <button
+                        type="button"
+                        className="text-muted-foreground hover:text-primary"
+                        onClick={() => {
+                          setSmsCodeSent(false);
+                          setSmsCode("");
+                        }}
+                        data-testid="button-change-sms-phone"
+                      >
+                        Change number
+                      </button>
+                    </div>
+                  </form>
                 )}
-              </Button>
-            </form>
-            <div className="mt-4 text-center space-y-2">
-              <button
-                type="button"
-                className="text-sm text-primary hover:text-primary/80 block w-full"
-                onClick={() => setShowForgotPassword(true)}
-                data-testid="button-forgot-password"
-              >
-                Forgot login or password?
-              </button>
+              </TabsContent>
+            </Tabs>
+
+            <div className="mt-4 text-center">
               <button
                 type="button"
                 className="text-sm text-muted-foreground hover:text-primary"

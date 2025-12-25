@@ -143,6 +143,21 @@ Preferred communication style: Simple, everyday language.
   - Available in User Management for authorized roles (super_admin, admin, office_admin)
   - Supervisors cannot reset passwords (view-only for them)
   - Sets mustResetPassword flag requiring user to change on next login
+- **Mobile SMS Login**: Alternative login method using 6-digit verification codes
+  - Users must verify their mobile phone number in Account Settings before using SMS login
+  - Verification process: Enter phone number → Receive 6-digit code via SMS → Enter code to verify
+  - Login flow: Enter verified phone number → Request login code → Enter 6-digit code to sign in
+  - Rate limiting: 3 SMS requests per 15 minutes to prevent abuse
+  - 5-minute code expiry for security
+  - Login page features tabs to switch between Password and Text Code login methods
+  - Powered by Twilio SMS service
+  - API Routes:
+    - POST /api/auth/sms/send-verification (send code to verify phone - authenticated users)
+    - POST /api/auth/sms/verify-phone (verify phone number with code)
+    - POST /api/auth/sms/request-login-code (request login code - unauthenticated)
+    - POST /api/auth/sms/login (login with SMS code)
+    - GET /api/auth/sms/status (get mobile verification status)
+  - Database fields: mobilePhone, mobileVerified, smsVerificationCode, smsCodeExpiry on users table
 
 ### File Management
 - **Secure Upload**: Multi-part form uploads with file type validation and size limits

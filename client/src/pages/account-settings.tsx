@@ -30,7 +30,10 @@ import {
   Camera,
   Upload,
   Loader2,
-  KeyRound
+  KeyRound,
+  Smartphone,
+  CheckCircle,
+  Phone
 } from "lucide-react";
 import { format } from "date-fns";
 import type { User } from "@shared/schema";
@@ -65,6 +68,10 @@ export default function AccountSettingsPage() {
   const [showCurrentPassword, setShowCurrentPassword] = useState(false);
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [mobilePhone, setMobilePhone] = useState("");
+  const [verificationCode, setVerificationCode] = useState("");
+  const [verificationSent, setVerificationSent] = useState(false);
+  const [showChangePhone, setShowChangePhone] = useState(false);
 
   // Redirect if not authenticated
   useEffect(() => {
@@ -214,6 +221,56 @@ export default function AccountSettingsPage() {
   const onPasswordSubmit = (data: ChangePasswordFormData) => {
     changePasswordMutation.mutate(data);
   };
+
+  // Fetch mobile verification status
+  const { data: smsStatus } = useQuery<{ mobilePhone: string | null; mobileVerified: boolean }>({
+    queryKey: ["/api/auth/sms/status"],
+  });
+
+  // Send verification code mutation
+  const sendVerificationMutation = useMutation({
+    mutationFn: async (phone: string) => {
+      return await apiRequest("POST", "/api/auth/sms/send-verification", { phone });
+    },
+    onSuccess: () => {
+      setVerificationSent(true);
+      toast({
+        title: "Code Sent",
+        description: "A 6-digit verification code has been sent to your phone",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to send verification code",
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Verify phone mutation
+  const verifyPhoneMutation = useMutation({
+    mutationFn: async (code: string) => {
+      return await apiRequest("POST", "/api/auth/sms/verify-phone", { code });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/auth/sms/status"] });
+      setVerificationSent(false);
+      setVerificationCode("");
+      setShowChangePhone(false);
+      toast({
+        title: "Phone Verified",
+        description: "Your mobile phone number has been verified. You can now use it to login.",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to verify phone number",
+        variant: "destructive",
+      });
+    },
+  });
 
   const handleImageUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -728,6 +785,175 @@ export default function AccountSettingsPage() {
                     </div>
                   </form>
                 </Form>
+              </CardContent>
+            </Card>
+
+            {/* Mobile SMS Login Section */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center">
+                  <Smartphone className="mr-2 h-5 w-5" />
+                  Mobile Login
+                </CardTitle>
+                <CardDescription>
+                  Set up your mobile phone for SMS login - login using a 6-digit code sent to your phone
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {smsStatus?.mobileVerified && !showChangePhone ? (
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-3 p-4 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-800">
+                      <CheckCircle className="h-5 w-5 text-green-600" />
+                      <div>
+                        <p className="font-medium text-green-800 dark:text-green-200">Phone Verified</p>
+                        <p className="text-sm text-green-600 dark:text-green-400">
+                          {smsStatus.mobilePhone} - You can use this number to login via SMS
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm text-muted-foreground">
+                        Want to change your phone number?
+                      </p>
+                      <Button 
+                        variant="outline" 
+                        size="sm"
+                        onClick={() => {
+                          setShowChangePhone(true);
+                          setMobilePhone("");
+                          setVerificationSent(false);
+                          setVerificationCode("");
+                        }}
+                        data-testid="button-change-phone"
+                      >
+                        Change Number
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    <Alert>
+                      <Phone className="h-4 w-4" />
+                      <AlertDescription>
+                        {showChangePhone 
+                          ? "Enter your new mobile phone number to update your SMS login." 
+                          : "Verify your mobile phone number to enable SMS login. Once verified, you can login by receiving a 6-digit code to your phone instead of using a password."
+                        }
+                      </AlertDescription>
+                    </Alert>
+                    
+                    {!verificationSent ? (
+                      <div className="space-y-3">
+                        <div>
+                          <label className="text-sm font-medium">{showChangePhone ? "New Mobile Phone Number" : "Mobile Phone Number"}</label>
+                          <p className="text-xs text-muted-foreground mb-2">
+                            Enter your US mobile phone number to receive verification codes
+                          </p>
+                          <div className="flex gap-2">
+                            <Input
+                              type="tel"
+                              placeholder="(555) 123-4567"
+                              value={mobilePhone}
+                              onChange={(e) => setMobilePhone(e.target.value)}
+                              data-testid="input-mobile-phone"
+                            />
+                            <Button
+                              onClick={() => {
+                                if (mobilePhone) {
+                                  sendVerificationMutation.mutate(mobilePhone);
+                                }
+                              }}
+                              disabled={sendVerificationMutation.isPending || !mobilePhone}
+                              data-testid="button-send-verification"
+                            >
+                              {sendVerificationMutation.isPending ? (
+                                <Loader2 className="animate-spin h-4 w-4" />
+                              ) : (
+                                "Send Code"
+                              )}
+                            </Button>
+                          </div>
+                        </div>
+                        {showChangePhone && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                              setShowChangePhone(false);
+                              setMobilePhone("");
+                            }}
+                            data-testid="button-cancel-change-phone"
+                          >
+                            Cancel
+                          </Button>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        <Alert className="bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800">
+                          <Smartphone className="h-4 w-4 text-blue-600" />
+                          <AlertDescription className="text-blue-800 dark:text-blue-200">
+                            A 6-digit code has been sent to your phone. Enter it below to verify.
+                          </AlertDescription>
+                        </Alert>
+                        <div>
+                          <label className="text-sm font-medium">Verification Code</label>
+                          <div className="flex gap-2 mt-1">
+                            <Input
+                              type="text"
+                              placeholder="123456"
+                              maxLength={6}
+                              value={verificationCode}
+                              onChange={(e) => setVerificationCode(e.target.value.replace(/\D/g, ""))}
+                              data-testid="input-verification-code"
+                            />
+                            <Button
+                              onClick={() => verifyPhoneMutation.mutate(verificationCode)}
+                              disabled={verifyPhoneMutation.isPending || verificationCode.length !== 6}
+                              data-testid="button-verify-code"
+                            >
+                              {verifyPhoneMutation.isPending ? (
+                                <Loader2 className="animate-spin h-4 w-4" />
+                              ) : (
+                                "Verify"
+                              )}
+                            </Button>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <p className="text-sm text-muted-foreground">Didn't receive the code?</p>
+                          <Button
+                            variant="link"
+                            size="sm"
+                            className="p-0 h-auto"
+                            onClick={() => {
+                              if (mobilePhone) {
+                                sendVerificationMutation.mutate(mobilePhone);
+                              }
+                            }}
+                            disabled={sendVerificationMutation.isPending || !mobilePhone}
+                            data-testid="button-resend-code"
+                          >
+                            Resend
+                          </Button>
+                          <span className="text-muted-foreground">or</span>
+                          <Button
+                            variant="link"
+                            size="sm"
+                            className="p-0 h-auto"
+                            onClick={() => {
+                              setVerificationSent(false);
+                              setVerificationCode("");
+                            }}
+                            data-testid="button-change-number"
+                          >
+                            Change number
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
               </CardContent>
             </Card>
 

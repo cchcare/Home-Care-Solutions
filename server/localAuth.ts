@@ -5,7 +5,42 @@ import crypto from "crypto";
 import { storage } from "./storage";
 import connectPgSimple from "connect-pg-simple";
 import { pool } from "./db";
-import { sendEmail } from "./communication-services";
+import { sendEmail, sendSMS, formatPhoneNumber, isValidPhone } from "./communication-services";
+
+// SMS code rate limiting
+const smsAttempts = new Map<string, { count: number; lastAttempt: number }>();
+const MAX_SMS_ATTEMPTS = 3;
+const SMS_LOCKOUT_DURATION = 15 * 60 * 1000; // 15 minutes
+const SMS_CODE_EXPIRY = 5 * 60 * 1000; // 5 minutes
+
+function generateSmsCode(): string {
+  return Math.floor(100000 + Math.random() * 900000).toString();
+}
+
+function isSmsLockedOut(identifier: string): boolean {
+  const attempts = smsAttempts.get(identifier);
+  if (!attempts) return false;
+  
+  if (attempts.count >= MAX_SMS_ATTEMPTS) {
+    const timeSinceLast = Date.now() - attempts.lastAttempt;
+    if (timeSinceLast < SMS_LOCKOUT_DURATION) {
+      return true;
+    }
+    smsAttempts.delete(identifier);
+  }
+  return false;
+}
+
+function recordSmsAttempt(identifier: string): void {
+  const attempts = smsAttempts.get(identifier) || { count: 0, lastAttempt: 0 };
+  attempts.count += 1;
+  attempts.lastAttempt = Date.now();
+  smsAttempts.set(identifier, attempts);
+}
+
+function clearSmsAttempts(identifier: string): void {
+  smsAttempts.delete(identifier);
+}
 
 const SALT_ROUNDS = 12;
 const SESSION_MAX_AGE = 7 * 24 * 60 * 60 * 1000; // 7 days
@@ -368,6 +403,279 @@ export async function setupAuth(app: Express) {
     } catch (error) {
       console.error("Validate token error:", error);
       res.status(500).json({ valid: false, message: "Failed to validate token" });
+    }
+  });
+
+  // ========== SMS Mobile Login Routes ==========
+
+  // Send verification code to verify a phone number (for logged-in users)
+  app.post("/api/auth/sms/send-verification", isAuthenticated, async (req: any, res) => {
+    try {
+      const { phone } = req.body;
+      const userId = req.session.user?.id;
+
+      if (!userId) {
+        return res.status(401).json({ message: "Not authenticated" });
+      }
+
+      if (!phone) {
+        return res.status(400).json({ message: "Phone number is required" });
+      }
+
+      if (!isValidPhone(phone)) {
+        return res.status(400).json({ message: "Invalid phone number format" });
+      }
+
+      const formattedPhone = formatPhoneNumber(phone);
+
+      if (isSmsLockedOut(formattedPhone)) {
+        return res.status(429).json({ 
+          message: "Too many SMS requests. Please try again in 15 minutes." 
+        });
+      }
+
+      const code = generateSmsCode();
+      const expiry = new Date(Date.now() + SMS_CODE_EXPIRY);
+
+      // Store code in database
+      await storage.setUserSmsCode(userId, code, expiry);
+      // Store pending phone number temporarily (we don't verify until code is confirmed)
+      await storage.updateUser(userId, { mobilePhone: formattedPhone, mobileVerified: false });
+
+      // Send SMS
+      const smsResult = await sendSMS({
+        to: formattedPhone,
+        body: `Your Home Care verification code is: ${code}. This code expires in 5 minutes.`,
+      });
+
+      if (!smsResult.success) {
+        console.error("Failed to send verification SMS:", smsResult.error);
+        return res.status(500).json({ message: "Failed to send verification code" });
+      }
+
+      recordSmsAttempt(formattedPhone);
+      res.json({ message: "Verification code sent", phone: formattedPhone });
+    } catch (error) {
+      console.error("Send verification SMS error:", error);
+      res.status(500).json({ message: "Failed to send verification code" });
+    }
+  });
+
+  // Verify phone number with code (for logged-in users)
+  app.post("/api/auth/sms/verify-phone", isAuthenticated, async (req: any, res) => {
+    try {
+      const { code } = req.body;
+      const userId = req.session.user?.id;
+
+      if (!userId) {
+        return res.status(401).json({ message: "Not authenticated" });
+      }
+
+      if (!code || code.length !== 6) {
+        return res.status(400).json({ message: "6-digit code is required" });
+      }
+
+      const user = await storage.getUser(userId);
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
+      }
+
+      if (!user.smsVerificationCode || !user.smsCodeExpiry) {
+        return res.status(400).json({ message: "No verification pending. Request a new code." });
+      }
+
+      if (new Date() > new Date(user.smsCodeExpiry)) {
+        await storage.clearUserSmsCode(userId);
+        return res.status(400).json({ message: "Verification code expired. Request a new code." });
+      }
+
+      if (user.smsVerificationCode !== code) {
+        return res.status(400).json({ message: "Invalid verification code" });
+      }
+
+      // Mark phone as verified
+      await storage.updateUserMobilePhone(userId, user.mobilePhone || "", true);
+      clearSmsAttempts(user.mobilePhone || "");
+
+      res.json({ message: "Phone number verified successfully", mobileVerified: true });
+    } catch (error) {
+      console.error("Verify phone error:", error);
+      res.status(500).json({ message: "Failed to verify phone number" });
+    }
+  });
+
+  // Request SMS login code (for users with verified phone - unauthenticated)
+  app.post("/api/auth/sms/request-login-code", async (req, res) => {
+    try {
+      const { phone } = req.body;
+
+      if (!phone) {
+        return res.status(400).json({ message: "Phone number is required" });
+      }
+
+      if (!isValidPhone(phone)) {
+        return res.status(400).json({ message: "Invalid phone number format" });
+      }
+
+      const formattedPhone = formatPhoneNumber(phone);
+
+      if (isSmsLockedOut(formattedPhone)) {
+        return res.status(429).json({ 
+          message: "Too many login attempts. Please try again in 15 minutes." 
+        });
+      }
+
+      // Find user by verified mobile phone
+      const user = await storage.getUserByMobilePhone(formattedPhone);
+
+      // Always return success to prevent phone number enumeration
+      if (!user) {
+        // Fake delay to prevent timing attacks
+        await new Promise(resolve => setTimeout(resolve, 500));
+        return res.json({ message: "If this phone number is registered, a login code has been sent." });
+      }
+
+      const code = generateSmsCode();
+      const expiry = new Date(Date.now() + SMS_CODE_EXPIRY);
+
+      // Store login code
+      await storage.setUserSmsCode(user.id, code, expiry);
+
+      // Send SMS
+      const smsResult = await sendSMS({
+        to: formattedPhone,
+        body: `Your Home Care login code is: ${code}. This code expires in 5 minutes.`,
+      });
+
+      if (!smsResult.success) {
+        console.error("Failed to send login SMS:", smsResult.error);
+        // Still return success to prevent enumeration
+      }
+
+      recordSmsAttempt(formattedPhone);
+      res.json({ message: "If this phone number is registered, a login code has been sent." });
+    } catch (error) {
+      console.error("Request login code error:", error);
+      res.status(500).json({ message: "Failed to process login request" });
+    }
+  });
+
+  // Login with SMS code
+  app.post("/api/auth/sms/login", async (req, res) => {
+    try {
+      const { phone, code } = req.body;
+
+      if (!phone || !code) {
+        return res.status(400).json({ message: "Phone number and code are required" });
+      }
+
+      if (code.length !== 6) {
+        return res.status(400).json({ message: "Invalid code format" });
+      }
+
+      const formattedPhone = formatPhoneNumber(phone);
+
+      if (isSmsLockedOut(formattedPhone)) {
+        return res.status(429).json({ 
+          message: "Too many failed login attempts. Please try again in 15 minutes." 
+        });
+      }
+
+      // Find user by verified mobile phone
+      const user = await storage.getUserByMobilePhone(formattedPhone);
+
+      if (!user) {
+        recordSmsAttempt(formattedPhone);
+        return res.status(401).json({ message: "Invalid phone number or code" });
+      }
+
+      if (!user.smsVerificationCode || !user.smsCodeExpiry) {
+        return res.status(400).json({ message: "No login code pending. Request a new code." });
+      }
+
+      if (new Date() > new Date(user.smsCodeExpiry)) {
+        await storage.clearUserSmsCode(user.id);
+        return res.status(400).json({ message: "Login code expired. Request a new code." });
+      }
+
+      if (user.smsVerificationCode !== code) {
+        recordSmsAttempt(formattedPhone);
+        return res.status(401).json({ message: "Invalid phone number or code" });
+      }
+
+      // Clear the code
+      await storage.clearUserSmsCode(user.id);
+      clearSmsAttempts(formattedPhone);
+
+      // Update last login
+      await storage.updateUserLastLogin(user.id);
+
+      // Regenerate session
+      req.session.regenerate((err) => {
+        if (err) {
+          console.error("Session regeneration error:", err);
+          return res.status(500).json({ message: "Login failed" });
+        }
+
+        // Store user info in session
+        (req.session as any).user = {
+          id: user.id,
+          email: user.email,
+          username: user.username,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          role: user.role,
+          primaryOfficeId: user.primaryOfficeId,
+          profileImageUrl: user.profileImageUrl,
+          mustResetPassword: user.mustResetPassword,
+        };
+
+        req.session.save((err) => {
+          if (err) {
+            console.error("Session save error:", err);
+            return res.status(500).json({ message: "Login failed" });
+          }
+          
+          res.json({
+            id: user.id,
+            email: user.email,
+            username: user.username,
+            firstName: user.firstName,
+            lastName: user.lastName,
+            role: user.role,
+            primaryOfficeId: user.primaryOfficeId,
+            profileImageUrl: user.profileImageUrl,
+            mustResetPassword: user.mustResetPassword,
+          });
+        });
+      });
+    } catch (error) {
+      console.error("SMS login error:", error);
+      res.status(500).json({ message: "An error occurred during login" });
+    }
+  });
+
+  // Get current user's mobile verification status
+  app.get("/api/auth/sms/status", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.session.user?.id;
+
+      if (!userId) {
+        return res.status(401).json({ message: "Not authenticated" });
+      }
+
+      const user = await storage.getUser(userId);
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
+      }
+
+      res.json({
+        mobilePhone: user.mobilePhone,
+        mobileVerified: user.mobileVerified,
+      });
+    } catch (error) {
+      console.error("Get SMS status error:", error);
+      res.status(500).json({ message: "Failed to get mobile status" });
     }
   });
 }
