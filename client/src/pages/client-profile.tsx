@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRoute, Link } from "wouter";
 import { useToast } from "@/hooks/use-toast";
@@ -6,6 +6,8 @@ import { Sidebar } from "@/components/sidebar";
 import { TopBar } from "@/components/topbar";
 import { MasterWeekTemplateModal } from "@/components/master-week-template-modal";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { DndContext, DragEndEvent, DragOverlay, DragStartEvent, useDraggable, useDroppable, PointerSensor, useSensor, useSensors } from "@dnd-kit/core";
+import { CSS } from "@dnd-kit/utilities";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -165,6 +167,16 @@ export default function ClientProfile() {
     return date.toISOString().split('T')[0];
   });
   const [selectedTemplateForApply, setSelectedTemplateForApply] = useState<MasterWeekTemplate | null>(null);
+
+  // Drag and drop state for schedule calendar
+  const [activeSchedule, setActiveSchedule] = useState<ClientSchedule | null>(null);
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 8,
+      },
+    })
+  );
 
   const { data: client, isLoading: clientLoading } = useQuery<Client>({
     queryKey: ["/api/clients", clientId],
@@ -511,6 +523,55 @@ export default function ClientProfile() {
     },
   });
 
+  // Mutation for moving a schedule to a different date via drag and drop
+  const moveScheduleMutation = useMutation({
+    mutationFn: async ({ scheduleId, newDate }: { scheduleId: string; newDate: Date }) => {
+      return await apiRequest("PUT", `/api/client-schedules/${scheduleId}`, {
+        scheduledDate: newDate,
+        reason: "Schedule moved via drag and drop"
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/clients", clientId, "schedules"] });
+      toast({ title: "Success", description: "Schedule moved successfully" });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to move schedule", variant: "destructive" });
+    },
+  });
+
+  // Drag and drop handlers
+  const handleDragStart = (event: DragStartEvent) => {
+    const { active } = event;
+    const schedule = schedules.find(s => s.id === active.id);
+    setActiveSchedule(schedule || null);
+  };
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    setActiveSchedule(null);
+    
+    if (!over || !active) return;
+    
+    // The droppable id is the date string (yyyy-MM-dd)
+    const newDateStr = over.id as string;
+    const scheduleId = active.id as string;
+    
+    // Find the schedule being moved
+    const schedule = schedules.find(s => s.id === scheduleId);
+    if (!schedule) return;
+    
+    // Check if the schedule is being dropped on the same day
+    const currentDate = format(new Date(schedule.scheduledDate), "yyyy-MM-dd");
+    if (currentDate === newDateStr) return;
+    
+    // Move the schedule to the new date
+    moveScheduleMutation.mutate({
+      scheduleId,
+      newDate: new Date(newDateStr),
+    });
+  };
+
   const resetMcoForm = () => {
     setMcoFormData({
       mcoId: "",
@@ -701,6 +762,69 @@ export default function ClientProfile() {
     const caregiver = allCaregivers.find(c => c.id === caregiverId);
     if (!caregiver) return null;
     return `${caregiver.firstName} ${caregiver.lastName}`.trim();
+  };
+
+  // Draggable schedule item component for drag and drop
+  const DraggableScheduleItem = ({ schedule, caregiverName }: { schedule: ClientSchedule; caregiverName: string | null }) => {
+    const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
+      id: schedule.id,
+    });
+    
+    const style = {
+      transform: CSS.Translate.toString(transform),
+      opacity: isDragging ? 0.5 : 1,
+    };
+    
+    return (
+      <div
+        ref={setNodeRef}
+        style={style}
+        {...listeners}
+        {...attributes}
+        className="text-xs p-1 bg-primary/20 rounded truncate cursor-grab active:cursor-grabbing hover:bg-primary/30 transition-colors"
+        title={`${schedule.startTime} - ${schedule.endTime}${caregiverName ? ` (${caregiverName})` : ''} - Drag to move`}
+        data-testid={`draggable-schedule-${schedule.id}`}
+      >
+        <div>{schedule.startTime}</div>
+        {caregiverName && (
+          <div className="text-[10px] text-muted-foreground truncate">{caregiverName}</div>
+        )}
+      </div>
+    );
+  };
+
+  // Droppable day cell component for drag and drop
+  const DroppableDay = ({ 
+    dateStr, 
+    isToday: isTodayDate, 
+    isSameMonth: isSameMonthDate, 
+    dayNumber, 
+    children 
+  }: { 
+    dateStr: string; 
+    isToday: boolean; 
+    isSameMonth: boolean; 
+    dayNumber: string; 
+    children: ReactNode;
+  }) => {
+    const { setNodeRef, isOver } = useDroppable({
+      id: dateStr,
+    });
+    
+    return (
+      <div
+        ref={setNodeRef}
+        className={`p-2 min-h-[80px] border rounded-lg transition-colors ${
+          isTodayDate ? "bg-primary/10 border-primary" : "bg-card"
+        } ${!isSameMonthDate ? "opacity-50" : ""} ${
+          isOver ? "bg-primary/20 border-primary border-2" : ""
+        }`}
+        data-testid={`calendar-day-${dateStr}`}
+      >
+        <div className="text-sm font-medium mb-1">{dayNumber}</div>
+        {children}
+      </div>
+    );
   };
 
   if (clientLoading) {
@@ -1509,54 +1633,71 @@ export default function ClientProfile() {
                       </Button>
                     </div>
 
-                    <div className="grid grid-cols-7 gap-1">
-                      {DAY_NAMES.map((day) => (
-                        <div key={day} className="p-2 text-center text-sm font-medium text-muted-foreground">
-                          {day}
-                        </div>
-                      ))}
-                      
-                      {Array.from({ length: monthStart.getDay() }).map((_, i) => (
-                        <div key={`empty-${i}`} className="p-2 min-h-[80px]" />
-                      ))}
-
-                      {daysInMonth.map((day) => {
-                        const daySchedules = getSchedulesForDay(day);
-                        return (
-                          <div
-                            key={day.toISOString()}
-                            className={`p-2 min-h-[80px] border rounded-lg ${
-                              isToday(day) ? "bg-primary/10 border-primary" : "bg-card"
-                            } ${!isSameMonth(day, currentMonth) ? "opacity-50" : ""}`}
-                            data-testid={`calendar-day-${format(day, "yyyy-MM-dd")}`}
-                          >
-                            <div className="text-sm font-medium mb-1">{format(day, "d")}</div>
-                            <div className="space-y-1">
-                              {daySchedules.slice(0, 2).map((schedule) => {
-                                const caregiverName = getCaregiverName(schedule.caregiverId);
-                                return (
-                                  <div
-                                    key={schedule.id}
-                                    className="text-xs p-1 bg-primary/20 rounded truncate"
-                                    title={`${schedule.startTime} - ${schedule.endTime}${caregiverName ? ` (${caregiverName})` : ''}`}
-                                  >
-                                    <div>{schedule.startTime}</div>
-                                    {caregiverName && (
-                                      <div className="text-[10px] text-muted-foreground truncate">{caregiverName}</div>
-                                    )}
-                                  </div>
-                                );
-                              })}
-                              {daySchedules.length > 2 && (
-                                <div className="text-xs text-muted-foreground">
-                                  +{daySchedules.length - 2} more
-                                </div>
-                              )}
-                            </div>
+                    <p className="text-xs text-muted-foreground mb-2">
+                      Drag and drop schedules to move them to different dates
+                    </p>
+                    <DndContext
+                      sensors={sensors}
+                      onDragStart={handleDragStart}
+                      onDragEnd={handleDragEnd}
+                    >
+                      <div className="grid grid-cols-7 gap-1">
+                        {DAY_NAMES.map((day) => (
+                          <div key={day} className="p-2 text-center text-sm font-medium text-muted-foreground">
+                            {day}
                           </div>
-                        );
-                      })}
-                    </div>
+                        ))}
+                        
+                        {Array.from({ length: monthStart.getDay() }).map((_, i) => (
+                          <div key={`empty-${i}`} className="p-2 min-h-[80px]" />
+                        ))}
+
+                        {daysInMonth.map((day) => {
+                          const daySchedules = getSchedulesForDay(day);
+                          const dateStr = format(day, "yyyy-MM-dd");
+                          return (
+                            <DroppableDay
+                              key={day.toISOString()}
+                              dateStr={dateStr}
+                              isToday={isToday(day)}
+                              isSameMonth={isSameMonth(day, currentMonth)}
+                              dayNumber={format(day, "d")}
+                            >
+                              <div className="space-y-1">
+                                {daySchedules.slice(0, 2).map((schedule) => {
+                                  const caregiverName = getCaregiverName(schedule.caregiverId);
+                                  return (
+                                    <DraggableScheduleItem
+                                      key={schedule.id}
+                                      schedule={schedule}
+                                      caregiverName={caregiverName}
+                                    />
+                                  );
+                                })}
+                                {daySchedules.length > 2 && (
+                                  <div className="text-xs text-muted-foreground">
+                                    +{daySchedules.length - 2} more
+                                  </div>
+                                )}
+                              </div>
+                            </DroppableDay>
+                          );
+                        })}
+                      </div>
+                      
+                      <DragOverlay>
+                        {activeSchedule ? (
+                          <div className="text-xs p-1 bg-primary/40 rounded truncate shadow-lg border-2 border-primary">
+                            <div>{activeSchedule.startTime}</div>
+                            {getCaregiverName(activeSchedule.caregiverId) && (
+                              <div className="text-[10px] text-muted-foreground truncate">
+                                {getCaregiverName(activeSchedule.caregiverId)}
+                              </div>
+                            )}
+                          </div>
+                        ) : null}
+                      </DragOverlay>
+                    </DndContext>
                   </CardContent>
                 </Card>
 
