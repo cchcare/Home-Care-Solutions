@@ -12,6 +12,7 @@ import {
   certifications,
   complianceItems,
   auditLogs,
+  birthdayNotifications,
   trainings,
   trainingRecords,
   files,
@@ -44,6 +45,8 @@ import {
   type InsertComplianceItem,
   type AuditLog,
   type InsertAuditLog,
+  type BirthdayNotification,
+  type InsertBirthdayNotification,
   type Training,
   type InsertTraining,
   type TrainingRecord,
@@ -588,6 +591,12 @@ export interface IStorage {
   createCaregiverCompliance(compliance: InsertCaregiverCompliance): Promise<CaregiverCompliance>;
   updateCaregiverCompliance(id: string, compliance: Partial<InsertCaregiverCompliance>): Promise<CaregiverCompliance>;
   deleteCaregiverCompliance(id: string): Promise<void>;
+
+  // Birthday notification operations
+  getBirthdayNotifications(officeId?: string, limit?: number): Promise<BirthdayNotification[]>;
+  createBirthdayNotification(notification: InsertBirthdayNotification): Promise<BirthdayNotification>;
+  getTodaysBirthdays(officeId?: string): Promise<{ clients: Client[]; caregivers: Caregiver[] }>;
+  getUpcomingBirthdays(days: number, officeId?: string): Promise<{ clients: Client[]; caregivers: Caregiver[] }>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -3088,6 +3097,109 @@ export class DatabaseStorage implements IStorage {
 
   async deleteCaregiverCompliance(id: string): Promise<void> {
     await db.delete(caregiverCompliance).where(eq(caregiverCompliance.id, id));
+  }
+
+  // Birthday notification operations
+  async getBirthdayNotifications(officeId?: string, limit?: number): Promise<BirthdayNotification[]> {
+    const conditions = [];
+    if (officeId) {
+      conditions.push(eq(birthdayNotifications.officeId, officeId));
+    }
+    return await db
+      .select()
+      .from(birthdayNotifications)
+      .where(conditions.length > 0 ? and(...conditions) : undefined)
+      .orderBy(desc(birthdayNotifications.sentAt))
+      .limit(limit || 100);
+  }
+
+  async createBirthdayNotification(notification: InsertBirthdayNotification): Promise<BirthdayNotification> {
+    const [newNotification] = await db.insert(birthdayNotifications).values(notification).returning();
+    return newNotification;
+  }
+
+  async getTodaysBirthdays(officeId?: string): Promise<{ clients: Client[]; caregivers: Caregiver[] }> {
+    const today = new Date();
+    const month = today.getMonth() + 1;
+    const day = today.getDate();
+
+    // Get clients with birthdays today
+    const clientConditions = [
+      sql`EXTRACT(MONTH FROM ${clients.dateOfBirth}) = ${month}`,
+      sql`EXTRACT(DAY FROM ${clients.dateOfBirth}) = ${day}`,
+      eq(clients.status, 'active'),
+    ];
+    if (officeId) {
+      clientConditions.push(eq(clients.officeId, officeId));
+    }
+    const birthdayClients = await db
+      .select()
+      .from(clients)
+      .where(and(...clientConditions));
+
+    // Get caregivers with birthdays today (using caregiver's own dateOfBirth field)
+    const caregiverConditions = [
+      sql`EXTRACT(MONTH FROM ${caregivers.dateOfBirth}) = ${month}`,
+      sql`EXTRACT(DAY FROM ${caregivers.dateOfBirth}) = ${day}`,
+      eq(caregivers.isActive, true),
+    ];
+    if (officeId) {
+      caregiverConditions.push(eq(caregivers.officeId, officeId));
+    }
+    const birthdayCaregivers = await db
+      .select()
+      .from(caregivers)
+      .where(and(...caregiverConditions));
+
+    return { clients: birthdayClients, caregivers: birthdayCaregivers };
+  }
+
+  async getUpcomingBirthdays(days: number, officeId?: string): Promise<{ clients: Client[]; caregivers: Caregiver[] }> {
+    const today = new Date();
+    
+    // Get all active clients and caregivers, then filter by upcoming birthday
+    const clientConditions = [eq(clients.status, 'active')];
+    if (officeId) {
+      clientConditions.push(eq(clients.officeId, officeId));
+    }
+    const allClients = await db
+      .select()
+      .from(clients)
+      .where(and(...clientConditions));
+
+    const caregiverConditions = [eq(caregivers.isActive, true)];
+    if (officeId) {
+      caregiverConditions.push(eq(caregivers.officeId, officeId));
+    }
+    const allCaregivers = await db
+      .select()
+      .from(caregivers)
+      .where(and(...caregiverConditions));
+
+    // Filter by upcoming birthdays within the specified days
+    const upcomingClients = allClients.filter(client => {
+      if (!client.dateOfBirth) return false;
+      const dob = new Date(client.dateOfBirth);
+      const thisYearBirthday = new Date(today.getFullYear(), dob.getMonth(), dob.getDate());
+      if (thisYearBirthday < today) {
+        thisYearBirthday.setFullYear(today.getFullYear() + 1);
+      }
+      const diffDays = Math.ceil((thisYearBirthday.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+      return diffDays >= 0 && diffDays <= days;
+    });
+
+    const upcomingCaregivers = allCaregivers.filter(caregiver => {
+      if (!caregiver.dateOfBirth) return false;
+      const dob = new Date(caregiver.dateOfBirth);
+      const thisYearBirthday = new Date(today.getFullYear(), dob.getMonth(), dob.getDate());
+      if (thisYearBirthday < today) {
+        thisYearBirthday.setFullYear(today.getFullYear() + 1);
+      }
+      const diffDays = Math.ceil((thisYearBirthday.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+      return diffDays >= 0 && diffDays <= days;
+    });
+
+    return { clients: upcomingClients, caregivers: upcomingCaregivers };
   }
 }
 
