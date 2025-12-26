@@ -670,19 +670,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const officeFilter = officeId && officeId !== 'all' ? String(officeId) : undefined;
       const caregivers = await storage.getAllCaregivers(officeFilter);
       
-      // Enrich caregivers with user data (firstName, lastName)
+      // Fetch all offices for enrichment
+      const offices = await storage.getAllOffices();
+      const officeMap = new Map(offices.map(o => [o.id, o]));
+      
+      // Enrich caregivers with user data and office info
       const enrichedCaregivers = await Promise.all(
         caregivers.map(async (caregiver) => {
+          let userInfo = { firstName: null as string | null, lastName: null as string | null, email: null as string | null };
           if (caregiver.userId) {
             const user = await storage.getUser(caregiver.userId);
-            return {
-              ...caregiver,
+            userInfo = {
               firstName: user?.firstName || null,
               lastName: user?.lastName || null,
               email: user?.email || null,
             };
           }
-          return { ...caregiver, firstName: null, lastName: null, email: null };
+          
+          // Get office info
+          const office = caregiver.officeId ? officeMap.get(caregiver.officeId) : null;
+          
+          return {
+            ...caregiver,
+            ...userInfo,
+            officeName: office?.name || null,
+            officeAddress: office?.address || null,
+            officePhone: office?.phone || null,
+            officeEmail: office?.email || null,
+          };
         })
       );
       
