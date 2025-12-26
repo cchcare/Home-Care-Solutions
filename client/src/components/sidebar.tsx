@@ -27,7 +27,8 @@ import {
   Key,
   DollarSign,
   Bot,
-  Cake
+  Cake,
+  Clock
 } from "lucide-react";
 
 interface NavItem {
@@ -62,7 +63,14 @@ export function Sidebar() {
     const baseNavigation: NavItem[] = [
       { name: "Dashboard", href: "/", icon: LayoutDashboard },
       { name: "Client Management", href: "/clients", icon: Users },
-      { name: "Caregiver Management", href: "/caregivers", icon: UserCheck },
+      { 
+        name: "Caregiver",
+        icon: UserCheck,
+        children: [
+          { name: "Caregiver Management", href: "/caregivers", icon: UserCheck },
+          { name: "EVV Clock In/Out", href: "/evv-clock", icon: Clock },
+        ]
+      },
       { name: "Training & Resources", href: "/training", icon: GraduationCap },
       { name: "Incident Reports", href: "/incidents", icon: AlertTriangle },
       { name: "Compliance", href: "/compliance", icon: Shield },

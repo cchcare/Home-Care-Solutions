@@ -1,0 +1,27 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1766715127296,
+      "tag": "0000_pale_steel_serpent",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1766717418832,
+      "tag": "0001_blushing_fabian_cortez",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1766718822221,
+      "tag": "0002_eligibility_schedule",
+      "breakpoints": true
+    }
+  ]
+}

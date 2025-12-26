@@ -35,6 +35,7 @@ import PrivacyPolicy from "@/pages/privacy-policy";
 import TermsOfUse from "@/pages/terms-of-use";
 import SystemStatus from "@/pages/system-status";
 import BirthdayNotifications from "@/pages/birthday-notifications";
+import EvvClock from "@/pages/evv-clock";
 
 function Router() {
   const { isAuthenticated, isLoading, error } = useAuth();
@@ -84,6 +85,7 @@ function Router() {
           <Route path="/billing-payroll" component={BillingPayroll} />
           <Route path="/ai-assistant" component={AIAssistant} />
           <Route path="/birthday-notifications" component={BirthdayNotifications} />
+          <Route path="/evv-clock" component={EvvClock} />
         </>
       )}
       <Route component={NotFound} />

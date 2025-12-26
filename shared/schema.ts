@@ -200,6 +200,40 @@ export const carePlans = pgTable("care_plans", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
+// Care plan goals - structured goals for care plans
+export const carePlanGoalPriorityEnum = pgEnum("care_plan_goal_priority", ["high", "medium", "low"]);
+export const carePlanGoalStatusEnum = pgEnum("care_plan_goal_status", ["active", "achieved", "discontinued"]);
+
+export const carePlanGoals = pgTable("care_plan_goals", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  carePlanId: varchar("care_plan_id").references(() => carePlans.id, { onDelete: "cascade" }).notNull(),
+  goalText: text("goal_text").notNull(),
+  targetDate: timestamp("target_date"),
+  priority: carePlanGoalPriorityEnum("priority").default("medium"),
+  status: carePlanGoalStatusEnum("status").default("active"),
+  progressNotes: text("progress_notes"),
+  achievedDate: timestamp("achieved_date"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Care plan interventions - structured interventions for care plans
+export const carePlanInterventionFrequencyEnum = pgEnum("care_plan_intervention_frequency", ["daily", "weekly", "monthly", "as_needed"]);
+export const carePlanInterventionAssignedToTypeEnum = pgEnum("care_plan_intervention_assigned_to_type", ["caregiver", "nurse", "therapist"]);
+export const carePlanInterventionStatusEnum = pgEnum("care_plan_intervention_status", ["active", "paused", "completed", "discontinued"]);
+
+export const carePlanInterventions = pgTable("care_plan_interventions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  carePlanId: varchar("care_plan_id").references(() => carePlans.id, { onDelete: "cascade" }).notNull(),
+  interventionText: text("intervention_text").notNull(),
+  frequency: carePlanInterventionFrequencyEnum("frequency").default("daily"),
+  assignedToType: carePlanInterventionAssignedToTypeEnum("assigned_to_type"),
+  assignedToId: varchar("assigned_to_id"),
+  status: carePlanInterventionStatusEnum("status").default("active"),
+  lastPerformedAt: timestamp("last_performed_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
 // Progress notes
 export const progressNotes = pgTable("progress_notes", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -263,6 +297,26 @@ export const incidentReports = pgTable("incident_reports", {
   notifiedAgency: boolean("notified_agency").default(false),
   status: varchar("status").default("open"), // open, under_investigation, resolved, closed
   resolution: text("resolution"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Incident Follow-ups - action items and resolution tracking for incidents
+export const incidentFollowUpPriorityEnum = pgEnum("incident_follow_up_priority", ["high", "medium", "low"]);
+export const incidentFollowUpStatusEnum = pgEnum("incident_follow_up_status", ["pending", "in_progress", "completed", "overdue"]);
+
+export const incidentFollowUps = pgTable("incident_follow_ups", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  incidentId: varchar("incident_id").references(() => incidentReports.id).notNull(),
+  actionRequired: text("action_required").notNull(),
+  assignedToId: varchar("assigned_to_id").references(() => users.id),
+  dueDate: timestamp("due_date"),
+  priority: incidentFollowUpPriorityEnum("priority").default("medium"),
+  status: incidentFollowUpStatusEnum("status").default("pending"),
+  completedAt: timestamp("completed_at"),
+  completedBy: varchar("completed_by").references(() => users.id),
+  notes: text("notes"),
+  createdBy: varchar("created_by").references(() => users.id),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -488,7 +542,7 @@ export const caregiversRelations = relations(caregivers, ({ one, many }) => ({
   incidentReports: many(incidentReports),
 }));
 
-export const carePlansRelations = relations(carePlans, ({ one }) => ({
+export const carePlansRelations = relations(carePlans, ({ one, many }) => ({
   client: one(clients, {
     fields: [carePlans.clientId],
     references: [clients.id],
@@ -496,6 +550,22 @@ export const carePlansRelations = relations(carePlans, ({ one }) => ({
   createdBy: one(users, {
     fields: [carePlans.createdBy],
     references: [users.id],
+  }),
+  goals: many(carePlanGoals),
+  interventions: many(carePlanInterventions),
+}));
+
+export const carePlanGoalsRelations = relations(carePlanGoals, ({ one }) => ({
+  carePlan: one(carePlans, {
+    fields: [carePlanGoals.carePlanId],
+    references: [carePlans.id],
+  }),
+}));
+
+export const carePlanInterventionsRelations = relations(carePlanInterventions, ({ one }) => ({
+  carePlan: one(carePlans, {
+    fields: [carePlanInterventions.carePlanId],
+    references: [carePlans.id],
   }),
 }));
 
@@ -529,7 +599,7 @@ export const documentsRelations = relations(documents, ({ one }) => ({
   }),
 }));
 
-export const incidentReportsRelations = relations(incidentReports, ({ one }) => ({
+export const incidentReportsRelations = relations(incidentReports, ({ one, many }) => ({
   client: one(clients, {
     fields: [incidentReports.clientId],
     references: [clients.id],
@@ -541,6 +611,29 @@ export const incidentReportsRelations = relations(incidentReports, ({ one }) => 
   reportedBy: one(users, {
     fields: [incidentReports.reportedBy],
     references: [users.id],
+  }),
+  followUps: many(incidentFollowUps),
+}));
+
+export const incidentFollowUpsRelations = relations(incidentFollowUps, ({ one }) => ({
+  incident: one(incidentReports, {
+    fields: [incidentFollowUps.incidentId],
+    references: [incidentReports.id],
+  }),
+  assignedTo: one(users, {
+    fields: [incidentFollowUps.assignedToId],
+    references: [users.id],
+    relationName: "assignedFollowUps",
+  }),
+  completedByUser: one(users, {
+    fields: [incidentFollowUps.completedBy],
+    references: [users.id],
+    relationName: "completedFollowUps",
+  }),
+  createdByUser: one(users, {
+    fields: [incidentFollowUps.createdBy],
+    references: [users.id],
+    relationName: "createdFollowUps",
   }),
 }));
 
@@ -757,6 +850,14 @@ export type CarePlan = typeof carePlans.$inferSelect;
 export type InsertCarePlan = typeof carePlans.$inferInsert;
 export const insertCarePlanSchema = createInsertSchema(carePlans);
 
+export type CarePlanGoal = typeof carePlanGoals.$inferSelect;
+export type InsertCarePlanGoal = typeof carePlanGoals.$inferInsert;
+export const insertCarePlanGoalSchema = createInsertSchema(carePlanGoals);
+
+export type CarePlanIntervention = typeof carePlanInterventions.$inferSelect;
+export type InsertCarePlanIntervention = typeof carePlanInterventions.$inferInsert;
+export const insertCarePlanInterventionSchema = createInsertSchema(carePlanInterventions);
+
 export type ProgressNote = typeof progressNotes.$inferSelect;
 export type InsertProgressNote = typeof progressNotes.$inferInsert;
 export const insertProgressNoteSchema = createInsertSchema(progressNotes);
@@ -768,6 +869,10 @@ export const insertDocumentSchema = createInsertSchema(documents);
 export type IncidentReport = typeof incidentReports.$inferSelect;
 export type InsertIncidentReport = typeof incidentReports.$inferInsert;
 export const insertIncidentReportSchema = createInsertSchema(incidentReports);
+
+export type IncidentFollowUp = typeof incidentFollowUps.$inferSelect;
+export type InsertIncidentFollowUp = typeof incidentFollowUps.$inferInsert;
+export const insertIncidentFollowUpSchema = createInsertSchema(incidentFollowUps).omit({ id: true, createdAt: true, updatedAt: true });
 
 export type Task = typeof tasks.$inferSelect;
 export type InsertTask = typeof tasks.$inferInsert;
@@ -1505,7 +1610,7 @@ export const caregiverAbsences = pgTable("caregiver_absences", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
-// Caregiver Availability - Availability section
+// Caregiver Availability - Availability section (Weekly recurring pattern)
 export const caregiverAvailability = pgTable("caregiver_availability", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   caregiverId: varchar("caregiver_id").references(() => caregivers.id).notNull(),
@@ -1518,6 +1623,23 @@ export const caregiverAvailability = pgTable("caregiver_availability", {
   notes: text("notes"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Caregiver Availability Exceptions - Specific date overrides
+export const availabilityExceptionReasonEnum = pgEnum("availability_exception_reason", ["vacation", "sick", "personal", "training", "other"]);
+
+export const caregiverAvailabilityExceptions = pgTable("caregiver_availability_exceptions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  caregiverId: varchar("caregiver_id").references(() => caregivers.id).notNull(),
+  date: timestamp("date").notNull(), // Specific date for the exception
+  isAvailable: boolean("is_available").default(false), // Usually false for exceptions (time off)
+  reason: availabilityExceptionReasonEnum("reason"),
+  startTime: varchar("start_time"), // Nullable for full day off, HH:MM for partial day
+  endTime: varchar("end_time"), // Nullable for full day off, HH:MM for partial day
+  approvedBy: varchar("approved_by").references(() => users.id),
+  approvedAt: timestamp("approved_at"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
 });
 
 // Caregiver Payroll Info - Payroll Info section
@@ -1649,6 +1771,14 @@ export const caregiverSchedules = pgTable("caregiver_schedules", {
   status: varchar("status").default("scheduled"), // scheduled, confirmed, in_progress, completed, cancelled, no_show
   clockInTime: timestamp("clock_in_time"),
   clockOutTime: timestamp("clock_out_time"),
+  clockInLatitude: numeric("clock_in_latitude", { precision: 10, scale: 7 }),
+  clockInLongitude: numeric("clock_in_longitude", { precision: 10, scale: 7 }),
+  clockOutLatitude: numeric("clock_out_latitude", { precision: 10, scale: 7 }),
+  clockOutLongitude: numeric("clock_out_longitude", { precision: 10, scale: 7 }),
+  clockInDistance: numeric("clock_in_distance"),
+  clockOutDistance: numeric("clock_out_distance"),
+  evvStatus: varchar("evv_status").default("pending"), // pending, compliant, non_compliant
+  evvNotes: text("evv_notes"),
   notes: text("notes"),
   createdBy: varchar("created_by").references(() => users.id),
   createdAt: timestamp("created_at").defaultNow(),
@@ -1672,6 +1802,11 @@ export const caregiverAbsencesRelations = relations(caregiverAbsences, ({ one })
 
 export const caregiverAvailabilityRelations = relations(caregiverAvailability, ({ one }) => ({
   caregiver: one(caregivers, { fields: [caregiverAvailability.caregiverId], references: [caregivers.id] }),
+}));
+
+export const caregiverAvailabilityExceptionsRelations = relations(caregiverAvailabilityExceptions, ({ one }) => ({
+  caregiver: one(caregivers, { fields: [caregiverAvailabilityExceptions.caregiverId], references: [caregivers.id] }),
+  approvedByUser: one(users, { fields: [caregiverAvailabilityExceptions.approvedBy], references: [users.id] }),
 }));
 
 export const caregiverPayrollInfoRelations = relations(caregiverPayrollInfo, ({ one }) => ({
@@ -1731,6 +1866,10 @@ export const insertCaregiverAbsenceSchema = createInsertSchema(caregiverAbsences
 export type CaregiverAvailability = typeof caregiverAvailability.$inferSelect;
 export type InsertCaregiverAvailability = typeof caregiverAvailability.$inferInsert;
 export const insertCaregiverAvailabilitySchema = createInsertSchema(caregiverAvailability).omit({ id: true, createdAt: true, updatedAt: true });
+
+export type CaregiverAvailabilityException = typeof caregiverAvailabilityExceptions.$inferSelect;
+export type InsertCaregiverAvailabilityException = typeof caregiverAvailabilityExceptions.$inferInsert;
+export const insertCaregiverAvailabilityExceptionSchema = createInsertSchema(caregiverAvailabilityExceptions).omit({ id: true, createdAt: true });
 
 export type CaregiverPayrollInfo = typeof caregiverPayrollInfo.$inferSelect;
 export type InsertCaregiverPayrollInfo = typeof caregiverPayrollInfo.$inferInsert;
@@ -1867,23 +2006,38 @@ export type OfficeExpense = typeof officeExpenses.$inferSelect;
 export type InsertOfficeExpense = typeof officeExpenses.$inferInsert;
 export const insertOfficeExpenseSchema = createInsertSchema(officeExpenses).omit({ id: true, createdAt: true, updatedAt: true });
 
-// Eligibility Checks - tracks client eligibility verifications via PA DHS PROMISe portal
+// Eligibility Check Type enum
+export const eligibilityCheckTypeEnum = pgEnum("eligibility_check_type", ["medicaid", "medicare", "private_insurance", "mco"]);
+
+// Eligibility Check Status enum
+export const eligibilityCheckStatusEnum = pgEnum("eligibility_check_status", ["active", "inactive", "pending", "error", "not_found"]);
+
+// Eligibility Schedule Frequency enum
+export const eligibilityScheduleFrequencyEnum = pgEnum("eligibility_schedule_frequency", ["weekly", "monthly", "quarterly"]);
+
+// Eligibility Checks - tracks client eligibility verifications via PA DHS PROMISe portal or automated systems
 export const eligibilityChecks = pgTable("eligibility_checks", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   clientId: varchar("client_id").references(() => clients.id).notNull(),
-  mcoId: varchar("mco_id").references(() => mcos.id), // MCO being verified
+  checkType: eligibilityCheckTypeEnum("check_type").default("medicaid"), // medicaid, medicare, private_insurance, mco
+  payerId: varchar("payer_id"), // Insurance/MCO ID
+  mcoId: varchar("mco_id").references(() => mcos.id), // MCO reference (backward compatible)
   memberId: varchar("member_id"), // Member ID used for verification
   checkDate: timestamp("check_date").notNull(), // Date of verification check
-  status: varchar("status").default("pending"), // pending, verified, failed, expired
-  eligibilityStatus: varchar("eligibility_status"), // eligible, ineligible, partial, unknown
+  expirationDate: timestamp("expiration_date"), // When this verification expires
+  status: eligibilityCheckStatusEnum("status").default("pending"), // active, inactive, pending, error, not_found
+  eligibilityStatus: varchar("eligibility_status"), // Legacy: eligible, ineligible, partial, unknown
+  coverageDetails: jsonb("coverage_details"), // Coverage info from payer (structured response)
   coverageStartDate: timestamp("coverage_start_date"),
   coverageEndDate: timestamp("coverage_end_date"),
-  verificationSource: varchar("verification_source").default("promise_portal"), // promise_portal, phone, fax, other
-  verifiedBy: varchar("verified_by").references(() => users.id),
+  errorMessage: text("error_message"), // Error message if check failed
+  responseRaw: jsonb("response_raw"), // Full API response for audit trail
+  checkedBy: varchar("checked_by"), // User ID or 'system' for automated checks
+  verificationSource: varchar("verification_source").default("promise_portal"), // promise_portal, api, phone, fax, other
+  verifiedBy: varchar("verified_by").references(() => users.id), // Legacy field
   notes: text("notes"),
-  portalResponse: text("portal_response"), // Store any response data or notes from portal
+  portalResponse: text("portal_response"), // Legacy: Store any response data or notes from portal
   documentId: varchar("document_id").references(() => documents.id), // Uploaded verification screenshot/document
-  expirationDate: timestamp("expiration_date"), // When this verification expires
   officeId: varchar("office_id").references(() => offices.id),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
@@ -1900,6 +2054,29 @@ export const eligibilityChecksRelations = relations(eligibilityChecks, ({ one })
 export type EligibilityCheck = typeof eligibilityChecks.$inferSelect;
 export type InsertEligibilityCheck = typeof eligibilityChecks.$inferInsert;
 export const insertEligibilityCheckSchema = createInsertSchema(eligibilityChecks).omit({ id: true, createdAt: true, updatedAt: true });
+
+// Eligibility Schedule - for automated eligibility checks
+export const eligibilitySchedule = pgTable("eligibility_schedule", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  clientId: varchar("client_id").references(() => clients.id).notNull(),
+  checkFrequency: eligibilityScheduleFrequencyEnum("check_frequency").default("monthly"), // weekly, monthly, quarterly
+  lastChecked: timestamp("last_checked"),
+  nextCheckDate: timestamp("next_check_date"),
+  isActive: boolean("is_active").default(true),
+  checkType: eligibilityCheckTypeEnum("check_type").default("medicaid"), // Type of eligibility to check
+  payerId: varchar("payer_id"), // Default payer to check
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const eligibilityScheduleRelations = relations(eligibilitySchedule, ({ one }) => ({
+  client: one(clients, { fields: [eligibilitySchedule.clientId], references: [clients.id] }),
+}));
+
+export type EligibilitySchedule = typeof eligibilitySchedule.$inferSelect;
+export type InsertEligibilitySchedule = typeof eligibilitySchedule.$inferInsert;
+export const insertEligibilityScheduleSchema = createInsertSchema(eligibilitySchedule).omit({ id: true, createdAt: true, updatedAt: true });
 
 // Caregiver Compliance - tracks -9 requirements, background checks, and medical requirements
 export const caregiverCompliance = pgTable("caregiver_compliance", {
@@ -1947,3 +2124,717 @@ export const caregiverComplianceRelations = relations(caregiverCompliance, ({ on
 export type CaregiverCompliance = typeof caregiverCompliance.$inferSelect;
 export type InsertCaregiverCompliance = typeof caregiverCompliance.$inferInsert;
 export const insertCaregiverComplianceSchema = createInsertSchema(caregiverCompliance).omit({ id: true, createdAt: true, updatedAt: true });
+
+// Medication Tracking - tracks client medications
+export const medicationLogStatusEnum = pgEnum("medication_log_status", ["taken", "skipped", "refused"]);
+
+export const medications = pgTable("medications", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  clientId: varchar("client_id").references(() => clients.id).notNull(),
+  medicationName: varchar("medication_name").notNull(),
+  dosage: varchar("dosage"),
+  frequency: varchar("frequency"), // e.g., "twice daily", "every 8 hours"
+  route: varchar("route"), // oral, injection, topical, etc.
+  prescribedBy: varchar("prescribed_by"),
+  startDate: timestamp("start_date"),
+  endDate: timestamp("end_date"), // nullable for ongoing medications
+  instructions: text("instructions"),
+  sideEffects: text("side_effects"),
+  refillDate: timestamp("refill_date"),
+  pharmacy: varchar("pharmacy"),
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const medicationsRelations = relations(medications, ({ one, many }) => ({
+  client: one(clients, { fields: [medications.clientId], references: [clients.id] }),
+  logs: many(medicationLogs),
+}));
+
+export type Medication = typeof medications.$inferSelect;
+export type InsertMedication = typeof medications.$inferInsert;
+export const insertMedicationSchema = createInsertSchema(medications).omit({ id: true, createdAt: true, updatedAt: true });
+
+// Medication Logs - tracks medication adherence
+export const medicationLogs = pgTable("medication_logs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  medicationId: varchar("medication_id").references(() => medications.id).notNull(),
+  clientId: varchar("client_id").references(() => clients.id).notNull(),
+  caregiverId: varchar("caregiver_id").references(() => caregivers.id),
+  scheduledTime: timestamp("scheduled_time"),
+  takenTime: timestamp("taken_time"),
+  status: medicationLogStatusEnum("status").notNull(), // taken, skipped, refused
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const medicationLogsRelations = relations(medicationLogs, ({ one }) => ({
+  medication: one(medications, { fields: [medicationLogs.medicationId], references: [medications.id] }),
+  client: one(clients, { fields: [medicationLogs.clientId], references: [clients.id] }),
+  caregiver: one(caregivers, { fields: [medicationLogs.caregiverId], references: [caregivers.id] }),
+}));
+
+export type MedicationLog = typeof medicationLogs.$inferSelect;
+export type InsertMedicationLog = typeof medicationLogs.$inferInsert;
+export const insertMedicationLogSchema = createInsertSchema(medicationLogs).omit({ id: true, createdAt: true });
+
+// Vital Signs Tracking - dedicated table for health metrics
+export const vitalSigns = pgTable("vital_signs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  clientId: varchar("client_id").references(() => clients.id).notNull(),
+  caregiverId: varchar("caregiver_id").references(() => caregivers.id),
+  recordedAt: timestamp("recorded_at").notNull(),
+  bloodPressureSystolic: integer("blood_pressure_systolic"),
+  bloodPressureDiastolic: integer("blood_pressure_diastolic"),
+  heartRate: integer("heart_rate"),
+  temperature: numeric("temperature", { precision: 10, scale: 2 }),
+  respiratoryRate: integer("respiratory_rate"),
+  oxygenSaturation: integer("oxygen_saturation"),
+  weight: numeric("weight", { precision: 10, scale: 2 }),
+  bloodSugar: integer("blood_sugar"),
+  painLevel: integer("pain_level"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const vitalSignsRelations = relations(vitalSigns, ({ one }) => ({
+  client: one(clients, { fields: [vitalSigns.clientId], references: [clients.id] }),
+  caregiver: one(caregivers, { fields: [vitalSigns.caregiverId], references: [caregivers.id] }),
+}));
+
+export type VitalSign = typeof vitalSigns.$inferSelect;
+export type InsertVitalSign = typeof vitalSigns.$inferInsert;
+export const insertVitalSignSchema = createInsertSchema(vitalSigns).omit({ id: true, createdAt: true });
+
+// Notification Templates - reusable notification templates
+export const notificationTemplateTypeEnum = pgEnum("notification_template_type", ["sms", "email", "both"]);
+
+export const notificationTemplates = pgTable("notification_templates", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: varchar("name").notNull().unique(),
+  type: notificationTemplateTypeEnum("type").notNull(),
+  subject: varchar("subject"),
+  body: text("body").notNull(),
+  variables: text("variables").array(),
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export type NotificationTemplate = typeof notificationTemplates.$inferSelect;
+export type InsertNotificationTemplate = typeof notificationTemplates.$inferInsert;
+export const insertNotificationTemplateSchema = createInsertSchema(notificationTemplates).omit({ id: true, createdAt: true });
+
+// Notification Queue - queue for pending notifications
+export const notificationRecipientTypeEnum = pgEnum("notification_recipient_type", ["user", "client", "caregiver"]);
+export const notificationChannelEnum = pgEnum("notification_channel", ["sms", "email"]);
+export const notificationStatusEnum = pgEnum("notification_status", ["pending", "sent", "failed"]);
+
+export const notificationQueue = pgTable("notification_queue", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  recipientType: notificationRecipientTypeEnum("recipient_type").notNull(),
+  recipientId: varchar("recipient_id").notNull(),
+  channel: notificationChannelEnum("channel").notNull(),
+  templateId: varchar("template_id").references(() => notificationTemplates.id),
+  subject: varchar("subject"),
+  body: text("body").notNull(),
+  recipientContact: varchar("recipient_contact"),
+  scheduledFor: timestamp("scheduled_for"),
+  sentAt: timestamp("sent_at"),
+  status: notificationStatusEnum("status").default("pending"),
+  errorMessage: text("error_message"),
+  retryCount: integer("retry_count").default(0),
+  externalId: varchar("external_id"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const notificationQueueRelations = relations(notificationQueue, ({ one }) => ({
+  template: one(notificationTemplates, { fields: [notificationQueue.templateId], references: [notificationTemplates.id] }),
+}));
+
+export type NotificationQueueItem = typeof notificationQueue.$inferSelect;
+export type InsertNotificationQueueItem = typeof notificationQueue.$inferInsert;
+export const insertNotificationQueueItemSchema = createInsertSchema(notificationQueue).omit({ id: true, createdAt: true });
+
+// Notification Preferences - user notification settings
+export const notificationPreferences = pgTable("notification_preferences", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").references(() => users.id).notNull().unique(),
+  enableSms: boolean("enable_sms").default(true),
+  enableEmail: boolean("enable_email").default(true),
+  quietHoursStart: varchar("quiet_hours_start"),
+  quietHoursEnd: varchar("quiet_hours_end"),
+  scheduleChangeNotifications: boolean("schedule_change_notifications").default(true),
+  reminderNotifications: boolean("reminder_notifications").default(true),
+  urgentAlertNotifications: boolean("urgent_alert_notifications").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const notificationPreferencesRelations = relations(notificationPreferences, ({ one }) => ({
+  user: one(users, { fields: [notificationPreferences.userId], references: [users.id] }),
+}));
+
+export type NotificationPreference = typeof notificationPreferences.$inferSelect;
+export type InsertNotificationPreference = typeof notificationPreferences.$inferInsert;
+export const insertNotificationPreferenceSchema = createInsertSchema(notificationPreferences).omit({ id: true, createdAt: true, updatedAt: true });
+
+// Mileage Logs - tracks caregiver travel for reimbursement
+export const mileageLogTripPurposeEnum = pgEnum("mileage_log_trip_purpose", ["client_visit", "training", "office_meeting", "other"]);
+export const mileageLogStatusEnum = pgEnum("mileage_log_status", ["pending", "approved", "paid", "rejected"]);
+
+export const mileageLogs = pgTable("mileage_logs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  caregiverId: varchar("caregiver_id").references(() => caregivers.id).notNull(),
+  date: timestamp("date").notNull(),
+  clientId: varchar("client_id").references(() => clients.id),
+  tripPurpose: mileageLogTripPurposeEnum("trip_purpose").notNull(),
+  startLocation: text("start_location"),
+  endLocation: text("end_location"),
+  startOdometer: numeric("start_odometer", { precision: 10, scale: 1 }),
+  endOdometer: numeric("end_odometer", { precision: 10, scale: 1 }),
+  totalMiles: numeric("total_miles", { precision: 10, scale: 1 }),
+  reimbursementRate: numeric("reimbursement_rate", { precision: 10, scale: 4 }).default("0.67"),
+  reimbursementAmount: numeric("reimbursement_amount", { precision: 10, scale: 2 }),
+  status: mileageLogStatusEnum("status").default("pending"),
+  approvedBy: varchar("approved_by").references(() => users.id),
+  approvedAt: timestamp("approved_at"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const mileageLogsRelations = relations(mileageLogs, ({ one }) => ({
+  caregiver: one(caregivers, { fields: [mileageLogs.caregiverId], references: [caregivers.id] }),
+  client: one(clients, { fields: [mileageLogs.clientId], references: [clients.id] }),
+  approvedByUser: one(users, { fields: [mileageLogs.approvedBy], references: [users.id] }),
+}));
+
+export type MileageLog = typeof mileageLogs.$inferSelect;
+export type InsertMileageLog = typeof mileageLogs.$inferInsert;
+export const insertMileageLogSchema = createInsertSchema(mileageLogs).omit({ id: true, createdAt: true, updatedAt: true });
+
+// Recruitment Portal - Applicant Tracking
+export const applicantStatusEnum = pgEnum("applicant_status", [
+  "new", "screening", "interview_scheduled", "interview_completed", 
+  "background_check", "offer_pending", "hired", "rejected", "withdrawn"
+]);
+export const applicantSourceEnum = pgEnum("applicant_source", ["referral", "indeed", "website", "walk_in", "other"]);
+export const applicantPositionEnum = pgEnum("applicant_position", ["caregiver", "nurse", "admin", "coordinator", "supervisor", "other"]);
+export const interviewTypeEnum = pgEnum("interview_type", ["phone", "in_person", "video"]);
+export const interviewStatusEnum = pgEnum("interview_status", ["scheduled", "completed", "cancelled", "no_show"]);
+
+export const applicants = pgTable("applicants", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  firstName: varchar("first_name").notNull(),
+  lastName: varchar("last_name").notNull(),
+  email: varchar("email"),
+  phone: varchar("phone"),
+  address: text("address"),
+  city: varchar("city"),
+  state: varchar("state"),
+  zipCode: varchar("zip_code"),
+  dateOfBirth: timestamp("date_of_birth"),
+  officeId: varchar("office_id").references(() => offices.id),
+  position: applicantPositionEnum("position").default("caregiver"),
+  source: applicantSourceEnum("source").default("other"),
+  referredBy: varchar("referred_by"),
+  applicationDate: timestamp("application_date").defaultNow(),
+  resumeDocumentId: varchar("resume_document_id").references(() => documents.id),
+  status: applicantStatusEnum("status").default("new"),
+  stage: varchar("stage"),
+  notes: text("notes"),
+  assignedTo: varchar("assigned_to").references(() => users.id),
+  lastContactDate: timestamp("last_contact_date"),
+  expectedStartDate: timestamp("expected_start_date"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const applicantsRelations = relations(applicants, ({ one, many }) => ({
+  office: one(offices, { fields: [applicants.officeId], references: [offices.id] }),
+  resumeDocument: one(documents, { fields: [applicants.resumeDocumentId], references: [documents.id] }),
+  assignedToUser: one(users, { fields: [applicants.assignedTo], references: [users.id] }),
+  applicantNotes: many(applicantNotes),
+  applicantInterviews: many(applicantInterviews),
+}));
+
+export type Applicant = typeof applicants.$inferSelect;
+export type InsertApplicant = typeof applicants.$inferInsert;
+export const insertApplicantSchema = createInsertSchema(applicants).omit({ id: true, createdAt: true, updatedAt: true });
+
+// Applicant Notes - notes added during recruitment process
+export const applicantNotes = pgTable("applicant_notes", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  applicantId: varchar("applicant_id").references(() => applicants.id, { onDelete: "cascade" }).notNull(),
+  authorId: varchar("author_id").references(() => users.id),
+  note: text("note").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const applicantNotesRelations = relations(applicantNotes, ({ one }) => ({
+  applicant: one(applicants, { fields: [applicantNotes.applicantId], references: [applicants.id] }),
+  author: one(users, { fields: [applicantNotes.authorId], references: [users.id] }),
+}));
+
+export type ApplicantNote = typeof applicantNotes.$inferSelect;
+export type InsertApplicantNote = typeof applicantNotes.$inferInsert;
+export const insertApplicantNoteSchema = createInsertSchema(applicantNotes).omit({ id: true, createdAt: true });
+
+// Applicant Interviews - interview scheduling and tracking
+export const applicantInterviews = pgTable("applicant_interviews", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  applicantId: varchar("applicant_id").references(() => applicants.id, { onDelete: "cascade" }).notNull(),
+  interviewerId: varchar("interviewer_id").references(() => users.id),
+  scheduledDate: timestamp("scheduled_date").notNull(),
+  completedDate: timestamp("completed_date"),
+  type: interviewTypeEnum("type").default("phone"),
+  rating: integer("rating"),
+  feedback: text("feedback"),
+  status: interviewStatusEnum("status").default("scheduled"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const applicantInterviewsRelations = relations(applicantInterviews, ({ one }) => ({
+  applicant: one(applicants, { fields: [applicantInterviews.applicantId], references: [applicants.id] }),
+  interviewer: one(users, { fields: [applicantInterviews.interviewerId], references: [users.id] }),
+}));
+
+export type ApplicantInterview = typeof applicantInterviews.$inferSelect;
+export type InsertApplicantInterview = typeof applicantInterviews.$inferInsert;
+export const insertApplicantInterviewSchema = createInsertSchema(applicantInterviews).omit({ id: true, createdAt: true });
+
+// Background Checks - tracks FBI fingerprints, state criminal checks, etc.
+export const backgroundCheckTypeEnum = pgEnum("background_check_type", [
+  "fbi_fingerprint", "state_criminal", "child_abuse", "adult_protective", "sex_offender", "oig_exclusion"
+]);
+export const backgroundCheckStatusEnum = pgEnum("background_check_status", [
+  "pending", "in_progress", "completed_clear", "completed_review", "failed", "expired"
+]);
+export const backgroundCheckResultEnum = pgEnum("background_check_result", [
+  "clear", "review_needed", "disqualifying"
+]);
+
+export const backgroundChecks = pgTable("background_checks", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  applicantId: varchar("applicant_id").references(() => applicants.id),
+  caregiverId: varchar("caregiver_id").references(() => caregivers.id),
+  checkType: backgroundCheckTypeEnum("check_type").notNull(),
+  provider: varchar("provider"),
+  requestedDate: timestamp("requested_date"),
+  submittedDate: timestamp("submitted_date"),
+  expectedCompletionDate: timestamp("expected_completion_date"),
+  completedDate: timestamp("completed_date"),
+  expirationDate: timestamp("expiration_date"),
+  status: backgroundCheckStatusEnum("status").default("pending"),
+  result: backgroundCheckResultEnum("result"),
+  resultNotes: text("result_notes"),
+  documentId: varchar("document_id").references(() => documents.id),
+  cost: numeric("cost", { precision: 10, scale: 2 }),
+  requestedBy: varchar("requested_by").references(() => users.id),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const backgroundChecksRelations = relations(backgroundChecks, ({ one }) => ({
+  applicant: one(applicants, { fields: [backgroundChecks.applicantId], references: [applicants.id] }),
+  caregiver: one(caregivers, { fields: [backgroundChecks.caregiverId], references: [caregivers.id] }),
+  document: one(documents, { fields: [backgroundChecks.documentId], references: [documents.id] }),
+  requestedByUser: one(users, { fields: [backgroundChecks.requestedBy], references: [users.id] }),
+}));
+
+export type BackgroundCheck = typeof backgroundChecks.$inferSelect;
+export type InsertBackgroundCheck = typeof backgroundChecks.$inferInsert;
+export const insertBackgroundCheckSchema = createInsertSchema(backgroundChecks).omit({ id: true, createdAt: true, updatedAt: true });
+
+// Shift Differentials - weekend, holiday, overtime premium calculations
+export const shiftDifferentialTypeEnum = pgEnum("shift_differential_type", [
+  "weekend", "holiday", "overtime", "evening", "night", "on_call"
+]);
+
+export const shiftDifferentials = pgTable("shift_differentials", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  officeId: varchar("office_id").references(() => offices.id),
+  mcoId: varchar("mco_id").references(() => mcos.id),
+  name: varchar("name").notNull(),
+  type: shiftDifferentialTypeEnum("type").notNull(),
+  multiplier: numeric("multiplier", { precision: 10, scale: 3 }),
+  flatBonus: numeric("flat_bonus", { precision: 10, scale: 2 }),
+  conditions: jsonb("conditions"),
+  isActive: boolean("is_active").default(true),
+  effectiveDate: timestamp("effective_date").notNull(),
+  endDate: timestamp("end_date"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const shiftDifferentialsRelations = relations(shiftDifferentials, ({ one }) => ({
+  office: one(offices, { fields: [shiftDifferentials.officeId], references: [offices.id] }),
+  mco: one(mcos, { fields: [shiftDifferentials.mcoId], references: [mcos.id] }),
+}));
+
+export type ShiftDifferential = typeof shiftDifferentials.$inferSelect;
+export type InsertShiftDifferential = typeof shiftDifferentials.$inferInsert;
+export const insertShiftDifferentialSchema = createInsertSchema(shiftDifferentials).omit({ id: true, createdAt: true, updatedAt: true });
+
+// Holidays - for shift differential calculations
+export const holidays = pgTable("holidays", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: varchar("name").notNull(),
+  date: timestamp("date"),
+  observedDate: timestamp("observed_date"),
+  isRecurring: boolean("is_recurring").default(false),
+  recurringMonth: integer("recurring_month"),
+  recurringDay: integer("recurring_day"),
+  officeId: varchar("office_id").references(() => offices.id),
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const holidaysRelations = relations(holidays, ({ one }) => ({
+  office: one(offices, { fields: [holidays.officeId], references: [offices.id] }),
+}));
+
+export type Holiday = typeof holidays.$inferSelect;
+export type InsertHoliday = typeof holidays.$inferInsert;
+export const insertHolidaySchema = createInsertSchema(holidays).omit({ id: true, createdAt: true });
+
+// Performance Reviews - for caregiver evaluations and goal tracking
+export const performanceReviewTypeEnum = pgEnum("performance_review_type", [
+  "annual", "semi_annual", "quarterly", "probationary", "improvement_plan"
+]);
+export const performanceReviewStatusEnum = pgEnum("performance_review_status", [
+  "scheduled", "in_progress", "completed", "cancelled"
+]);
+
+export const performanceReviews = pgTable("performance_reviews", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  caregiverId: varchar("caregiver_id").references(() => caregivers.id).notNull(),
+  reviewerId: varchar("reviewer_id").references(() => users.id).notNull(),
+  reviewType: performanceReviewTypeEnum("review_type").notNull(),
+  reviewPeriodStart: timestamp("review_period_start"),
+  reviewPeriodEnd: timestamp("review_period_end"),
+  scheduledDate: timestamp("scheduled_date"),
+  completedDate: timestamp("completed_date"),
+  status: performanceReviewStatusEnum("status").default("scheduled"),
+  overallRating: integer("overall_rating"),
+  strengths: text("strengths"),
+  areasForImprovement: text("areas_for_improvement"),
+  goals: text("goals"),
+  actionItems: text("action_items"),
+  employeeComments: text("employee_comments"),
+  reviewerComments: text("reviewer_comments"),
+  acknowledgedAt: timestamp("acknowledged_at"),
+  acknowledgedBy: varchar("acknowledged_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const performanceReviewsRelations = relations(performanceReviews, ({ one, many }) => ({
+  caregiver: one(caregivers, { fields: [performanceReviews.caregiverId], references: [caregivers.id] }),
+  reviewer: one(users, { fields: [performanceReviews.reviewerId], references: [users.id] }),
+  acknowledgedByUser: one(users, { fields: [performanceReviews.acknowledgedBy], references: [users.id] }),
+  metrics: many(performanceMetrics),
+}));
+
+export type PerformanceReview = typeof performanceReviews.$inferSelect;
+export type InsertPerformanceReview = typeof performanceReviews.$inferInsert;
+export const insertPerformanceReviewSchema = createInsertSchema(performanceReviews).omit({ id: true, createdAt: true, updatedAt: true });
+
+// Performance Metrics - specific criteria ratings for performance reviews
+export const performanceMetricNameEnum = pgEnum("performance_metric_name", [
+  "attendance", "punctuality", "client_satisfaction", "documentation",
+  "communication", "teamwork", "skills", "professionalism"
+]);
+
+export const performanceMetrics = pgTable("performance_metrics", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  reviewId: varchar("review_id").references(() => performanceReviews.id, { onDelete: "cascade" }).notNull(),
+  metricName: performanceMetricNameEnum("metric_name").notNull(),
+  rating: integer("rating").notNull(),
+  weight: numeric("weight", { precision: 5, scale: 2 }).default("1.00"),
+  comments: text("comments"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const performanceMetricsRelations = relations(performanceMetrics, ({ one }) => ({
+  review: one(performanceReviews, { fields: [performanceMetrics.reviewId], references: [performanceReviews.id] }),
+}));
+
+export type PerformanceMetric = typeof performanceMetrics.$inferSelect;
+export type InsertPerformanceMetric = typeof performanceMetrics.$inferInsert;
+export const insertPerformanceMetricSchema = createInsertSchema(performanceMetrics).omit({ id: true, createdAt: true });
+
+// ==================== TIME-OFF REQUESTS & PTO MANAGEMENT ====================
+
+// Time-off request type enum
+export const timeOffRequestTypeEnum = pgEnum("time_off_request_type", [
+  "vacation", "sick", "personal", "bereavement", "jury_duty", "fmla", "unpaid"
+]);
+
+// Time-off request status enum
+export const timeOffRequestStatusEnum = pgEnum("time_off_request_status", [
+  "pending", "approved", "denied", "cancelled"
+]);
+
+// Time-off Requests table
+export const timeOffRequests = pgTable("time_off_requests", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  caregiverId: varchar("caregiver_id").references(() => caregivers.id).notNull(),
+  requestType: timeOffRequestTypeEnum("request_type").notNull(),
+  startDate: timestamp("start_date").notNull(),
+  endDate: timestamp("end_date").notNull(),
+  hoursRequested: numeric("hours_requested", { precision: 10, scale: 2 }),
+  reason: text("reason"),
+  status: timeOffRequestStatusEnum("status").default("pending"),
+  submittedAt: timestamp("submitted_at").defaultNow(),
+  reviewedBy: varchar("reviewed_by").references(() => users.id),
+  reviewedAt: timestamp("reviewed_at"),
+  reviewNotes: text("review_notes"),
+  isPaid: boolean("is_paid").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const timeOffRequestsRelations = relations(timeOffRequests, ({ one }) => ({
+  caregiver: one(caregivers, { fields: [timeOffRequests.caregiverId], references: [caregivers.id] }),
+  reviewer: one(users, { fields: [timeOffRequests.reviewedBy], references: [users.id] }),
+}));
+
+export type TimeOffRequest = typeof timeOffRequests.$inferSelect;
+export type InsertTimeOffRequest = typeof timeOffRequests.$inferInsert;
+export const insertTimeOffRequestSchema = createInsertSchema(timeOffRequests).omit({ id: true, createdAt: true, updatedAt: true, submittedAt: true });
+
+// PTO type enum
+export const ptoTypeEnum = pgEnum("pto_type", ["vacation", "sick", "personal"]);
+
+// PTO Balances table
+export const ptoBalances = pgTable("pto_balances", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  caregiverId: varchar("caregiver_id").references(() => caregivers.id).notNull(),
+  year: integer("year").notNull(),
+  ptoType: ptoTypeEnum("pto_type").notNull(),
+  accrued: numeric("accrued", { precision: 10, scale: 2 }).default("0"),
+  used: numeric("used", { precision: 10, scale: 2 }).default("0"),
+  pending: numeric("pending", { precision: 10, scale: 2 }).default("0"),
+  available: numeric("available", { precision: 10, scale: 2 }).default("0"),
+  carryoverFromPreviousYear: numeric("carryover_from_previous_year", { precision: 10, scale: 2 }).default("0"),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const ptoBalancesRelations = relations(ptoBalances, ({ one }) => ({
+  caregiver: one(caregivers, { fields: [ptoBalances.caregiverId], references: [caregivers.id] }),
+}));
+
+export type PtoBalance = typeof ptoBalances.$inferSelect;
+export type InsertPtoBalance = typeof ptoBalances.$inferInsert;
+export const insertPtoBalanceSchema = createInsertSchema(ptoBalances).omit({ id: true, updatedAt: true });
+
+// ==================== CLIENT SATISFACTION SURVEYS ====================
+
+// Survey type enum
+export const surveyTypeEnum = pgEnum("survey_type", [
+  "client_satisfaction", "caregiver_feedback", "exit_survey", "quarterly_review"
+]);
+
+// Survey respondent type enum
+export const surveyRespondentTypeEnum = pgEnum("survey_respondent_type", [
+  "client", "caregiver", "family"
+]);
+
+// Survey status enum
+export const surveyStatusEnum = pgEnum("survey_status", [
+  "pending", "completed", "expired"
+]);
+
+// Survey Templates table
+export const surveyTemplates = pgTable("survey_templates", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: varchar("name").notNull(),
+  description: text("description"),
+  surveyType: surveyTypeEnum("survey_type").notNull(),
+  questions: jsonb("questions").notNull(), // array of {question, type: rating/text/multiple_choice, options?, required}
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export type SurveyTemplate = typeof surveyTemplates.$inferSelect;
+export type InsertSurveyTemplate = typeof surveyTemplates.$inferInsert;
+export const insertSurveyTemplateSchema = createInsertSchema(surveyTemplates).omit({ id: true, createdAt: true, updatedAt: true });
+
+// Survey Responses table
+export const surveyResponses = pgTable("survey_responses", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  templateId: varchar("template_id").references(() => surveyTemplates.id).notNull(),
+  respondentType: surveyRespondentTypeEnum("respondent_type").notNull(),
+  respondentId: varchar("respondent_id"),
+  respondentName: varchar("respondent_name"),
+  respondentEmail: varchar("respondent_email"),
+  clientId: varchar("client_id").references(() => clients.id),
+  caregiverId: varchar("caregiver_id").references(() => caregivers.id),
+  officeId: varchar("office_id").references(() => offices.id),
+  sentAt: timestamp("sent_at"),
+  completedAt: timestamp("completed_at"),
+  expiresAt: timestamp("expires_at"),
+  status: surveyStatusEnum("status").default("pending"),
+  responses: jsonb("responses"), // array of {questionId, answer, rating}
+  overallRating: integer("overall_rating"),
+  comments: text("comments"),
+  isAnonymous: boolean("is_anonymous").default(false),
+  accessToken: varchar("access_token").unique(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const surveyTemplatesRelations = relations(surveyTemplates, ({ many }) => ({
+  responses: many(surveyResponses),
+}));
+
+export const surveyResponsesRelations = relations(surveyResponses, ({ one }) => ({
+  template: one(surveyTemplates, { fields: [surveyResponses.templateId], references: [surveyTemplates.id] }),
+  client: one(clients, { fields: [surveyResponses.clientId], references: [clients.id] }),
+  caregiver: one(caregivers, { fields: [surveyResponses.caregiverId], references: [caregivers.id] }),
+  office: one(offices, { fields: [surveyResponses.officeId], references: [offices.id] }),
+}));
+
+export type SurveyResponse = typeof surveyResponses.$inferSelect;
+export type InsertSurveyResponse = typeof surveyResponses.$inferInsert;
+export const insertSurveyResponseSchema = createInsertSchema(surveyResponses).omit({ id: true, createdAt: true });
+
+// ==================== CLAIMS MANAGEMENT ====================
+
+// Claim status enum
+export const claimStatusEnum = pgEnum("claim_status", [
+  "draft", "submitted", "pending", "approved", "denied", "partial", "paid", "void"
+]);
+
+// Claims table for electronic claims submission and tracking
+export const claims = pgTable("claims", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  clientId: varchar("client_id").references(() => clients.id),
+  caregiverId: varchar("caregiver_id").references(() => caregivers.id),
+  officeId: varchar("office_id").references(() => offices.id),
+  mcoId: varchar("mco_id").references(() => mcos.id),
+  claimNumber: varchar("claim_number").unique().notNull(),
+  serviceDate: timestamp("service_date").notNull(),
+  serviceEndDate: timestamp("service_end_date"),
+  serviceType: varchar("service_type"),
+  units: numeric("units", { precision: 10, scale: 2 }),
+  billedAmount: numeric("billed_amount", { precision: 10, scale: 2 }),
+  approvedAmount: numeric("approved_amount", { precision: 10, scale: 2 }),
+  paidAmount: numeric("paid_amount", { precision: 10, scale: 2 }),
+  adjustmentAmount: numeric("adjustment_amount", { precision: 10, scale: 2 }),
+  adjustmentReason: text("adjustment_reason"),
+  status: claimStatusEnum("status").default("draft"),
+  submittedAt: timestamp("submitted_at"),
+  processedAt: timestamp("processed_at"),
+  paidAt: timestamp("paid_at"),
+  denialReason: text("denial_reason"),
+  denialCode: varchar("denial_code"),
+  resubmissionCount: integer("resubmission_count").default(0),
+  originalClaimId: varchar("original_claim_id"),
+  notes: text("notes"),
+  externalClaimId: varchar("external_claim_id"),
+  createdBy: varchar("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const claimsRelations = relations(claims, ({ one, many }) => ({
+  client: one(clients, { fields: [claims.clientId], references: [clients.id] }),
+  caregiver: one(caregivers, { fields: [claims.caregiverId], references: [caregivers.id] }),
+  office: one(offices, { fields: [claims.officeId], references: [offices.id] }),
+  mco: one(mcos, { fields: [claims.mcoId], references: [mcos.id] }),
+  createdByUser: one(users, { fields: [claims.createdBy], references: [users.id] }),
+  originalClaim: one(claims, { fields: [claims.originalClaimId], references: [claims.id] }),
+  lineItems: many(claimLineItems),
+}));
+
+export type Claim = typeof claims.$inferSelect;
+export type InsertClaim = typeof claims.$inferInsert;
+export const insertClaimSchema = createInsertSchema(claims).omit({ id: true, createdAt: true, updatedAt: true });
+
+// Claim Line Items table for detailed services within a claim
+export const claimLineItems = pgTable("claim_line_items", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  claimId: varchar("claim_id").references(() => claims.id, { onDelete: "cascade" }).notNull(),
+  procedureCode: varchar("procedure_code").notNull(),
+  modifier: varchar("modifier"),
+  units: numeric("units", { precision: 10, scale: 2 }),
+  rate: numeric("rate", { precision: 10, scale: 2 }),
+  amount: numeric("amount", { precision: 10, scale: 2 }),
+  description: text("description"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const claimLineItemsRelations = relations(claimLineItems, ({ one }) => ({
+  claim: one(claims, { fields: [claimLineItems.claimId], references: [claims.id] }),
+}));
+
+export type ClaimLineItem = typeof claimLineItems.$inferSelect;
+export type InsertClaimLineItem = typeof claimLineItems.$inferInsert;
+export const insertClaimLineItemSchema = createInsertSchema(claimLineItems).omit({ id: true, createdAt: true });
+
+// ==================== REFERRAL SOURCE TRACKING ====================
+
+// Referral source type enum
+export const referralSourceTypeEnum = pgEnum("referral_source_type", [
+  "physician", "hospital", "insurance", "family", "advertising", "website", "other"
+]);
+
+// Referral status enum
+export const referralStatusEnum = pgEnum("referral_status", [
+  "new", "contacted", "in_progress", "converted", "lost"
+]);
+
+// Referral Sources table - track where clients come from
+export const referralSources = pgTable("referral_sources", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: varchar("name").notNull(),
+  type: referralSourceTypeEnum("type").notNull(),
+  contactName: varchar("contact_name"),
+  contactEmail: varchar("contact_email"),
+  contactPhone: varchar("contact_phone"),
+  address: text("address"),
+  notes: text("notes"),
+  officeId: varchar("office_id").references(() => offices.id),
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const referralSourcesRelations = relations(referralSources, ({ one, many }) => ({
+  office: one(offices, { fields: [referralSources.officeId], references: [offices.id] }),
+  clientReferrals: many(clientReferrals),
+}));
+
+export type ReferralSource = typeof referralSources.$inferSelect;
+export type InsertReferralSource = typeof referralSources.$inferInsert;
+export const insertReferralSourceSchema = createInsertSchema(referralSources).omit({ id: true, createdAt: true, updatedAt: true });
+
+// Client Referrals table - links clients to their referral sources
+export const clientReferrals = pgTable("client_referrals", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  clientId: varchar("client_id").references(() => clients.id),
+  referralSourceId: varchar("referral_source_id").references(() => referralSources.id).notNull(),
+  referralDate: timestamp("referral_date").defaultNow(),
+  referralNotes: text("referral_notes"),
+  convertedToClient: boolean("converted_to_client").default(false),
+  conversionDate: timestamp("conversion_date"),
+  assignedTo: varchar("assigned_to").references(() => users.id),
+  status: referralStatusEnum("status").default("new"),
+  lostReason: text("lost_reason"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const clientReferralsRelations = relations(clientReferrals, ({ one }) => ({
+  client: one(clients, { fields: [clientReferrals.clientId], references: [clients.id] }),
+  referralSource: one(referralSources, { fields: [clientReferrals.referralSourceId], references: [referralSources.id] }),
+  assignedToUser: one(users, { fields: [clientReferrals.assignedTo], references: [users.id] }),
+}));
+
+export type ClientReferral = typeof clientReferrals.$inferSelect;
+export type InsertClientReferral = typeof clientReferrals.$inferInsert;
+export const insertClientReferralSchema = createInsertSchema(clientReferrals).omit({ id: true, createdAt: true, updatedAt: true });
