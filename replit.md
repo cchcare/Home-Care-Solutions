@@ -59,6 +59,15 @@ Preferred communication style: Simple, everyday language.
 - **Advanced Analytics Dashboard**: Operational/financial/compliance/staffing KPIs, monthly trends, linear regression forecasting.
 - **Client Satisfaction Surveys**: Customizable templates, public access tokens for email links, automatic expiration, satisfaction statistics.
 - **Referral Source Tracking**: Physician/hospital/insurance/family/advertising sources, conversion tracking, top performer rankings.
+- **Exclusion Verification System**: Comprehensive caregiver screening against federal and state exclusion databases:
+    - **Data Sources**: OIG (auto-fetched CSV), PA Medicheck (manual CSV upload), SAM.gov (manual CSV upload).
+    - **Matching Engine**: Exact name matching plus fuzzy matching using Levenshtein distance (80%+ threshold).
+    - **Monthly Automation**: Cron job runs on 1st of each month at 2 AM to refresh sources and check all caregivers.
+    - **Admin Dashboard**: 5-tab interface (Overview, Data Sources, Pending Reviews, False Positives, Reports).
+    - **Caregiver Profile Integration**: Exclusion status displayed in caregiver profile "Exclusion Check" tab.
+    - **False Positive Management**: Mark matches as false positives to suppress in future checks.
+    - **Monthly Reports**: Generate compliance reports with caregiver counts and match statistics.
+    - **Security**: All endpoints require admin/supervisor/super_admin role.
 - **HHAeXchange (HHAX) Integration**: Automated SFTP-based data synchronization with HHAeXchange including:
     - **SFTP Connection**: Secure file transfer using credentials stored as Replit secrets (host, port, username, password).
     - **Data Import**: Import caregivers, clients, and schedules from CSV files in HHAX Outbox folder.
