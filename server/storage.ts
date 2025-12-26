@@ -278,6 +278,21 @@ import {
   hhaxSyncLogs,
   type HhaxSyncLog,
   type InsertHhaxSyncLog,
+  exclusionSources,
+  type ExclusionSource,
+  type InsertExclusionSource,
+  exclusionRecords,
+  type ExclusionRecord,
+  type InsertExclusionRecord,
+  caregiverExclusionChecks,
+  type CaregiverExclusionCheck,
+  type InsertCaregiverExclusionCheck,
+  caregiverExclusionFalsePositives,
+  type CaregiverExclusionFalsePositive,
+  type InsertCaregiverExclusionFalsePositive,
+  exclusionReports,
+  type ExclusionReport,
+  type InsertExclusionReport,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, asc, and, or, count, sql, like, gte, lte, inArray } from "drizzle-orm";
@@ -5972,6 +5987,235 @@ export class DatabaseStorage implements IStorage {
       notes: schedule.notes || null,
     }).returning();
     return created;
+  }
+
+  // ==================== EXCLUSION VERIFICATION ====================
+
+  // Exclusion Sources
+  async getExclusionSources(): Promise<ExclusionSource[]> {
+    return db.select().from(exclusionSources).orderBy(asc(exclusionSources.name));
+  }
+
+  async getExclusionSource(id: string): Promise<ExclusionSource | undefined> {
+    const [source] = await db.select().from(exclusionSources).where(eq(exclusionSources.id, id));
+    return source;
+  }
+
+  async getExclusionSourceByType(type: 'oig' | 'medicheck' | 'sam'): Promise<ExclusionSource | undefined> {
+    const [source] = await db.select().from(exclusionSources).where(eq(exclusionSources.type, type));
+    return source;
+  }
+
+  async createExclusionSource(source: InsertExclusionSource): Promise<ExclusionSource> {
+    const [created] = await db.insert(exclusionSources).values(source).returning();
+    return created;
+  }
+
+  async updateExclusionSource(id: string, source: Partial<InsertExclusionSource>): Promise<ExclusionSource> {
+    const [updated] = await db.update(exclusionSources)
+      .set({ ...source, updatedAt: new Date() })
+      .where(eq(exclusionSources.id, id))
+      .returning();
+    return updated;
+  }
+
+  // Exclusion Records
+  async getExclusionRecords(sourceId?: string, limit: number = 100, offset: number = 0): Promise<ExclusionRecord[]> {
+    if (sourceId) {
+      return db.select().from(exclusionRecords)
+        .where(and(eq(exclusionRecords.sourceId, sourceId), eq(exclusionRecords.isActive, true)))
+        .orderBy(asc(exclusionRecords.lastName), asc(exclusionRecords.firstName))
+        .limit(limit).offset(offset);
+    }
+    return db.select().from(exclusionRecords)
+      .where(eq(exclusionRecords.isActive, true))
+      .orderBy(asc(exclusionRecords.lastName), asc(exclusionRecords.firstName))
+      .limit(limit).offset(offset);
+  }
+
+  async getExclusionRecordsByName(lastName: string, firstName?: string): Promise<ExclusionRecord[]> {
+    const lastNameLower = lastName.toLowerCase();
+    if (firstName) {
+      const firstNameLower = firstName.toLowerCase();
+      return db.select().from(exclusionRecords)
+        .where(and(
+          sql`LOWER(${exclusionRecords.lastName}) = ${lastNameLower}`,
+          sql`LOWER(${exclusionRecords.firstName}) = ${firstNameLower}`,
+          eq(exclusionRecords.isActive, true)
+        ));
+    }
+    return db.select().from(exclusionRecords)
+      .where(and(
+        sql`LOWER(${exclusionRecords.lastName}) = ${lastNameLower}`,
+        eq(exclusionRecords.isActive, true)
+      ));
+  }
+
+  async searchExclusionRecords(lastName: string, firstName?: string): Promise<ExclusionRecord[]> {
+    const lastNamePattern = `%${lastName.toLowerCase()}%`;
+    if (firstName) {
+      const firstNamePattern = `%${firstName.toLowerCase()}%`;
+      return db.select().from(exclusionRecords)
+        .where(and(
+          sql`LOWER(${exclusionRecords.lastName}) LIKE ${lastNamePattern}`,
+          sql`LOWER(${exclusionRecords.firstName}) LIKE ${firstNamePattern}`,
+          eq(exclusionRecords.isActive, true)
+        ))
+        .limit(100);
+    }
+    return db.select().from(exclusionRecords)
+      .where(and(
+        sql`LOWER(${exclusionRecords.lastName}) LIKE ${lastNamePattern}`,
+        eq(exclusionRecords.isActive, true)
+      ))
+      .limit(100);
+  }
+
+  async createExclusionRecord(record: InsertExclusionRecord): Promise<ExclusionRecord> {
+    const [created] = await db.insert(exclusionRecords).values(record).returning();
+    return created;
+  }
+
+  async createExclusionRecordsBulk(records: InsertExclusionRecord[]): Promise<number> {
+    if (records.length === 0) return 0;
+    const batchSize = 500;
+    let created = 0;
+    for (let i = 0; i < records.length; i += batchSize) {
+      const batch = records.slice(i, i + batchSize);
+      await db.insert(exclusionRecords).values(batch);
+      created += batch.length;
+    }
+    return created;
+  }
+
+  async deleteExclusionRecordsBySource(sourceId: string): Promise<number> {
+    const result = await db.delete(exclusionRecords).where(eq(exclusionRecords.sourceId, sourceId));
+    return result.rowCount || 0;
+  }
+
+  async getExclusionRecordsCount(sourceId?: string): Promise<number> {
+    if (sourceId) {
+      const [result] = await db.select({ count: count() }).from(exclusionRecords)
+        .where(and(eq(exclusionRecords.sourceId, sourceId), eq(exclusionRecords.isActive, true)));
+      return result?.count || 0;
+    }
+    const [result] = await db.select({ count: count() }).from(exclusionRecords)
+      .where(eq(exclusionRecords.isActive, true));
+    return result?.count || 0;
+  }
+
+  // Caregiver Exclusion Checks
+  async getCaregiverExclusionChecks(caregiverId?: string): Promise<CaregiverExclusionCheck[]> {
+    if (caregiverId) {
+      return db.select().from(caregiverExclusionChecks)
+        .where(eq(caregiverExclusionChecks.caregiverId, caregiverId))
+        .orderBy(desc(caregiverExclusionChecks.checkedAt));
+    }
+    return db.select().from(caregiverExclusionChecks)
+      .orderBy(desc(caregiverExclusionChecks.checkedAt))
+      .limit(500);
+  }
+
+  async getCaregiverExclusionChecksByStatus(status: 'clear' | 'possible_match' | 'confirmed_excluded' | 'false_positive'): Promise<CaregiverExclusionCheck[]> {
+    return db.select().from(caregiverExclusionChecks)
+      .where(eq(caregiverExclusionChecks.status, status))
+      .orderBy(desc(caregiverExclusionChecks.checkedAt));
+  }
+
+  async getLatestCaregiverExclusionCheck(caregiverId: string, sourceId: string): Promise<CaregiverExclusionCheck | undefined> {
+    const [check] = await db.select().from(caregiverExclusionChecks)
+      .where(and(
+        eq(caregiverExclusionChecks.caregiverId, caregiverId),
+        eq(caregiverExclusionChecks.sourceId, sourceId)
+      ))
+      .orderBy(desc(caregiverExclusionChecks.checkedAt))
+      .limit(1);
+    return check;
+  }
+
+  async createCaregiverExclusionCheck(check: InsertCaregiverExclusionCheck): Promise<CaregiverExclusionCheck> {
+    const [created] = await db.insert(caregiverExclusionChecks).values(check).returning();
+    return created;
+  }
+
+  async updateCaregiverExclusionCheck(id: string, check: Partial<InsertCaregiverExclusionCheck>): Promise<CaregiverExclusionCheck> {
+    const [updated] = await db.update(caregiverExclusionChecks)
+      .set({ ...check, updatedAt: new Date() })
+      .where(eq(caregiverExclusionChecks.id, id))
+      .returning();
+    return updated;
+  }
+
+  // Caregiver Exclusion False Positives
+  async getCaregiverFalsePositives(caregiverId?: string): Promise<CaregiverExclusionFalsePositive[]> {
+    if (caregiverId) {
+      return db.select().from(caregiverExclusionFalsePositives)
+        .where(eq(caregiverExclusionFalsePositives.caregiverId, caregiverId))
+        .orderBy(desc(caregiverExclusionFalsePositives.createdAt));
+    }
+    return db.select().from(caregiverExclusionFalsePositives)
+      .orderBy(desc(caregiverExclusionFalsePositives.createdAt));
+  }
+
+  async getFalsePositiveBySignature(matchSignature: string): Promise<CaregiverExclusionFalsePositive | undefined> {
+    const [fp] = await db.select().from(caregiverExclusionFalsePositives)
+      .where(eq(caregiverExclusionFalsePositives.matchSignature, matchSignature));
+    return fp;
+  }
+
+  async createCaregiverFalsePositive(fp: InsertCaregiverExclusionFalsePositive): Promise<CaregiverExclusionFalsePositive> {
+    const [created] = await db.insert(caregiverExclusionFalsePositives).values(fp).returning();
+    return created;
+  }
+
+  async deleteCaregiverFalsePositive(id: string): Promise<void> {
+    await db.delete(caregiverExclusionFalsePositives).where(eq(caregiverExclusionFalsePositives.id, id));
+  }
+
+  // Exclusion Reports
+  async getExclusionReports(limit: number = 12): Promise<ExclusionReport[]> {
+    return db.select().from(exclusionReports)
+      .orderBy(desc(exclusionReports.reportMonth))
+      .limit(limit);
+  }
+
+  async getExclusionReport(id: string): Promise<ExclusionReport | undefined> {
+    const [report] = await db.select().from(exclusionReports).where(eq(exclusionReports.id, id));
+    return report;
+  }
+
+  async getExclusionReportByMonth(month: Date): Promise<ExclusionReport | undefined> {
+    const startOfMonth = new Date(month.getFullYear(), month.getMonth(), 1);
+    const endOfMonth = new Date(month.getFullYear(), month.getMonth() + 1, 0);
+    const [report] = await db.select().from(exclusionReports)
+      .where(and(
+        gte(exclusionReports.reportMonth, startOfMonth),
+        lte(exclusionReports.reportMonth, endOfMonth)
+      ));
+    return report;
+  }
+
+  async createExclusionReport(report: InsertExclusionReport): Promise<ExclusionReport> {
+    const [created] = await db.insert(exclusionReports).values(report).returning();
+    return created;
+  }
+
+  async updateExclusionReport(id: string, report: Partial<InsertExclusionReport>): Promise<ExclusionReport> {
+    const [updated] = await db.update(exclusionReports)
+      .set(report)
+      .where(eq(exclusionReports.id, id))
+      .returning();
+    return updated;
+  }
+
+  // Get all active caregivers for exclusion checking
+  async getActiveCaregiversForExclusionCheck(): Promise<{ id: string; firstName: string; lastName: string; dateOfBirth: Date | null }[]> {
+    return db.select({
+      id: caregivers.id,
+      firstName: caregivers.firstName,
+      lastName: caregivers.lastName,
+      dateOfBirth: caregivers.dateOfBirth,
+    }).from(caregivers).where(eq(caregivers.status, 'active'));
   }
 }
 

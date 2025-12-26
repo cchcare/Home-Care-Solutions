@@ -2896,3 +2896,167 @@ export const hhaxSyncLogsRelations = relations(hhaxSyncLogs, ({ one }) => ({
 export type HhaxSyncLog = typeof hhaxSyncLogs.$inferSelect;
 export type InsertHhaxSyncLog = typeof hhaxSyncLogs.$inferInsert;
 export const insertHhaxSyncLogSchema = createInsertSchema(hhaxSyncLogs).omit({ id: true, startedAt: true });
+
+// ==================== EXCLUSION VERIFICATION ====================
+
+// Exclusion source type enum
+export const exclusionSourceTypeEnum = pgEnum("exclusion_source_type", [
+  "oig", "medicheck", "sam"
+]);
+
+// Exclusion check status enum
+export const exclusionCheckStatusEnum = pgEnum("exclusion_check_status", [
+  "clear", "possible_match", "confirmed_excluded", "false_positive"
+]);
+
+// Exclusion match type enum
+export const exclusionMatchTypeEnum = pgEnum("exclusion_match_type", [
+  "exact", "fuzzy"
+]);
+
+// Exclusion Sources - OIG, Medicheck, SAM.gov data sources
+export const exclusionSources = pgTable("exclusion_sources", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: varchar("name").notNull(),
+  type: exclusionSourceTypeEnum("type").notNull(),
+  dataUrl: text("data_url"),
+  description: text("description"),
+  refreshFrequency: varchar("refresh_frequency").default("monthly"),
+  lastFetchedAt: timestamp("last_fetched_at"),
+  lastRecordCount: integer("last_record_count").default(0),
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export type ExclusionSource = typeof exclusionSources.$inferSelect;
+export type InsertExclusionSource = typeof exclusionSources.$inferInsert;
+export const insertExclusionSourceSchema = createInsertSchema(exclusionSources).omit({ id: true, createdAt: true, updatedAt: true });
+
+// Exclusion Records - actual exclusion entries from each source
+export const exclusionRecords = pgTable("exclusion_records", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  sourceId: varchar("source_id").references(() => exclusionSources.id).notNull(),
+  externalIdentifier: varchar("external_identifier"),
+  firstName: varchar("first_name"),
+  lastName: varchar("last_name"),
+  middleName: varchar("middle_name"),
+  aliasNames: jsonb("alias_names"),
+  dateOfBirth: timestamp("date_of_birth"),
+  npi: varchar("npi"),
+  ssn: varchar("ssn"),
+  upin: varchar("upin"),
+  address: text("address"),
+  city: varchar("city"),
+  state: varchar("state"),
+  zipCode: varchar("zip_code"),
+  exclusionType: varchar("exclusion_type"),
+  exclusionDate: timestamp("exclusion_date"),
+  reinstateDate: timestamp("reinstate_date"),
+  waiverDate: timestamp("waiver_date"),
+  waiverState: varchar("waiver_state"),
+  specialty: varchar("specialty"),
+  general: varchar("general"),
+  rawPayload: jsonb("raw_payload"),
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_exclusion_records_name").on(table.lastName, table.firstName),
+  index("idx_exclusion_records_source").on(table.sourceId),
+]);
+
+export const exclusionRecordsRelations = relations(exclusionRecords, ({ one }) => ({
+  source: one(exclusionSources, { fields: [exclusionRecords.sourceId], references: [exclusionSources.id] }),
+}));
+
+export type ExclusionRecord = typeof exclusionRecords.$inferSelect;
+export type InsertExclusionRecord = typeof exclusionRecords.$inferInsert;
+export const insertExclusionRecordSchema = createInsertSchema(exclusionRecords).omit({ id: true, createdAt: true, updatedAt: true });
+
+// Caregiver Exclusion Checks - verification results for each caregiver
+export const caregiverExclusionChecks = pgTable("caregiver_exclusion_checks", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  caregiverId: varchar("caregiver_id").references(() => caregivers.id).notNull(),
+  sourceId: varchar("source_id").references(() => exclusionSources.id).notNull(),
+  exclusionRecordId: varchar("exclusion_record_id").references(() => exclusionRecords.id),
+  status: exclusionCheckStatusEnum("status").default("clear"),
+  matchType: exclusionMatchTypeEnum("match_type"),
+  matchScore: numeric("match_score"),
+  matchedFirstName: varchar("matched_first_name"),
+  matchedLastName: varchar("matched_last_name"),
+  checkedAt: timestamp("checked_at").defaultNow(),
+  reviewedBy: varchar("reviewed_by").references(() => users.id),
+  reviewedAt: timestamp("reviewed_at"),
+  reviewNotes: text("review_notes"),
+  autoFlag: boolean("auto_flag").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_caregiver_exclusion_checks_caregiver").on(table.caregiverId),
+  index("idx_caregiver_exclusion_checks_status").on(table.status),
+]);
+
+export const caregiverExclusionChecksRelations = relations(caregiverExclusionChecks, ({ one }) => ({
+  caregiver: one(caregivers, { fields: [caregiverExclusionChecks.caregiverId], references: [caregivers.id] }),
+  source: one(exclusionSources, { fields: [caregiverExclusionChecks.sourceId], references: [exclusionSources.id] }),
+  exclusionRecord: one(exclusionRecords, { fields: [caregiverExclusionChecks.exclusionRecordId], references: [exclusionRecords.id] }),
+  reviewer: one(users, { fields: [caregiverExclusionChecks.reviewedBy], references: [users.id] }),
+}));
+
+export type CaregiverExclusionCheck = typeof caregiverExclusionChecks.$inferSelect;
+export type InsertCaregiverExclusionCheck = typeof caregiverExclusionChecks.$inferInsert;
+export const insertCaregiverExclusionCheckSchema = createInsertSchema(caregiverExclusionChecks).omit({ id: true, createdAt: true, updatedAt: true });
+
+// Caregiver Exclusion False Positives - manage matches that should be ignored
+export const caregiverExclusionFalsePositives = pgTable("caregiver_exclusion_false_positives", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  caregiverId: varchar("caregiver_id").references(() => caregivers.id).notNull(),
+  sourceId: varchar("source_id").references(() => exclusionSources.id).notNull(),
+  exclusionRecordId: varchar("exclusion_record_id").references(() => exclusionRecords.id),
+  matchSignature: varchar("match_signature").notNull(),
+  reason: text("reason"),
+  createdBy: varchar("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_caregiver_false_positives_signature").on(table.matchSignature),
+  index("idx_caregiver_false_positives_caregiver").on(table.caregiverId),
+]);
+
+export const caregiverExclusionFalsePositivesRelations = relations(caregiverExclusionFalsePositives, ({ one }) => ({
+  caregiver: one(caregivers, { fields: [caregiverExclusionFalsePositives.caregiverId], references: [caregivers.id] }),
+  source: one(exclusionSources, { fields: [caregiverExclusionFalsePositives.sourceId], references: [exclusionSources.id] }),
+  exclusionRecord: one(exclusionRecords, { fields: [caregiverExclusionFalsePositives.exclusionRecordId], references: [exclusionRecords.id] }),
+  creator: one(users, { fields: [caregiverExclusionFalsePositives.createdBy], references: [users.id] }),
+}));
+
+export type CaregiverExclusionFalsePositive = typeof caregiverExclusionFalsePositives.$inferSelect;
+export type InsertCaregiverExclusionFalsePositive = typeof caregiverExclusionFalsePositives.$inferInsert;
+export const insertCaregiverExclusionFalsePositiveSchema = createInsertSchema(caregiverExclusionFalsePositives).omit({ id: true, createdAt: true });
+
+// Exclusion Reports - monthly report tracking
+export const exclusionReports = pgTable("exclusion_reports", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  reportMonth: timestamp("report_month").notNull(),
+  totalCaregiversChecked: integer("total_caregivers_checked").default(0),
+  totalClear: integer("total_clear").default(0),
+  totalPossibleMatches: integer("total_possible_matches").default(0),
+  totalConfirmedExcluded: integer("total_confirmed_excluded").default(0),
+  totalFalsePositives: integer("total_false_positives").default(0),
+  oigRecordsCount: integer("oig_records_count").default(0),
+  medicheckRecordsCount: integer("medicheck_records_count").default(0),
+  samRecordsCount: integer("sam_records_count").default(0),
+  reportData: jsonb("report_data"),
+  reportFilePath: varchar("report_file_path"),
+  generatedBy: varchar("generated_by").references(() => users.id),
+  generatedAt: timestamp("generated_at").defaultNow(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const exclusionReportsRelations = relations(exclusionReports, ({ one }) => ({
+  generator: one(users, { fields: [exclusionReports.generatedBy], references: [users.id] }),
+}));
+
+export type ExclusionReport = typeof exclusionReports.$inferSelect;
+export type InsertExclusionReport = typeof exclusionReports.$inferInsert;
+export const insertExclusionReportSchema = createInsertSchema(exclusionReports).omit({ id: true, createdAt: true, generatedAt: true });
