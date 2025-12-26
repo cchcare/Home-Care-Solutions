@@ -9824,7 +9824,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       const { hhaxSftpService } = await import('./hhax-sftp-service');
-      const { fileName } = req.body;
+      const { fileName, fallbackOfficeId } = req.body;
       
       const syncLogData = insertHhaxSyncLogSchema.parse({
         syncType: 'caregivers',
@@ -9834,7 +9834,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
       const syncLog = await storage.createHhaxSyncLog(syncLogData);
       
-      const result = await hhaxSftpService.importCaregivers(fileName);
+      const result = await hhaxSftpService.importCaregivers(fileName, fallbackOfficeId);
       
       await storage.updateHhaxSyncLog(syncLog.id, {
         status: result.success ? 'completed' : 'failed',
@@ -9863,7 +9863,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       const { hhaxSftpService } = await import('./hhax-sftp-service');
-      const { fileName } = req.body;
+      const { fileName, fallbackOfficeId } = req.body;
       
       const syncLogData = insertHhaxSyncLogSchema.parse({
         syncType: 'clients',
@@ -9873,7 +9873,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
       const syncLog = await storage.createHhaxSyncLog(syncLogData);
       
-      const result = await hhaxSftpService.importClients(fileName);
+      const result = await hhaxSftpService.importClients(fileName, fallbackOfficeId);
       
       await storage.updateHhaxSyncLog(syncLog.id, {
         status: result.success ? 'completed' : 'failed',
@@ -9902,7 +9902,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       const { hhaxSftpService } = await import('./hhax-sftp-service');
-      const { fileName } = req.body;
+      const { fileName, fallbackOfficeId } = req.body;
       
       const syncLogData = insertHhaxSyncLogSchema.parse({
         syncType: 'schedules',
@@ -9912,7 +9912,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
       const syncLog = await storage.createHhaxSyncLog(syncLogData);
       
-      const result = await hhaxSftpService.importSchedules(fileName);
+      const result = await hhaxSftpService.importSchedules(fileName, fallbackOfficeId);
       
       await storage.updateHhaxSyncLog(syncLog.id, {
         status: result.success ? 'completed' : 'failed',
@@ -9941,6 +9941,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       const { hhaxSftpService } = await import('./hhax-sftp-service');
+      const { fallbackOfficeId } = req.body;
       
       const syncLogData = insertHhaxSyncLogSchema.parse({
         syncType: 'clients',
@@ -9949,7 +9950,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
       const syncLog = await storage.createHhaxSyncLog(syncLogData);
       
-      const results = await hhaxSftpService.runFullSync(syncLog.id, user.id);
+      const results = await hhaxSftpService.runFullSync(syncLog.id, user.id, fallbackOfficeId);
       
       const totalRecords = results.caregivers.recordsTotal + results.clients.recordsTotal + results.schedules.recordsTotal;
       const totalCreated = results.caregivers.recordsCreated + results.clients.recordsCreated + results.schedules.recordsCreated;

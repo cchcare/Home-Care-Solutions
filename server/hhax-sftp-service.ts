@@ -196,7 +196,7 @@ export class HhaxSftpService {
     return this.officeMapping.get(officeName.toLowerCase()) || null;
   }
 
-  async importCaregivers(fileName?: string): Promise<SyncResult> {
+  async importCaregivers(fileName?: string, fallbackOfficeId?: string): Promise<SyncResult> {
     const result: SyncResult = {
       success: true,
       recordsTotal: 0,
@@ -234,7 +234,7 @@ export class HhaxSftpService {
             continue;
           }
 
-          const officeId = this.getOfficeIdFromName(record.Branch);
+          const officeId = this.getOfficeIdFromName(record.Branch) || fallbackOfficeId || null;
           const existingCaregiver = await storage.getCaregiverByHhaxCode(record.CaregiverCode);
 
           const caregiverData = {
@@ -278,7 +278,7 @@ export class HhaxSftpService {
     return result;
   }
 
-  async importClients(fileName?: string): Promise<SyncResult> {
+  async importClients(fileName?: string, fallbackOfficeId?: string): Promise<SyncResult> {
     const result: SyncResult = {
       success: true,
       recordsTotal: 0,
@@ -317,7 +317,7 @@ export class HhaxSftpService {
             continue;
           }
 
-          const officeId = this.getOfficeIdFromName(record.Branch);
+          const officeId = this.getOfficeIdFromName(record.Branch) || fallbackOfficeId || null;
           const existingClient = await storage.getClientByHhaxAdmissionId(admissionId);
 
           const clientData = {
@@ -362,7 +362,7 @@ export class HhaxSftpService {
     return result;
   }
 
-  async importSchedules(fileName?: string): Promise<SyncResult> {
+  async importSchedules(fileName?: string, fallbackOfficeId?: string): Promise<SyncResult> {
     const result: SyncResult = {
       success: true,
       recordsTotal: 0,
@@ -409,7 +409,7 @@ export class HhaxSftpService {
             continue;
           }
 
-          const officeId = this.getOfficeIdFromName(record.Branch) || client.officeId;
+          const officeId = this.getOfficeIdFromName(record.Branch) || fallbackOfficeId || client.officeId;
           const scheduleDate = new Date(record.ScheduleDate);
           const startTime = record.StartTime || '09:00';
           const endTime = record.EndTime || '17:00';
@@ -448,7 +448,7 @@ export class HhaxSftpService {
     return 'prefer_not_to_say';
   }
 
-  async runFullSync(syncLogId: string, userId?: string): Promise<{ caregivers: SyncResult; clients: SyncResult; schedules: SyncResult }> {
+  async runFullSync(syncLogId: string, userId?: string, fallbackOfficeId?: string): Promise<{ caregivers: SyncResult; clients: SyncResult; schedules: SyncResult }> {
     const results = {
       caregivers: { success: true, recordsTotal: 0, recordsCreated: 0, recordsUpdated: 0, recordsSkipped: 0, recordsFailed: 0, errors: [] as string[] },
       clients: { success: true, recordsTotal: 0, recordsCreated: 0, recordsUpdated: 0, recordsSkipped: 0, recordsFailed: 0, errors: [] as string[] },
@@ -458,9 +458,9 @@ export class HhaxSftpService {
     try {
       await this.connect();
       
-      results.clients = await this.importClients();
-      results.caregivers = await this.importCaregivers();
-      results.schedules = await this.importSchedules();
+      results.clients = await this.importClients(undefined, fallbackOfficeId);
+      results.caregivers = await this.importCaregivers(undefined, fallbackOfficeId);
+      results.schedules = await this.importSchedules(undefined, fallbackOfficeId);
       
       await this.disconnect();
     } catch (error: any) {

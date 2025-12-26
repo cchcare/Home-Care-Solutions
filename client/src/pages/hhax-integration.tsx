@@ -52,6 +52,7 @@ interface ConnectionTestResult {
 export default function HhaxIntegration() {
   const { toast } = useToast();
   const [addMappingOpen, setAddMappingOpen] = useState(false);
+  const [fallbackOfficeId, setFallbackOfficeId] = useState<string>("");
 
   const { data: connectionTest, isLoading: testingConnection, refetch: testConnection } = useQuery<ConnectionTestResult>({
     queryKey: ["/api/hhax/test-connection"],
@@ -114,7 +115,9 @@ export default function HhaxIntegration() {
 
   const importMutation = useMutation({
     mutationFn: async (type: "caregivers" | "clients" | "schedules") => {
-      const response = await apiRequest("POST", `/api/hhax/import/${type}`, {});
+      const response = await apiRequest("POST", `/api/hhax/import/${type}`, {
+        fallbackOfficeId: fallbackOfficeId || undefined,
+      });
       return response.json();
     },
     onSuccess: (result, type) => {
@@ -132,7 +135,9 @@ export default function HhaxIntegration() {
 
   const fullSyncMutation = useMutation({
     mutationFn: async () => {
-      const response = await apiRequest("POST", "/api/hhax/sync-all", {});
+      const response = await apiRequest("POST", "/api/hhax/sync-all", {
+        fallbackOfficeId: fallbackOfficeId || undefined,
+      });
       return response.json();
     },
     onSuccess: (result) => {
@@ -231,6 +236,35 @@ export default function HhaxIntegration() {
         </TabsList>
 
         <TabsContent value="import" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Fallback Office</CardTitle>
+              <CardDescription>
+                Select a default office for records when Branch mapping is not found
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Select value={fallbackOfficeId} onValueChange={setFallbackOfficeId}>
+                <SelectTrigger className="w-full md:w-[300px]" data-testid="select-fallback-office">
+                  <SelectValue placeholder="Select fallback office (optional)" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="">No fallback (skip unmatched)</SelectItem>
+                  {offices.map((office) => (
+                    <SelectItem key={office.id} value={office.id}>
+                      {office.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {fallbackOfficeId && (
+                <p className="text-sm text-muted-foreground mt-2">
+                  Records without a matching Branch mapping will be assigned to: <strong>{getOfficeName(fallbackOfficeId)}</strong>
+                </p>
+              )}
+            </CardContent>
+          </Card>
+
           <div className="grid gap-4 md:grid-cols-3">
             <Card>
               <CardHeader>
