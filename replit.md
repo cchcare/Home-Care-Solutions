@@ -39,6 +39,27 @@ Preferred communication style: Simple, everyday language.
 - **Master Week Templates**: Define recurring weekly client schedules with detailed per-day configuration and ability to apply templates to calendars.
 - **Birthday Notifications**: Automated SMS/email birthday greetings to clients and caregivers via daily cron job, with admin dashboard for tracking and manual sending.
 
+### Advanced Features (v2.0)
+- **EVV (Electronic Visit Verification)**: GPS-based clock-in/out with location tracking, 150m compliance threshold, mobile-friendly interface at /evv-clock.
+- **Care Plan Management**: Structured goals with priority/status tracking, interventions with frequency and assignment, progress notes.
+- **Medication Tracking**: Complete medication lists with dosage/frequency/route, adherence logging (taken/skipped/refused), refill reminders.
+- **Vital Signs Logging**: Blood pressure, heart rate, temperature, respiratory rate, oxygen saturation, weight, blood sugar, pain level with trends API for charts.
+- **Incident Follow-up Workflow**: Action items with assignees, due dates, priorities, completion tracking, overdue alerts.
+- **Push Notifications**: Template-based SMS/email notifications, queue system with retry logic, schedule change and reminder notifications.
+- **Real-time Availability Tracking**: Weekly recurring patterns, date-specific exceptions (vacation/sick/personal/training), available caregiver finder.
+- **Shift Matching Algorithm**: 100-point scoring system (availability 30pts, skills 25pts, no conflicts 20pts, client preference 15pts, distance 10pts).
+- **Vehicle/Mileage Tracking**: Travel expense logging with IRS reimbursement rate ($0.67/mile), approval workflow, totals by caregiver.
+- **Recruitment Portal**: Applicant tracking with pipeline stages (new → screening → interview → background check → offer → hired), interview scheduling, notes.
+- **Background Check Workflow**: FBI/State/Child Abuse/Adult Protective/Sex Offender/OIG checks, status tracking, expiration alerts, bulk creation.
+- **Shift Differentials**: Weekend/holiday/overtime/evening/night premiums, multiplier or flat bonus, holiday calendar with recurring dates.
+- **Performance Reviews**: Annual/quarterly/probationary reviews, 8 weighted metric categories, acknowledgment workflow, upcoming reviews dashboard.
+- **Time-off Requests**: PTO/vacation/sick/personal/bereavement/FMLA/jury duty, approval workflow, PTO balance tracking with accrual/carryover.
+- **Automated Eligibility Verification**: Medicaid/Medicare/MCO status checks, scheduled verification, coverage details tracking.
+- **Claims Management**: Electronic claims with line items, submission/void/resubmit workflow, aging reports (30/60/90 days), denial tracking.
+- **Advanced Analytics Dashboard**: Operational/financial/compliance/staffing KPIs, monthly trends, linear regression forecasting.
+- **Client Satisfaction Surveys**: Customizable templates, public access tokens for email links, automatic expiration, satisfaction statistics.
+- **Referral Source Tracking**: Physician/hospital/insurance/family/advertising sources, conversion tracking, top performer rankings.
+
 ### Security & Compliance
 - HIPAA compliance is a core design principle, including secure data transmission, storage, access control, and audit logging.
 
