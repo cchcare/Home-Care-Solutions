@@ -2838,3 +2838,61 @@ export const clientReferralsRelations = relations(clientReferrals, ({ one }) => 
 export type ClientReferral = typeof clientReferrals.$inferSelect;
 export type InsertClientReferral = typeof clientReferrals.$inferInsert;
 export const insertClientReferralSchema = createInsertSchema(clientReferrals).omit({ id: true, createdAt: true, updatedAt: true });
+
+// ==================== HHAX INTEGRATION ====================
+
+// HHAX sync type enum
+export const hhaxSyncTypeEnum = pgEnum("hhax_sync_type", [
+  "caregivers", "clients", "schedules", "visits", "authorizations"
+]);
+
+// HHAX sync status enum
+export const hhaxSyncStatusEnum = pgEnum("hhax_sync_status", [
+  "pending", "in_progress", "completed", "failed", "partial"
+]);
+
+// HHAX Office Mapping - maps HHAX offices to local offices
+export const hhaxOfficeMappings = pgTable("hhax_office_mappings", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  officeId: varchar("office_id").references(() => offices.id).notNull(),
+  hhaxOfficeName: varchar("hhax_office_name").notNull(),
+  hhaxOfficeCode: varchar("hhax_office_code"),
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const hhaxOfficeMappingsRelations = relations(hhaxOfficeMappings, ({ one }) => ({
+  office: one(offices, { fields: [hhaxOfficeMappings.officeId], references: [offices.id] }),
+}));
+
+export type HhaxOfficeMapping = typeof hhaxOfficeMappings.$inferSelect;
+export type InsertHhaxOfficeMapping = typeof hhaxOfficeMappings.$inferInsert;
+export const insertHhaxOfficeMappingSchema = createInsertSchema(hhaxOfficeMappings).omit({ id: true, createdAt: true, updatedAt: true });
+
+// HHAX Sync Logs - track import/export operations
+export const hhaxSyncLogs = pgTable("hhax_sync_logs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  syncType: hhaxSyncTypeEnum("sync_type").notNull(),
+  status: hhaxSyncStatusEnum("status").default("pending"),
+  fileName: varchar("file_name"),
+  recordsTotal: integer("records_total").default(0),
+  recordsCreated: integer("records_created").default(0),
+  recordsUpdated: integer("records_updated").default(0),
+  recordsSkipped: integer("records_skipped").default(0),
+  recordsFailed: integer("records_failed").default(0),
+  errorDetails: jsonb("error_details"),
+  startedAt: timestamp("started_at").defaultNow(),
+  completedAt: timestamp("completed_at"),
+  initiatedBy: varchar("initiated_by").references(() => users.id),
+  officeId: varchar("office_id").references(() => offices.id),
+});
+
+export const hhaxSyncLogsRelations = relations(hhaxSyncLogs, ({ one }) => ({
+  initiator: one(users, { fields: [hhaxSyncLogs.initiatedBy], references: [users.id] }),
+  office: one(offices, { fields: [hhaxSyncLogs.officeId], references: [offices.id] }),
+}));
+
+export type HhaxSyncLog = typeof hhaxSyncLogs.$inferSelect;
+export type InsertHhaxSyncLog = typeof hhaxSyncLogs.$inferInsert;
+export const insertHhaxSyncLogSchema = createInsertSchema(hhaxSyncLogs).omit({ id: true, startedAt: true });

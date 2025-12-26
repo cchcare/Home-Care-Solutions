@@ -28,7 +28,8 @@ import {
   DollarSign,
   Bot,
   Cake,
-  Clock
+  Clock,
+  Plug
 } from "lucide-react";
 
 interface NavItem {
@@ -93,6 +94,7 @@ export function Sidebar() {
           { name: "Office Management", href: "/offices", icon: Building2 },
           { name: "MCO Setup", href: "/admin-settings", icon: Settings },
           { name: "Birthday Notifications", href: "/birthday-notifications", icon: Cake },
+          { name: "HHAX Integration", href: "/hhax-integration", icon: Plug },
         ]
       });
     }

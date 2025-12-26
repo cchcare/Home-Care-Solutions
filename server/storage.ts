@@ -272,6 +272,12 @@ import {
   clientReferrals,
   type ClientReferral,
   type InsertClientReferral,
+  hhaxOfficeMappings,
+  type HhaxOfficeMapping,
+  type InsertHhaxOfficeMapping,
+  hhaxSyncLogs,
+  type HhaxSyncLog,
+  type InsertHhaxSyncLog,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, asc, and, or, count, sql, like, gte, lte, inArray } from "drizzle-orm";
@@ -983,6 +989,18 @@ export interface IStorage {
     bySource: { sourceId: string; sourceName: string; sourceType: string; total: number; converted: number; conversionRate: number }[];
   }>;
   getTopReferralSources(officeId?: string, limit?: number): Promise<{ id: string; name: string; type: string; totalReferrals: number; converted: number; conversionRate: number }[]>;
+
+  // HHAX Integration operations
+  getCaregiverByHhaxCode(hhaxCode: string): Promise<Caregiver | undefined>;
+  getClientByHhaxAdmissionId(admissionId: string): Promise<Client | undefined>;
+  getHhaxOfficeMappings(): Promise<HhaxOfficeMapping[]>;
+  createHhaxOfficeMapping(mapping: InsertHhaxOfficeMapping): Promise<HhaxOfficeMapping>;
+  updateHhaxOfficeMapping(id: string, mapping: Partial<InsertHhaxOfficeMapping>): Promise<HhaxOfficeMapping>;
+  deleteHhaxOfficeMapping(id: string): Promise<void>;
+  createHhaxSyncLog(log: InsertHhaxSyncLog): Promise<HhaxSyncLog>;
+  updateHhaxSyncLog(id: string, log: Partial<InsertHhaxSyncLog>): Promise<HhaxSyncLog>;
+  getHhaxSyncLogs(limit?: number): Promise<HhaxSyncLog[]>;
+  createSchedule(schedule: { clientId: string; caregiverId: string; officeId?: string | null; date: Date; startTime: string; endTime: string; status: string; notes?: string }): Promise<ClientSchedule>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -5892,6 +5910,68 @@ export class DatabaseStorage implements IStorage {
     return sourceStats
       .sort((a, b) => b.converted - a.converted || b.totalReferrals - a.totalReferrals)
       .slice(0, limit);
+  }
+
+  // HHAX Integration operations
+  async getCaregiverByHhaxCode(hhaxCode: string): Promise<Caregiver | undefined> {
+    const [caregiver] = await db.select().from(caregivers).where(eq(caregivers.hhaxCaregiverCode, hhaxCode));
+    return caregiver;
+  }
+
+  async getClientByHhaxAdmissionId(admissionId: string): Promise<Client | undefined> {
+    const [client] = await db.select().from(clients).where(eq(clients.hhaxAdmissionId, admissionId));
+    return client;
+  }
+
+  async getHhaxOfficeMappings(): Promise<HhaxOfficeMapping[]> {
+    return db.select().from(hhaxOfficeMappings).where(eq(hhaxOfficeMappings.isActive, true));
+  }
+
+  async createHhaxOfficeMapping(mapping: InsertHhaxOfficeMapping): Promise<HhaxOfficeMapping> {
+    const [created] = await db.insert(hhaxOfficeMappings).values(mapping).returning();
+    return created;
+  }
+
+  async updateHhaxOfficeMapping(id: string, mapping: Partial<InsertHhaxOfficeMapping>): Promise<HhaxOfficeMapping> {
+    const [updated] = await db.update(hhaxOfficeMappings)
+      .set({ ...mapping, updatedAt: new Date() })
+      .where(eq(hhaxOfficeMappings.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteHhaxOfficeMapping(id: string): Promise<void> {
+    await db.delete(hhaxOfficeMappings).where(eq(hhaxOfficeMappings.id, id));
+  }
+
+  async createHhaxSyncLog(log: InsertHhaxSyncLog): Promise<HhaxSyncLog> {
+    const [created] = await db.insert(hhaxSyncLogs).values(log).returning();
+    return created;
+  }
+
+  async updateHhaxSyncLog(id: string, log: Partial<InsertHhaxSyncLog>): Promise<HhaxSyncLog> {
+    const [updated] = await db.update(hhaxSyncLogs)
+      .set(log)
+      .where(eq(hhaxSyncLogs.id, id))
+      .returning();
+    return updated;
+  }
+
+  async getHhaxSyncLogs(limit: number = 50): Promise<HhaxSyncLog[]> {
+    return db.select().from(hhaxSyncLogs).orderBy(desc(hhaxSyncLogs.startedAt)).limit(limit);
+  }
+
+  async createSchedule(schedule: { clientId: string; caregiverId: string; officeId?: string | null; date: Date; startTime: string; endTime: string; status: string; notes?: string }): Promise<ClientSchedule> {
+    const [created] = await db.insert(clientSchedules).values({
+      clientId: schedule.clientId,
+      caregiverId: schedule.caregiverId,
+      scheduledDate: schedule.date,
+      startTime: schedule.startTime,
+      endTime: schedule.endTime,
+      status: schedule.status,
+      notes: schedule.notes || null,
+    }).returning();
+    return created;
   }
 }
 

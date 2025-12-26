@@ -59,6 +59,13 @@ Preferred communication style: Simple, everyday language.
 - **Advanced Analytics Dashboard**: Operational/financial/compliance/staffing KPIs, monthly trends, linear regression forecasting.
 - **Client Satisfaction Surveys**: Customizable templates, public access tokens for email links, automatic expiration, satisfaction statistics.
 - **Referral Source Tracking**: Physician/hospital/insurance/family/advertising sources, conversion tracking, top performer rankings.
+- **HHAeXchange (HHAX) Integration**: Automated SFTP-based data synchronization with HHAeXchange including:
+    - **SFTP Connection**: Secure file transfer using credentials stored as Replit secrets (host, port, username, password).
+    - **Data Import**: Import caregivers, clients, and schedules from CSV files in HHAX Outbox folder.
+    - **Office Mapping**: Map HHAX office names to local office IDs for correct data assignment.
+    - **Sync Logging**: Track import history with detailed sync logs (records synced, errors, timestamps).
+    - **Manual & Full Sync**: Options for importing individual data types or all at once.
+    - **File Browser**: View available files in HHAX SFTP Outbox directory.
 
 ### Security & Compliance
 - HIPAA compliance is a core design principle, including secure data transmission, storage, access control, and audit logging.

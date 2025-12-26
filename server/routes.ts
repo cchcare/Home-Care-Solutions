@@ -81,6 +81,8 @@ import {
   insertClaimLineItemSchema,
   insertReferralSourceSchema,
   insertClientReferralSchema,
+  insertHhaxOfficeMappingSchema,
+  insertHhaxSyncLogSchema,
 } from "@shared/schema";
 import { ObjectStorageService, ObjectNotFoundError } from "./objectStorage";
 import { ObjectPermission } from "./objectAcl";
@@ -9690,6 +9692,285 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error fetching referral stats:", error);
       res.status(500).json({ message: "Failed to fetch referral stats" });
+    }
+  });
+
+  // ==================== HHAX INTEGRATION ====================
+  // All HHAX routes require admin, supervisor, or super_admin roles
+  
+  // Test HHAX SFTP connection
+  app.get("/api/hhax/test-connection", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      if (!user || (user.role !== "admin" && user.role !== "supervisor" && user.role !== "super_admin")) {
+        return res.status(403).json({ message: "Unauthorized: Admin, supervisor, or super_admin role required" });
+      }
+      
+      const { hhaxSftpService } = await import('./hhax-sftp-service');
+      const result = await hhaxSftpService.testConnection();
+      res.json(result);
+    } catch (error: any) {
+      console.error("Error testing HHAX connection:", error);
+      res.status(500).json({ success: false, message: error.message || "Connection test failed" });
+    }
+  });
+
+  // List available files in HHAX Outbox
+  app.get("/api/hhax/files", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      if (!user || (user.role !== "admin" && user.role !== "supervisor" && user.role !== "super_admin")) {
+        return res.status(403).json({ message: "Unauthorized: Admin, supervisor, or super_admin role required" });
+      }
+      
+      const { hhaxSftpService } = await import('./hhax-sftp-service');
+      const files = await hhaxSftpService.listOutboxFiles();
+      res.json(files);
+    } catch (error: any) {
+      console.error("Error listing HHAX files:", error);
+      res.status(500).json({ message: error.message || "Failed to list files" });
+    }
+  });
+
+  // Get HHAX office mappings
+  app.get("/api/hhax/office-mappings", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      if (!user || (user.role !== "admin" && user.role !== "supervisor" && user.role !== "super_admin")) {
+        return res.status(403).json({ message: "Unauthorized: Admin, supervisor, or super_admin role required" });
+      }
+      
+      const mappings = await storage.getHhaxOfficeMappings();
+      res.json(mappings);
+    } catch (error) {
+      console.error("Error fetching HHAX office mappings:", error);
+      res.status(500).json({ message: "Failed to fetch office mappings" });
+    }
+  });
+
+  // Create HHAX office mapping
+  app.post("/api/hhax/office-mappings", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      if (!user || (user.role !== "admin" && user.role !== "supervisor" && user.role !== "super_admin")) {
+        return res.status(403).json({ message: "Unauthorized: Admin, supervisor, or super_admin role required" });
+      }
+      
+      const validatedData = insertHhaxOfficeMappingSchema.parse(req.body);
+      const mapping = await storage.createHhaxOfficeMapping(validatedData);
+      res.status(201).json(mapping);
+    } catch (error) {
+      console.error("Error creating HHAX office mapping:", error);
+      res.status(400).json({ message: "Failed to create office mapping" });
+    }
+  });
+
+  // Update HHAX office mapping
+  app.patch("/api/hhax/office-mappings/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      if (!user || (user.role !== "admin" && user.role !== "supervisor" && user.role !== "super_admin")) {
+        return res.status(403).json({ message: "Unauthorized: Admin, supervisor, or super_admin role required" });
+      }
+      
+      const validatedData = insertHhaxOfficeMappingSchema.partial().parse(req.body);
+      const mapping = await storage.updateHhaxOfficeMapping(req.params.id, validatedData);
+      res.json(mapping);
+    } catch (error) {
+      console.error("Error updating HHAX office mapping:", error);
+      res.status(400).json({ message: "Failed to update office mapping" });
+    }
+  });
+
+  // Delete HHAX office mapping
+  app.delete("/api/hhax/office-mappings/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      if (!user || (user.role !== "admin" && user.role !== "supervisor" && user.role !== "super_admin")) {
+        return res.status(403).json({ message: "Unauthorized: Admin, supervisor, or super_admin role required" });
+      }
+      
+      await storage.deleteHhaxOfficeMapping(req.params.id);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting HHAX office mapping:", error);
+      res.status(400).json({ message: "Failed to delete office mapping" });
+    }
+  });
+
+  // Get HHAX sync logs
+  app.get("/api/hhax/sync-logs", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      if (!user || (user.role !== "admin" && user.role !== "supervisor" && user.role !== "super_admin")) {
+        return res.status(403).json({ message: "Unauthorized: Admin, supervisor, or super_admin role required" });
+      }
+      
+      const limit = req.query.limit ? parseInt(req.query.limit as string) : 50;
+      const logs = await storage.getHhaxSyncLogs(limit);
+      res.json(logs);
+    } catch (error) {
+      console.error("Error fetching HHAX sync logs:", error);
+      res.status(500).json({ message: "Failed to fetch sync logs" });
+    }
+  });
+
+  // Import caregivers from HHAX
+  app.post("/api/hhax/import/caregivers", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      if (!user || (user.role !== "admin" && user.role !== "supervisor" && user.role !== "super_admin")) {
+        return res.status(403).json({ message: "Unauthorized: Admin, supervisor, or super_admin role required" });
+      }
+      
+      const { hhaxSftpService } = await import('./hhax-sftp-service');
+      const { fileName } = req.body;
+      
+      const syncLogData = insertHhaxSyncLogSchema.parse({
+        syncType: 'caregivers',
+        status: 'in_progress',
+        fileName: fileName || null,
+        initiatedBy: user.id,
+      });
+      const syncLog = await storage.createHhaxSyncLog(syncLogData);
+      
+      const result = await hhaxSftpService.importCaregivers(fileName);
+      
+      await storage.updateHhaxSyncLog(syncLog.id, {
+        status: result.success ? 'completed' : 'failed',
+        recordsTotal: result.recordsTotal,
+        recordsCreated: result.recordsCreated,
+        recordsUpdated: result.recordsUpdated,
+        recordsSkipped: result.recordsSkipped,
+        recordsFailed: result.recordsFailed,
+        errorDetails: result.errors.length > 0 ? result.errors : null,
+        completedAt: new Date(),
+      });
+      
+      res.json({ syncLogId: syncLog.id, ...result });
+    } catch (error: any) {
+      console.error("Error importing caregivers from HHAX:", error);
+      res.status(500).json({ message: error.message || "Failed to import caregivers" });
+    }
+  });
+
+  // Import clients from HHAX
+  app.post("/api/hhax/import/clients", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      if (!user || (user.role !== "admin" && user.role !== "supervisor" && user.role !== "super_admin")) {
+        return res.status(403).json({ message: "Unauthorized: Admin, supervisor, or super_admin role required" });
+      }
+      
+      const { hhaxSftpService } = await import('./hhax-sftp-service');
+      const { fileName } = req.body;
+      
+      const syncLogData = insertHhaxSyncLogSchema.parse({
+        syncType: 'clients',
+        status: 'in_progress',
+        fileName: fileName || null,
+        initiatedBy: user.id,
+      });
+      const syncLog = await storage.createHhaxSyncLog(syncLogData);
+      
+      const result = await hhaxSftpService.importClients(fileName);
+      
+      await storage.updateHhaxSyncLog(syncLog.id, {
+        status: result.success ? 'completed' : 'failed',
+        recordsTotal: result.recordsTotal,
+        recordsCreated: result.recordsCreated,
+        recordsUpdated: result.recordsUpdated,
+        recordsSkipped: result.recordsSkipped,
+        recordsFailed: result.recordsFailed,
+        errorDetails: result.errors.length > 0 ? result.errors : null,
+        completedAt: new Date(),
+      });
+      
+      res.json({ syncLogId: syncLog.id, ...result });
+    } catch (error: any) {
+      console.error("Error importing clients from HHAX:", error);
+      res.status(500).json({ message: error.message || "Failed to import clients" });
+    }
+  });
+
+  // Import schedules from HHAX
+  app.post("/api/hhax/import/schedules", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      if (!user || (user.role !== "admin" && user.role !== "supervisor" && user.role !== "super_admin")) {
+        return res.status(403).json({ message: "Unauthorized: Admin, supervisor, or super_admin role required" });
+      }
+      
+      const { hhaxSftpService } = await import('./hhax-sftp-service');
+      const { fileName } = req.body;
+      
+      const syncLogData = insertHhaxSyncLogSchema.parse({
+        syncType: 'schedules',
+        status: 'in_progress',
+        fileName: fileName || null,
+        initiatedBy: user.id,
+      });
+      const syncLog = await storage.createHhaxSyncLog(syncLogData);
+      
+      const result = await hhaxSftpService.importSchedules(fileName);
+      
+      await storage.updateHhaxSyncLog(syncLog.id, {
+        status: result.success ? 'completed' : 'failed',
+        recordsTotal: result.recordsTotal,
+        recordsCreated: result.recordsCreated,
+        recordsUpdated: result.recordsUpdated,
+        recordsSkipped: result.recordsSkipped,
+        recordsFailed: result.recordsFailed,
+        errorDetails: result.errors.length > 0 ? result.errors : null,
+        completedAt: new Date(),
+      });
+      
+      res.json({ syncLogId: syncLog.id, ...result });
+    } catch (error: any) {
+      console.error("Error importing schedules from HHAX:", error);
+      res.status(500).json({ message: error.message || "Failed to import schedules" });
+    }
+  });
+
+  // Run full HHAX sync (all data types)
+  app.post("/api/hhax/sync-all", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      if (!user || (user.role !== "admin" && user.role !== "supervisor" && user.role !== "super_admin")) {
+        return res.status(403).json({ message: "Unauthorized: Admin, supervisor, or super_admin role required" });
+      }
+      
+      const { hhaxSftpService } = await import('./hhax-sftp-service');
+      
+      const syncLogData = insertHhaxSyncLogSchema.parse({
+        syncType: 'clients',
+        status: 'in_progress',
+        initiatedBy: user.id,
+      });
+      const syncLog = await storage.createHhaxSyncLog(syncLogData);
+      
+      const results = await hhaxSftpService.runFullSync(syncLog.id, user.id);
+      
+      const totalRecords = results.caregivers.recordsTotal + results.clients.recordsTotal + results.schedules.recordsTotal;
+      const totalCreated = results.caregivers.recordsCreated + results.clients.recordsCreated + results.schedules.recordsCreated;
+      const totalUpdated = results.caregivers.recordsUpdated + results.clients.recordsUpdated + results.schedules.recordsUpdated;
+      const totalFailed = results.caregivers.recordsFailed + results.clients.recordsFailed + results.schedules.recordsFailed;
+      const allErrors = [...results.caregivers.errors, ...results.clients.errors, ...results.schedules.errors];
+      
+      await storage.updateHhaxSyncLog(syncLog.id, {
+        status: allErrors.length === 0 ? 'completed' : 'partial',
+        recordsTotal: totalRecords,
+        recordsCreated: totalCreated,
+        recordsUpdated: totalUpdated,
+        recordsFailed: totalFailed,
+        errorDetails: allErrors.length > 0 ? allErrors : null,
+        completedAt: new Date(),
+      });
+      
+      res.json({ syncLogId: syncLog.id, results });
+    } catch (error: any) {
+      console.error("Error running full HHAX sync:", error);
+      res.status(500).json({ message: error.message || "Failed to run full sync" });
     }
   });
 
