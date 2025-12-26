@@ -9975,6 +9975,285 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ==================== EXCLUSION VERIFICATION ROUTES ====================
+
+  app.get("/api/exclusions/sources", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      if (!user || (user.role !== "admin" && user.role !== "supervisor" && user.role !== "super_admin")) {
+        return res.status(403).json({ message: "Unauthorized: Admin role required" });
+      }
+      const sources = await storage.getExclusionSources();
+      res.json(sources);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to fetch exclusion sources" });
+    }
+  });
+
+  app.post("/api/exclusions/refresh/oig", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      if (!user || (user.role !== "admin" && user.role !== "supervisor" && user.role !== "super_admin")) {
+        return res.status(403).json({ message: "Unauthorized: Admin role required" });
+      }
+      const { exclusionService } = await import('./exclusion-service');
+      const result = await exclusionService.fetchOigData();
+      res.json(result);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to refresh OIG data" });
+    }
+  });
+
+  app.post("/api/exclusions/upload/medicheck", isAuthenticated, excelUpload.single('file'), async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      if (!user || (user.role !== "admin" && user.role !== "supervisor" && user.role !== "super_admin")) {
+        return res.status(403).json({ message: "Unauthorized: Admin role required" });
+      }
+      if (!req.file) return res.status(400).json({ message: "No file uploaded" });
+      const csvContent = req.file.buffer.toString('utf-8');
+      const { exclusionService } = await import('./exclusion-service');
+      const result = await exclusionService.importMedicheckCsv(csvContent);
+      res.json(result);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to upload Medicheck data" });
+    }
+  });
+
+  app.post("/api/exclusions/upload/sam", isAuthenticated, excelUpload.single('file'), async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      if (!user || (user.role !== "admin" && user.role !== "supervisor" && user.role !== "super_admin")) {
+        return res.status(403).json({ message: "Unauthorized: Admin role required" });
+      }
+      if (!req.file) return res.status(400).json({ message: "No file uploaded" });
+      const csvContent = req.file.buffer.toString('utf-8');
+      const { exclusionService } = await import('./exclusion-service');
+      const result = await exclusionService.importSamCsv(csvContent);
+      res.json(result);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to upload SAM data" });
+    }
+  });
+
+  app.post("/api/exclusions/run-check", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      if (!user || (user.role !== "admin" && user.role !== "supervisor" && user.role !== "super_admin")) {
+        return res.status(403).json({ message: "Unauthorized: Admin role required" });
+      }
+      const { exclusionService } = await import('./exclusion-service');
+      const result = await exclusionService.runFullExclusionCheck(user.id);
+      res.json(result);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to run exclusion check" });
+    }
+  });
+
+  app.get("/api/exclusions/checks", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      if (!user || (user.role !== "admin" && user.role !== "supervisor" && user.role !== "super_admin")) {
+        return res.status(403).json({ message: "Unauthorized: Admin role required" });
+      }
+      const { caregiverId, status } = req.query;
+      if (status) {
+        const checks = await storage.getCaregiverExclusionChecksByStatus(status as any);
+        return res.json(checks);
+      }
+      const checks = await storage.getCaregiverExclusionChecks(caregiverId as string | undefined);
+      res.json(checks);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to fetch exclusion checks" });
+    }
+  });
+
+  app.get("/api/exclusions/caregiver/:caregiverId", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      if (!user || (user.role !== "admin" && user.role !== "supervisor" && user.role !== "super_admin")) {
+        return res.status(403).json({ message: "Unauthorized: Admin role required" });
+      }
+      const checks = await storage.getCaregiverExclusionChecks(req.params.caregiverId);
+      res.json(checks);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to fetch caregiver exclusion checks" });
+    }
+  });
+
+  app.patch("/api/exclusions/checks/:checkId", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      if (!user || (user.role !== "admin" && user.role !== "supervisor" && user.role !== "super_admin")) {
+        return res.status(403).json({ message: "Unauthorized: Admin role required" });
+      }
+      const { status, reviewNotes } = req.body;
+      const updated = await storage.updateCaregiverExclusionCheck(req.params.checkId, {
+        status, reviewedBy: user.id, reviewedAt: new Date(), reviewNotes,
+      });
+      res.json(updated);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to update exclusion check" });
+    }
+  });
+
+  app.post("/api/exclusions/false-positives", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      if (!user || (user.role !== "admin" && user.role !== "supervisor" && user.role !== "super_admin")) {
+        return res.status(403).json({ message: "Unauthorized: Admin role required" });
+      }
+      const { caregiverId, sourceId, exclusionRecordId, matchSignature, reason } = req.body;
+      if (!caregiverId || !sourceId || !matchSignature) {
+        return res.status(400).json({ message: "Missing required fields" });
+      }
+      const fp = await storage.createCaregiverFalsePositive({
+        caregiverId, sourceId, exclusionRecordId, matchSignature, reason, createdBy: user.id,
+      });
+      const checks = await storage.getCaregiverExclusionChecks(caregiverId);
+      const matchingCheck = checks.find(c => c.exclusionRecordId === exclusionRecordId && c.sourceId === sourceId);
+      if (matchingCheck) {
+        await storage.updateCaregiverExclusionCheck(matchingCheck.id, {
+          status: 'false_positive', reviewedBy: user.id, reviewedAt: new Date(), reviewNotes: reason,
+        });
+      }
+      res.json(fp);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to create false positive" });
+    }
+  });
+
+  app.get("/api/exclusions/false-positives", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      if (!user || (user.role !== "admin" && user.role !== "supervisor" && user.role !== "super_admin")) {
+        return res.status(403).json({ message: "Unauthorized: Admin role required" });
+      }
+      const fps = await storage.getCaregiverFalsePositives(req.query.caregiverId as string | undefined);
+      res.json(fps);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to fetch false positives" });
+    }
+  });
+
+  app.delete("/api/exclusions/false-positives/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      if (!user || (user.role !== "admin" && user.role !== "supervisor" && user.role !== "super_admin")) {
+        return res.status(403).json({ message: "Unauthorized: Admin role required" });
+      }
+      await storage.deleteCaregiverFalsePositive(req.params.id);
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to delete false positive" });
+    }
+  });
+
+  app.get("/api/exclusions/reports", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      if (!user || (user.role !== "admin" && user.role !== "supervisor" && user.role !== "super_admin")) {
+        return res.status(403).json({ message: "Unauthorized: Admin role required" });
+      }
+      const reports = await storage.getExclusionReports();
+      res.json(reports);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to fetch exclusion reports" });
+    }
+  });
+
+  app.post("/api/exclusions/reports/generate", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      if (!user || (user.role !== "admin" && user.role !== "supervisor" && user.role !== "super_admin")) {
+        return res.status(403).json({ message: "Unauthorized: Admin role required" });
+      }
+      const { exclusionService } = await import('./exclusion-service');
+      const result = await exclusionService.generateMonthlyReport(user.id);
+      res.json(result);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to generate exclusion report" });
+    }
+  });
+
+  app.get("/api/exclusions/reports/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      if (!user || (user.role !== "admin" && user.role !== "supervisor" && user.role !== "super_admin")) {
+        return res.status(403).json({ message: "Unauthorized: Admin role required" });
+      }
+      const report = await storage.getExclusionReport(req.params.id);
+      if (!report) return res.status(404).json({ message: "Report not found" });
+      res.json(report);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to fetch exclusion report" });
+    }
+  });
+
+  app.get("/api/exclusions/records/search", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      if (!user || (user.role !== "admin" && user.role !== "supervisor" && user.role !== "super_admin")) {
+        return res.status(403).json({ message: "Unauthorized: Admin role required" });
+      }
+      const { lastName, firstName } = req.query;
+      if (!lastName) return res.status(400).json({ message: "lastName is required" });
+      const records = await storage.searchExclusionRecords(lastName as string, firstName as string | undefined);
+      res.json(records);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to search exclusion records" });
+    }
+  });
+
+  app.get("/api/exclusions/records/count", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      if (!user || (user.role !== "admin" && user.role !== "supervisor" && user.role !== "super_admin")) {
+        return res.status(403).json({ message: "Unauthorized: Admin role required" });
+      }
+      const sources = await storage.getExclusionSources();
+      const counts: Record<string, number> = {};
+      for (const source of sources) {
+        counts[source.type] = await storage.getExclusionRecordsCount(source.id);
+      }
+      const total = await storage.getExclusionRecordsCount();
+      res.json({ ...counts, total });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to fetch exclusion record counts" });
+    }
+  });
+
+  app.get("/api/exclusions/dashboard", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      if (!user || (user.role !== "admin" && user.role !== "supervisor" && user.role !== "super_admin")) {
+        return res.status(403).json({ message: "Unauthorized: Admin role required" });
+      }
+      const sources = await storage.getExclusionSources();
+      const allChecks = await storage.getCaregiverExclusionChecks();
+      const falsePositives = await storage.getCaregiverFalsePositives();
+      const reports = await storage.getExclusionReports(1);
+      const possibleMatches = allChecks.filter(c => c.status === 'possible_match');
+      const confirmedExcluded = allChecks.filter(c => c.status === 'confirmed_excluded');
+      const counts: Record<string, number> = {};
+      for (const source of sources) {
+        counts[source.type] = await storage.getExclusionRecordsCount(source.id);
+      }
+      res.json({
+        sources: sources.map(s => ({
+          id: s.id, name: s.name, type: s.type, lastFetchedAt: s.lastFetchedAt, recordCount: counts[s.type] || 0,
+        })),
+        pendingReviews: possibleMatches.length,
+        confirmedExcluded: confirmedExcluded.length,
+        falsePositives: falsePositives.length,
+        totalRecords: Object.values(counts).reduce((a, b) => a + b, 0),
+        latestReport: reports[0] || null,
+      });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to fetch exclusion dashboard" });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }

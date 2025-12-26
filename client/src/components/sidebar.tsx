@@ -29,7 +29,8 @@ import {
   Bot,
   Cake,
   Clock,
-  Plug
+  Plug,
+  UserX
 } from "lucide-react";
 
 interface NavItem {
@@ -95,6 +96,7 @@ export function Sidebar() {
           { name: "MCO Setup", href: "/admin-settings", icon: Settings },
           { name: "Birthday Notifications", href: "/birthday-notifications", icon: Cake },
           { name: "HHAX Integration", href: "/hhax-integration", icon: Plug },
+          { name: "Exclusion Verification", href: "/exclusion-verification", icon: UserX },
         ]
       });
     }

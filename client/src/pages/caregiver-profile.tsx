@@ -141,6 +141,7 @@ const COMPLIANCE_STATUS_OPTIONS = [
 const CAREGIVER_MENU_ITEMS = [
   { id: "profile", label: "Profile", icon: User },
   { id: "compliance", label: "Compliance", icon: Shield },
+  { id: "exclusion", label: "Exclusion Check", icon: AlertTriangle },
   { id: "calendar", label: "Calendar", icon: Calendar },
   { id: "visits", label: "Visits", icon: Clock },
   { id: "in-service", label: "In Service", icon: GraduationCap },
@@ -330,6 +331,17 @@ export default function CaregiverProfile() {
     queryKey: ["/api/caregivers", caregiverId, "schedules"],
     queryFn: () => fetch(`/api/caregivers/${caregiverId}/schedules`).then(r => r.json()),
     enabled: !!caregiverId,
+  });
+
+  const { data: exclusionChecks = [], isLoading: exclusionLoading } = useQuery<any[]>({
+    queryKey: ["/api/exclusions/caregiver", caregiverId],
+    queryFn: () => fetch(`/api/exclusions/caregiver/${caregiverId}`).then(r => r.json()),
+    enabled: !!caregiverId,
+  });
+
+  const { data: exclusionSources = [] } = useQuery<any[]>({
+    queryKey: ["/api/exclusions/sources"],
+    queryFn: () => fetch("/api/exclusions/sources").then(r => r.json()),
   });
 
   const uploadMutation = useMutation({
@@ -2157,6 +2169,90 @@ export default function CaregiverProfile() {
                             ))}
                           </TableBody>
                         </Table>
+                      )}
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
+
+              {activeSection === "exclusion" && (
+                <div className="space-y-6">
+                  <Card>
+                    <CardHeader>
+                      <div className="flex items-center justify-between">
+                        <CardTitle className="flex items-center gap-2">
+                          <AlertTriangle className="w-5 h-5" />
+                          Exclusion Verification Status
+                        </CardTitle>
+                        {exclusionChecks.length > 0 && (
+                          <Badge 
+                            variant={exclusionChecks.some(c => c.status === 'confirmed_excluded') ? 'destructive' : 
+                                    exclusionChecks.some(c => c.status === 'possible_match') ? 'outline' : 'secondary'}
+                            data-testid="badge-exclusion-status"
+                          >
+                            {exclusionChecks.some(c => c.status === 'confirmed_excluded') ? 'Excluded' : 
+                             exclusionChecks.some(c => c.status === 'possible_match') ? 'Pending Review' : 'Cleared'}
+                          </Badge>
+                        )}
+                      </div>
+                      <CardDescription>
+                        Checks against OIG, PA Medicheck, and SAM.gov exclusion databases
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      {exclusionLoading ? (
+                        <p className="text-muted-foreground">Loading exclusion status...</p>
+                      ) : exclusionChecks.length === 0 ? (
+                        <div className="text-center py-8">
+                          <Shield className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
+                          <p className="text-muted-foreground">No exclusion checks have been run for this caregiver yet.</p>
+                          <p className="text-sm text-muted-foreground mt-2">Run an exclusion check from the Exclusion Verification dashboard.</p>
+                        </div>
+                      ) : (
+                        <div className="space-y-4">
+                          {exclusionSources.map(source => {
+                            const sourceChecks = exclusionChecks.filter(c => c.sourceId === source.id);
+                            const latestCheck = sourceChecks.sort((a, b) => new Date(b.checkedAt).getTime() - new Date(a.checkedAt).getTime())[0];
+                            return (
+                              <div key={source.id} className="border rounded-lg p-4" data-testid={`exclusion-source-${source.type}`}>
+                                <div className="flex items-center justify-between">
+                                  <div className="flex items-center gap-2">
+                                    <Shield className="w-4 h-4 text-muted-foreground" />
+                                    <span className="font-medium">{source.name}</span>
+                                  </div>
+                                  {latestCheck ? (
+                                    <Badge 
+                                      variant={latestCheck.status === 'confirmed_excluded' ? 'destructive' : 
+                                              latestCheck.status === 'possible_match' ? 'outline' : 
+                                              latestCheck.status === 'false_positive' ? 'secondary' : 'secondary'}
+                                      data-testid={`badge-${source.type}-status`}
+                                    >
+                                      {latestCheck.status === 'confirmed_excluded' ? 'Excluded' : 
+                                       latestCheck.status === 'possible_match' ? 'Possible Match' : 
+                                       latestCheck.status === 'false_positive' ? 'False Positive' : 'Cleared'}
+                                    </Badge>
+                                  ) : (
+                                    <Badge variant="outline">Not Checked</Badge>
+                                  )}
+                                </div>
+                                {latestCheck && (
+                                  <div className="mt-2 text-sm text-muted-foreground">
+                                    <p>Last checked: {format(new Date(latestCheck.checkedAt), "MMM d, yyyy 'at' h:mm a")}</p>
+                                    {latestCheck.matchScore && (
+                                      <p>Match score: {(latestCheck.matchScore * 100).toFixed(0)}%</p>
+                                    )}
+                                    {latestCheck.matchType && (
+                                      <p>Match type: {latestCheck.matchType === 'exact' ? 'Exact name match' : 'Fuzzy match'}</p>
+                                    )}
+                                    {latestCheck.reviewNotes && (
+                                      <p className="mt-1 italic">Notes: {latestCheck.reviewNotes}</p>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
                       )}
                     </CardContent>
                   </Card>

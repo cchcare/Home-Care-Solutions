@@ -37,6 +37,7 @@ import SystemStatus from "@/pages/system-status";
 import BirthdayNotifications from "@/pages/birthday-notifications";
 import EvvClock from "@/pages/evv-clock";
 import HhaxIntegration from "@/pages/hhax-integration";
+import ExclusionVerification from "@/pages/exclusion-verification";
 
 function Router() {
   const { isAuthenticated, isLoading, error } = useAuth();
@@ -88,6 +89,7 @@ function Router() {
           <Route path="/birthday-notifications" component={BirthdayNotifications} />
           <Route path="/evv-clock" component={EvvClock} />
           <Route path="/hhax-integration" component={HhaxIntegration} />
+          <Route path="/exclusion-verification" component={ExclusionVerification} />
         </>
       )}
       <Route component={NotFound} />
