@@ -37,7 +37,7 @@ import type { Office, HhaxOfficeMapping, HhaxSyncLog } from "@shared/schema";
 
 const officeMappingSchema = z.object({
   officeId: z.string().min(1, "Please select an office"),
-  hhaxOfficeName: z.string().min(1, "HHAX office name is required"),
+  hhaxOfficeName: z.string().min(1, "HHAX Branch name is required"),
   hhaxOfficeCode: z.string().optional(),
 });
 
@@ -225,7 +225,7 @@ export default function HhaxIntegration() {
       <Tabs defaultValue="import" className="space-y-4">
         <TabsList>
           <TabsTrigger value="import" data-testid="tab-import">Import Data</TabsTrigger>
-          <TabsTrigger value="mappings" data-testid="tab-mappings">Office Mappings</TabsTrigger>
+          <TabsTrigger value="mappings" data-testid="tab-mappings">Branch Mapping</TabsTrigger>
           <TabsTrigger value="logs" data-testid="tab-logs">Sync History</TabsTrigger>
           <TabsTrigger value="files" data-testid="tab-files">SFTP Files</TabsTrigger>
         </TabsList>
@@ -307,9 +307,9 @@ export default function HhaxIntegration() {
           <Card>
             <CardHeader className="flex flex-row items-center justify-between">
               <div>
-                <CardTitle>Office Mappings</CardTitle>
+                <CardTitle>Branch to Office Mapping</CardTitle>
                 <CardDescription>
-                  Map HHAeXchange office names to your local offices
+                  Map HHAeXchange Branch names to your local offices
                 </CardDescription>
               </div>
               <Dialog open={addMappingOpen} onOpenChange={setAddMappingOpen}>
@@ -354,9 +354,9 @@ export default function HhaxIntegration() {
                         name="hhaxOfficeName"
                         render={({ field }) => (
                           <FormItem>
-                            <FormLabel>HHAX Office Name</FormLabel>
+                            <FormLabel>HHAX Branch Name</FormLabel>
                             <FormControl>
-                              <Input placeholder="e.g., Care Crafter Pittsburgh" {...field} data-testid="input-hhax-office-name" />
+                              <Input placeholder="e.g., Pittsburgh" {...field} data-testid="input-hhax-office-name" />
                             </FormControl>
                             <FormMessage />
                           </FormItem>
@@ -367,7 +367,7 @@ export default function HhaxIntegration() {
                         name="hhaxOfficeCode"
                         render={({ field }) => (
                           <FormItem>
-                            <FormLabel>HHAX Office Code (Optional)</FormLabel>
+                            <FormLabel>HHAX Branch Code (Optional)</FormLabel>
                             <FormControl>
                               <Input placeholder="e.g., PIT001" {...field} data-testid="input-hhax-office-code" />
                             </FormControl>
@@ -393,15 +393,15 @@ export default function HhaxIntegration() {
                 <div className="text-center py-8 text-muted-foreground">
                   <LinkIcon className="w-12 h-12 mx-auto mb-4 opacity-50" />
                   <p>No office mappings configured yet.</p>
-                  <p className="text-sm">Add mappings to link HHAeXchange offices to your local offices.</p>
+                  <p className="text-sm">Add mappings to link HHAeXchange branches to your local offices.</p>
                 </div>
               ) : (
                 <Table>
                   <TableHeader>
                     <TableRow>
                       <TableHead>Local Office</TableHead>
-                      <TableHead>HHAX Office Name</TableHead>
-                      <TableHead>HHAX Office Code</TableHead>
+                      <TableHead>HHAX Branch</TableHead>
+                      <TableHead>HHAX Branch Code</TableHead>
                       <TableHead className="w-[100px]">Actions</TableHead>
                     </TableRow>
                   </TableHeader>

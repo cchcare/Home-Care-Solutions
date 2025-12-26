@@ -40,7 +40,7 @@ interface HhaxCaregiverRecord {
   HireDate?: string;
   TerminationDate?: string;
   Status?: string;
-  OfficeName?: string;
+  Branch?: string;
 }
 
 interface HhaxPatientRecord {
@@ -64,7 +64,7 @@ interface HhaxPatientRecord {
   EmergencyContactRelation?: string;
   PrimaryDiagnosis?: string;
   Status?: string;
-  OfficeName?: string;
+  Branch?: string;
   CoordinatorName?: string;
   ServiceStartDate?: string;
 }
@@ -78,7 +78,7 @@ interface HhaxScheduleRecord {
   StartTime: string;
   EndTime: string;
   Status?: string;
-  OfficeName?: string;
+  Branch?: string;
 }
 
 const getConfig = (): HhaxSftpConfig => {
@@ -234,7 +234,7 @@ export class HhaxSftpService {
             continue;
           }
 
-          const officeId = this.getOfficeIdFromName(record.OfficeName);
+          const officeId = this.getOfficeIdFromName(record.Branch);
           const existingCaregiver = await storage.getCaregiverByHhaxCode(record.CaregiverCode);
 
           const caregiverData = {
@@ -317,7 +317,7 @@ export class HhaxSftpService {
             continue;
           }
 
-          const officeId = this.getOfficeIdFromName(record.OfficeName);
+          const officeId = this.getOfficeIdFromName(record.Branch);
           const existingClient = await storage.getClientByHhaxAdmissionId(admissionId);
 
           const clientData = {
@@ -409,7 +409,7 @@ export class HhaxSftpService {
             continue;
           }
 
-          const officeId = this.getOfficeIdFromName(record.OfficeName) || client.officeId;
+          const officeId = this.getOfficeIdFromName(record.Branch) || client.officeId;
           const scheduleDate = new Date(record.ScheduleDate);
           const startTime = record.StartTime || '09:00';
           const endTime = record.EndTime || '17:00';

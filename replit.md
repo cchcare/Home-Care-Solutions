@@ -62,7 +62,7 @@ Preferred communication style: Simple, everyday language.
 - **HHAeXchange (HHAX) Integration**: Automated SFTP-based data synchronization with HHAeXchange including:
     - **SFTP Connection**: Secure file transfer using credentials stored as Replit secrets (host, port, username, password).
     - **Data Import**: Import caregivers, clients, and schedules from CSV files in HHAX Outbox folder.
-    - **Office Mapping**: Map HHAX office names to local office IDs for correct data assignment.
+    - **Branch to Office Mapping**: Map HHAX Branch names (e.g., "Pittsburgh") to local office IDs (e.g., "Care Crafter Pittsburgh"). HHAX uses "Branch" field in exports which corresponds to "Office" in this system.
     - **Sync Logging**: Track import history with detailed sync logs (records synced, errors, timestamps).
     - **Manual & Full Sync**: Options for importing individual data types or all at once.
     - **File Browser**: View available files in HHAX SFTP Outbox directory.
