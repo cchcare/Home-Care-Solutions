@@ -366,6 +366,101 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ============================================
+  // Authenticated Subscription Management Routes
+  // ============================================
+
+  // Get organization's subscription status
+  app.get("/api/subscription", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.session?.user?.id);
+      if (!user?.organizationId) {
+        return res.status(400).json({ message: "User not associated with an organization" });
+      }
+
+      const org = await storage.getOrganization(user.organizationId);
+      if (!org) {
+        return res.status(404).json({ message: "Organization not found" });
+      }
+
+      const plan = org.subscriptionPlanId ? await storage.getSubscriptionPlan(org.subscriptionPlanId) : null;
+
+      res.json({
+        organization: {
+          id: org.id,
+          name: org.name,
+          status: org.status,
+          subscriptionStatus: org.subscriptionStatus,
+          clientLimit: org.clientLimit,
+        },
+        plan: plan ? {
+          id: plan.id,
+          name: plan.name,
+          priceMonthly: plan.priceMonthly,
+          clientLimitMin: plan.clientLimitMin,
+          clientLimitMax: plan.clientLimitMax,
+        } : null,
+      });
+    } catch (error: any) {
+      console.error("Error fetching subscription:", error);
+      res.status(500).json({ message: error.message || "Failed to fetch subscription" });
+    }
+  });
+
+  // Create Stripe billing portal session
+  app.post("/api/subscription/billing-portal", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.session?.user?.id);
+      if (!user?.organizationId) {
+        return res.status(400).json({ message: "User not associated with an organization" });
+      }
+
+      // Only admins can access billing portal
+      if (user.role !== 'admin' && user.role !== 'super_admin') {
+        return res.status(403).json({ message: "Only admins can access billing settings" });
+      }
+
+      const org = await storage.getOrganization(user.organizationId);
+      if (!org?.stripeCustomerId) {
+        return res.status(400).json({ message: "No billing account found" });
+      }
+
+      const { getUncachableStripeClient } = await import('./stripeClient');
+      const stripe = await getUncachableStripeClient();
+
+      const baseUrl = `${req.protocol}://${req.get('host')}`;
+      const session = await stripe.billingPortal.sessions.create({
+        customer: org.stripeCustomerId,
+        return_url: `${baseUrl}/admin-settings?tab=billing`,
+      });
+
+      res.json({ url: session.url });
+    } catch (error: any) {
+      console.error("Error creating billing portal:", error);
+      res.status(500).json({ message: error.message || "Failed to create billing portal session" });
+    }
+  });
+
+  // Get subscription history
+  app.get("/api/subscription/history", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.session?.user?.id);
+      if (!user?.organizationId) {
+        return res.status(400).json({ message: "User not associated with an organization" });
+      }
+
+      if (user.role !== 'admin' && user.role !== 'super_admin') {
+        return res.status(403).json({ message: "Only admins can view subscription history" });
+      }
+
+      const history = await storage.getSubscriptionHistory(user.organizationId);
+      res.json(history);
+    } catch (error: any) {
+      console.error("Error fetching subscription history:", error);
+      res.status(500).json({ message: error.message || "Failed to fetch subscription history" });
+    }
+  });
+
   // Auth routes - get current user from session
   app.get('/api/auth/user', isAuthenticated, async (req: any, res) => {
     try {
