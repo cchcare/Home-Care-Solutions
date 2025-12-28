@@ -322,24 +322,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Missing session or organization ID" });
       }
 
+      // Check if organization already activated (idempotency check)
+      const org = await storage.getOrganization(organizationId);
+      if (org?.status === 'active' && org?.subscriptionStatus === 'active') {
+        return res.json({ success: true, status: 'active', alreadyActivated: true });
+      }
+
       const { getUncachableStripeClient } = await import('./stripeClient');
       const stripe = await getUncachableStripeClient();
 
-      const session = await stripe.checkout.sessions.retrieve(sessionId);
+      const session = await stripe.checkout.sessions.retrieve(sessionId, {
+        expand: ['subscription'],
+      });
 
       if (session.payment_status === 'paid' && session.metadata?.organizationId === organizationId) {
+        const subscriptionId = typeof session.subscription === 'string' 
+          ? session.subscription 
+          : session.subscription?.id;
+
         // Activate organization
         await storage.updateOrganizationSubscription(organizationId, {
           status: 'active',
           subscriptionStatus: 'active',
-          stripeSubscriptionId: session.subscription as string,
+          stripeSubscriptionId: subscriptionId || null,
         });
 
         // Record subscription history
         await storage.createSubscriptionHistory({
           organizationId,
           planId: session.metadata?.planId,
-          stripeSubscriptionId: session.subscription as string,
+          stripeSubscriptionId: subscriptionId || null,
           action: 'subscription_created',
           status: 'active',
           amount: session.amount_total || 0,
@@ -423,6 +435,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const org = await storage.getOrganization(user.organizationId);
       if (!org?.stripeCustomerId) {
         return res.status(400).json({ message: "No billing account found" });
+      }
+
+      // Allow billing portal access for active and past_due subscriptions (for reactivation)
+      // Block access for cancelled subscriptions with no payment method
+      if (org.subscriptionStatus === 'cancelled' && !org.stripeSubscriptionId) {
+        return res.status(403).json({ 
+          message: "Subscription has been cancelled. Please contact support to reactivate.",
+          subscriptionStatus: org.subscriptionStatus,
+        });
       }
 
       const { getUncachableStripeClient } = await import('./stripeClient');
