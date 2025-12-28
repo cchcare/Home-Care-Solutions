@@ -93,7 +93,7 @@ export function Sidebar() {
     ];
 
     if (hasFeature("api_access")) {
-      baseNavigation.push({ name: "API Keys", href: "/admin-settings", icon: Key, featureGate: "api_access" });
+      baseNavigation.push({ name: "API Keys", href: "/api-keys", icon: Key, featureGate: "api_access" });
     }
 
     if (hasFeature("custom_integrations")) {
