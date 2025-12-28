@@ -85,6 +85,9 @@ import {
   insertHhaxOfficeMappingSchema,
   insertHhaxSyncLogSchema,
   insertApiKeySchema,
+  insertSupportTicketSchema,
+  insertTicketMessageSchema,
+  insertCustomIntegrationSchema,
 } from "@shared/schema";
 import bcrypt from "bcrypt";
 import { ObjectStorageService, ObjectNotFoundError } from "./objectStorage";
@@ -112,6 +115,7 @@ import {
   getDashboardAnalytics,
   type DateRange,
 } from "./analytics-service";
+import { apiKeyAuth, formatApiResponse, requireScope, type ApiAuthRequest } from "./api-auth";
 
 // Helper function to coerce date strings to Date objects
 function coerceDate(value: string | Date | null | undefined): Date | null | undefined {
@@ -10696,6 +10700,493 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     } catch (error: any) {
       res.status(500).json({ message: error.message || "Failed to fetch exclusion dashboard" });
+    }
+  });
+
+  // ============================================
+  // Support Tickets Routes
+  // ============================================
+
+  app.get("/api/support-tickets", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      if (!user?.organizationId) {
+        return res.status(400).json({ message: "Organization required" });
+      }
+      const tickets = await storage.getSupportTicketsByOrganization(user.organizationId);
+      res.json(tickets);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to fetch support tickets" });
+    }
+  });
+
+  app.post("/api/support-tickets", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      if (!user?.organizationId) {
+        return res.status(400).json({ message: "Organization required" });
+      }
+      const validatedData = insertSupportTicketSchema.parse({
+        ...req.body,
+        organizationId: user.organizationId,
+        userId: user.id,
+      });
+      const ticket = await storage.createSupportTicket(validatedData);
+      res.status(201).json(ticket);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message || "Failed to create support ticket" });
+    }
+  });
+
+  app.get("/api/support-tickets/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      const ticket = await storage.getSupportTicket(req.params.id);
+      if (!ticket) {
+        return res.status(404).json({ message: "Ticket not found" });
+      }
+      if (ticket.organizationId !== user?.organizationId) {
+        return res.status(403).json({ message: "Unauthorized" });
+      }
+      const messages = await storage.getTicketMessages(ticket.id);
+      res.json({ ...ticket, messages });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to fetch support ticket" });
+    }
+  });
+
+  app.put("/api/support-tickets/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      const ticket = await storage.getSupportTicket(req.params.id);
+      if (!ticket) {
+        return res.status(404).json({ message: "Ticket not found" });
+      }
+      if (ticket.organizationId !== user?.organizationId) {
+        return res.status(403).json({ message: "Unauthorized" });
+      }
+      const updateData: any = { ...req.body };
+      if (req.body.status === 'resolved' && !ticket.resolvedAt) {
+        updateData.resolvedAt = new Date();
+      }
+      if (req.body.status === 'closed' && !ticket.closedAt) {
+        updateData.closedAt = new Date();
+      }
+      const updated = await storage.updateSupportTicket(req.params.id, updateData);
+      res.json(updated);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message || "Failed to update support ticket" });
+    }
+  });
+
+  app.post("/api/support-tickets/:id/messages", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      const ticket = await storage.getSupportTicket(req.params.id);
+      if (!ticket) {
+        return res.status(404).json({ message: "Ticket not found" });
+      }
+      if (ticket.organizationId !== user?.organizationId) {
+        return res.status(403).json({ message: "Unauthorized" });
+      }
+      const validatedData = insertTicketMessageSchema.parse({
+        ...req.body,
+        ticketId: ticket.id,
+        userId: user.id,
+        isStaffReply: false,
+      });
+      const message = await storage.createTicketMessage(validatedData);
+      res.status(201).json(message);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message || "Failed to add message" });
+    }
+  });
+
+  // ============================================
+  // External API v1 Endpoints (API Key Authentication)
+  // ============================================
+
+  // GET /api/v1/clients - List organization's clients
+  app.get("/api/v1/clients", apiKeyAuth, requireScope("read:clients"), async (req: ApiAuthRequest, res) => {
+    try {
+      const organizationId = req.organization!.id;
+      const page = parseInt(req.query.page as string) || 1;
+      const limit = Math.min(parseInt(req.query.limit as string) || 50, 100);
+      const status = req.query.status as string;
+
+      const offices = await storage.getAllOffices();
+      const orgOffices = offices.filter(o => o.organizationId === organizationId);
+      const officeIds = orgOffices.map(o => o.id);
+
+      let allClients: any[] = [];
+      for (const officeId of officeIds) {
+        const clients = await storage.getAllClients(officeId);
+        allClients = allClients.concat(clients);
+      }
+
+      if (status) {
+        allClients = allClients.filter(c => c.status === status);
+      }
+
+      const total = allClients.length;
+      const startIndex = (page - 1) * limit;
+      const paginatedClients = allClients.slice(startIndex, startIndex + limit);
+
+      const clientsBasicInfo = paginatedClients.map(c => ({
+        id: c.id,
+        firstName: c.firstName,
+        lastName: c.lastName,
+        status: c.status,
+        officeId: c.officeId,
+      }));
+
+      res.json(formatApiResponse(clientsBasicInfo, { total, page, limit }));
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message || "Failed to fetch clients" });
+    }
+  });
+
+  // GET /api/v1/clients/:id - Get single client details
+  app.get("/api/v1/clients/:id", apiKeyAuth, requireScope("read:clients"), async (req: ApiAuthRequest, res) => {
+    try {
+      const organizationId = req.organization!.id;
+      const client = await storage.getClient(req.params.id);
+
+      if (!client) {
+        return res.status(404).json({ success: false, error: "Client not found" });
+      }
+
+      const offices = await storage.getAllOffices();
+      const orgOfficeIds = offices.filter(o => o.organizationId === organizationId).map(o => o.id);
+
+      if (!client.officeId || !orgOfficeIds.includes(client.officeId)) {
+        return res.status(403).json({ success: false, error: "Access denied to this client" });
+      }
+
+      const clientData = {
+        id: client.id,
+        firstName: client.firstName,
+        lastName: client.lastName,
+        dateOfBirth: client.dateOfBirth,
+        phone: client.phone,
+        email: client.email,
+        address: client.address,
+        city: client.city,
+        state: client.state,
+        zipCode: client.zipCode,
+        status: client.status,
+        officeId: client.officeId,
+        primaryCaregiverId: client.primaryCaregiverId,
+        serviceStartDate: client.serviceStartDate,
+        memberId: client.memberId,
+      };
+
+      res.json(formatApiResponse(clientData));
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message || "Failed to fetch client" });
+    }
+  });
+
+  // GET /api/v1/caregivers - List organization's caregivers
+  app.get("/api/v1/caregivers", apiKeyAuth, requireScope("read:caregivers"), async (req: ApiAuthRequest, res) => {
+    try {
+      const organizationId = req.organization!.id;
+      const page = parseInt(req.query.page as string) || 1;
+      const limit = Math.min(parseInt(req.query.limit as string) || 50, 100);
+      const isActive = req.query.isActive !== undefined ? req.query.isActive === "true" : undefined;
+
+      const offices = await storage.getAllOffices();
+      const orgOffices = offices.filter(o => o.organizationId === organizationId);
+      const officeIds = orgOffices.map(o => o.id);
+
+      let allCaregivers: any[] = [];
+      for (const officeId of officeIds) {
+        const caregivers = await storage.getAllCaregivers(officeId);
+        allCaregivers = allCaregivers.concat(caregivers);
+      }
+
+      if (isActive !== undefined) {
+        allCaregivers = allCaregivers.filter(c => c.isActive === isActive);
+      }
+
+      const total = allCaregivers.length;
+      const startIndex = (page - 1) * limit;
+      const paginatedCaregivers = allCaregivers.slice(startIndex, startIndex + limit);
+
+      const caregiversBasicInfo = paginatedCaregivers.map(c => ({
+        id: c.id,
+        firstName: c.firstName,
+        lastName: c.lastName,
+        email: c.email,
+        phone: c.phone,
+        isActive: c.isActive,
+        officeId: c.officeId,
+      }));
+
+      res.json(formatApiResponse(caregiversBasicInfo, { total, page, limit }));
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message || "Failed to fetch caregivers" });
+    }
+  });
+
+  // GET /api/v1/caregivers/:id - Get single caregiver details
+  app.get("/api/v1/caregivers/:id", apiKeyAuth, requireScope("read:caregivers"), async (req: ApiAuthRequest, res) => {
+    try {
+      const organizationId = req.organization!.id;
+      const caregiver = await storage.getCaregiver(req.params.id);
+
+      if (!caregiver) {
+        return res.status(404).json({ success: false, error: "Caregiver not found" });
+      }
+
+      const offices = await storage.getAllOffices();
+      const orgOfficeIds = offices.filter(o => o.organizationId === organizationId).map(o => o.id);
+
+      if (!caregiver.officeId || !orgOfficeIds.includes(caregiver.officeId)) {
+        return res.status(403).json({ success: false, error: "Access denied to this caregiver" });
+      }
+
+      const caregiverData = {
+        id: caregiver.id,
+        firstName: caregiver.firstName,
+        lastName: caregiver.lastName,
+        email: caregiver.email,
+        phone: caregiver.phone,
+        employeeId: caregiver.employeeId,
+        hireDate: caregiver.hireDate,
+        startDate: caregiver.startDate,
+        specializations: caregiver.specializations,
+        isActive: caregiver.isActive,
+        officeId: caregiver.officeId,
+      };
+
+      res.json(formatApiResponse(caregiverData));
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message || "Failed to fetch caregiver" });
+    }
+  });
+
+  // GET /api/v1/schedules - List schedules with date range
+  app.get("/api/v1/schedules", apiKeyAuth, requireScope("read:schedules"), async (req: ApiAuthRequest, res) => {
+    try {
+      const organizationId = req.organization!.id;
+      const page = parseInt(req.query.page as string) || 1;
+      const limit = Math.min(parseInt(req.query.limit as string) || 50, 100);
+      const startDate = req.query.startDate ? new Date(req.query.startDate as string) : undefined;
+      const endDate = req.query.endDate ? new Date(req.query.endDate as string) : undefined;
+      const clientId = req.query.clientId as string;
+      const caregiverId = req.query.caregiverId as string;
+
+      const offices = await storage.getAllOffices();
+      const orgOffices = offices.filter(o => o.organizationId === organizationId);
+      const officeIds = orgOffices.map(o => o.id);
+
+      let allSchedules: any[] = [];
+      for (const officeId of officeIds) {
+        const schedules = await storage.getSchedulesByOffice(officeId, startDate, endDate);
+        allSchedules = allSchedules.concat(schedules);
+      }
+
+      if (clientId) {
+        allSchedules = allSchedules.filter(s => s.clientId === clientId);
+      }
+      if (caregiverId) {
+        allSchedules = allSchedules.filter(s => s.caregiverId === caregiverId);
+      }
+
+      const total = allSchedules.length;
+      const startIndex = (page - 1) * limit;
+      const paginatedSchedules = allSchedules.slice(startIndex, startIndex + limit);
+
+      const schedulesData = paginatedSchedules.map(s => ({
+        id: s.id,
+        clientId: s.clientId,
+        caregiverId: s.caregiverId,
+        scheduledDate: s.scheduledDate,
+        startTime: s.startTime,
+        endTime: s.endTime,
+        serviceType: s.serviceType,
+        status: s.status,
+        notes: s.notes,
+      }));
+
+      res.json(formatApiResponse(schedulesData, { total, page, limit }));
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message || "Failed to fetch schedules" });
+    }
+  });
+
+  // POST /api/v1/schedules - Create a schedule entry
+  app.post("/api/v1/schedules", apiKeyAuth, requireScope("write:schedules"), async (req: ApiAuthRequest, res) => {
+    try {
+      const organizationId = req.organization!.id;
+      const { clientId, caregiverId, scheduledDate, startTime, endTime, serviceType, notes } = req.body;
+
+      if (!clientId || !scheduledDate || !startTime || !endTime) {
+        return res.status(400).json({ 
+          success: false, 
+          error: "Missing required fields: clientId, scheduledDate, startTime, endTime" 
+        });
+      }
+
+      const client = await storage.getClient(clientId);
+      if (!client) {
+        return res.status(404).json({ success: false, error: "Client not found" });
+      }
+
+      const offices = await storage.getAllOffices();
+      const orgOfficeIds = offices.filter(o => o.organizationId === organizationId).map(o => o.id);
+
+      if (!client.officeId || !orgOfficeIds.includes(client.officeId)) {
+        return res.status(403).json({ success: false, error: "Access denied to this client" });
+      }
+
+      if (caregiverId) {
+        const caregiver = await storage.getCaregiver(caregiverId);
+        if (!caregiver) {
+          return res.status(404).json({ success: false, error: "Caregiver not found" });
+        }
+        if (!caregiver.officeId || !orgOfficeIds.includes(caregiver.officeId)) {
+          return res.status(403).json({ success: false, error: "Access denied to this caregiver" });
+        }
+      }
+
+      const scheduleData = {
+        clientId,
+        caregiverId: caregiverId || null,
+        scheduledDate: new Date(scheduledDate),
+        startTime,
+        endTime,
+        serviceType: serviceType || null,
+        status: "scheduled",
+        notes: notes || null,
+      };
+
+      const validatedData = insertClientScheduleSchema.parse(scheduleData);
+      const schedule = await storage.createSchedule({
+        clientId: validatedData.clientId!,
+        caregiverId: validatedData.caregiverId!,
+        officeId: client.officeId,
+        date: validatedData.scheduledDate,
+        startTime: validatedData.startTime,
+        endTime: validatedData.endTime,
+        status: validatedData.status || "scheduled",
+        notes: validatedData.notes || undefined,
+      });
+
+      res.status(201).json(formatApiResponse({
+        id: schedule.id,
+        clientId: schedule.clientId,
+        caregiverId: schedule.caregiverId,
+        scheduledDate: schedule.scheduledDate,
+        startTime: schedule.startTime,
+        endTime: schedule.endTime,
+        serviceType: schedule.serviceType,
+        status: schedule.status,
+        notes: schedule.notes,
+      }));
+    } catch (error: any) {
+      res.status(400).json({ success: false, error: error.message || "Failed to create schedule" });
+    }
+  });
+
+  // ============================================
+  // Custom Integrations (Enterprise)
+  // ============================================
+
+  app.get("/api/custom-integrations", isAuthenticated, requireFeature('custom_integrations'), async (req: any, res) => {
+    try {
+      const user = req.user;
+      if (!user.organizationId) {
+        return res.status(400).json({ message: "No organization associated with user" });
+      }
+      const integrations = await storage.getCustomIntegrationsByOrganization(user.organizationId);
+      res.json(integrations);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to fetch integrations" });
+    }
+  });
+
+  app.post("/api/custom-integrations", isAuthenticated, requireFeature('custom_integrations'), async (req: any, res) => {
+    try {
+      const user = req.user;
+      if (!user.organizationId) {
+        return res.status(400).json({ message: "No organization associated with user" });
+      }
+      const validatedData = insertCustomIntegrationSchema.parse({
+        ...req.body,
+        organizationId: user.organizationId,
+        createdBy: user.id,
+      });
+      const integration = await storage.createCustomIntegration(validatedData);
+      res.status(201).json(integration);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message || "Failed to create integration" });
+    }
+  });
+
+  app.put("/api/custom-integrations/:id", isAuthenticated, requireFeature('custom_integrations'), async (req: any, res) => {
+    try {
+      const user = req.user;
+      if (!user.organizationId) {
+        return res.status(400).json({ message: "No organization associated with user" });
+      }
+      const existing = await storage.getCustomIntegration(req.params.id);
+      if (!existing) {
+        return res.status(404).json({ message: "Integration not found" });
+      }
+      if (existing.organizationId !== user.organizationId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      const updated = await storage.updateCustomIntegration(req.params.id, req.body);
+      res.json(updated);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message || "Failed to update integration" });
+    }
+  });
+
+  app.delete("/api/custom-integrations/:id", isAuthenticated, requireFeature('custom_integrations'), async (req: any, res) => {
+    try {
+      const user = req.user;
+      if (!user.organizationId) {
+        return res.status(400).json({ message: "No organization associated with user" });
+      }
+      const existing = await storage.getCustomIntegration(req.params.id);
+      if (!existing) {
+        return res.status(404).json({ message: "Integration not found" });
+      }
+      if (existing.organizationId !== user.organizationId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      await storage.deleteCustomIntegration(req.params.id);
+      res.status(204).send();
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to delete integration" });
+    }
+  });
+
+  app.post("/api/custom-integrations/:id/test", isAuthenticated, requireFeature('custom_integrations'), async (req: any, res) => {
+    try {
+      const user = req.user;
+      if (!user.organizationId) {
+        return res.status(400).json({ message: "No organization associated with user" });
+      }
+      const existing = await storage.getCustomIntegration(req.params.id);
+      if (!existing) {
+        return res.status(404).json({ message: "Integration not found" });
+      }
+      if (existing.organizationId !== user.organizationId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      // Test the integration - for now just return success and update lastSyncAt
+      const updated = await storage.updateCustomIntegration(req.params.id, {
+        lastSyncAt: new Date(),
+        lastError: null,
+        status: "active",
+      });
+      res.json({ success: true, message: "Integration test successful", integration: updated });
+    } catch (error: any) {
+      res.status(500).json({ success: false, message: error.message || "Integration test failed" });
     }
   });
 

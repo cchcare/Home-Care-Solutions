@@ -42,6 +42,8 @@ import Pricing from "@/pages/pricing";
 import Signup from "@/pages/signup";
 import SignupSuccess from "@/pages/signup-success";
 import SupportCenter from "@/pages/support-center";
+import SupportTickets from "@/pages/support-tickets";
+import CustomIntegrations from "@/pages/custom-integrations";
 
 function Router() {
   const { isAuthenticated, isLoading, error } = useAuth();
@@ -98,6 +100,8 @@ function Router() {
           <Route path="/evv-clock" component={EvvClock} />
           <Route path="/hhax-integration" component={HhaxIntegration} />
           <Route path="/exclusion-verification" component={ExclusionVerification} />
+          <Route path="/support-tickets" component={SupportTickets} />
+          <Route path="/custom-integrations" component={CustomIntegrations} />
         </>
       )}
       <Route component={NotFound} />

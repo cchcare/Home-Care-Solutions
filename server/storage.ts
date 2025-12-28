@@ -305,6 +305,18 @@ import {
   apiKeys,
   type ApiKey,
   type InsertApiKey,
+  apiUsageLogs,
+  type ApiUsageLog,
+  type InsertApiUsageLog,
+  supportTickets,
+  type SupportTicket,
+  type InsertSupportTicket,
+  ticketMessages,
+  type TicketMessage,
+  type InsertTicketMessage,
+  customIntegrations,
+  type CustomIntegration,
+  type InsertCustomIntegration,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, asc, and, or, count, sql, like, gte, lte, inArray } from "drizzle-orm";
@@ -533,6 +545,7 @@ export interface IStorage {
   // Client schedules
   getClientSchedules(clientId: string, startDate?: Date, endDate?: Date): Promise<ClientSchedule[]>;
   getSchedulesByCaregiver(caregiverId: string, startDate?: Date, endDate?: Date): Promise<ClientSchedule[]>;
+  getSchedulesByOffice(officeId: string, startDate?: Date, endDate?: Date): Promise<ClientSchedule[]>;
   createClientSchedule(schedule: InsertClientSchedule): Promise<ClientSchedule>;
   updateClientSchedule(id: string, schedule: Partial<InsertClientSchedule>): Promise<ClientSchedule>;
   deleteClientSchedule(id: string): Promise<void>;
@@ -1036,6 +1049,26 @@ export interface IStorage {
   updateApiKey(id: string, data: Partial<ApiKey>): Promise<ApiKey>;
   deleteApiKey(id: string): Promise<void>;
   incrementApiKeyRequestCount(id: string): Promise<void>;
+
+  // API Usage Log operations
+  createApiUsageLog(data: InsertApiUsageLog): Promise<ApiUsageLog>;
+  getApiUsageLogsByOrganization(organizationId: string, startDate?: Date, endDate?: Date): Promise<ApiUsageLog[]>;
+  getApiUsageCountToday(organizationId: string): Promise<number>;
+
+  // Support Ticket operations
+  createSupportTicket(data: InsertSupportTicket): Promise<SupportTicket>;
+  getSupportTicketsByOrganization(organizationId: string): Promise<SupportTicket[]>;
+  getSupportTicket(id: string): Promise<SupportTicket | null>;
+  updateSupportTicket(id: string, data: Partial<SupportTicket>): Promise<SupportTicket>;
+  createTicketMessage(data: InsertTicketMessage): Promise<TicketMessage>;
+  getTicketMessages(ticketId: string): Promise<TicketMessage[]>;
+
+  // Custom Integration operations
+  createCustomIntegration(data: InsertCustomIntegration): Promise<CustomIntegration>;
+  getCustomIntegrationsByOrganization(organizationId: string): Promise<CustomIntegration[]>;
+  getCustomIntegration(id: string): Promise<CustomIntegration | null>;
+  updateCustomIntegration(id: string, data: Partial<CustomIntegration>): Promise<CustomIntegration>;
+  deleteCustomIntegration(id: string): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -2428,6 +2461,29 @@ export class DatabaseStorage implements IStorage {
     
     if (startDate && endDate) {
       conditions.push(gte(clientSchedules.scheduledDate, startDate));
+      conditions.push(lte(clientSchedules.scheduledDate, endDate));
+    }
+    
+    return await db.select().from(clientSchedules)
+      .where(and(...conditions))
+      .orderBy(asc(clientSchedules.scheduledDate), asc(clientSchedules.startTime));
+  }
+
+  async getSchedulesByOffice(officeId: string, startDate?: Date, endDate?: Date): Promise<ClientSchedule[]> {
+    const officeClients = await db.select({ id: clients.id }).from(clients)
+      .where(eq(clients.officeId, officeId));
+    
+    if (officeClients.length === 0) {
+      return [];
+    }
+    
+    const clientIds = officeClients.map(c => c.id);
+    const conditions: any[] = [inArray(clientSchedules.clientId, clientIds)];
+    
+    if (startDate) {
+      conditions.push(gte(clientSchedules.scheduledDate, startDate));
+    }
+    if (endDate) {
       conditions.push(lte(clientSchedules.scheduledDate, endDate));
     }
     
@@ -6403,6 +6459,111 @@ export class DatabaseStorage implements IStorage {
         updatedAt: new Date()
       })
       .where(eq(apiKeys.id, id));
+  }
+
+  // ============================================
+  // API Usage Logs
+  // ============================================
+
+  async createApiUsageLog(data: InsertApiUsageLog): Promise<ApiUsageLog> {
+    const [created] = await db.insert(apiUsageLogs).values(data).returning();
+    return created;
+  }
+
+  async getApiUsageLogsByOrganization(organizationId: string, startDate?: Date, endDate?: Date): Promise<ApiUsageLog[]> {
+    const conditions = [eq(apiUsageLogs.organizationId, organizationId)];
+    if (startDate) conditions.push(gte(apiUsageLogs.createdAt, startDate));
+    if (endDate) conditions.push(lte(apiUsageLogs.createdAt, endDate));
+    
+    return db.select().from(apiUsageLogs)
+      .where(and(...conditions))
+      .orderBy(desc(apiUsageLogs.createdAt))
+      .limit(1000);
+  }
+
+  async getApiUsageCountToday(organizationId: string): Promise<number> {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    const [result] = await db.select({ count: count() })
+      .from(apiUsageLogs)
+      .where(and(
+        eq(apiUsageLogs.organizationId, organizationId),
+        gte(apiUsageLogs.createdAt, today)
+      ));
+    
+    return result?.count ?? 0;
+  }
+
+  // ============================================
+  // Support Tickets
+  // ============================================
+
+  async createSupportTicket(data: InsertSupportTicket): Promise<SupportTicket> {
+    const [created] = await db.insert(supportTickets).values(data).returning();
+    return created;
+  }
+
+  async getSupportTicketsByOrganization(organizationId: string): Promise<SupportTicket[]> {
+    return db.select().from(supportTickets)
+      .where(eq(supportTickets.organizationId, organizationId))
+      .orderBy(desc(supportTickets.createdAt));
+  }
+
+  async getSupportTicket(id: string): Promise<SupportTicket | null> {
+    const [ticket] = await db.select().from(supportTickets).where(eq(supportTickets.id, id));
+    return ticket || null;
+  }
+
+  async updateSupportTicket(id: string, data: Partial<SupportTicket>): Promise<SupportTicket> {
+    const [updated] = await db.update(supportTickets)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(supportTickets.id, id))
+      .returning();
+    return updated;
+  }
+
+  async createTicketMessage(data: InsertTicketMessage): Promise<TicketMessage> {
+    const [created] = await db.insert(ticketMessages).values(data).returning();
+    return created;
+  }
+
+  async getTicketMessages(ticketId: string): Promise<TicketMessage[]> {
+    return db.select().from(ticketMessages)
+      .where(eq(ticketMessages.ticketId, ticketId))
+      .orderBy(asc(ticketMessages.createdAt));
+  }
+
+  // ============================================
+  // Custom Integrations
+  // ============================================
+
+  async createCustomIntegration(data: InsertCustomIntegration): Promise<CustomIntegration> {
+    const [created] = await db.insert(customIntegrations).values(data).returning();
+    return created;
+  }
+
+  async getCustomIntegrationsByOrganization(organizationId: string): Promise<CustomIntegration[]> {
+    return db.select().from(customIntegrations)
+      .where(eq(customIntegrations.organizationId, organizationId))
+      .orderBy(desc(customIntegrations.createdAt));
+  }
+
+  async getCustomIntegration(id: string): Promise<CustomIntegration | null> {
+    const [integration] = await db.select().from(customIntegrations).where(eq(customIntegrations.id, id));
+    return integration || null;
+  }
+
+  async updateCustomIntegration(id: string, data: Partial<CustomIntegration>): Promise<CustomIntegration> {
+    const [updated] = await db.update(customIntegrations)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(customIntegrations.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteCustomIntegration(id: string): Promise<void> {
+    await db.delete(customIntegrations).where(eq(customIntegrations.id, id));
   }
 }
 

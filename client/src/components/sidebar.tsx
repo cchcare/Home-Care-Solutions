@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link, useLocation } from "wouter";
 import { useAuth } from "@/hooks/useAuth";
+import { useFeatures } from "@/hooks/use-features";
 import { Button } from "@/components/ui/button";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { 
@@ -30,7 +31,10 @@ import {
   Cake,
   Clock,
   Plug,
-  UserX
+  UserX,
+  HelpCircle,
+  Ticket,
+  Link2
 } from "lucide-react";
 
 interface NavItem {
@@ -38,11 +42,14 @@ interface NavItem {
   href?: string;
   icon: any;
   children?: NavItem[];
+  external?: boolean;
+  featureGate?: string;
 }
 
 export function Sidebar() {
   const [location] = useLocation();
   const { user } = useAuth();
+  const { hasFeature } = useFeatures();
   const [isOpen, setIsOpen] = useState(false);
   const [expandedMenus, setExpandedMenus] = useState<string[]>(["Admin"]);
   const isMobile = useIsMobile();
@@ -82,7 +89,18 @@ export function Sidebar() {
       { name: "Analytics & Reports", href: "/reports", icon: BarChart3 },
       { name: "Billing & Payroll", href: "/billing-payroll", icon: DollarSign },
       { name: "AI Assistant", href: "/ai-assistant", icon: Bot },
+      { name: "Support Tickets", href: "/support-tickets", icon: Ticket },
     ];
+
+    if (hasFeature("api_access")) {
+      baseNavigation.push({ name: "API Keys", href: "/admin-settings", icon: Key, featureGate: "api_access" });
+    }
+
+    if (hasFeature("custom_integrations")) {
+      baseNavigation.push({ name: "Custom Integrations", href: "/custom-integrations", icon: Link2, featureGate: "custom_integrations" });
+    }
+
+    baseNavigation.push({ name: "Help & Support", href: "/support-center", icon: HelpCircle, external: true });
 
     if ((user as any)?.role === "admin" || (user as any)?.role === "supervisor" || (user as any)?.role === "super_admin") {
       baseNavigation.push({
@@ -250,6 +268,26 @@ export function Sidebar() {
               }
               
               const isActive = isActiveRoute(item.href);
+
+              if (item.external) {
+                return (
+                  <a
+                    key={item.name}
+                    href={item.href}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={`
+                      flex items-center space-x-3 p-3 rounded-lg font-medium transition-colors
+                      text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground
+                    `}
+                    onClick={() => isMobile && setIsOpen(false)}
+                    data-testid={`nav-link-${item.name.toLowerCase().replace(/\s+/g, '-')}`}
+                  >
+                    <Icon className="w-5 h-5" />
+                    <span>{item.name}</span>
+                  </a>
+                );
+              }
               
               return (
                 <Link 
