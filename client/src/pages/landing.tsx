@@ -6,6 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Heart, Shield, Users, FileText, Bell, BarChart3, Loader2, Eye, EyeOff, Smartphone, KeyRound } from "lucide-react";
+import { Link } from "wouter";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
@@ -408,9 +409,19 @@ export default function Landing() {
               </div>
               <h1 className="text-2xl font-bold text-foreground">Home Care</h1>
             </div>
-            <Button onClick={() => setShowLoginForm(true)} className="px-6" data-testid="button-login">
-              Sign In
-            </Button>
+            <div className="flex items-center gap-4">
+              <Link href="/pricing">
+                <a className="text-sm text-muted-foreground hover:text-foreground" data-testid="link-pricing">
+                  Pricing
+                </a>
+              </Link>
+              <Button onClick={() => setShowLoginForm(true)} variant="outline" data-testid="button-login">
+                Sign In
+              </Button>
+              <Link href="/pricing">
+                <Button data-testid="button-get-started-header">Get Started</Button>
+              </Link>
+            </div>
           </div>
         </div>
       </header>
@@ -424,14 +435,15 @@ export default function Landing() {
             HIPAA-compliant management system for client care, caregiver coordination, 
             and regulatory compliance. Everything you need in one secure platform.
           </p>
-          <Button 
-            onClick={() => setShowLoginForm(true)} 
-            size="lg" 
-            className="px-8 py-3 text-lg"
-            data-testid="button-get-started"
-          >
-            Get Started
-          </Button>
+          <Link href="/pricing">
+            <Button 
+              size="lg" 
+              className="px-8 py-3 text-lg"
+              data-testid="button-get-started"
+            >
+              Get Started
+            </Button>
+          </Link>
         </div>
       </section>
 
