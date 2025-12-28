@@ -6218,13 +6218,13 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Get all active caregivers for exclusion checking
-  async getActiveCaregiversForExclusionCheck(): Promise<{ id: string; firstName: string; lastName: string; dateOfBirth: Date | null }[]> {
+  async getActiveCaregiversForExclusionCheck(): Promise<{ id: string; firstName: string | null; lastName: string | null; dateOfBirth: Date | null }[]> {
     return db.select({
       id: caregivers.id,
       firstName: caregivers.firstName,
       lastName: caregivers.lastName,
       dateOfBirth: caregivers.dateOfBirth,
-    }).from(caregivers).where(eq(caregivers.status, 'active'));
+    }).from(caregivers).where(eq(caregivers.isActive, true));
   }
 
   // ============================================

@@ -38,6 +38,9 @@ import BirthdayNotifications from "@/pages/birthday-notifications";
 import EvvClock from "@/pages/evv-clock";
 import HhaxIntegration from "@/pages/hhax-integration";
 import ExclusionVerification from "@/pages/exclusion-verification";
+import Pricing from "@/pages/pricing";
+import Signup from "@/pages/signup";
+import SignupSuccess from "@/pages/signup-success";
 
 function Router() {
   const { isAuthenticated, isLoading, error } = useAuth();
@@ -60,6 +63,9 @@ function Router() {
       <Route path="/privacy-policy" component={PrivacyPolicy} />
       <Route path="/terms-of-use" component={TermsOfUse} />
       <Route path="/system-status" component={SystemStatus} />
+      <Route path="/pricing" component={Pricing} />
+      <Route path="/signup" component={Signup} />
+      <Route path="/signup/success" component={SignupSuccess} />
       {!isAuthenticated ? (
         <Route path="/" component={Landing} />
       ) : (

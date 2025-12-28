@@ -173,6 +173,199 @@ export async function registerRoutes(app: Express): Promise<Server> {
     fs.mkdirSync("uploads", { recursive: true });
   }
 
+  // ============================================
+  // Public SaaS Routes (no authentication required)
+  // ============================================
+
+  // Get subscription plans (public)
+  app.get("/api/public/plans", async (req, res) => {
+    try {
+      const plans = await storage.getSubscriptionPlans(true);
+      res.json(plans);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to fetch plans" });
+    }
+  });
+
+  // Check if organization slug is available
+  app.get("/api/public/check-slug/:slug", async (req, res) => {
+    try {
+      const existing = await storage.getOrganizationBySlug(req.params.slug);
+      res.json({ available: !existing });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to check slug" });
+    }
+  });
+
+  // Agency signup - create pending organization
+  app.post("/api/public/signup", async (req, res) => {
+    try {
+      const { organizationName, email, phone, adminFirstName, adminLastName, adminEmail, adminPassword, planId } = req.body;
+
+      if (!organizationName || !email || !adminEmail || !adminPassword || !planId) {
+        return res.status(400).json({ message: "Missing required fields" });
+      }
+
+      // Generate slug from organization name
+      const baseSlug = organizationName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+      let slug = baseSlug;
+      let counter = 1;
+      while (await storage.getOrganizationBySlug(slug)) {
+        slug = `${baseSlug}-${counter++}`;
+      }
+
+      // Get the selected plan
+      const plan = await storage.getSubscriptionPlan(planId);
+      if (!plan) {
+        return res.status(400).json({ message: "Invalid plan selected" });
+      }
+
+      // Create organization in pending status
+      const org = await storage.createOrganization({
+        name: organizationName,
+        slug,
+        email,
+        phone,
+        status: 'pending',
+        subscriptionPlanId: planId,
+        clientLimit: plan.clientLimitMax,
+        billingEmail: adminEmail,
+      });
+
+      // Create admin user for the organization
+      const hashedPassword = await hashPassword(adminPassword);
+      const adminUser = await storage.upsertUser({
+        organizationId: org.id,
+        email: adminEmail,
+        username: adminEmail,
+        passwordHash: hashedPassword,
+        firstName: adminFirstName,
+        lastName: adminLastName,
+        role: 'admin',
+        isActive: true,
+      });
+
+      // Create default office for the organization
+      await storage.createOffice({
+        organizationId: org.id,
+        name: `${organizationName} - Main Office`,
+        email: email,
+        phone: phone,
+      });
+
+      // Import Stripe client for checkout
+      const { getUncachableStripeClient, getStripePublishableKey } = await import('./stripeClient');
+      const stripe = await getUncachableStripeClient();
+
+      // Create Stripe customer
+      const customer = await stripe.customers.create({
+        email: adminEmail,
+        name: organizationName,
+        metadata: {
+          organizationId: org.id,
+          planId: planId,
+        },
+      });
+
+      // Update organization with Stripe customer ID
+      await storage.updateOrganizationSubscription(org.id, {
+        stripeCustomerId: customer.id,
+      });
+
+      // Create checkout session
+      if (!plan.stripePriceId) {
+        return res.status(400).json({ message: "Plan not configured for payments yet" });
+      }
+
+      const baseUrl = `${req.protocol}://${req.get('host')}`;
+      const session = await stripe.checkout.sessions.create({
+        customer: customer.id,
+        payment_method_types: ['card'],
+        line_items: [{
+          price: plan.stripePriceId,
+          quantity: 1,
+        }],
+        mode: 'subscription',
+        success_url: `${baseUrl}/signup/success?session_id={CHECKOUT_SESSION_ID}&org=${org.id}`,
+        cancel_url: `${baseUrl}/pricing?cancelled=true`,
+        metadata: {
+          organizationId: org.id,
+          planId: planId,
+          adminUserId: adminUser.id,
+        },
+        subscription_data: {
+          metadata: {
+            organizationId: org.id,
+            planId: planId,
+          },
+        },
+      });
+
+      const publishableKey = await getStripePublishableKey();
+      res.json({ 
+        checkoutUrl: session.url,
+        publishableKey,
+        organizationId: org.id,
+      });
+    } catch (error: any) {
+      console.error("Signup error:", error);
+      res.status(500).json({ message: error.message || "Failed to process signup" });
+    }
+  });
+
+  // Verify checkout session and activate organization
+  app.post("/api/public/verify-checkout", async (req, res) => {
+    try {
+      const { sessionId, organizationId } = req.body;
+
+      if (!sessionId || !organizationId) {
+        return res.status(400).json({ message: "Missing session or organization ID" });
+      }
+
+      const { getUncachableStripeClient } = await import('./stripeClient');
+      const stripe = await getUncachableStripeClient();
+
+      const session = await stripe.checkout.sessions.retrieve(sessionId);
+
+      if (session.payment_status === 'paid' && session.metadata?.organizationId === organizationId) {
+        // Activate organization
+        await storage.updateOrganizationSubscription(organizationId, {
+          status: 'active',
+          subscriptionStatus: 'active',
+          stripeSubscriptionId: session.subscription as string,
+        });
+
+        // Record subscription history
+        await storage.createSubscriptionHistory({
+          organizationId,
+          planId: session.metadata?.planId,
+          stripeSubscriptionId: session.subscription as string,
+          action: 'subscription_created',
+          status: 'active',
+          amount: session.amount_total || 0,
+        });
+
+        res.json({ success: true, status: 'active' });
+      } else {
+        res.json({ success: false, status: session.payment_status });
+      }
+    } catch (error: any) {
+      console.error("Verify checkout error:", error);
+      res.status(500).json({ message: error.message || "Failed to verify checkout" });
+    }
+  });
+
+  // Get Stripe publishable key (public)
+  app.get("/api/public/stripe-key", async (req, res) => {
+    try {
+      const { getStripePublishableKey } = await import('./stripeClient');
+      const publishableKey = await getStripePublishableKey();
+      res.json({ publishableKey });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to get Stripe key" });
+    }
+  });
+
   // Auth routes - get current user from session
   app.get('/api/auth/user', isAuthenticated, async (req: any, res) => {
     try {
