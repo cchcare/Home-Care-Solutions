@@ -22,6 +22,9 @@ import {
   familyMembers,
   clientFamilyMembers,
   familyUpdates,
+  organizations,
+  subscriptionPlans,
+  subscriptionHistory,
   type User,
   type UpsertUser,
   type Office,
@@ -68,6 +71,12 @@ import {
   type InsertClientFamilyMember,
   type FamilyUpdate,
   type InsertFamilyUpdate,
+  type Organization,
+  type InsertOrganization,
+  type SubscriptionPlan,
+  type InsertSubscriptionPlan,
+  type SubscriptionHistoryRecord,
+  type InsertSubscriptionHistoryRecord,
   customRoles,
   type CustomRole,
   type InsertCustomRole,
@@ -6216,6 +6225,127 @@ export class DatabaseStorage implements IStorage {
       lastName: caregivers.lastName,
       dateOfBirth: caregivers.dateOfBirth,
     }).from(caregivers).where(eq(caregivers.status, 'active'));
+  }
+
+  // ============================================
+  // Organizations (Multi-tenant SaaS)
+  // ============================================
+  
+  async getOrganizations(): Promise<Organization[]> {
+    return db.select().from(organizations).orderBy(desc(organizations.createdAt));
+  }
+
+  async getOrganization(id: string): Promise<Organization | undefined> {
+    const [org] = await db.select().from(organizations).where(eq(organizations.id, id));
+    return org;
+  }
+
+  async getOrganizationBySlug(slug: string): Promise<Organization | undefined> {
+    const [org] = await db.select().from(organizations).where(eq(organizations.slug, slug));
+    return org;
+  }
+
+  async getOrganizationByStripeCustomerId(stripeCustomerId: string): Promise<Organization | undefined> {
+    const [org] = await db.select().from(organizations).where(eq(organizations.stripeCustomerId, stripeCustomerId));
+    return org;
+  }
+
+  async getOrganizationByStripeSubscriptionId(stripeSubscriptionId: string): Promise<Organization | undefined> {
+    const [org] = await db.select().from(organizations).where(eq(organizations.stripeSubscriptionId, stripeSubscriptionId));
+    return org;
+  }
+
+  async createOrganization(org: InsertOrganization): Promise<Organization> {
+    const [created] = await db.insert(organizations).values(org).returning();
+    return created;
+  }
+
+  async updateOrganization(id: string, org: Partial<InsertOrganization>): Promise<Organization> {
+    const [updated] = await db.update(organizations)
+      .set({ ...org, updatedAt: new Date() })
+      .where(eq(organizations.id, id))
+      .returning();
+    return updated;
+  }
+
+  async updateOrganizationSubscription(id: string, data: {
+    stripeCustomerId?: string;
+    stripeSubscriptionId?: string;
+    subscriptionPlanId?: string;
+    subscriptionStatus?: string;
+    status?: 'pending' | 'active' | 'suspended' | 'cancelled';
+    clientLimit?: number;
+  }): Promise<Organization> {
+    const [updated] = await db.update(organizations)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(organizations.id, id))
+      .returning();
+    return updated;
+  }
+
+  async updateOrganizationClientCount(id: string): Promise<void> {
+    const org = await this.getOrganization(id);
+    if (!org) return;
+    
+    const clientCount = await db.select({ count: sql<number>`count(*)` })
+      .from(clients)
+      .innerJoin(offices, eq(clients.officeId, offices.id))
+      .where(eq(offices.organizationId, id));
+    
+    await db.update(organizations)
+      .set({ currentClientCount: Number(clientCount[0]?.count || 0), updatedAt: new Date() })
+      .where(eq(organizations.id, id));
+  }
+
+  // ============================================
+  // Subscription Plans
+  // ============================================
+
+  async getSubscriptionPlans(activeOnly: boolean = true): Promise<SubscriptionPlan[]> {
+    if (activeOnly) {
+      return db.select().from(subscriptionPlans)
+        .where(eq(subscriptionPlans.isActive, true))
+        .orderBy(subscriptionPlans.sortOrder);
+    }
+    return db.select().from(subscriptionPlans).orderBy(subscriptionPlans.sortOrder);
+  }
+
+  async getSubscriptionPlan(id: string): Promise<SubscriptionPlan | undefined> {
+    const [plan] = await db.select().from(subscriptionPlans).where(eq(subscriptionPlans.id, id));
+    return plan;
+  }
+
+  async getSubscriptionPlanByStripePriceId(stripePriceId: string): Promise<SubscriptionPlan | undefined> {
+    const [plan] = await db.select().from(subscriptionPlans).where(eq(subscriptionPlans.stripePriceId, stripePriceId));
+    return plan;
+  }
+
+  async createSubscriptionPlan(plan: InsertSubscriptionPlan): Promise<SubscriptionPlan> {
+    const [created] = await db.insert(subscriptionPlans).values(plan).returning();
+    return created;
+  }
+
+  async updateSubscriptionPlan(id: string, plan: Partial<InsertSubscriptionPlan>): Promise<SubscriptionPlan> {
+    const [updated] = await db.update(subscriptionPlans)
+      .set({ ...plan, updatedAt: new Date() })
+      .where(eq(subscriptionPlans.id, id))
+      .returning();
+    return updated;
+  }
+
+  // ============================================
+  // Subscription History
+  // ============================================
+
+  async getSubscriptionHistory(organizationId: string): Promise<SubscriptionHistoryRecord[]> {
+    return db.select().from(subscriptionHistory)
+      .where(eq(subscriptionHistory.organizationId, organizationId))
+      .orderBy(desc(subscriptionHistory.createdAt));
+  }
+
+  async createSubscriptionHistory(record: InsertSubscriptionHistoryRecord): Promise<SubscriptionHistoryRecord> {
+    const [created] = await db.insert(subscriptionHistory).values(record).returning();
+    return created;
   }
 }
 

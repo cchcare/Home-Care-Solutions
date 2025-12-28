@@ -36,6 +36,7 @@ export const genderEnum = pgEnum("gender", ["male", "female", "non_binary", "pre
 // Office/Location management
 export const offices = pgTable("offices", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id"),
   name: varchar("name").notNull(),
   address: text("address"),
   phone: varchar("phone"),
@@ -46,7 +47,9 @@ export const offices = pgTable("offices", {
   settings: jsonb("settings"), // office-specific configuration
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
-});
+}, (table) => [
+  index("idx_offices_organization").on(table.organizationId),
+]);
 
 // Coordinators reference table - shared between caregivers and clients
 export const coordinators = pgTable("coordinators", {
@@ -65,6 +68,7 @@ export const coordinators = pgTable("coordinators", {
 // User storage table.
 export const users = pgTable("users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id"),
   email: varchar("email"),
   username: varchar("username").unique(),
   passwordHash: varchar("password_hash"),
@@ -92,7 +96,9 @@ export const users = pgTable("users", {
   smsCodeExpiry: timestamp("sms_code_expiry"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
-});
+}, (table) => [
+  index("idx_users_organization").on(table.organizationId),
+]);
 
 // Client management
 export const clients = pgTable("clients", {
@@ -3060,3 +3066,103 @@ export const exclusionReportsRelations = relations(exclusionReports, ({ one }) =
 export type ExclusionReport = typeof exclusionReports.$inferSelect;
 export type InsertExclusionReport = typeof exclusionReports.$inferInsert;
 export const insertExclusionReportSchema = createInsertSchema(exclusionReports).omit({ id: true, createdAt: true, generatedAt: true });
+
+// ============================================
+// SaaS Multi-Tenancy and Subscription Schema
+// ============================================
+
+// Organization status enum
+export const organizationStatusEnum = pgEnum("organization_status", ["pending", "active", "suspended", "cancelled"]);
+
+// Organizations (Tenants) - Home Care Agencies
+export const organizations = pgTable("organizations", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: varchar("name").notNull(),
+  slug: varchar("slug").unique().notNull(),
+  email: varchar("email").notNull(),
+  phone: varchar("phone"),
+  address: text("address"),
+  city: varchar("city"),
+  state: varchar("state"),
+  zipCode: varchar("zip_code"),
+  status: organizationStatusEnum("status").default("pending"),
+  stripeCustomerId: varchar("stripe_customer_id"),
+  stripeSubscriptionId: varchar("stripe_subscription_id"),
+  subscriptionPlanId: varchar("subscription_plan_id"),
+  subscriptionStatus: varchar("subscription_status").default("inactive"),
+  clientLimit: integer("client_limit").default(10),
+  currentClientCount: integer("current_client_count").default(0),
+  trialEndsAt: timestamp("trial_ends_at"),
+  billingEmail: varchar("billing_email"),
+  logoUrl: varchar("logo_url"),
+  settings: jsonb("settings"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_organizations_slug").on(table.slug),
+  index("idx_organizations_stripe_customer").on(table.stripeCustomerId),
+  index("idx_organizations_status").on(table.status),
+]);
+
+export const organizationsRelations = relations(organizations, ({ many }) => ({
+  users: many(users),
+  offices: many(offices),
+  clients: many(clients),
+  caregivers: many(caregivers),
+}));
+
+export type Organization = typeof organizations.$inferSelect;
+export type InsertOrganization = typeof organizations.$inferInsert;
+export const insertOrganizationSchema = createInsertSchema(organizations).omit({ id: true, createdAt: true, updatedAt: true });
+
+// Subscription Plans - Pricing Tiers
+export const subscriptionPlans = pgTable("subscription_plans", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: varchar("name").notNull(),
+  description: text("description"),
+  stripePriceId: varchar("stripe_price_id"),
+  stripeProductId: varchar("stripe_product_id"),
+  priceMonthly: integer("price_monthly").notNull(),
+  clientLimitMin: integer("client_limit_min").notNull(),
+  clientLimitMax: integer("client_limit_max").notNull(),
+  features: text("features").array(),
+  isPopular: boolean("is_popular").default(false),
+  isActive: boolean("is_active").default(true),
+  sortOrder: integer("sort_order").default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_subscription_plans_active").on(table.isActive),
+  index("idx_subscription_plans_sort").on(table.sortOrder),
+]);
+
+export type SubscriptionPlan = typeof subscriptionPlans.$inferSelect;
+export type InsertSubscriptionPlan = typeof subscriptionPlans.$inferInsert;
+export const insertSubscriptionPlanSchema = createInsertSchema(subscriptionPlans).omit({ id: true, createdAt: true, updatedAt: true });
+
+// Subscription History - Track subscription changes
+export const subscriptionHistory = pgTable("subscription_history", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id").references(() => organizations.id).notNull(),
+  planId: varchar("plan_id").references(() => subscriptionPlans.id),
+  stripeSubscriptionId: varchar("stripe_subscription_id"),
+  stripeInvoiceId: varchar("stripe_invoice_id"),
+  action: varchar("action").notNull(),
+  status: varchar("status"),
+  amount: integer("amount"),
+  periodStart: timestamp("period_start"),
+  periodEnd: timestamp("period_end"),
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_subscription_history_org").on(table.organizationId),
+]);
+
+export const subscriptionHistoryRelations = relations(subscriptionHistory, ({ one }) => ({
+  organization: one(organizations, { fields: [subscriptionHistory.organizationId], references: [organizations.id] }),
+  plan: one(subscriptionPlans, { fields: [subscriptionHistory.planId], references: [subscriptionPlans.id] }),
+}));
+
+export type SubscriptionHistoryRecord = typeof subscriptionHistory.$inferSelect;
+export type InsertSubscriptionHistoryRecord = typeof subscriptionHistory.$inferInsert;
+export const insertSubscriptionHistorySchema = createInsertSchema(subscriptionHistory).omit({ id: true, createdAt: true });
