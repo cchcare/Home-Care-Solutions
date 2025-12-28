@@ -76,6 +76,28 @@ Preferred communication style: Simple, everyday language.
     - **Manual & Full Sync**: Options for importing individual data types or all at once.
     - **File Browser**: View available files in HHAX SFTP Outbox directory.
 
+### SaaS Multi-Tenancy (v3.0)
+- **Organization-Based Multi-Tenancy**: Each home care agency is an organization with isolated data.
+- **Subscription Plans**: 4 pricing tiers based on client count:
+    - **Starter ($49/mo, 1-25 clients)**: Client management, caregiver management, basic scheduling, document management, email support.
+    - **Growth ($99/mo, 26-75 clients)**: All Starter + EVV tracking, compliance monitoring, advanced scheduling, priority support.
+    - **Professional ($199/mo, 76-200 clients)**: All Growth + billing & payroll, analytics dashboard, API access, dedicated support.
+    - **Enterprise ($399/mo, 201-500 clients)**: All Professional + custom integrations, white-glove onboarding, SLA guarantee, 24/7 phone support.
+- **Feature Gating System**:
+    - Backend: `requireFeature(featureKey)` middleware protects routes based on organization's plan.
+    - Frontend: `FeatureGate` component and `useFeatures` hook for UI-level access control.
+    - 17 features across 5 categories (core, compliance, billing, analytics, support) with 44 plan mappings.
+- **Stripe Integration**: Checkout sessions, subscription management, billing portal, webhook-based activation.
+- **Agency Signup Wizard**: 3-step registration flow at `/signup` with plan selection and Stripe checkout.
+- **External API** (Professional+ plans):
+    - API key management at `/api-keys` with secure hash storage and key prefix display.
+    - REST API v1 endpoints: `/api/v1/clients`, `/api/v1/caregivers`, `/api/v1/schedules`.
+    - Rate limiting (1000 req/day) and usage logging in `api_usage_logs` table.
+    - Bearer token authentication via API key header.
+- **Support Tickets**: Ticket creation and messaging at `/support-tickets` with status/priority tracking.
+- **Custom Integrations** (Enterprise only): Registry for third-party integrations at `/custom-integrations`.
+- **Support Center**: Help documentation and guides at `/support-center`.
+
 ### Security & Compliance
 - HIPAA compliance is a core design principle, including secure data transmission, storage, access control, and audit logging.
 
