@@ -2,6 +2,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { setupAuth, isAuthenticated, hashPassword } from "./localAuth";
+import { requireFeature, getOrganizationFeatures } from "./feature-gate";
 import multer from "multer";
 import crypto from "crypto";
 import path from "path";
@@ -83,7 +84,9 @@ import {
   insertClientReferralSchema,
   insertHhaxOfficeMappingSchema,
   insertHhaxSyncLogSchema,
+  insertApiKeySchema,
 } from "@shared/schema";
+import bcrypt from "bcrypt";
 import { ObjectStorageService, ObjectNotFoundError } from "./objectStorage";
 import { ObjectPermission } from "./objectAcl";
 import { extractPaystubsFromPdf, cleanupPaystubTempFiles, ExtractedPaystubData } from "./ocr-service";
@@ -344,7 +347,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         await storage.updateOrganizationSubscription(organizationId, {
           status: 'active',
           subscriptionStatus: 'active',
-          stripeSubscriptionId: subscriptionId || null,
+          stripeSubscriptionId: subscriptionId || undefined,
         });
 
         // Record subscription history
@@ -419,6 +422,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Get organization features for feature gating
+  app.get("/api/organization/features", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.session?.user?.id);
+      if (!user?.organizationId) {
+        return res.status(400).json({ message: "User not associated with an organization" });
+      }
+
+      const features = await getOrganizationFeatures(user.organizationId);
+      res.json({ features });
+    } catch (error: any) {
+      console.error("Error fetching organization features:", error);
+      res.status(500).json({ message: error.message || "Failed to fetch features" });
+    }
+  });
+
   // Create Stripe billing portal session
   app.post("/api/subscription/billing-portal", isAuthenticated, async (req: any, res) => {
     try {
@@ -479,6 +498,123 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error: any) {
       console.error("Error fetching subscription history:", error);
       res.status(500).json({ message: error.message || "Failed to fetch subscription history" });
+    }
+  });
+
+  // ============================================
+  // API Key Management (Professional+ tier)
+  // ============================================
+
+  // List organization's API keys (hide actual key hash)
+  app.get("/api/api-keys", isAuthenticated, requireFeature('api_access'), async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.session?.user?.id);
+      if (!user?.organizationId) {
+        return res.status(400).json({ message: "User not associated with an organization" });
+      }
+
+      if (user.role !== 'admin' && user.role !== 'super_admin') {
+        return res.status(403).json({ message: "Only admins can manage API keys" });
+      }
+
+      const apiKeys = await storage.getApiKeysByOrganization(user.organizationId);
+      
+      // Return keys without the hash (security)
+      const safeKeys = apiKeys.map(({ keyHash, ...rest }) => rest);
+      res.json(safeKeys);
+    } catch (error: any) {
+      console.error("Error fetching API keys:", error);
+      res.status(500).json({ message: error.message || "Failed to fetch API keys" });
+    }
+  });
+
+  // Create new API key (returns full key only once)
+  app.post("/api/api-keys", isAuthenticated, requireFeature('api_access'), async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.session?.user?.id);
+      if (!user?.organizationId) {
+        return res.status(400).json({ message: "User not associated with an organization" });
+      }
+
+      if (user.role !== 'admin' && user.role !== 'super_admin') {
+        return res.status(403).json({ message: "Only admins can create API keys" });
+      }
+
+      // Validate request body
+      const validatedData = insertApiKeySchema.parse({
+        ...req.body,
+        organizationId: user.organizationId,
+        createdBy: user.id,
+      });
+
+      // Generate a random 32-character API key
+      const rawKey = crypto.randomBytes(24).toString('base64').replace(/[^a-zA-Z0-9]/g, '').substring(0, 32);
+      const keyPrefix = rawKey.substring(0, 8);
+      
+      // Hash the full key with bcrypt
+      const keyHash = await bcrypt.hash(rawKey, 10);
+
+      // Create the API key in database
+      const apiKey = await storage.createApiKey({
+        ...validatedData,
+        keyPrefix,
+        keyHash,
+      });
+
+      await storage.createAuditLog({
+        userId: user.id,
+        action: "create",
+        entityType: "api_key",
+        entityId: apiKey.id,
+        newValues: { name: apiKey.name, keyPrefix },
+      });
+
+      // Return the full key only once (never stored in plain text)
+      const { keyHash: _, ...safeKey } = apiKey;
+      res.status(201).json({
+        ...safeKey,
+        key: rawKey, // Only returned on creation
+      });
+    } catch (error: any) {
+      console.error("Error creating API key:", error);
+      res.status(500).json({ message: error.message || "Failed to create API key" });
+    }
+  });
+
+  // Revoke/Delete API key
+  app.delete("/api/api-keys/:id", isAuthenticated, requireFeature('api_access'), async (req: any, res) => {
+    try {
+      const user = await storage.getUser(req.session?.user?.id);
+      if (!user?.organizationId) {
+        return res.status(400).json({ message: "User not associated with an organization" });
+      }
+
+      if (user.role !== 'admin' && user.role !== 'super_admin') {
+        return res.status(403).json({ message: "Only admins can revoke API keys" });
+      }
+
+      // Verify the key belongs to the user's organization
+      const existingKeys = await storage.getApiKeysByOrganization(user.organizationId);
+      const keyToDelete = existingKeys.find(k => k.id === req.params.id);
+      
+      if (!keyToDelete) {
+        return res.status(404).json({ message: "API key not found" });
+      }
+
+      await storage.deleteApiKey(req.params.id);
+
+      await storage.createAuditLog({
+        userId: user.id,
+        action: "delete",
+        entityType: "api_key",
+        entityId: req.params.id,
+        oldValues: { name: keyToDelete.name, keyPrefix: keyToDelete.keyPrefix },
+      });
+
+      res.json({ message: "API key revoked successfully" });
+    } catch (error: any) {
+      console.error("Error revoking API key:", error);
+      res.status(500).json({ message: error.message || "Failed to revoke API key" });
     }
   });
 
@@ -1750,7 +1886,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/billing-rates/:id", isAuthenticated, async (req, res) => {
+  app.put("/api/billing-rates/:id", isAuthenticated, requireFeature('billing_payroll'), async (req, res) => {
     try {
       const rate = await storage.updateOfficeMcoBillingRate(req.params.id, req.body);
       res.json(rate);
@@ -1760,7 +1896,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/billing-rates/:id", isAuthenticated, async (req, res) => {
+  app.delete("/api/billing-rates/:id", isAuthenticated, requireFeature('billing_payroll'), async (req, res) => {
     try {
       await storage.deleteOfficeMcoBillingRate(req.params.id);
       res.json({ message: "Billing rate deleted successfully" });
@@ -1817,7 +1953,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/master-week/:templateId/slots", isAuthenticated, async (req, res) => {
+  app.get("/api/master-week/:templateId/slots", isAuthenticated, requireFeature('advanced_scheduling'), async (req, res) => {
     try {
       const slots = await storage.getMasterWeekSlots(req.params.templateId);
       res.json(slots);
@@ -1827,7 +1963,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/master-week/:templateId/slots", isAuthenticated, async (req, res) => {
+  app.post("/api/master-week/:templateId/slots", isAuthenticated, requireFeature('advanced_scheduling'), async (req, res) => {
     try {
       const slot = await storage.createMasterWeekSlot({
         ...req.body,
@@ -1840,7 +1976,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/master-week/slots/:slotId", isAuthenticated, async (req, res) => {
+  app.delete("/api/master-week/slots/:slotId", isAuthenticated, requireFeature('advanced_scheduling'), async (req, res) => {
     try {
       await storage.deleteMasterWeekSlot(req.params.slotId);
       res.json({ message: "Slot deleted successfully" });
@@ -3333,7 +3469,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/master-week-templates", isAuthenticated, async (req: any, res) => {
+  app.post("/api/master-week-templates", isAuthenticated, requireFeature('advanced_scheduling'), async (req: any, res) => {
     try {
       const validatedData = insertMasterWeekTemplateSchema.parse({
         ...req.body,
@@ -3349,7 +3485,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/master-week-templates/:id", isAuthenticated, async (req, res) => {
+  app.put("/api/master-week-templates/:id", isAuthenticated, requireFeature('advanced_scheduling'), async (req, res) => {
     try {
       const validatedData = insertMasterWeekTemplateSchema.partial().parse({
         ...req.body,
@@ -3364,7 +3500,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/master-week-templates/:id", isAuthenticated, async (req, res) => {
+  app.delete("/api/master-week-templates/:id", isAuthenticated, requireFeature('advanced_scheduling'), async (req, res) => {
     try {
       await storage.deleteMasterWeekTemplate(req.params.id);
       res.status(204).send();
@@ -3375,7 +3511,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Master Week Slots
-  app.get("/api/master-week-templates/:templateId/slots", isAuthenticated, async (req, res) => {
+  app.get("/api/master-week-templates/:templateId/slots", isAuthenticated, requireFeature('advanced_scheduling'), async (req, res) => {
     try {
       const slots = await storage.getMasterWeekSlots(req.params.templateId);
       res.json(slots);
@@ -3385,7 +3521,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/master-week-slots", isAuthenticated, async (req: any, res) => {
+  app.post("/api/master-week-slots", isAuthenticated, requireFeature('advanced_scheduling'), async (req: any, res) => {
     try {
       const validatedData = insertMasterWeekSlotSchema.parse(req.body);
       const slot = await storage.createMasterWeekSlot(validatedData);
@@ -3396,7 +3532,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/master-week-slots/:id", isAuthenticated, async (req, res) => {
+  app.put("/api/master-week-slots/:id", isAuthenticated, requireFeature('advanced_scheduling'), async (req, res) => {
     try {
       const validatedData = insertMasterWeekSlotSchema.partial().parse(req.body);
       const slot = await storage.updateMasterWeekSlot(req.params.id, validatedData);
@@ -3407,7 +3543,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/master-week-slots/:id", isAuthenticated, async (req, res) => {
+  app.delete("/api/master-week-slots/:id", isAuthenticated, requireFeature('advanced_scheduling'), async (req, res) => {
     try {
       await storage.deleteMasterWeekSlot(req.params.id);
       res.status(204).send();
@@ -3506,7 +3642,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Master Week Rollover
-  app.post("/api/master-week-templates/:id/apply", isAuthenticated, async (req: any, res) => {
+  app.post("/api/master-week-templates/:id/apply", isAuthenticated, requireFeature('advanced_scheduling'), async (req: any, res) => {
     try {
       const { fromDate, toDate } = req.body;
       console.log("[Apply] Received request with fromDate:", fromDate, "toDate:", toDate);
@@ -3916,7 +4052,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/caregiver-compliance/:id", isAuthenticated, async (req, res) => {
+  app.get("/api/caregiver-compliance/:id", isAuthenticated, requireFeature('compliance_monitoring'), async (req, res) => {
     try {
       const item = await storage.getCaregiverCompliance(req.params.id);
       if (!item) {
@@ -3952,7 +4088,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/caregiver-compliance/:id", isAuthenticated, async (req: any, res) => {
+  app.put("/api/caregiver-compliance/:id", isAuthenticated, requireFeature('compliance_monitoring'), async (req: any, res) => {
     try {
       const { caregiverId, createdBy, ...updateData } = req.body;
       const coercedData = {
@@ -3971,7 +4107,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/caregiver-compliance/:id", isAuthenticated, async (req, res) => {
+  app.delete("/api/caregiver-compliance/:id", isAuthenticated, requireFeature('compliance_monitoring'), async (req, res) => {
     try {
       await storage.deleteCaregiverCompliance(req.params.id);
       res.status(204).send();
@@ -4146,7 +4282,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // EVV Data routes
-  app.get("/api/evv-data", isAuthenticated, async (req, res) => {
+  app.get("/api/evv-data", isAuthenticated, requireFeature('evv_tracking'), async (req, res) => {
     try {
       const { month, year, officeId } = req.query;
       let evvDataItems;
@@ -4170,7 +4306,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/evv-data/:id", isAuthenticated, async (req, res) => {
+  app.get("/api/evv-data/:id", isAuthenticated, requireFeature('evv_tracking'), async (req, res) => {
     try {
       const evvDataItem = await storage.getEvvData(req.params.id);
       if (!evvDataItem) {
@@ -4183,7 +4319,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/evv-data", isAuthenticated, async (req: any, res) => {
+  app.post("/api/evv-data", isAuthenticated, requireFeature('evv_tracking'), async (req: any, res) => {
     try {
       // Convert numeric fields to strings for Drizzle's numeric type
       const requestData = {
@@ -4211,7 +4347,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/evv-data/:id", isAuthenticated, async (req: any, res) => {
+  app.put("/api/evv-data/:id", isAuthenticated, requireFeature('evv_tracking'), async (req: any, res) => {
     try {
       const oldEvvData = await storage.getEvvData(req.params.id);
       if (!oldEvvData) {
@@ -4244,7 +4380,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/evv-data/:id", isAuthenticated, async (req: any, res) => {
+  app.delete("/api/evv-data/:id", isAuthenticated, requireFeature('evv_tracking'), async (req: any, res) => {
     try {
       const evvDataItem = await storage.getEvvData(req.params.id);
       if (!evvDataItem) {
@@ -5166,7 +5302,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     return new Date(billDate.getTime() + dueDays * 24 * 60 * 60 * 1000);
   };
 
-  app.get("/api/billing", isAuthenticated, async (req, res) => {
+  app.get("/api/billing", isAuthenticated, requireFeature('billing_payroll'), async (req, res) => {
     try {
       const { officeId } = req.query;
       const officeFilter = officeId && officeId !== 'all' ? String(officeId) : undefined;
@@ -5178,7 +5314,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/billing/:id", isAuthenticated, async (req, res) => {
+  app.get("/api/billing/:id", isAuthenticated, requireFeature('billing_payroll'), async (req, res) => {
     try {
       const record = await storage.getBillingRecord(req.params.id);
       if (!record) {
@@ -5191,7 +5327,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/billing", isAuthenticated, async (req: any, res) => {
+  app.post("/api/billing", isAuthenticated, requireFeature('billing_payroll'), async (req: any, res) => {
     try {
       const billDate = new Date(req.body.billDate);
       const dueDate = await calculateDueDate(req.body.mcoId, billDate);
@@ -5213,7 +5349,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/billing/:id", isAuthenticated, async (req: any, res) => {
+  app.put("/api/billing/:id", isAuthenticated, requireFeature('billing_payroll'), async (req: any, res) => {
     try {
       // Recalculate due date if MCO or billDate changed
       let dueDate;
@@ -5237,7 +5373,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/billing/:id", isAuthenticated, async (req, res) => {
+  app.delete("/api/billing/:id", isAuthenticated, requireFeature('billing_payroll'), async (req, res) => {
     try {
       await storage.deleteBillingRecord(req.params.id);
       res.status(204).send();
@@ -5325,7 +5461,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ==================== PAYROLL RUNS ROUTES ====================
-  app.get("/api/payroll", isAuthenticated, async (req, res) => {
+  app.get("/api/payroll", isAuthenticated, requireFeature('billing_payroll'), async (req, res) => {
     try {
       const officeId = req.query.officeId as string | undefined;
       const runs = await storage.getPayrollRuns(officeId);
@@ -5336,7 +5472,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/payroll/:id", isAuthenticated, async (req, res) => {
+  app.get("/api/payroll/:id", isAuthenticated, requireFeature('billing_payroll'), async (req, res) => {
     try {
       const run = await storage.getPayrollRun(req.params.id);
       if (!run) {
@@ -5350,7 +5486,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/payroll", isAuthenticated, async (req: any, res) => {
+  app.post("/api/payroll", isAuthenticated, requireFeature('billing_payroll'), async (req: any, res) => {
     try {
       const data = {
         ...req.body,
@@ -5367,7 +5503,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/payroll/:id", isAuthenticated, async (req: any, res) => {
+  app.put("/api/payroll/:id", isAuthenticated, requireFeature('billing_payroll'), async (req: any, res) => {
     try {
       const updateData = {
         ...req.body,
@@ -5387,7 +5523,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/payroll/:id", isAuthenticated, async (req, res) => {
+  app.delete("/api/payroll/:id", isAuthenticated, requireFeature('billing_payroll'), async (req, res) => {
     try {
       await storage.deletePayrollRun(req.params.id);
       res.status(204).send();
@@ -5398,7 +5534,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Payroll line items
-  app.post("/api/payroll/:runId/line-items", isAuthenticated, async (req, res) => {
+  app.post("/api/payroll/:runId/line-items", isAuthenticated, requireFeature('billing_payroll'), async (req, res) => {
     try {
       const item = await storage.createPayrollLineItem({
         ...req.body,
@@ -5411,7 +5547,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/payroll-line-items/:id", isAuthenticated, async (req, res) => {
+  app.put("/api/payroll-line-items/:id", isAuthenticated, requireFeature('billing_payroll'), async (req, res) => {
     try {
       const item = await storage.updatePayrollLineItem(req.params.id, req.body);
       res.json(item);
@@ -5421,7 +5557,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/payroll-line-items/:id", isAuthenticated, async (req, res) => {
+  app.delete("/api/payroll-line-items/:id", isAuthenticated, requireFeature('billing_payroll'), async (req, res) => {
     try {
       await storage.deletePayrollLineItem(req.params.id);
       res.status(204).send();
@@ -5434,7 +5570,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ==================== BILLING HOURS IMPORT/EXPORT ROUTES ====================
   
   // Import billing hours from spreadsheet
-  app.post("/api/payroll/:runId/import-hours", isAuthenticated, excelUpload.single("file"), async (req, res) => {
+  app.post("/api/payroll/:runId/import-hours", isAuthenticated, requireFeature('billing_payroll'), excelUpload.single("file"), async (req, res) => {
     try {
       const { runId } = req.params;
       const file = req.file;
@@ -5647,7 +5783,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Calculate overtime hours for a payroll run
-  app.post("/api/payroll/:runId/calculate-overtime", isAuthenticated, async (req, res) => {
+  app.post("/api/payroll/:runId/calculate-overtime", isAuthenticated, requireFeature('billing_payroll'), async (req, res) => {
     try {
       const { runId } = req.params;
       
@@ -5732,7 +5868,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Export payroll hours by caregiver with ADP code
-  app.get("/api/payroll/:runId/export-hours", isAuthenticated, async (req, res) => {
+  app.get("/api/payroll/:runId/export-hours", isAuthenticated, requireFeature('billing_payroll'), async (req, res) => {
     try {
       const { runId } = req.params;
       
@@ -5807,7 +5943,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get time entries for a payroll run
-  app.get("/api/payroll/:runId/time-entries", isAuthenticated, async (req, res) => {
+  app.get("/api/payroll/:runId/time-entries", isAuthenticated, requireFeature('billing_payroll'), async (req, res) => {
     try {
       const entries = await storage.getTimeEntriesByPayrollRun(req.params.runId);
       res.json(entries);
@@ -5818,7 +5954,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ==================== PAYROLL HOLIDAYS ROUTES ====================
-  app.get("/api/payroll-holidays", isAuthenticated, async (req, res) => {
+  app.get("/api/payroll-holidays", isAuthenticated, requireFeature('billing_payroll'), async (req, res) => {
     try {
       const officeId = req.query.officeId as string;
       const year = req.query.year ? parseInt(req.query.year as string) : undefined;
@@ -5836,7 +5972,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/payroll-holidays", isAuthenticated, async (req, res) => {
+  app.post("/api/payroll-holidays", isAuthenticated, requireFeature('billing_payroll'), async (req, res) => {
     try {
       const data = {
         ...req.body,
@@ -5851,7 +5987,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/payroll-holidays/:id", isAuthenticated, async (req, res) => {
+  app.put("/api/payroll-holidays/:id", isAuthenticated, requireFeature('billing_payroll'), async (req, res) => {
     try {
       const data = {
         ...req.body,
@@ -5865,7 +6001,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/payroll-holidays/:id", isAuthenticated, async (req, res) => {
+  app.delete("/api/payroll-holidays/:id", isAuthenticated, requireFeature('billing_payroll'), async (req, res) => {
     try {
       await storage.deletePayrollHoliday(req.params.id);
       res.status(204).send();
@@ -6759,7 +6895,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get EVV compliance statistics
-  app.get("/api/evv/compliance", isAuthenticated, async (req, res) => {
+  app.get("/api/evv/compliance", isAuthenticated, requireFeature('evv_tracking'), async (req, res) => {
     try {
       const { officeId, startDate, endDate } = req.query;
       
@@ -6891,19 +7027,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
         try {
           const paycheck = await storage.createCaregiverPaycheck({
             caregiverId: matchedCaregiver.id,
-            payPeriodStart: data.payPeriodStart ? new Date(data.payPeriodStart) : null,
-            payPeriodEnd: data.payPeriodEnd ? new Date(data.payPeriodEnd) : null,
-            payDate: data.payDate ? new Date(data.payDate) : null,
-            regularHours: data.regularHours?.toString() || null,
-            overtimeHours: data.overtimeHours?.toString() || null,
-            grossPay: data.grossPay?.toString() || null,
-            netPay: data.netPay?.toString() || null,
-            federalTax: data.federalTax?.toString() || null,
-            stateTax: data.stateTax?.toString() || null,
-            socialSecurity: data.socialSecurity?.toString() || null,
-            medicare: data.medicare?.toString() || null,
-            otherDeductions: data.otherDeductions?.toString() || null,
-            checkNumber: data.checkNumber || null,
+            payPeriodStart: data.payPeriodStart ? new Date(data.payPeriodStart) : new Date(),
+            payPeriodEnd: data.payPeriodEnd ? new Date(data.payPeriodEnd) : new Date(),
+            payDate: data.payDate ? new Date(data.payDate) : new Date(),
+            regularHours: data.regularHours?.toString() ?? undefined,
+            overtimeHours: data.overtimeHours?.toString() ?? undefined,
+            grossPay: data.grossPay?.toString() || '0',
+            netPay: data.netPay?.toString() || '0',
+            federalTax: data.federalTax?.toString() ?? undefined,
+            stateTax: data.stateTax?.toString() ?? undefined,
+            socialSecurity: data.socialSecurity?.toString() ?? undefined,
+            medicare: data.medicare?.toString() ?? undefined,
+            otherDeductions: data.otherDeductions?.toString() ?? undefined,
+            checkNumber: data.checkNumber ?? undefined,
             notes: `Extracted from bulk paystub upload (page ${pageNumber})`,
           });
 
@@ -9611,7 +9747,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   }
 
   // Get all KPIs combined
-  app.get("/api/analytics/kpis", isAuthenticated, async (req, res) => {
+  app.get("/api/analytics/kpis", isAuthenticated, requireFeature('analytics_dashboard'), async (req, res) => {
     try {
       const officeId = parseOfficeId(req);
       const dateRange = parseDateRange(req);
@@ -9624,7 +9760,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get operational KPIs
-  app.get("/api/analytics/operational", isAuthenticated, async (req, res) => {
+  app.get("/api/analytics/operational", isAuthenticated, requireFeature('analytics_dashboard'), async (req, res) => {
     try {
       const officeId = parseOfficeId(req);
       const dateRange = parseDateRange(req);
@@ -9637,7 +9773,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get financial KPIs
-  app.get("/api/analytics/financial", isAuthenticated, async (req, res) => {
+  app.get("/api/analytics/financial", isAuthenticated, requireFeature('analytics_dashboard'), async (req, res) => {
     try {
       const officeId = parseOfficeId(req);
       const dateRange = parseDateRange(req);
@@ -9650,7 +9786,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get compliance KPIs
-  app.get("/api/analytics/compliance", isAuthenticated, async (req, res) => {
+  app.get("/api/analytics/compliance", isAuthenticated, requireFeature('analytics_dashboard'), async (req, res) => {
     try {
       const officeId = parseOfficeId(req);
       const dateRange = parseDateRange(req);
@@ -9663,7 +9799,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get staffing KPIs
-  app.get("/api/analytics/staffing", isAuthenticated, async (req, res) => {
+  app.get("/api/analytics/staffing", isAuthenticated, requireFeature('analytics_dashboard'), async (req, res) => {
     try {
       const officeId = parseOfficeId(req);
       const dateRange = parseDateRange(req);
@@ -9676,7 +9812,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get trend data for specific metric
-  app.get("/api/analytics/trends/:metric", isAuthenticated, async (req, res) => {
+  app.get("/api/analytics/trends/:metric", isAuthenticated, requireFeature('analytics_dashboard'), async (req, res) => {
     try {
       const { metric } = req.params;
       const officeId = parseOfficeId(req);
@@ -9696,7 +9832,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get forecast for specific metric
-  app.get("/api/analytics/forecast/:metric", isAuthenticated, async (req, res) => {
+  app.get("/api/analytics/forecast/:metric", isAuthenticated, requireFeature('analytics_dashboard'), async (req, res) => {
     try {
       const { metric } = req.params;
       const officeId = parseOfficeId(req);
@@ -9716,7 +9852,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get combined dashboard analytics data
-  app.get("/api/analytics/dashboard", isAuthenticated, async (req, res) => {
+  app.get("/api/analytics/dashboard", isAuthenticated, requireFeature('analytics_dashboard'), async (req, res) => {
     try {
       const officeId = parseOfficeId(req);
       const dateRange = parseDateRange(req);

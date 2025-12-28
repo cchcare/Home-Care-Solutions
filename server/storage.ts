@@ -302,6 +302,9 @@ import {
   exclusionReports,
   type ExclusionReport,
   type InsertExclusionReport,
+  apiKeys,
+  type ApiKey,
+  type InsertApiKey,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, asc, and, or, count, sql, like, gte, lte, inArray } from "drizzle-orm";
@@ -1025,6 +1028,14 @@ export interface IStorage {
   updateHhaxSyncLog(id: string, log: Partial<InsertHhaxSyncLog>): Promise<HhaxSyncLog>;
   getHhaxSyncLogs(limit?: number): Promise<HhaxSyncLog[]>;
   createSchedule(schedule: { clientId: string; caregiverId: string; officeId?: string | null; date: Date; startTime: string; endTime: string; status: string; notes?: string }): Promise<ClientSchedule>;
+
+  // API Key operations
+  createApiKey(data: InsertApiKey): Promise<ApiKey>;
+  getApiKeysByOrganization(organizationId: string): Promise<ApiKey[]>;
+  getApiKeyByPrefix(prefix: string): Promise<ApiKey | null>;
+  updateApiKey(id: string, data: Partial<ApiKey>): Promise<ApiKey>;
+  deleteApiKey(id: string): Promise<void>;
+  incrementApiKeyRequestCount(id: string): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -5608,10 +5619,10 @@ export class DatabaseStorage implements IStorage {
   }> {
     const conditions = [];
     if (startDate) {
-      conditions.push(gte(clientSchedules.scheduleDate, startDate));
+      conditions.push(gte(clientSchedules.scheduledDate, startDate));
     }
     if (endDate) {
-      conditions.push(lte(clientSchedules.scheduleDate, endDate));
+      conditions.push(lte(clientSchedules.scheduledDate, endDate));
     }
 
     let allSchedules;
@@ -5623,7 +5634,7 @@ export class DatabaseStorage implements IStorage {
 
     if (officeId) {
       const clientIds = (await db.select({ id: clients.id }).from(clients).where(eq(clients.officeId, officeId))).map(c => c.id);
-      allSchedules = allSchedules.filter(s => clientIds.includes(s.clientId));
+      allSchedules = allSchedules.filter(s => s.clientId && clientIds.includes(s.clientId));
     }
 
     const completed = allSchedules.filter(s => s.status === 'completed').length;
@@ -5686,14 +5697,14 @@ export class DatabaseStorage implements IStorage {
 
     let compliantCount = 0;
     for (const caregiver of activeCaregivers) {
-      const complianceItems = await db.select().from(complianceItems).where(
+      const caregiverComplianceItems = await db.select().from(complianceItems).where(
         eq(complianceItems.caregiverId, caregiver.id)
       );
-      const compliant = complianceItems.every(item => 
+      const compliant = caregiverComplianceItems.every((item: any) => 
         item.status === 'compliant' || 
         (item.dueDate && new Date(item.dueDate) > new Date())
       );
-      if (compliant || complianceItems.length === 0) {
+      if (compliant || caregiverComplianceItems.length === 0) {
         compliantCount++;
       }
     }
@@ -6346,6 +6357,52 @@ export class DatabaseStorage implements IStorage {
   async createSubscriptionHistory(record: InsertSubscriptionHistoryRecord): Promise<SubscriptionHistoryRecord> {
     const [created] = await db.insert(subscriptionHistory).values(record).returning();
     return created;
+  }
+
+  // ============================================
+  // API Keys
+  // ============================================
+
+  async createApiKey(data: InsertApiKey): Promise<ApiKey> {
+    const [created] = await db.insert(apiKeys).values(data).returning();
+    return created;
+  }
+
+  async getApiKeysByOrganization(organizationId: string): Promise<ApiKey[]> {
+    return db.select().from(apiKeys)
+      .where(eq(apiKeys.organizationId, organizationId))
+      .orderBy(desc(apiKeys.createdAt));
+  }
+
+  async getApiKeyByPrefix(prefix: string): Promise<ApiKey | null> {
+    const [key] = await db.select().from(apiKeys)
+      .where(and(
+        eq(apiKeys.keyPrefix, prefix),
+        eq(apiKeys.isActive, true)
+      ));
+    return key || null;
+  }
+
+  async updateApiKey(id: string, data: Partial<ApiKey>): Promise<ApiKey> {
+    const [updated] = await db.update(apiKeys)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(apiKeys.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteApiKey(id: string): Promise<void> {
+    await db.delete(apiKeys).where(eq(apiKeys.id, id));
+  }
+
+  async incrementApiKeyRequestCount(id: string): Promise<void> {
+    await db.update(apiKeys)
+      .set({ 
+        requestCount: sql`${apiKeys.requestCount} + 1`,
+        lastUsedAt: new Date(),
+        updatedAt: new Date()
+      })
+      .where(eq(apiKeys.id, id));
   }
 }
 
