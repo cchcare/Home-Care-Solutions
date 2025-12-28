@@ -3166,3 +3166,223 @@ export const subscriptionHistoryRelations = relations(subscriptionHistory, ({ on
 export type SubscriptionHistoryRecord = typeof subscriptionHistory.$inferSelect;
 export type InsertSubscriptionHistoryRecord = typeof subscriptionHistory.$inferInsert;
 export const insertSubscriptionHistorySchema = createInsertSchema(subscriptionHistory).omit({ id: true, createdAt: true });
+
+// ============================================
+// Feature Access Control
+// ============================================
+
+// Subscription Features - All gatable features in the system
+export const subscriptionFeatures = pgTable("subscription_features", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  key: varchar("key").unique().notNull(), // e.g., "evv_tracking", "billing_payroll"
+  name: varchar("name").notNull(),
+  description: text("description"),
+  category: varchar("category"), // "core", "compliance", "billing", "advanced"
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_subscription_features_key").on(table.key),
+]);
+
+export type SubscriptionFeature = typeof subscriptionFeatures.$inferSelect;
+export type InsertSubscriptionFeature = typeof subscriptionFeatures.$inferInsert;
+export const insertSubscriptionFeatureSchema = createInsertSchema(subscriptionFeatures).omit({ id: true, createdAt: true });
+
+// Plan Features - Mapping between plans and features they include
+export const planFeatures = pgTable("plan_features", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  planId: varchar("plan_id").references(() => subscriptionPlans.id).notNull(),
+  featureId: varchar("feature_id").references(() => subscriptionFeatures.id).notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_plan_features_plan").on(table.planId),
+  index("idx_plan_features_feature").on(table.featureId),
+]);
+
+export const planFeaturesRelations = relations(planFeatures, ({ one }) => ({
+  plan: one(subscriptionPlans, { fields: [planFeatures.planId], references: [subscriptionPlans.id] }),
+  feature: one(subscriptionFeatures, { fields: [planFeatures.featureId], references: [subscriptionFeatures.id] }),
+}));
+
+export type PlanFeature = typeof planFeatures.$inferSelect;
+export type InsertPlanFeature = typeof planFeatures.$inferInsert;
+export const insertPlanFeatureSchema = createInsertSchema(planFeatures).omit({ id: true, createdAt: true });
+
+// ============================================
+// External API Access
+// ============================================
+
+// API Keys for external integrations
+export const apiKeys = pgTable("api_keys", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id").references(() => organizations.id).notNull(),
+  name: varchar("name").notNull(), // User-friendly name for the key
+  keyPrefix: varchar("key_prefix").notNull(), // First 8 chars for identification
+  keyHash: varchar("key_hash").notNull(), // Hashed API key for verification
+  scopes: text("scopes").array(), // ["read:clients", "write:clients", etc.]
+  lastUsedAt: timestamp("last_used_at"),
+  expiresAt: timestamp("expires_at"),
+  isActive: boolean("is_active").default(true),
+  requestCount: integer("request_count").default(0),
+  rateLimit: integer("rate_limit").default(1000), // requests per hour
+  createdBy: varchar("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_api_keys_organization").on(table.organizationId),
+  index("idx_api_keys_prefix").on(table.keyPrefix),
+]);
+
+export const apiKeysRelations = relations(apiKeys, ({ one }) => ({
+  organization: one(organizations, { fields: [apiKeys.organizationId], references: [organizations.id] }),
+  creator: one(users, { fields: [apiKeys.createdBy], references: [users.id] }),
+}));
+
+export type ApiKey = typeof apiKeys.$inferSelect;
+export type InsertApiKey = typeof apiKeys.$inferInsert;
+export const insertApiKeySchema = createInsertSchema(apiKeys).omit({ id: true, createdAt: true, updatedAt: true, requestCount: true, lastUsedAt: true });
+
+// API Usage Logs
+export const apiUsageLogs = pgTable("api_usage_logs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  apiKeyId: varchar("api_key_id").references(() => apiKeys.id).notNull(),
+  organizationId: varchar("organization_id").references(() => organizations.id).notNull(),
+  endpoint: varchar("endpoint").notNull(),
+  method: varchar("method").notNull(),
+  statusCode: integer("status_code"),
+  responseTime: integer("response_time"), // in milliseconds
+  ipAddress: varchar("ip_address"),
+  userAgent: text("user_agent"),
+  requestBody: jsonb("request_body"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_api_usage_logs_key").on(table.apiKeyId),
+  index("idx_api_usage_logs_org").on(table.organizationId),
+  index("idx_api_usage_logs_created").on(table.createdAt),
+]);
+
+export type ApiUsageLog = typeof apiUsageLogs.$inferSelect;
+export type InsertApiUsageLog = typeof apiUsageLogs.$inferInsert;
+export const insertApiUsageLogSchema = createInsertSchema(apiUsageLogs).omit({ id: true, createdAt: true });
+
+// ============================================
+// Support Tickets System
+// ============================================
+
+export const ticketStatusEnum = pgEnum("ticket_status", ["open", "in_progress", "waiting_on_customer", "resolved", "closed"]);
+export const ticketPriorityEnum = pgEnum("ticket_priority", ["low", "medium", "high", "urgent"]);
+
+export const supportTickets = pgTable("support_tickets", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id").references(() => organizations.id).notNull(),
+  userId: varchar("user_id").references(() => users.id).notNull(),
+  subject: varchar("subject").notNull(),
+  description: text("description").notNull(),
+  status: ticketStatusEnum("status").default("open"),
+  priority: ticketPriorityEnum("priority").default("medium"),
+  category: varchar("category"), // "technical", "billing", "feature_request", "general"
+  assignedTo: varchar("assigned_to"),
+  resolvedAt: timestamp("resolved_at"),
+  closedAt: timestamp("closed_at"),
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_support_tickets_org").on(table.organizationId),
+  index("idx_support_tickets_user").on(table.userId),
+  index("idx_support_tickets_status").on(table.status),
+]);
+
+export const supportTicketsRelations = relations(supportTickets, ({ one, many }) => ({
+  organization: one(organizations, { fields: [supportTickets.organizationId], references: [organizations.id] }),
+  user: one(users, { fields: [supportTickets.userId], references: [users.id] }),
+  messages: many(ticketMessages),
+}));
+
+export type SupportTicket = typeof supportTickets.$inferSelect;
+export type InsertSupportTicket = typeof supportTickets.$inferInsert;
+export const insertSupportTicketSchema = createInsertSchema(supportTickets).omit({ id: true, createdAt: true, updatedAt: true, resolvedAt: true, closedAt: true });
+
+// Ticket Messages - Replies on support tickets
+export const ticketMessages = pgTable("ticket_messages", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  ticketId: varchar("ticket_id").references(() => supportTickets.id).notNull(),
+  userId: varchar("user_id").references(() => users.id),
+  isStaffReply: boolean("is_staff_reply").default(false),
+  message: text("message").notNull(),
+  attachments: jsonb("attachments"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_ticket_messages_ticket").on(table.ticketId),
+]);
+
+export const ticketMessagesRelations = relations(ticketMessages, ({ one }) => ({
+  ticket: one(supportTickets, { fields: [ticketMessages.ticketId], references: [supportTickets.id] }),
+  user: one(users, { fields: [ticketMessages.userId], references: [users.id] }),
+}));
+
+export type TicketMessage = typeof ticketMessages.$inferSelect;
+export type InsertTicketMessage = typeof ticketMessages.$inferInsert;
+export const insertTicketMessageSchema = createInsertSchema(ticketMessages).omit({ id: true, createdAt: true });
+
+// ============================================
+// Custom Integrations (Enterprise)
+// ============================================
+
+export const integrationStatusEnum = pgEnum("integration_status", ["pending", "active", "error", "disabled"]);
+
+export const customIntegrations = pgTable("custom_integrations", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id").references(() => organizations.id).notNull(),
+  name: varchar("name").notNull(),
+  type: varchar("type").notNull(), // "webhook", "sftp", "api", "ehr"
+  status: integrationStatusEnum("status").default("pending"),
+  config: jsonb("config"), // Integration-specific configuration
+  credentials: jsonb("credentials"), // Encrypted credentials
+  lastSyncAt: timestamp("last_sync_at"),
+  lastError: text("last_error"),
+  syncFrequency: varchar("sync_frequency"), // "realtime", "hourly", "daily"
+  isActive: boolean("is_active").default(true),
+  createdBy: varchar("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_custom_integrations_org").on(table.organizationId),
+  index("idx_custom_integrations_type").on(table.type),
+]);
+
+export const customIntegrationsRelations = relations(customIntegrations, ({ one }) => ({
+  organization: one(organizations, { fields: [customIntegrations.organizationId], references: [organizations.id] }),
+  creator: one(users, { fields: [customIntegrations.createdBy], references: [users.id] }),
+}));
+
+export type CustomIntegration = typeof customIntegrations.$inferSelect;
+export type InsertCustomIntegration = typeof customIntegrations.$inferInsert;
+export const insertCustomIntegrationSchema = createInsertSchema(customIntegrations).omit({ id: true, createdAt: true, updatedAt: true, lastSyncAt: true, lastError: true });
+
+// ============================================
+// Documentation Articles (Help Center)
+// ============================================
+
+export const helpArticles = pgTable("help_articles", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  slug: varchar("slug").unique().notNull(),
+  title: varchar("title").notNull(),
+  content: text("content").notNull(), // Markdown content
+  category: varchar("category").notNull(), // "getting-started", "clients", "caregivers", etc.
+  subcategory: varchar("subcategory"),
+  order: integer("order").default(0),
+  isPublished: boolean("is_published").default(true),
+  featuredImage: varchar("featured_image"),
+  tags: text("tags").array(),
+  viewCount: integer("view_count").default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_help_articles_slug").on(table.slug),
+  index("idx_help_articles_category").on(table.category),
+]);
+
+export type HelpArticle = typeof helpArticles.$inferSelect;
+export type InsertHelpArticle = typeof helpArticles.$inferInsert;
+export const insertHelpArticleSchema = createInsertSchema(helpArticles).omit({ id: true, createdAt: true, updatedAt: true, viewCount: true });

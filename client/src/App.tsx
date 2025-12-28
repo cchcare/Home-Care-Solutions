@@ -41,6 +41,7 @@ import ExclusionVerification from "@/pages/exclusion-verification";
 import Pricing from "@/pages/pricing";
 import Signup from "@/pages/signup";
 import SignupSuccess from "@/pages/signup-success";
+import SupportCenter from "@/pages/support-center";
 
 function Router() {
   const { isAuthenticated, isLoading, error } = useAuth();
@@ -66,6 +67,7 @@ function Router() {
       <Route path="/pricing" component={Pricing} />
       <Route path="/signup" component={Signup} />
       <Route path="/signup/success" component={SignupSuccess} />
+      <Route path="/support-center" component={SupportCenter} />
       {!isAuthenticated ? (
         <Route path="/" component={Landing} />
       ) : (
