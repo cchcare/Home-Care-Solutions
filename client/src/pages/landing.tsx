@@ -410,17 +410,15 @@ export default function Landing() {
               <h1 className="text-2xl font-bold text-foreground">Home Care</h1>
             </div>
             <div className="flex items-center gap-4">
-              <Link href="/pricing">
-                <a className="text-sm text-muted-foreground hover:text-foreground" data-testid="link-pricing">
-                  Pricing
-                </a>
+              <Link href="/pricing" className="text-sm text-muted-foreground hover:text-foreground" data-testid="link-pricing">
+                Pricing
               </Link>
               <Button onClick={() => setShowLoginForm(true)} variant="outline" data-testid="button-login">
                 Sign In
               </Button>
-              <Link href="/pricing">
-                <Button data-testid="button-get-started-header">Get Started</Button>
-              </Link>
+              <Button onClick={() => window.location.href = '/pricing'} data-testid="button-get-started-header">
+                Get Started
+              </Button>
             </div>
           </div>
         </div>
@@ -435,15 +433,14 @@ export default function Landing() {
             HIPAA-compliant management system for client care, caregiver coordination, 
             and regulatory compliance. Everything you need in one secure platform.
           </p>
-          <Link href="/pricing">
-            <Button 
-              size="lg" 
-              className="px-8 py-3 text-lg"
-              data-testid="button-get-started"
-            >
-              Get Started
-            </Button>
-          </Link>
+          <Button 
+            size="lg" 
+            className="px-8 py-3 text-lg"
+            onClick={() => window.location.href = '/pricing'}
+            data-testid="button-get-started"
+          >
+            Get Started
+          </Button>
         </div>
       </section>
 

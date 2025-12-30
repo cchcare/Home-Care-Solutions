@@ -2128,10 +2128,27 @@ export default function CaregiverProfile() {
                                         </div>
                                       </div>
                                       <div className="flex gap-2">
-                                        <Button variant="ghost" size="icon" data-testid={`button-view-doc-${doc.id}`}>
+                                        <Button 
+                                          variant="ghost" 
+                                          size="icon" 
+                                          onClick={() => window.open(`/api/documents/${doc.id}/view`, '_blank')}
+                                          data-testid={`button-view-doc-${doc.id}`}
+                                        >
                                           <Eye className="w-4 h-4" />
                                         </Button>
-                                        <Button variant="ghost" size="icon" data-testid={`button-download-doc-${doc.id}`}>
+                                        <Button 
+                                          variant="ghost" 
+                                          size="icon" 
+                                          onClick={() => {
+                                            const link = document.createElement('a');
+                                            link.href = `/api/documents/${doc.id}/download`;
+                                            link.download = doc.originalName || doc.fileName;
+                                            document.body.appendChild(link);
+                                            link.click();
+                                            document.body.removeChild(link);
+                                          }}
+                                          data-testid={`button-download-doc-${doc.id}`}
+                                        >
                                           <Download className="w-4 h-4" />
                                         </Button>
                                         <Button
