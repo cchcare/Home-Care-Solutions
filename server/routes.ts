@@ -7,6 +7,7 @@ import multer from "multer";
 import crypto from "crypto";
 import path from "path";
 import fs from "fs";
+import PDFDocument from "pdfkit";
 import {
   insertOfficeSchema,
   insertClientSchema,
@@ -1195,6 +1196,163 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error fetching caregiver:", error);
       res.status(500).json({ message: "Failed to fetch caregiver" });
+    }
+  });
+
+  // Generate Employment Verification Letter for Caregiver
+  app.post("/api/caregivers/:id/employment-verification-letter", isAuthenticated, async (req: any, res) => {
+    try {
+      const caregiver = await storage.getCaregiver(req.params.id);
+      if (!caregiver) {
+        return res.status(404).json({ message: "Caregiver not found" });
+      }
+
+      // Get office information
+      const office = caregiver.officeId ? await storage.getOffice(caregiver.officeId) : null;
+      
+      // Create PDF document
+      const doc = new PDFDocument({ margin: 50 });
+      
+      // Generate unique filename
+      const timestamp = Date.now();
+      const fileName = `employment_verification_${caregiver.id}_${timestamp}.pdf`;
+      const filePath = path.join("uploads", fileName);
+      
+      // Create write stream
+      const writeStream = fs.createWriteStream(filePath);
+      doc.pipe(writeStream);
+
+      // Add logo if available
+      if (office?.logoFileName) {
+        const logoPath = path.join("uploads", office.logoFileName);
+        if (fs.existsSync(logoPath)) {
+          doc.image(logoPath, 50, 45, { width: 100 });
+          doc.moveDown(4);
+        }
+      }
+
+      // Office header info
+      doc.fontSize(16).font('Helvetica-Bold');
+      doc.text(office?.name || 'Home Care Agency', { align: 'center' });
+      doc.fontSize(10).font('Helvetica');
+      
+      if (office?.address) {
+        const fullAddress = [
+          office.address,
+          office.city && office.state ? `${office.city}, ${office.state} ${office.zipCode || ''}` : ''
+        ].filter(Boolean).join('\n');
+        doc.text(fullAddress, { align: 'center' });
+      }
+      if (office?.phone) doc.text(`Phone: ${office.phone}`, { align: 'center' });
+      if (office?.email) doc.text(`Email: ${office.email}`, { align: 'center' });
+      if (office?.website) doc.text(`Website: ${office.website}`, { align: 'center' });
+      
+      doc.moveDown(2);
+      
+      // Line separator
+      doc.moveTo(50, doc.y).lineTo(550, doc.y).stroke();
+      doc.moveDown(2);
+      
+      // Letter title
+      doc.fontSize(14).font('Helvetica-Bold');
+      doc.text('EMPLOYMENT VERIFICATION LETTER', { align: 'center' });
+      doc.moveDown(2);
+      
+      // Date
+      doc.fontSize(11).font('Helvetica');
+      const today = new Date().toLocaleDateString('en-US', { 
+        year: 'numeric', 
+        month: 'long', 
+        day: 'numeric' 
+      });
+      doc.text(`Date: ${today}`);
+      doc.moveDown(2);
+      
+      // Greeting
+      doc.text('To Whom It May Concern:');
+      doc.moveDown();
+      
+      // Caregiver full name
+      const caregiverName = [caregiver.firstName, caregiver.middleName, caregiver.lastName]
+        .filter(Boolean)
+        .join(' ');
+      
+      // Format start date
+      const startDate = caregiver.startDate 
+        ? new Date(caregiver.startDate).toLocaleDateString('en-US', { 
+            year: 'numeric', 
+            month: 'long', 
+            day: 'numeric' 
+          })
+        : 'N/A';
+      
+      // Format hourly wage
+      const hourlyWage = caregiver.hourlyWage 
+        ? `$${parseFloat(caregiver.hourlyWage).toFixed(2)}` 
+        : 'N/A';
+      
+      // Body paragraph
+      doc.text(
+        `This letter is to confirm that ${caregiverName || 'the above-named individual'} is currently employed ` +
+        `with ${office?.name || 'our organization'} as a Home Care Aide.`,
+        { lineGap: 4 }
+      );
+      doc.moveDown();
+      
+      doc.text(`Employment Start Date: ${startDate}`);
+      doc.text(`Current Hourly Rate: ${hourlyWage}`);
+      doc.text(`Employment Status: ${caregiver.isActive ? 'Active' : 'Inactive'}`);
+      doc.moveDown();
+      
+      if (caregiver.employeeId) {
+        doc.text(`Employee ID: ${caregiver.employeeId}`);
+        doc.moveDown();
+      }
+      
+      doc.text(
+        'If you require any additional information regarding this employee, please do not hesitate to contact us.',
+        { lineGap: 4 }
+      );
+      doc.moveDown(2);
+      
+      // Closing
+      doc.text('Sincerely,');
+      doc.moveDown(3);
+      doc.text('_____________________________');
+      doc.text('Authorized Representative');
+      doc.text(office?.name || 'Home Care Agency');
+      
+      // Finalize PDF
+      doc.end();
+      
+      // Wait for write to complete
+      await new Promise<void>((resolve, reject) => {
+        writeStream.on('finish', resolve);
+        writeStream.on('error', reject);
+      });
+      
+      // Save document record
+      const encryptionKey = crypto.randomBytes(32).toString("hex");
+      const document = await storage.createDocument({
+        caregiverId: caregiver.id,
+        uploadedBy: req.session?.user?.id,
+        officeId: caregiver.officeId || null,
+        fileName: fileName,
+        originalName: `Employment_Verification_${caregiverName.replace(/\s+/g, '_')}.pdf`,
+        fileType: 'application/pdf',
+        fileSize: fs.statSync(filePath).size,
+        documentType: 'employment_verification',
+        encryptionKey,
+      });
+      
+      res.status(201).json({ 
+        success: true, 
+        document,
+        message: 'Employment verification letter generated successfully'
+      });
+    } catch (error) {
+      console.error("Error generating employment verification letter:", error);
+      res.status(500).json({ message: "Failed to generate employment verification letter" });
     }
   });
 

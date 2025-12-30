@@ -81,6 +81,7 @@ import type { Caregiver, User as UserType, Document, Office, Client, ComplianceI
 type EnrichedCaregiver = Caregiver & { firstName?: string | null; lastName?: string | null; email?: string | null };
 
 const DOCUMENT_CATEGORIES = [
+  { value: "employment_verification", label: "Employment Verification" },
   { value: "id_card", label: "ID Card" },
   { value: "drivers_license", label: "Driver's License" },
   { value: "social_security", label: "Social Security Card" },
@@ -360,6 +361,24 @@ export default function CaregiverProfile() {
     },
     onError: () => {
       toast({ title: "Error", description: "Failed to upload document", variant: "destructive" });
+    },
+  });
+
+  const generateVerificationLetterMutation = useMutation({
+    mutationFn: async () => {
+      const response = await fetch(`/api/caregivers/${caregiverId}/employment-verification-letter`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+      if (!response.ok) throw new Error("Failed to generate letter");
+      return response.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/caregivers", caregiverId, "documents"] });
+      toast({ title: "Success", description: "Employment verification letter generated and saved to documents" });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to generate employment verification letter", variant: "destructive" });
     },
   });
 
@@ -2067,6 +2086,23 @@ export default function CaregiverProfile() {
                             <Upload className="w-4 h-4 mr-2" />
                             Upload
                           </Button>
+                        </div>
+                      </div>
+
+                      <div className="mb-6 p-4 border rounded-lg bg-blue-50 dark:bg-blue-950/30">
+                        <h4 className="font-medium mb-3">Generate Documents</h4>
+                        <div className="flex gap-4 items-center flex-wrap">
+                          <Button
+                            onClick={() => generateVerificationLetterMutation.mutate()}
+                            disabled={generateVerificationLetterMutation.isPending}
+                            data-testid="button-generate-verification-letter"
+                          >
+                            <FileText className="w-4 h-4 mr-2" />
+                            {generateVerificationLetterMutation.isPending ? "Generating..." : "Generate Employment Verification Letter"}
+                          </Button>
+                          <p className="text-sm text-muted-foreground">
+                            Creates a PDF letter with caregiver's start date, hourly rate, and office contact info.
+                          </p>
                         </div>
                       </div>
 
