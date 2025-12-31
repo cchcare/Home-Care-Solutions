@@ -11358,10 +11358,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/letter-templates", isAuthenticated, async (req: any, res) => {
     try {
       const user = req.user;
-      const officeId = req.query.officeId || user.primaryOfficeId;
+      const officeId = req.query.officeId || user.primaryOfficeId || undefined;
       const templates = await storage.getLetterTemplates(officeId);
       res.json(templates);
     } catch (error: any) {
+      console.error("Error fetching letter templates:", error);
       res.status(500).json({ message: error.message || "Failed to fetch letter templates" });
     }
   });
@@ -11403,14 +11404,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!['super_admin', 'admin', 'office_admin'].includes(user.role)) {
         return res.status(403).json({ message: "Only administrators can create letter templates" });
       }
+      
+      // Validate required fields
+      if (!req.body.name || !req.body.htmlContent) {
+        return res.status(400).json({ message: "Name and HTML content are required" });
+      }
+      
       const template = await storage.createLetterTemplate({
-        ...req.body,
-        officeId: req.body.officeId || user.primaryOfficeId,
+        name: req.body.name,
+        description: req.body.description || null,
+        scope: req.body.scope || "general",
+        category: req.body.category || null,
+        status: req.body.status || "draft",
+        htmlContent: req.body.htmlContent,
+        themeSettings: req.body.themeSettings || null,
+        placeholders: req.body.placeholders || null,
+        isDefault: req.body.isDefault || false,
+        officeId: req.body.officeId || user.primaryOfficeId || null,
         createdBy: user.id,
         updatedBy: user.id,
       });
       res.status(201).json(template);
     } catch (error: any) {
+      console.error("Error creating letter template:", error);
       res.status(500).json({ message: error.message || "Failed to create template" });
     }
   });
@@ -11899,7 +11915,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Build payload from request body with proper date conversion
       const payload: any = {
-        officeId: req.body.officeId || user.officeId || (await storage.getOffices())[0]?.id,
+        officeId: req.body.officeId || user.officeId || user.primaryOfficeId || (await storage.getAllOffices())[0]?.id,
         payPeriodStart,
         payPeriodEnd,
         paycheckDate,
@@ -12022,8 +12038,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       let lastSync: string | null = null;
       try {
         const syncSetting = await storage.getSystemSetting("adp_last_sync");
-        if (syncSetting) {
-          lastSync = syncSetting.value;
+        if (syncSetting && syncSetting.value) {
+          lastSync = String(syncSetting.value);
         }
       } catch (e) {
         // Ignore if setting doesn't exist

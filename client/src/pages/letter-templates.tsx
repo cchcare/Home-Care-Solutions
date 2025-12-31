@@ -17,7 +17,8 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { insertLetterTemplateSchema, type LetterTemplate } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
-import { Plus, Edit, Trash2, Eye, FileText, Shield, Search, Copy } from "lucide-react";
+import { Plus, Edit, Trash2, Eye, FileText, Shield, Search, Copy, Tags } from "lucide-react";
+import { RichTextEditor } from "@/components/rich-text-editor";
 import { z } from "zod";
 import {
   AlertDialog,
@@ -414,12 +415,12 @@ export default function LetterTemplates() {
                             name="htmlContent"
                             render={({ field }) => (
                               <FormItem>
-                                <FormLabel>HTML Content *</FormLabel>
+                                <FormLabel>Template Content *</FormLabel>
                                 <FormControl>
-                                  <Textarea 
-                                    placeholder="<html>Enter your HTML content with {{placeholders}}...</html>"
-                                    className="min-h-[200px] font-mono text-sm"
-                                    {...field}
+                                  <RichTextEditor
+                                    content={field.value || ""}
+                                    onChange={field.onChange}
+                                    placeholder="Start typing your letter template content..."
                                     data-testid="input-template-content"
                                   />
                                 </FormControl>
@@ -670,12 +671,12 @@ export default function LetterTemplates() {
                     name="htmlContent"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>HTML Content *</FormLabel>
+                        <FormLabel>Template Content *</FormLabel>
                         <FormControl>
-                          <Textarea 
-                            placeholder="<html>Enter your HTML content with {{placeholders}}...</html>"
-                            className="min-h-[200px] font-mono text-sm"
-                            {...field}
+                          <RichTextEditor
+                            content={field.value || ""}
+                            onChange={field.onChange}
+                            placeholder="Start typing your letter template content..."
                             data-testid="input-edit-template-content"
                           />
                         </FormControl>
