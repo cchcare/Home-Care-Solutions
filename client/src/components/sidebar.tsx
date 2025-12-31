@@ -34,7 +34,8 @@ import {
   UserX,
   HelpCircle,
   Ticket,
-  Link2
+  Link2,
+  FileSignature
 } from "lucide-react";
 
 interface NavItem {
@@ -102,7 +103,7 @@ export function Sidebar() {
 
     baseNavigation.push({ name: "Help & Support", href: "/support-center", icon: HelpCircle, external: true });
 
-    if ((user as any)?.role === "admin" || (user as any)?.role === "supervisor" || (user as any)?.role === "super_admin") {
+    if ((user as any)?.role === "admin" || (user as any)?.role === "supervisor" || (user as any)?.role === "super_admin" || (user as any)?.role === "office_admin") {
       baseNavigation.push({
         name: "Admin",
         icon: Cog,
@@ -112,6 +113,7 @@ export function Sidebar() {
           { name: "Role & Access Control", href: "/role-wizard", icon: Key },
           { name: "Office Management", href: "/offices", icon: Building2 },
           { name: "MCO Setup", href: "/admin-settings", icon: Settings },
+          { name: "Letter Templates", href: "/letter-templates", icon: FileSignature },
           { name: "Birthday Notifications", href: "/birthday-notifications", icon: Cake },
           { name: "HHAX Integration", href: "/hhax-integration", icon: Plug },
           { name: "Exclusion Verification", href: "/exclusion-verification", icon: UserX },

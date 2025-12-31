@@ -23,6 +23,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogFooter,
+  DialogDescription,
 } from "@/components/ui/dialog";
 import {
   Table,
@@ -74,9 +75,10 @@ import {
   Users,
   MessageSquare,
   ArrowRightLeft,
-  Search
+  Search,
+  FileSignature
 } from "lucide-react";
-import type { Caregiver, User as UserType, Document, Office, Client, ComplianceItem, Coordinator, CaregiverCompliance } from "@shared/schema";
+import type { Caregiver, User as UserType, Document, Office, Client, ComplianceItem, Coordinator, CaregiverCompliance, LetterTemplate } from "@shared/schema";
 
 type EnrichedCaregiver = Caregiver & { firstName?: string | null; lastName?: string | null; email?: string | null };
 
@@ -190,6 +192,8 @@ export default function CaregiverProfile() {
     result: "",
     notes: "",
   });
+  const [showTemplateDialog, setShowTemplateDialog] = useState(false);
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
 
   const { data: caregiver, isLoading: caregiverLoading } = useQuery<EnrichedCaregiver>({
     queryKey: ["/api/caregivers", caregiverId],
@@ -234,6 +238,10 @@ export default function CaregiverProfile() {
     queryKey: ["/api/caregivers", caregiverId, "documents"],
     queryFn: () => fetch(`/api/caregivers/${caregiverId}/documents`).then(r => r.json()),
     enabled: !!caregiverId,
+  });
+
+  const { data: letterTemplates = [] } = useQuery<LetterTemplate[]>({
+    queryKey: ["/api/letter-templates/scope/caregiver"],
   });
 
   const { data: certifications = [] } = useQuery<any[]>({
@@ -379,6 +387,26 @@ export default function CaregiverProfile() {
     },
     onError: () => {
       toast({ title: "Error", description: "Failed to generate employment verification letter", variant: "destructive" });
+    },
+  });
+
+  const generateFromTemplateMutation = useMutation({
+    mutationFn: async (templateId: string) => {
+      const response = await apiRequest("POST", `/api/letter-templates/${templateId}/generate`, {
+        scope: "caregiver",
+        targetId: caregiverId,
+        saveToDocuments: true,
+      });
+      return response.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/caregivers", caregiverId, "documents"] });
+      toast({ title: "Success", description: "Document generated successfully from template" });
+      setShowTemplateDialog(false);
+      setSelectedTemplateId(null);
+    },
+    onError: (error: any) => {
+      toast({ title: "Error", description: error.message || "Failed to generate document", variant: "destructive" });
     },
   });
 
@@ -2100,6 +2128,14 @@ export default function CaregiverProfile() {
                             <FileText className="w-4 h-4 mr-2" />
                             {generateVerificationLetterMutation.isPending ? "Generating..." : "Generate Employment Verification Letter"}
                           </Button>
+                          <Button
+                            onClick={() => setShowTemplateDialog(true)}
+                            variant="outline"
+                            data-testid="button-generate-from-template"
+                          >
+                            <FileSignature className="w-4 h-4 mr-2" />
+                            Generate From Template
+                          </Button>
                           <p className="text-sm text-muted-foreground">
                             Creates a PDF letter with caregiver's start date, hourly rate, and office contact info.
                           </p>
@@ -2599,6 +2635,70 @@ export default function CaregiverProfile() {
               {(createComplianceMutation.isPending || updateComplianceMutation.isPending) ? "Saving..." : "Save"}
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showTemplateDialog} onOpenChange={setShowTemplateDialog}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Generate Document From Template</DialogTitle>
+            <DialogDescription>
+              Select a template to generate a document for this caregiver.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            {letterTemplates.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-4">
+                No templates available. Create templates in Admin → Letter Templates.
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {letterTemplates.filter(t => t.status === 'published').map((template) => (
+                  <div
+                    key={template.id}
+                    className={`p-3 border rounded-lg cursor-pointer transition-colors ${
+                      selectedTemplateId === template.id
+                        ? "border-primary bg-primary/5"
+                        : "hover:border-primary/50"
+                    }`}
+                    onClick={() => setSelectedTemplateId(template.id)}
+                    data-testid={`template-option-${template.id}`}
+                  >
+                    <div className="font-medium">{template.name}</div>
+                    {template.description && (
+                      <div className="text-sm text-muted-foreground">{template.description}</div>
+                    )}
+                    <div className="text-xs text-muted-foreground mt-1">
+                      Category: {template.category || "General"}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowTemplateDialog(false);
+                setSelectedTemplateId(null);
+              }}
+              data-testid="button-cancel-template"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                if (selectedTemplateId) {
+                  generateFromTemplateMutation.mutate(selectedTemplateId);
+                }
+              }}
+              disabled={!selectedTemplateId || generateFromTemplateMutation.isPending}
+              data-testid="button-confirm-generate"
+            >
+              {generateFromTemplateMutation.isPending ? "Generating..." : "Generate Document"}
+            </Button>
+          </div>
         </DialogContent>
       </Dialog>
     </div>

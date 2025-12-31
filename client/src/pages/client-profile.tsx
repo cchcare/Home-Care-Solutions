@@ -26,6 +26,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
 } from "@/components/ui/dialog";
 import { apiRequest } from "@/lib/queryClient";
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameMonth, isToday, addMonths, subMonths } from "date-fns";
@@ -69,9 +70,10 @@ import {
   UserPlus,
   Search,
   ExternalLink,
-  Globe
+  Globe,
+  FileSignature
 } from "lucide-react";
-import type { Client, Document, Office, Mco, User as UserType, ClientCommunication, OfficeMcoBillingRate, ClientSchedule, MasterWeekTemplate, MasterWeekSlot, Caregiver, ClientMco, Coordinator, EligibilityCheck } from "@shared/schema";
+import type { Client, Document, Office, Mco, User as UserType, ClientCommunication, OfficeMcoBillingRate, ClientSchedule, MasterWeekTemplate, MasterWeekSlot, Caregiver, ClientMco, Coordinator, EligibilityCheck, LetterTemplate } from "@shared/schema";
 
 const DOCUMENT_CATEGORIES = [
   { value: "id_card", label: "ID Card" },
@@ -155,6 +157,10 @@ export default function ClientProfile() {
     notes: "",
     expirationDate: "",
   });
+
+  // Template generation state
+  const [showTemplateDialog, setShowTemplateDialog] = useState(false);
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
 
   // Master week template state
   const [showMasterWeekModal, setShowMasterWeekModal] = useState(false);
@@ -284,6 +290,10 @@ export default function ClientProfile() {
     queryKey: ["/api/clients", clientId, "eligibility-checks"],
     queryFn: () => fetch(`/api/clients/${clientId}/eligibility-checks`).then(r => r.json()),
     enabled: !!clientId,
+  });
+
+  const { data: letterTemplates = [] } = useQuery<LetterTemplate[]>({
+    queryKey: ["/api/letter-templates/scope/client"],
   });
 
   const uploadMutation = useMutation({
@@ -520,6 +530,26 @@ export default function ClientProfile() {
     },
     onError: () => {
       toast({ title: "Error", description: "Failed to unassign caregiver", variant: "destructive" });
+    },
+  });
+
+  const generateFromTemplateMutation = useMutation({
+    mutationFn: async (templateId: string) => {
+      const response = await apiRequest("POST", `/api/letter-templates/${templateId}/generate`, {
+        scope: "client",
+        targetId: clientId,
+        saveToDocuments: true,
+      });
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/clients", clientId, "documents"] });
+      toast({ title: "Success", description: "Document generated successfully from template" });
+      setShowTemplateDialog(false);
+      setSelectedTemplateId(null);
+    },
+    onError: (error: any) => {
+      toast({ title: "Error", description: error.message || "Failed to generate document", variant: "destructive" });
     },
   });
 
@@ -1967,6 +1997,14 @@ export default function ClientProfile() {
                             <Upload className="w-4 h-4 mr-2" />
                             {uploadMutation.isPending ? "Uploading..." : "Upload"}
                           </Button>
+                          <Button
+                            variant="outline"
+                            onClick={() => setShowTemplateDialog(true)}
+                            data-testid="button-generate-from-template"
+                          >
+                            <FileSignature className="w-4 h-4 mr-2" />
+                            Generate From Template
+                          </Button>
                         </div>
                       </div>
 
@@ -2927,6 +2965,71 @@ export default function ClientProfile() {
                 {assignCaregiverMutation.isPending ? "Assigning..." : "Assign Caregiver"}
               </Button>
             </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Template Selection Dialog */}
+      <Dialog open={showTemplateDialog} onOpenChange={setShowTemplateDialog}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Generate Document From Template</DialogTitle>
+            <DialogDescription>
+              Select a template to generate a document for this client.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            {letterTemplates.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-4">
+                No templates available. Create templates in Admin → Letter Templates.
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {letterTemplates.filter(t => t.status === 'published').map((template) => (
+                  <div
+                    key={template.id}
+                    className={`p-3 border rounded-lg cursor-pointer transition-colors ${
+                      selectedTemplateId === template.id
+                        ? "border-primary bg-primary/5"
+                        : "hover:border-primary/50"
+                    }`}
+                    onClick={() => setSelectedTemplateId(template.id)}
+                    data-testid={`template-option-${template.id}`}
+                  >
+                    <div className="font-medium">{template.name}</div>
+                    {template.description && (
+                      <div className="text-sm text-muted-foreground">{template.description}</div>
+                    )}
+                    <div className="text-xs text-muted-foreground mt-1">
+                      Category: {template.category || "General"}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowTemplateDialog(false);
+                setSelectedTemplateId(null);
+              }}
+              data-testid="button-cancel-template"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                if (selectedTemplateId) {
+                  generateFromTemplateMutation.mutate(selectedTemplateId);
+                }
+              }}
+              disabled={!selectedTemplateId || generateFromTemplateMutation.isPending}
+              data-testid="button-confirm-generate"
+            >
+              {generateFromTemplateMutation.isPending ? "Generating..." : "Generate Document"}
+            </Button>
           </div>
         </DialogContent>
       </Dialog>
