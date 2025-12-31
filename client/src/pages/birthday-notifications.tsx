@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Sidebar } from "@/components/sidebar";
@@ -10,6 +10,9 @@ import { apiRequest } from "@/lib/queryClient";
 import { OfficeSelector } from "@/components/office-selector";
 import { useOffice } from "@/context/office-context";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Table,
   TableBody,
@@ -32,6 +35,10 @@ import {
   Users,
   CalendarDays,
   PartyPopper,
+  Settings,
+  Eye,
+  Save,
+  RefreshCw,
 } from "lucide-react";
 
 interface UpcomingBirthday {
@@ -56,11 +63,28 @@ interface BirthdayNotification {
   messagePreview: string | null;
 }
 
+interface BirthdaySettings {
+  clientSmsMessage: string;
+  caregiverSmsMessage: string;
+  clientEmailMessage: string;
+  caregiverEmailMessage: string;
+  emailSubject: string;
+}
+
 export default function BirthdayNotifications() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { selectedOfficeId, setSelectedOfficeId } = useOffice();
   const [activeTab, setActiveTab] = useState("upcoming");
+  const [showEmailPreview, setShowEmailPreview] = useState(false);
+  const [previewType, setPreviewType] = useState<"client" | "caregiver">("client");
+  const [settings, setSettings] = useState<BirthdaySettings>({
+    clientSmsMessage: "",
+    caregiverSmsMessage: "",
+    clientEmailMessage: "",
+    caregiverEmailMessage: "",
+    emailSubject: "",
+  });
 
   const officeQuery = selectedOfficeId === "all" ? undefined : selectedOfficeId;
 
@@ -145,6 +169,60 @@ export default function BirthdayNotifications() {
       });
     },
   });
+
+  // Fetch birthday message settings
+  const { data: settingsData, isLoading: settingsLoading } = useQuery<BirthdaySettings>({
+    queryKey: ["/api/birthday-notifications/settings"],
+    queryFn: async () => {
+      const response = await fetch("/api/birthday-notifications/settings", { credentials: "include" });
+      if (!response.ok) throw new Error("Failed to fetch settings");
+      return response.json();
+    },
+  });
+
+  // Update local settings when data loads
+  useEffect(() => {
+    if (settingsData) {
+      setSettings(settingsData);
+    }
+  }, [settingsData]);
+
+  // Save settings mutation
+  const saveSettingsMutation = useMutation({
+    mutationFn: async (newSettings: BirthdaySettings) => {
+      const response = await apiRequest("POST", "/api/birthday-notifications/settings", newSettings);
+      return response.json();
+    },
+    onSuccess: () => {
+      toast({
+        title: "Settings Saved",
+        description: "Birthday message settings have been updated successfully.",
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/birthday-notifications/settings"] });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Failed to Save Settings",
+        description: error.message || "Could not save birthday message settings",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleSettingsChange = (field: keyof BirthdaySettings, value: string) => {
+    setSettings(prev => ({ ...prev, [field]: value }));
+  };
+
+  const handleSaveSettings = () => {
+    saveSettingsMutation.mutate(settings);
+  };
+
+  const handleResetSettings = () => {
+    if (settingsData) {
+      setSettings(settingsData);
+      toast({ title: "Settings Reset", description: "Settings have been reset to last saved values." });
+    }
+  };
 
   const getStatusBadge = (status: string) => {
     switch (status) {
@@ -272,6 +350,10 @@ export default function BirthdayNotifications() {
                 <TabsTrigger value="history" data-testid="tab-history">
                   <Clock className="w-4 h-4 mr-2" />
                   Sent History
+                </TabsTrigger>
+                <TabsTrigger value="settings" data-testid="tab-settings">
+                  <Settings className="w-4 h-4 mr-2" />
+                  Message Settings
                 </TabsTrigger>
               </TabsList>
 
@@ -447,6 +529,216 @@ export default function BirthdayNotifications() {
                     )}
                   </CardContent>
                 </Card>
+              </TabsContent>
+
+              <TabsContent value="settings">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  {/* SMS Messages */}
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2">
+                        <MessageCircle className="w-5 h-5 text-green-500" />
+                        SMS Messages
+                      </CardTitle>
+                      <CardDescription>
+                        Customize birthday SMS messages. Use {"{{firstName}}"} to include the recipient's name.
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-6">
+                      <div className="space-y-2">
+                        <Label htmlFor="clientSmsMessage">Client SMS Message</Label>
+                        <Textarea
+                          id="clientSmsMessage"
+                          value={settings.clientSmsMessage}
+                          onChange={(e) => handleSettingsChange("clientSmsMessage", e.target.value)}
+                          placeholder="Enter birthday SMS message for clients..."
+                          rows={4}
+                          className="resize-none"
+                          data-testid="input-client-sms"
+                        />
+                        <p className="text-xs text-gray-500">{settings.clientSmsMessage.length} characters</p>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="caregiverSmsMessage">Caregiver SMS Message</Label>
+                        <Textarea
+                          id="caregiverSmsMessage"
+                          value={settings.caregiverSmsMessage}
+                          onChange={(e) => handleSettingsChange("caregiverSmsMessage", e.target.value)}
+                          placeholder="Enter birthday SMS message for caregivers..."
+                          rows={4}
+                          className="resize-none"
+                          data-testid="input-caregiver-sms"
+                        />
+                        <p className="text-xs text-gray-500">{settings.caregiverSmsMessage.length} characters</p>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  {/* Email Messages */}
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2">
+                        <Mail className="w-5 h-5 text-blue-500" />
+                        Email Messages
+                      </CardTitle>
+                      <CardDescription>
+                        Customize the email subject and body message. The email uses a beautiful HTML template.
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-6">
+                      <div className="space-y-2">
+                        <Label htmlFor="emailSubject">Email Subject</Label>
+                        <Input
+                          id="emailSubject"
+                          value={settings.emailSubject}
+                          onChange={(e) => handleSettingsChange("emailSubject", e.target.value)}
+                          placeholder="Enter email subject..."
+                          data-testid="input-email-subject"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="clientEmailMessage">Client Email Message</Label>
+                        <Textarea
+                          id="clientEmailMessage"
+                          value={settings.clientEmailMessage}
+                          onChange={(e) => handleSettingsChange("clientEmailMessage", e.target.value)}
+                          placeholder="Enter personalized message for client emails..."
+                          rows={3}
+                          className="resize-none"
+                          data-testid="input-client-email"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="caregiverEmailMessage">Caregiver Email Message</Label>
+                        <Textarea
+                          id="caregiverEmailMessage"
+                          value={settings.caregiverEmailMessage}
+                          onChange={(e) => handleSettingsChange("caregiverEmailMessage", e.target.value)}
+                          placeholder="Enter personalized message for caregiver emails..."
+                          rows={3}
+                          className="resize-none"
+                          data-testid="input-caregiver-email"
+                        />
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  {/* Email Preview */}
+                  <Card className="lg:col-span-2">
+                    <CardHeader>
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <CardTitle className="flex items-center gap-2">
+                            <Eye className="w-5 h-5" />
+                            Email Template Preview
+                          </CardTitle>
+                          <CardDescription>
+                            Preview how the birthday email will look to recipients
+                          </CardDescription>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Button
+                            variant={previewType === "client" ? "default" : "outline"}
+                            size="sm"
+                            onClick={() => setPreviewType("client")}
+                            data-testid="button-preview-client"
+                          >
+                            Client
+                          </Button>
+                          <Button
+                            variant={previewType === "caregiver" ? "default" : "outline"}
+                            size="sm"
+                            onClick={() => setPreviewType("caregiver")}
+                            data-testid="button-preview-caregiver"
+                          >
+                            Caregiver
+                          </Button>
+                        </div>
+                      </div>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="border rounded-lg overflow-hidden bg-gray-100 dark:bg-gray-800">
+                        <iframe
+                          srcDoc={`
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body style="margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f0f4f8;">
+  <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color: #f0f4f8;">
+    <tr>
+      <td align="center" style="padding: 20px 10px;">
+        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="600" style="max-width: 600px; background-color: #ffffff; border-radius: 20px; overflow: hidden; box-shadow: 0 10px 40px rgba(0,0,0,0.1);">
+          <tr>
+            <td style="background: linear-gradient(135deg, #FF6B6B 0%, #FF8E53 25%, #FED330 50%, #4ECDC4 75%, #A855F7 100%); padding: 40px 30px; text-align: center;">
+              <div style="font-size: 50px; margin-bottom: 8px;">🎂</div>
+              <h1 style="color: white; margin: 0; font-size: 32px; font-weight: 800; text-shadow: 2px 2px 4px rgba(0,0,0,0.2);">Happy Birthday!</h1>
+              <div style="font-size: 28px; margin-top: 8px;">🎈 🎉 🎁 🎊 🌟</div>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding: 40px 30px;">
+              <p style="font-size: 20px; color: #1a1a2e; margin: 0 0 16px 0; font-weight: 600;">Dear John,</p>
+              <p style="font-size: 16px; color: #4a4a6a; line-height: 1.7; margin: 0 0 20px 0;">${previewType === "client" ? (settings.clientEmailMessage || "On this special day, we want you to know how much you mean to us.") : (settings.caregiverEmailMessage || "Thank you for being such a valued member of our caregiving family.")}</p>
+              <p style="font-size: 16px; color: #4a4a6a; line-height: 1.7; margin: 0 0 24px 0;">Wishing you a year ahead filled with health, happiness, and countless beautiful moments!</p>
+              <div style="text-align: center; margin: 24px 0;">
+                <span style="display: inline-block; width: 50px; height: 3px; background: linear-gradient(90deg, #FF6B6B, #4ECDC4); border-radius: 2px;"></span>
+              </div>
+              <p style="font-size: 16px; color: #1a1a2e; margin: 0; font-weight: 600;">With warm wishes,</p>
+              <p style="font-size: 18px; color: #4ECDC4; margin: 6px 0 0 0; font-weight: 700;">The Home Care Family 💙</p>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding: 0 30px 30px 30px; text-align: center;">
+              <div style="background: linear-gradient(135deg, #FFF5F5 0%, #F0FDFF 100%); border-radius: 12px; padding: 20px; border: 2px dashed #FFB6C1;">
+                <p style="font-size: 14px; color: #6b6b8a; margin: 0; font-style: italic;">"Another year older, another year wiser!"</p>
+                <div style="font-size: 24px; margin-top: 10px;">🎂✨🎂</div>
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td style="background-color: #f8fafc; padding: 20px 30px; text-align: center; border-top: 1px solid #e2e8f0;">
+              <p style="font-size: 12px; color: #94a3b8; margin: 0;">This birthday greeting was sent with love from Home Care 💙</p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
+                          `}
+                          title="Email Preview"
+                          className="w-full h-[600px] border-0"
+                          data-testid="iframe-email-preview"
+                        />
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  {/* Action Buttons */}
+                  <div className="lg:col-span-2 flex justify-end gap-3">
+                    <Button
+                      variant="outline"
+                      onClick={handleResetSettings}
+                      disabled={saveSettingsMutation.isPending}
+                      data-testid="button-reset-settings"
+                    >
+                      <RefreshCw className="w-4 h-4 mr-2" />
+                      Reset
+                    </Button>
+                    <Button
+                      onClick={handleSaveSettings}
+                      disabled={saveSettingsMutation.isPending}
+                      data-testid="button-save-settings"
+                    >
+                      <Save className="w-4 h-4 mr-2" />
+                      {saveSettingsMutation.isPending ? "Saving..." : "Save Settings"}
+                    </Button>
+                  </div>
+                </div>
               </TabsContent>
             </Tabs>
           </div>
