@@ -316,14 +316,17 @@ export default function CoordinatorPayRecords() {
             render={({ field }) => (
               <FormItem>
                 <FormLabel>Office</FormLabel>
-                <Select onValueChange={field.onChange} value={field.value || ""}>
+                <Select 
+                  onValueChange={(val) => field.onChange(val === "none" ? "" : val)} 
+                  value={field.value || "none"}
+                >
                   <FormControl>
                     <SelectTrigger data-testid="select-office">
                       <SelectValue placeholder="Select office" />
                     </SelectTrigger>
                   </FormControl>
                   <SelectContent>
-                    <SelectItem value="">No office</SelectItem>
+                    <SelectItem value="none">No office</SelectItem>
                     {offices.map((office) => (
                       <SelectItem key={office.id} value={office.id}>
                         {office.name}
