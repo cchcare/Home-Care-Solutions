@@ -45,6 +45,7 @@ import SupportCenter from "@/pages/support-center";
 import SupportTickets from "@/pages/support-tickets";
 import CustomIntegrations from "@/pages/custom-integrations";
 import ApiKeys from "@/pages/api-keys";
+import LetterTemplates from "@/pages/letter-templates";
 
 function Router() {
   const { isAuthenticated, isLoading, error } = useAuth();
@@ -103,6 +104,7 @@ function Router() {
           <Route path="/exclusion-verification" component={ExclusionVerification} />
           <Route path="/support-tickets" component={SupportTickets} />
           <Route path="/custom-integrations" component={CustomIntegrations} />
+          <Route path="/letter-templates" component={LetterTemplates} />
           <Route path="/api-keys" component={ApiKeys} />
         </>
       )}
