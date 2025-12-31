@@ -11348,6 +11348,187 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ============================================
+  // Letter Template Management
+  // ============================================
+
+  // Get all letter templates for the user's office
+  app.get("/api/letter-templates", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.user;
+      const officeId = req.query.officeId || user.primaryOfficeId;
+      const templates = await storage.getLetterTemplates(officeId);
+      res.json(templates);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to fetch letter templates" });
+    }
+  });
+
+  // Get templates by scope (caregiver, client, staff, general)
+  app.get("/api/letter-templates/scope/:scope", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.user;
+      const officeId = req.query.officeId || user.primaryOfficeId;
+      const templates = await storage.getLetterTemplatesByScope(req.params.scope, officeId);
+      // Only return published templates for non-admin users
+      const filtered = templates.filter(t => 
+        t.status === 'published' || 
+        ['super_admin', 'admin', 'office_admin'].includes(user.role)
+      );
+      res.json(filtered);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to fetch letter templates" });
+    }
+  });
+
+  // Get a specific template
+  app.get("/api/letter-templates/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const template = await storage.getLetterTemplate(req.params.id);
+      if (!template) {
+        return res.status(404).json({ message: "Template not found" });
+      }
+      res.json(template);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to fetch template" });
+    }
+  });
+
+  // Create a new letter template (admin only)
+  app.post("/api/letter-templates", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.user;
+      if (!['super_admin', 'admin', 'office_admin'].includes(user.role)) {
+        return res.status(403).json({ message: "Only administrators can create letter templates" });
+      }
+      const template = await storage.createLetterTemplate({
+        ...req.body,
+        officeId: req.body.officeId || user.primaryOfficeId,
+        createdBy: user.id,
+        updatedBy: user.id,
+      });
+      res.status(201).json(template);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to create template" });
+    }
+  });
+
+  // Update a letter template (admin only)
+  app.patch("/api/letter-templates/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.user;
+      if (!['super_admin', 'admin', 'office_admin'].includes(user.role)) {
+        return res.status(403).json({ message: "Only administrators can update letter templates" });
+      }
+      const existing = await storage.getLetterTemplate(req.params.id);
+      if (!existing) {
+        return res.status(404).json({ message: "Template not found" });
+      }
+      
+      // Create a version before updating (for audit trail)
+      if (existing.htmlContent !== req.body.htmlContent) {
+        const versions = await storage.getLetterTemplateVersions(req.params.id);
+        const nextVersion = versions.length > 0 ? Math.max(...versions.map(v => v.versionNumber)) + 1 : 1;
+        await storage.createLetterTemplateVersion({
+          templateId: req.params.id,
+          versionNumber: nextVersion,
+          htmlContent: existing.htmlContent,
+          themeSettings: existing.themeSettings,
+          placeholders: existing.placeholders,
+          changeNotes: req.body.changeNotes || 'Updated template',
+          createdBy: user.id,
+        });
+      }
+      
+      const template = await storage.updateLetterTemplate(req.params.id, {
+        ...req.body,
+        updatedBy: user.id,
+      });
+      res.json(template);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to update template" });
+    }
+  });
+
+  // Delete a letter template (admin only)
+  app.delete("/api/letter-templates/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.user;
+      if (!['super_admin', 'admin', 'office_admin'].includes(user.role)) {
+        return res.status(403).json({ message: "Only administrators can delete letter templates" });
+      }
+      await storage.deleteLetterTemplate(req.params.id);
+      res.status(204).send();
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to delete template" });
+    }
+  });
+
+  // Get template versions (for version history)
+  app.get("/api/letter-templates/:id/versions", isAuthenticated, async (req: any, res) => {
+    try {
+      const versions = await storage.getLetterTemplateVersions(req.params.id);
+      res.json(versions);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to fetch template versions" });
+    }
+  });
+
+  // Get available placeholders for a scope
+  app.get("/api/letter-templates/placeholders/:scope", isAuthenticated, async (req: any, res) => {
+    try {
+      const scope = req.params.scope;
+      const placeholders: { key: string; label: string; description: string }[] = [];
+      
+      // Common placeholders
+      placeholders.push(
+        { key: "currentDate", label: "Current Date", description: "Today's date" },
+        { key: "officeName", label: "Office Name", description: "Name of the office" },
+        { key: "officeAddress", label: "Office Address", description: "Full address of the office" },
+        { key: "officePhone", label: "Office Phone", description: "Office phone number" }
+      );
+      
+      if (scope === 'caregiver' || scope === 'general') {
+        placeholders.push(
+          { key: "caregiverFirstName", label: "Caregiver First Name", description: "Caregiver's first name" },
+          { key: "caregiverLastName", label: "Caregiver Last Name", description: "Caregiver's last name" },
+          { key: "caregiverFullName", label: "Caregiver Full Name", description: "Caregiver's full name" },
+          { key: "caregiverEmail", label: "Caregiver Email", description: "Caregiver's email address" },
+          { key: "caregiverPhone", label: "Caregiver Phone", description: "Caregiver's phone number" },
+          { key: "caregiverAddress", label: "Caregiver Address", description: "Caregiver's full address" },
+          { key: "caregiverHireDate", label: "Hire Date", description: "Date caregiver was hired" },
+          { key: "caregiverStatus", label: "Caregiver Status", description: "Active/Inactive status" }
+        );
+      }
+      
+      if (scope === 'client' || scope === 'general') {
+        placeholders.push(
+          { key: "clientFirstName", label: "Client First Name", description: "Client's first name" },
+          { key: "clientLastName", label: "Client Last Name", description: "Client's last name" },
+          { key: "clientFullName", label: "Client Full Name", description: "Client's full name" },
+          { key: "clientEmail", label: "Client Email", description: "Client's email address" },
+          { key: "clientPhone", label: "Client Phone", description: "Client's phone number" },
+          { key: "clientAddress", label: "Client Address", description: "Client's full address" },
+          { key: "clientDateOfBirth", label: "Date of Birth", description: "Client's date of birth" }
+        );
+      }
+      
+      if (scope === 'staff' || scope === 'general') {
+        placeholders.push(
+          { key: "staffFirstName", label: "Staff First Name", description: "Staff member's first name" },
+          { key: "staffLastName", label: "Staff Last Name", description: "Staff member's last name" },
+          { key: "staffFullName", label: "Staff Full Name", description: "Staff member's full name" },
+          { key: "staffEmail", label: "Staff Email", description: "Staff member's email address" },
+          { key: "staffRole", label: "Staff Role", description: "Staff member's role" }
+        );
+      }
+      
+      res.json(placeholders);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to fetch placeholders" });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }
