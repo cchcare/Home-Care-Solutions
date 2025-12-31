@@ -11529,6 +11529,215 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Generate a document from a letter template
+  app.post("/api/letter-templates/:id/generate", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.user;
+      const { scope, targetId, saveToDocuments = true } = req.body;
+      
+      if (!scope || !targetId) {
+        return res.status(400).json({ message: "scope and targetId are required" });
+      }
+      
+      // Get the template
+      const template = await storage.getLetterTemplate(req.params.id);
+      if (!template) {
+        return res.status(404).json({ message: "Template not found" });
+      }
+      
+      if (template.status !== 'published') {
+        return res.status(400).json({ message: "Only published templates can be used to generate documents" });
+      }
+      
+      // Get entity data based on scope
+      let entityData: Record<string, any> = {};
+      let entityName = "";
+      
+      // Get office data
+      const office = template.officeId ? await storage.getOffice(template.officeId) : null;
+      entityData.currentDate = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+      entityData.officeName = office?.name || '';
+      entityData.officeAddress = office ? `${office.address || ''}, ${office.city || ''}, ${office.state || ''} ${office.zipCode || ''}`.replace(/^,\s*/, '').trim() : '';
+      entityData.officePhone = office?.phone || '';
+      
+      if (scope === 'caregiver') {
+        const caregiver = await storage.getCaregiver(targetId);
+        if (!caregiver) {
+          return res.status(404).json({ message: "Caregiver not found" });
+        }
+        entityName = `${caregiver.firstName} ${caregiver.lastName}`;
+        entityData.caregiverFirstName = caregiver.firstName;
+        entityData.caregiverLastName = caregiver.lastName;
+        entityData.caregiverFullName = `${caregiver.firstName} ${caregiver.lastName}`;
+        entityData.caregiverEmail = caregiver.email || '';
+        entityData.caregiverPhone = caregiver.phone || '';
+        entityData.caregiverAddress = `${caregiver.address || ''}, ${caregiver.city || ''}, ${caregiver.state || ''} ${caregiver.zipCode || ''}`.replace(/^,\s*/, '').trim();
+        entityData.caregiverHireDate = caregiver.hireDate ? new Date(caregiver.hireDate).toLocaleDateString() : '';
+        entityData.caregiverStatus = caregiver.isActive ? 'Active' : 'Inactive';
+      } else if (scope === 'client') {
+        const client = await storage.getClient(targetId);
+        if (!client) {
+          return res.status(404).json({ message: "Client not found" });
+        }
+        entityName = `${client.firstName} ${client.lastName}`;
+        entityData.clientFirstName = client.firstName;
+        entityData.clientLastName = client.lastName;
+        entityData.clientFullName = `${client.firstName} ${client.lastName}`;
+        entityData.clientEmail = client.email || '';
+        entityData.clientPhone = client.phone || '';
+        entityData.clientAddress = `${client.address || ''}, ${client.city || ''}, ${client.state || ''} ${client.zipCode || ''}`.replace(/^,\s*/, '').trim();
+        entityData.clientDateOfBirth = client.dateOfBirth ? new Date(client.dateOfBirth).toLocaleDateString() : '';
+      } else if (scope === 'staff') {
+        const staffUser = await storage.getUser(targetId);
+        if (!staffUser) {
+          return res.status(404).json({ message: "Staff member not found" });
+        }
+        entityName = `${staffUser.firstName} ${staffUser.lastName}`;
+        entityData.staffFirstName = staffUser.firstName || '';
+        entityData.staffLastName = staffUser.lastName || '';
+        entityData.staffFullName = `${staffUser.firstName || ''} ${staffUser.lastName || ''}`.trim();
+        entityData.staffEmail = staffUser.email || '';
+        entityData.staffRole = staffUser.role || '';
+      }
+      
+      // Replace placeholders in HTML content
+      let mergedHtml = template.htmlContent;
+      for (const [key, value] of Object.entries(entityData)) {
+        const regex = new RegExp(`{{\\s*${key}\\s*}}`, 'gi');
+        mergedHtml = mergedHtml.replace(regex, String(value));
+      }
+      
+      // Remove any unreplaced placeholders
+      mergedHtml = mergedHtml.replace(/\{\{\s*\w+\s*\}\}/g, '');
+      
+      // Create PDF from HTML using PDFKit
+      const doc = new PDFDocument({ margin: 50 });
+      const timestamp = Date.now();
+      const fileName = `letter_${template.name.replace(/\s+/g, '_')}_${targetId}_${timestamp}.pdf`;
+      const filePath = path.join("uploads", fileName);
+      
+      // Ensure uploads directory exists
+      if (!fs.existsSync("uploads")) {
+        fs.mkdirSync("uploads", { recursive: true });
+      }
+      
+      const writeStream = fs.createWriteStream(filePath);
+      doc.pipe(writeStream);
+      
+      // Parse theme settings
+      const theme = (template.themeSettings as any) || {};
+      const fontFamily = theme.fontFamily || 'Helvetica';
+      const fontSize = theme.fontSize || 12;
+      const headerText = theme.headerText || '';
+      const footerText = theme.footerText || '';
+      
+      // Add header if present
+      if (headerText) {
+        doc.fontSize(10).text(headerText, { align: 'center' });
+        doc.moveDown();
+      }
+      
+      // Add office letterhead
+      if (office) {
+        doc.fontSize(16).font('Helvetica-Bold').text(office.name, { align: 'center' });
+        doc.fontSize(10).font('Helvetica').text(entityData.officeAddress, { align: 'center' });
+        if (office.phone) doc.text(`Phone: ${office.phone}`, { align: 'center' });
+        if (office.email) doc.text(`Email: ${office.email}`, { align: 'center' });
+        doc.moveDown(2);
+      }
+      
+      // Add date
+      doc.fontSize(fontSize).text(entityData.currentDate, { align: 'right' });
+      doc.moveDown();
+      
+      // Convert HTML to plain text for PDF (simplified - strips HTML tags)
+      const plainText = mergedHtml
+        .replace(/<br\s*\/?>/gi, '\n')
+        .replace(/<\/p>/gi, '\n\n')
+        .replace(/<\/div>/gi, '\n')
+        .replace(/<\/h[1-6]>/gi, '\n\n')
+        .replace(/<[^>]+>/g, '')
+        .replace(/&nbsp;/g, ' ')
+        .replace(/&amp;/g, '&')
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
+      
+      // Add content
+      doc.font(fontFamily === 'serif' ? 'Times-Roman' : 'Helvetica').fontSize(fontSize).text(plainText, {
+        align: 'left',
+        lineGap: 4,
+      });
+      
+      // Add footer if present
+      if (footerText) {
+        doc.moveDown(2);
+        doc.fontSize(10).text(footerText, { align: 'center' });
+      }
+      
+      doc.end();
+      
+      // Wait for the PDF to be written
+      await new Promise<void>((resolve, reject) => {
+        writeStream.on('finish', resolve);
+        writeStream.on('error', reject);
+      });
+      
+      // Get file size
+      const stats = fs.statSync(filePath);
+      
+      let documentRecord = null;
+      
+      // Save to documents if requested
+      if (saveToDocuments) {
+        const documentData: any = {
+          fileName,
+          originalName: `${template.name} - ${entityName}.pdf`,
+          fileType: 'application/pdf',
+          fileSize: stats.size,
+          documentType: 'letter_template',
+          templateId: template.id,
+          uploadedBy: user.id,
+          officeId: template.officeId,
+        };
+        
+        // Set the appropriate entity ID based on scope
+        if (scope === 'caregiver') {
+          documentData.caregiverId = targetId;
+        } else if (scope === 'client') {
+          documentData.clientId = targetId;
+        } else if (scope === 'staff') {
+          documentData.userId = targetId;
+        }
+        
+        documentRecord = await storage.createDocument(documentData);
+        
+        // Create generated letter log
+        await storage.createGeneratedLetter({
+          templateId: template.id,
+          documentId: documentRecord.id,
+          scope: scope as any,
+          targetId,
+          mergedData: entityData,
+          generatedBy: user.id,
+          officeId: template.officeId,
+        });
+      }
+      
+      res.json({
+        success: true,
+        message: "Document generated successfully",
+        fileName,
+        filePath: `/uploads/${fileName}`,
+        document: documentRecord,
+      });
+    } catch (error: any) {
+      console.error("Error generating document from template:", error);
+      res.status(500).json({ message: error.message || "Failed to generate document" });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }
