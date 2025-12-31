@@ -623,6 +623,7 @@ export interface IStorage {
   getSystemSetting(key: string): Promise<SystemSetting | undefined>;
   createSystemSetting(setting: InsertSystemSetting): Promise<SystemSetting>;
   updateSystemSetting(key: string, setting: Partial<InsertSystemSetting>): Promise<SystemSetting>;
+  upsertSystemSetting(key: string, value: string): Promise<SystemSetting>;
   deleteSystemSetting(key: string): Promise<void>;
 
   // Entity Field Config operations
@@ -2923,6 +2924,15 @@ export class DatabaseStorage implements IStorage {
       .where(eq(systemSettings.key, key))
       .returning();
     return updatedSetting;
+  }
+
+  async upsertSystemSetting(key: string, value: string): Promise<SystemSetting> {
+    const existing = await this.getSystemSetting(key);
+    if (existing) {
+      return await this.updateSystemSetting(key, { value });
+    } else {
+      return await this.createSystemSetting({ key, value });
+    }
   }
 
   async deleteSystemSetting(key: string): Promise<void> {

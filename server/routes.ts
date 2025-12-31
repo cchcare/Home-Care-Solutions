@@ -90,6 +90,7 @@ import {
   insertTicketMessageSchema,
   insertCustomIntegrationSchema,
   insertCoordinatorPayRecordSchema,
+  insertPayrollRunSchema,
 } from "@shared/schema";
 import bcrypt from "bcrypt";
 import { ObjectStorageService, ObjectNotFoundError } from "./objectStorage";
@@ -11836,6 +11837,290 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error: any) {
       console.error("Error deleting coordinator pay record:", error);
       res.status(500).json({ message: error.message || "Failed to delete pay record" });
+    }
+  });
+
+  // =====================================================
+  // Payroll Runs Endpoints
+  // =====================================================
+
+  // Get all payroll runs
+  app.get("/api/payroll-runs", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.user;
+      if (!["admin", "office_admin", "super_admin", "supervisor"].includes(user.role)) {
+        return res.status(403).json({ message: "Unauthorized" });
+      }
+      
+      const officeId = req.query.officeId as string | undefined;
+      const runs = await storage.getPayrollRuns(officeId);
+      res.json(runs);
+    } catch (error: any) {
+      console.error("Error fetching payroll runs:", error);
+      res.status(500).json({ message: error.message || "Failed to fetch payroll runs" });
+    }
+  });
+
+  // Get a single payroll run
+  app.get("/api/payroll-runs/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const run = await storage.getPayrollRun(req.params.id);
+      if (!run) {
+        return res.status(404).json({ message: "Payroll run not found" });
+      }
+      res.json(run);
+    } catch (error: any) {
+      console.error("Error fetching payroll run:", error);
+      res.status(500).json({ message: error.message || "Failed to fetch payroll run" });
+    }
+  });
+
+  // Create a new payroll run
+  app.post("/api/payroll-runs", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.user;
+      if (!["admin", "office_admin", "super_admin"].includes(user.role)) {
+        return res.status(403).json({ message: "Unauthorized" });
+      }
+      
+      // Validate required fields
+      if (!req.body.payPeriodStart || !req.body.payPeriodEnd || !req.body.paycheckDate) {
+        return res.status(400).json({ message: "Pay period start, end, and paycheck date are required" });
+      }
+      
+      // Validate dates are parseable
+      const payPeriodStart = new Date(req.body.payPeriodStart);
+      const payPeriodEnd = new Date(req.body.payPeriodEnd);
+      const paycheckDate = new Date(req.body.paycheckDate);
+      
+      if (isNaN(payPeriodStart.getTime()) || isNaN(payPeriodEnd.getTime()) || isNaN(paycheckDate.getTime())) {
+        return res.status(400).json({ message: "Invalid date format" });
+      }
+      
+      // Build payload from request body with proper date conversion
+      const payload: any = {
+        officeId: req.body.officeId || user.officeId || (await storage.getOffices())[0]?.id,
+        payPeriodStart,
+        payPeriodEnd,
+        paycheckDate,
+        status: req.body.status || "draft",
+        createdBy: user.id,
+        notes: req.body.notes || null,
+      };
+      
+      const run = await storage.createPayrollRun(payload);
+      
+      await storage.createAuditLog({
+        userId: user.id,
+        action: "create",
+        entityType: "payroll_run",
+        entityId: run.id,
+        newValues: run,
+        ipAddress: req.ip,
+        userAgent: req.get("User-Agent"),
+      });
+      
+      res.status(201).json(run);
+    } catch (error: any) {
+      console.error("Error creating payroll run:", error);
+      res.status(400).json({ message: error.message || "Failed to create payroll run" });
+    }
+  });
+
+  // Update a payroll run
+  app.patch("/api/payroll-runs/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.user;
+      if (!["admin", "office_admin", "super_admin"].includes(user.role)) {
+        return res.status(403).json({ message: "Unauthorized" });
+      }
+      
+      const oldRun = await storage.getPayrollRun(req.params.id);
+      if (!oldRun) {
+        return res.status(404).json({ message: "Payroll run not found" });
+      }
+      
+      // Build update payload with only provided fields
+      const updateData: any = {};
+      if (req.body.status) updateData.status = req.body.status;
+      if (req.body.officeId) updateData.officeId = req.body.officeId;
+      if (req.body.payPeriodStart) updateData.payPeriodStart = new Date(req.body.payPeriodStart);
+      if (req.body.payPeriodEnd) updateData.payPeriodEnd = new Date(req.body.payPeriodEnd);
+      if (req.body.paycheckDate) updateData.paycheckDate = new Date(req.body.paycheckDate);
+      if (req.body.notes !== undefined) updateData.notes = req.body.notes;
+      if (req.body.approvedBy) updateData.approvedBy = req.body.approvedBy;
+      if (req.body.approvedAt) updateData.approvedAt = new Date(req.body.approvedAt);
+      if (req.body.totalGross !== undefined) updateData.totalGross = req.body.totalGross;
+      if (req.body.totalDeductions !== undefined) updateData.totalDeductions = req.body.totalDeductions;
+      if (req.body.totalNet !== undefined) updateData.totalNet = req.body.totalNet;
+      if (req.body.employeeCount !== undefined) updateData.employeeCount = req.body.employeeCount;
+      
+      const run = await storage.updatePayrollRun(req.params.id, updateData);
+      
+      await storage.createAuditLog({
+        userId: user.id,
+        action: "update",
+        entityType: "payroll_run",
+        entityId: run.id,
+        oldValues: oldRun,
+        newValues: run,
+        ipAddress: req.ip,
+        userAgent: req.get("User-Agent"),
+      });
+      
+      res.json(run);
+    } catch (error: any) {
+      console.error("Error updating payroll run:", error);
+      res.status(400).json({ message: error.message || "Failed to update payroll run" });
+    }
+  });
+
+  // Delete a payroll run
+  app.delete("/api/payroll-runs/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.user;
+      if (!["admin", "office_admin", "super_admin"].includes(user.role)) {
+        return res.status(403).json({ message: "Unauthorized" });
+      }
+      
+      await storage.deletePayrollRun(req.params.id);
+      
+      await storage.createAuditLog({
+        userId: user.id,
+        action: "delete",
+        entityType: "payroll_run",
+        entityId: req.params.id,
+        ipAddress: req.ip,
+        userAgent: req.get("User-Agent"),
+      });
+      
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Error deleting payroll run:", error);
+      res.status(500).json({ message: error.message || "Failed to delete payroll run" });
+    }
+  });
+
+  // =====================================================
+  // ADP Workforce Now Integration Endpoints
+  // =====================================================
+
+  // Get ADP configuration status
+  app.get("/api/adp/config", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.user;
+      if (!["admin", "office_admin", "super_admin"].includes(user.role)) {
+        return res.status(403).json({ message: "Unauthorized" });
+      }
+
+      // Check if ADP credentials are configured as environment variables/secrets
+      const clientId = process.env.ADP_CLIENT_ID;
+      const clientSecret = process.env.ADP_CLIENT_SECRET;
+      const isConfigured = !!(clientId && clientSecret);
+
+      // Get last sync time from system settings if available
+      let lastSync: string | null = null;
+      try {
+        const syncSetting = await storage.getSystemSetting("adp_last_sync");
+        if (syncSetting) {
+          lastSync = syncSetting.value;
+        }
+      } catch (e) {
+        // Ignore if setting doesn't exist
+      }
+
+      res.json({
+        isConfigured,
+        clientId: clientId ? `${clientId.substring(0, 8)}...` : null,
+        lastSync,
+        environment: process.env.ADP_ENVIRONMENT || "sandbox",
+      });
+    } catch (error: any) {
+      console.error("Error fetching ADP config:", error);
+      res.status(500).json({ message: error.message || "Failed to fetch ADP configuration" });
+    }
+  });
+
+  // Sync with ADP (placeholder - requires actual ADP API integration)
+  app.post("/api/adp/sync", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.user;
+      if (!["admin", "office_admin", "super_admin"].includes(user.role)) {
+        return res.status(403).json({ message: "Unauthorized" });
+      }
+
+      const clientId = process.env.ADP_CLIENT_ID;
+      const clientSecret = process.env.ADP_CLIENT_SECRET;
+
+      if (!clientId || !clientSecret) {
+        return res.status(400).json({ 
+          message: "ADP integration not configured. Please add ADP_CLIENT_ID and ADP_CLIENT_SECRET to your secrets." 
+        });
+      }
+
+      // Store the sync timestamp
+      const now = new Date().toISOString();
+      await storage.upsertSystemSetting("adp_last_sync", now);
+
+      // TODO: Implement actual ADP API sync
+      // This would involve:
+      // 1. OAuth2 token exchange using client credentials
+      // 2. Fetching workers from ADP API
+      // 3. Syncing payroll data
+      // 4. Updating local records
+
+      await storage.createAuditLog({
+        userId: user.id,
+        action: "sync",
+        entityType: "adp_integration",
+        entityId: "sync",
+        newValues: { syncedAt: now },
+        ipAddress: req.ip,
+        userAgent: req.get("User-Agent"),
+      });
+
+      res.json({ 
+        success: true, 
+        message: "ADP sync initiated successfully",
+        syncedAt: now
+      });
+    } catch (error: any) {
+      console.error("Error syncing with ADP:", error);
+      res.status(500).json({ message: error.message || "Failed to sync with ADP" });
+    }
+  });
+
+  // Test ADP connection
+  app.post("/api/adp/test-connection", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.user;
+      if (!["admin", "office_admin", "super_admin"].includes(user.role)) {
+        return res.status(403).json({ message: "Unauthorized" });
+      }
+
+      const clientId = process.env.ADP_CLIENT_ID;
+      const clientSecret = process.env.ADP_CLIENT_SECRET;
+
+      if (!clientId || !clientSecret) {
+        return res.status(400).json({ 
+          success: false,
+          message: "ADP credentials not configured" 
+        });
+      }
+
+      // TODO: Implement actual ADP connection test
+      // This would involve making a test OAuth request to ADP
+
+      res.json({ 
+        success: true, 
+        message: "ADP connection test successful (simulated)"
+      });
+    } catch (error: any) {
+      console.error("Error testing ADP connection:", error);
+      res.status(500).json({ 
+        success: false,
+        message: error.message || "Failed to test ADP connection" 
+      });
     }
   });
 

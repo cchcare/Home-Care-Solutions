@@ -88,8 +88,15 @@ export function Sidebar() {
       { name: "Tasks & Workflows", href: "/tasks", icon: ClipboardList },
       { name: "Forms & Documents", href: "/documents", icon: FileText },
       { name: "Analytics & Reports", href: "/reports", icon: BarChart3 },
-      { name: "Billing & Payroll", href: "/billing-payroll", icon: DollarSign },
-      { name: "Coordinator Pay", href: "/coordinator-pay-records", icon: DollarSign },
+      { 
+        name: "Payroll",
+        icon: DollarSign,
+        children: [
+          { name: "Payroll Hub", href: "/payroll", icon: DollarSign },
+          { name: "Billing & Payroll", href: "/billing-payroll", icon: DollarSign },
+          { name: "Coordinator Pay", href: "/coordinator-pay-records", icon: DollarSign },
+        ]
+      },
       { name: "AI Assistant", href: "/ai-assistant", icon: Bot },
       { name: "Support Tickets", href: "/support-tickets", icon: Ticket },
     ];
