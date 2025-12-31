@@ -3486,3 +3486,40 @@ export const generatedLettersRelations = relations(generatedLetters, ({ one }) =
 export type GeneratedLetter = typeof generatedLetters.$inferSelect;
 export type InsertGeneratedLetter = typeof generatedLetters.$inferInsert;
 export const insertGeneratedLetterSchema = createInsertSchema(generatedLetters).omit({ id: true, createdAt: true });
+
+// Coordinator Pay Records - Biweekly pay tracking for Care Coordinators
+export const coordinatorPayRecords = pgTable("coordinator_pay_records", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  coordinatorId: varchar("coordinator_id").references(() => coordinators.id).notNull(),
+  officeId: varchar("office_id").references(() => offices.id),
+  year: integer("year").notNull(),
+  quarter: integer("quarter").notNull(), // 1, 2, 3, or 4
+  payDateStart: timestamp("pay_date_start").notNull(),
+  payDateEnd: timestamp("pay_date_end").notNull(),
+  totalBilledHours: numeric("total_billed_hours", { precision: 10, scale: 2 }).default("0"),
+  totalPayrollHours: numeric("total_payroll_hours", { precision: 10, scale: 2 }).default("0"),
+  accrualAmount: numeric("accrual_amount", { precision: 10, scale: 2 }).default("0"),
+  quarterlyBonus: numeric("quarterly_bonus", { precision: 10, scale: 2 }).default("0"),
+  amountPaid: numeric("amount_paid", { precision: 10, scale: 2 }).default("0"),
+  balanceRemaining: numeric("balance_remaining", { precision: 10, scale: 2 }).default("0"),
+  notes: text("notes"),
+  documentId: varchar("document_id").references(() => documents.id), // For uploaded pay document
+  createdBy: varchar("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_coordinator_pay_records_coordinator").on(table.coordinatorId),
+  index("idx_coordinator_pay_records_year_quarter").on(table.year, table.quarter),
+  index("idx_coordinator_pay_records_office").on(table.officeId),
+]);
+
+export const coordinatorPayRecordsRelations = relations(coordinatorPayRecords, ({ one }) => ({
+  coordinator: one(coordinators, { fields: [coordinatorPayRecords.coordinatorId], references: [coordinators.id] }),
+  office: one(offices, { fields: [coordinatorPayRecords.officeId], references: [offices.id] }),
+  document: one(documents, { fields: [coordinatorPayRecords.documentId], references: [documents.id] }),
+  createdByUser: one(users, { fields: [coordinatorPayRecords.createdBy], references: [users.id] }),
+}));
+
+export type CoordinatorPayRecord = typeof coordinatorPayRecords.$inferSelect;
+export type InsertCoordinatorPayRecord = typeof coordinatorPayRecords.$inferInsert;
+export const insertCoordinatorPayRecordSchema = createInsertSchema(coordinatorPayRecords).omit({ id: true, createdAt: true, updatedAt: true });
