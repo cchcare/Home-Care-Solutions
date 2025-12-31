@@ -317,6 +317,15 @@ import {
   customIntegrations,
   type CustomIntegration,
   type InsertCustomIntegration,
+  letterTemplates,
+  type LetterTemplate,
+  type InsertLetterTemplate,
+  letterTemplateVersions,
+  type LetterTemplateVersion,
+  type InsertLetterTemplateVersion,
+  generatedLetters,
+  type GeneratedLetter,
+  type InsertGeneratedLetter,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, asc, and, or, count, sql, like, gte, lte, inArray } from "drizzle-orm";
@@ -1069,6 +1078,22 @@ export interface IStorage {
   getCustomIntegration(id: string): Promise<CustomIntegration | null>;
   updateCustomIntegration(id: string, data: Partial<CustomIntegration>): Promise<CustomIntegration>;
   deleteCustomIntegration(id: string): Promise<void>;
+
+  // Letter Template operations
+  getLetterTemplates(officeId?: string): Promise<LetterTemplate[]>;
+  getLetterTemplate(id: string): Promise<LetterTemplate | undefined>;
+  createLetterTemplate(template: InsertLetterTemplate): Promise<LetterTemplate>;
+  updateLetterTemplate(id: string, template: Partial<InsertLetterTemplate>): Promise<LetterTemplate>;
+  deleteLetterTemplate(id: string): Promise<void>;
+  getLetterTemplatesByScope(scope: string, officeId?: string): Promise<LetterTemplate[]>;
+
+  // Letter Template Version operations
+  getLetterTemplateVersions(templateId: string): Promise<LetterTemplateVersion[]>;
+  createLetterTemplateVersion(version: InsertLetterTemplateVersion): Promise<LetterTemplateVersion>;
+
+  // Generated Letter operations
+  createGeneratedLetter(letter: InsertGeneratedLetter): Promise<GeneratedLetter>;
+  getGeneratedLettersByTarget(scope: string, targetId: string): Promise<GeneratedLetter[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -6564,6 +6589,79 @@ export class DatabaseStorage implements IStorage {
 
   async deleteCustomIntegration(id: string): Promise<void> {
     await db.delete(customIntegrations).where(eq(customIntegrations.id, id));
+  }
+
+  // Letter Template operations
+  async getLetterTemplates(officeId?: string): Promise<LetterTemplate[]> {
+    if (officeId) {
+      return db.select().from(letterTemplates)
+        .where(eq(letterTemplates.officeId, officeId))
+        .orderBy(desc(letterTemplates.updatedAt));
+    }
+    return db.select().from(letterTemplates).orderBy(desc(letterTemplates.updatedAt));
+  }
+
+  async getLetterTemplate(id: string): Promise<LetterTemplate | undefined> {
+    const [template] = await db.select().from(letterTemplates).where(eq(letterTemplates.id, id));
+    return template;
+  }
+
+  async createLetterTemplate(template: InsertLetterTemplate): Promise<LetterTemplate> {
+    const [created] = await db.insert(letterTemplates).values(template).returning();
+    return created;
+  }
+
+  async updateLetterTemplate(id: string, template: Partial<InsertLetterTemplate>): Promise<LetterTemplate> {
+    const [updated] = await db.update(letterTemplates)
+      .set({ ...template, updatedAt: new Date() })
+      .where(eq(letterTemplates.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteLetterTemplate(id: string): Promise<void> {
+    await db.delete(letterTemplates).where(eq(letterTemplates.id, id));
+  }
+
+  async getLetterTemplatesByScope(scope: string, officeId?: string): Promise<LetterTemplate[]> {
+    if (officeId) {
+      return db.select().from(letterTemplates)
+        .where(and(
+          eq(letterTemplates.scope, scope as any),
+          eq(letterTemplates.officeId, officeId)
+        ))
+        .orderBy(letterTemplates.name);
+    }
+    return db.select().from(letterTemplates)
+      .where(eq(letterTemplates.scope, scope as any))
+      .orderBy(letterTemplates.name);
+  }
+
+  // Letter Template Version operations
+  async getLetterTemplateVersions(templateId: string): Promise<LetterTemplateVersion[]> {
+    return db.select().from(letterTemplateVersions)
+      .where(eq(letterTemplateVersions.templateId, templateId))
+      .orderBy(desc(letterTemplateVersions.versionNumber));
+  }
+
+  async createLetterTemplateVersion(version: InsertLetterTemplateVersion): Promise<LetterTemplateVersion> {
+    const [created] = await db.insert(letterTemplateVersions).values(version).returning();
+    return created;
+  }
+
+  // Generated Letter operations
+  async createGeneratedLetter(letter: InsertGeneratedLetter): Promise<GeneratedLetter> {
+    const [created] = await db.insert(generatedLetters).values(letter).returning();
+    return created;
+  }
+
+  async getGeneratedLettersByTarget(scope: string, targetId: string): Promise<GeneratedLetter[]> {
+    return db.select().from(generatedLetters)
+      .where(and(
+        eq(generatedLetters.scope, scope as any),
+        eq(generatedLetters.targetId, targetId)
+      ))
+      .orderBy(desc(generatedLetters.createdAt));
   }
 }
 
