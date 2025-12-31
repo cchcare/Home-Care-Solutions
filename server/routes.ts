@@ -7769,6 +7769,140 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Get birthday message settings
+  app.get("/api/birthday-notifications/settings", isAuthenticated, async (req: any, res) => {
+    try {
+      const userRole = req.user?.role;
+      if (!['super_admin', 'admin', 'office_admin'].includes(userRole)) {
+        return res.status(403).json({ message: "Insufficient permissions" });
+      }
+
+      const defaultSettings = {
+        clientSmsMessage: "Happy Birthday, {{firstName}}! 🎂🎉 On your special day, we want you to know how much you mean to us. Wishing you joy, health, and happiness! With love, The Home Care Family 💙",
+        caregiverSmsMessage: "Happy Birthday, {{firstName}}! 🎂🎉 Thank you for being such an amazing part of our caregiving family. Your dedication makes a real difference! Wishing you an incredible day! 💙 - Home Care",
+        clientEmailMessage: "On this special day, we want you to know how much you mean to us. May your birthday be filled with love, laughter, and wonderful memories.",
+        caregiverEmailMessage: "Thank you for being such a valued member of our caregiving family. Your dedication, compassion, and hard work make a real difference in the lives of those we serve.",
+        emailSubject: "🎂 Happy Birthday from Home Care!"
+      };
+
+      try {
+        const setting = await storage.getSystemSetting('birthday_messages');
+        if (setting && setting.value) {
+          const customSettings = typeof setting.value === 'string' 
+            ? JSON.parse(setting.value) 
+            : setting.value;
+          return res.json({ ...defaultSettings, ...customSettings });
+        }
+      } catch (e) {
+        // Fall through to default
+      }
+      
+      res.json(defaultSettings);
+    } catch (error) {
+      console.error("Error fetching birthday settings:", error);
+      res.status(500).json({ message: "Failed to fetch birthday settings" });
+    }
+  });
+
+  // Update birthday message settings
+  app.post("/api/birthday-notifications/settings", isAuthenticated, async (req: any, res) => {
+    try {
+      const userRole = req.user?.role;
+      if (!['super_admin', 'admin', 'office_admin'].includes(userRole)) {
+        return res.status(403).json({ message: "Insufficient permissions" });
+      }
+
+      const { clientSmsMessage, caregiverSmsMessage, clientEmailMessage, caregiverEmailMessage, emailSubject } = req.body;
+      
+      const settings = {
+        clientSmsMessage,
+        caregiverSmsMessage,
+        clientEmailMessage,
+        caregiverEmailMessage,
+        emailSubject,
+      };
+
+      await storage.upsertSystemSetting('birthday_messages', JSON.stringify(settings));
+      
+      res.json({ success: true, message: "Birthday message settings updated", settings });
+    } catch (error) {
+      console.error("Error updating birthday settings:", error);
+      res.status(500).json({ message: "Failed to update birthday settings" });
+    }
+  });
+
+  // Preview birthday email template
+  app.get("/api/birthday-notifications/preview", isAuthenticated, async (req: any, res) => {
+    try {
+      const userRole = req.user?.role;
+      if (!['super_admin', 'admin', 'office_admin'].includes(userRole)) {
+        return res.status(403).json({ message: "Insufficient permissions" });
+      }
+
+      const { type, customMessage } = req.query;
+      const isCaregiver = type === 'caregiver';
+      const firstName = 'John';
+
+      // Generate preview HTML
+      const previewHtml = `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body style="margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f0f4f8;">
+  <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color: #f0f4f8;">
+    <tr>
+      <td align="center" style="padding: 40px 20px;">
+        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="600" style="max-width: 600px; background-color: #ffffff; border-radius: 20px; overflow: hidden; box-shadow: 0 10px 40px rgba(0,0,0,0.1);">
+          <tr>
+            <td style="background: linear-gradient(135deg, #FF6B6B 0%, #FF8E53 25%, #FED330 50%, #4ECDC4 75%, #A855F7 100%); padding: 50px 40px; text-align: center;">
+              <div style="font-size: 60px; margin-bottom: 10px;">🎂</div>
+              <h1 style="color: white; margin: 0; font-size: 42px; font-weight: 800; text-shadow: 2px 2px 4px rgba(0,0,0,0.2);">Happy Birthday!</h1>
+              <div style="font-size: 36px; margin-top: 10px;">🎈 🎉 🎁 🎊 🌟</div>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding: 50px 40px;">
+              <p style="font-size: 24px; color: #1a1a2e; margin: 0 0 20px 0; font-weight: 600;">Dear ${firstName},</p>
+              <p style="font-size: 18px; color: #4a4a6a; line-height: 1.8; margin: 0 0 25px 0;">${customMessage || (isCaregiver ? 'Thank you for being such a valued member of our caregiving family.' : 'On this special day, we want you to know how much you mean to us.')}</p>
+              <p style="font-size: 18px; color: #4a4a6a; line-height: 1.8; margin: 0 0 30px 0;">Wishing you a year ahead filled with health, happiness, and countless beautiful moments!</p>
+              <div style="text-align: center; margin: 30px 0;">
+                <span style="display: inline-block; width: 60px; height: 3px; background: linear-gradient(90deg, #FF6B6B, #4ECDC4); border-radius: 2px;"></span>
+              </div>
+              <p style="font-size: 18px; color: #1a1a2e; margin: 0; font-weight: 600;">With warm wishes,</p>
+              <p style="font-size: 20px; color: #4ECDC4; margin: 8px 0 0 0; font-weight: 700;">The Home Care Family 💙</p>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding: 0 40px 40px 40px; text-align: center;">
+              <div style="background: linear-gradient(135deg, #FFF5F5 0%, #F0FDFF 100%); border-radius: 16px; padding: 30px; border: 2px dashed #FFB6C1;">
+                <p style="font-size: 16px; color: #6b6b8a; margin: 0; font-style: italic;">"Another year older, another year wiser, and another year to make amazing memories!"</p>
+                <div style="font-size: 32px; margin-top: 15px;">🎂✨🎂</div>
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td style="background-color: #f8fafc; padding: 30px 40px; text-align: center; border-top: 1px solid #e2e8f0;">
+              <p style="font-size: 14px; color: #94a3b8; margin: 0 0 10px 0;">This birthday greeting was sent with love from Home Care</p>
+              <p style="font-size: 12px; color: #cbd5e1; margin: 0;">Caring for you, always 💙</p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
+
+      res.send(previewHtml);
+    } catch (error) {
+      console.error("Error generating preview:", error);
+      res.status(500).json({ message: "Failed to generate preview" });
+    }
+  });
+
   // Shift Matching routes
   app.get("/api/shift-matching/suggest", isAuthenticated, async (req, res) => {
     try {

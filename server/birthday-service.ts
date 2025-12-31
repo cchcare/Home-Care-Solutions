@@ -2,35 +2,142 @@ import { storage } from './storage';
 import { sendEmail, sendSMS, formatPhoneNumber, isValidPhone, isValidEmail } from './communication-services';
 import type { Client, Caregiver, InsertBirthdayNotification } from '@shared/schema';
 
-const BIRTHDAY_EMAIL_SUBJECT = 'Happy Birthday from Home Care!';
+const BIRTHDAY_EMAIL_SUBJECT = '🎂 Happy Birthday from Home Care!';
 
-function getClientBirthdayMessage(firstName: string): string {
-  return `Happy Birthday, ${firstName}! 🎂 Wishing you a wonderful day filled with joy and happiness. From all of us at Home Care.`;
+interface BirthdayMessageSettings {
+  clientSmsMessage: string;
+  caregiverSmsMessage: string;
+  clientEmailMessage: string;
+  caregiverEmailMessage: string;
+  emailSubject: string;
 }
 
-function getCaregiverBirthdayMessage(firstName: string): string {
-  return `Happy Birthday, ${firstName}! 🎉 Thank you for all you do for our clients. Wishing you a fantastic birthday and a wonderful year ahead! From the Home Care team.`;
+const DEFAULT_MESSAGES: BirthdayMessageSettings = {
+  clientSmsMessage: "Happy Birthday, {{firstName}}! 🎂🎉 On your special day, we want you to know how much you mean to us. Wishing you joy, health, and happiness! With love, The Home Care Family 💙",
+  caregiverSmsMessage: "Happy Birthday, {{firstName}}! 🎂🎉 Thank you for being such an amazing part of our caregiving family. Your dedication makes a real difference! Wishing you an incredible day! 💙 - Home Care",
+  clientEmailMessage: "On this special day, we want you to know how much you mean to us. May your birthday be filled with love, laughter, and wonderful memories.",
+  caregiverEmailMessage: "Thank you for being such a valued member of our caregiving family. Your dedication, compassion, and hard work make a real difference in the lives of those we serve.",
+  emailSubject: "🎂 Happy Birthday from Home Care!"
+};
+
+async function getBirthdaySettings(): Promise<BirthdayMessageSettings> {
+  try {
+    const setting = await storage.getSystemSetting('birthday_messages');
+    if (setting && setting.value) {
+      const customSettings = typeof setting.value === 'string' 
+        ? JSON.parse(setting.value) 
+        : setting.value;
+      return { ...DEFAULT_MESSAGES, ...customSettings };
+    }
+  } catch (e) {
+    console.log('[Birthday Service] Using default messages');
+  }
+  return DEFAULT_MESSAGES;
 }
 
-function getBirthdayEmailHtml(firstName: string, isCaregiver: boolean): string {
-  const message = isCaregiver
-    ? `Thank you for all you do for our clients. Wishing you a fantastic birthday and a wonderful year ahead!`
-    : `Wishing you a wonderful day filled with joy and happiness.`;
+function replacePlaceholders(message: string, firstName: string): string {
+  return message.replace(/\{\{firstName\}\}/g, firstName);
+}
+
+async function getClientBirthdayMessage(firstName: string): Promise<string> {
+  const settings = await getBirthdaySettings();
+  return replacePlaceholders(settings.clientSmsMessage, firstName);
+}
+
+async function getCaregiverBirthdayMessage(firstName: string): Promise<string> {
+  const settings = await getBirthdaySettings();
+  return replacePlaceholders(settings.caregiverSmsMessage, firstName);
+}
+
+function getBirthdayEmailHtml(firstName: string, isCaregiver: boolean, customMessage?: string): string {
+  const defaultMessage = isCaregiver
+    ? `Thank you for being such a valued member of our caregiving family. Your dedication, compassion, and hard work make a real difference in the lives of those we serve.`
+    : `On this special day, we want you to know how much you mean to us. May your birthday be filled with love, laughter, and wonderful memories.`;
+  
+  const message = customMessage || defaultMessage;
+  const recipientType = isCaregiver ? 'team member' : 'client';
 
   return `
-    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-      <div style="text-align: center; padding: 30px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 10px; margin-bottom: 20px;">
-        <h1 style="color: white; margin: 0; font-size: 32px;">🎂 Happy Birthday! 🎉</h1>
-      </div>
-      <div style="padding: 20px; background: #f8f9fa; border-radius: 10px;">
-        <p style="font-size: 18px; color: #333;">Dear ${firstName},</p>
-        <p style="font-size: 16px; color: #555; line-height: 1.6;">${message}</p>
-        <p style="font-size: 16px; color: #555;">Best wishes,<br>The Home Care Team</p>
-      </div>
-      <div style="text-align: center; padding: 20px; color: #888; font-size: 12px;">
-        <p>This is an automated birthday message from Home Care.</p>
-      </div>
-    </div>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body style="margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f0f4f8;">
+  <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color: #f0f4f8;">
+    <tr>
+      <td align="center" style="padding: 40px 20px;">
+        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="600" style="max-width: 600px; background-color: #ffffff; border-radius: 20px; overflow: hidden; box-shadow: 0 10px 40px rgba(0,0,0,0.1);">
+          
+          <!-- Decorative Header with Confetti Pattern -->
+          <tr>
+            <td style="background: linear-gradient(135deg, #FF6B6B 0%, #FF8E53 25%, #FED330 50%, #4ECDC4 75%, #A855F7 100%); padding: 50px 40px; text-align: center; position: relative;">
+              <div style="font-size: 60px; margin-bottom: 10px;">🎂</div>
+              <h1 style="color: white; margin: 0; font-size: 42px; font-weight: 800; text-shadow: 2px 2px 4px rgba(0,0,0,0.2); letter-spacing: -1px;">
+                Happy Birthday!
+              </h1>
+              <div style="font-size: 36px; margin-top: 10px;">🎈 🎉 🎁 🎊 🌟</div>
+            </td>
+          </tr>
+          
+          <!-- Main Content -->
+          <tr>
+            <td style="padding: 50px 40px;">
+              <p style="font-size: 24px; color: #1a1a2e; margin: 0 0 20px 0; font-weight: 600;">
+                Dear ${firstName},
+              </p>
+              <p style="font-size: 18px; color: #4a4a6a; line-height: 1.8; margin: 0 0 25px 0;">
+                ${message}
+              </p>
+              <p style="font-size: 18px; color: #4a4a6a; line-height: 1.8; margin: 0 0 30px 0;">
+                Wishing you a year ahead filled with health, happiness, and countless beautiful moments!
+              </p>
+              
+              <!-- Decorative Divider -->
+              <div style="text-align: center; margin: 30px 0;">
+                <span style="display: inline-block; width: 60px; height: 3px; background: linear-gradient(90deg, #FF6B6B, #4ECDC4); border-radius: 2px;"></span>
+              </div>
+              
+              <p style="font-size: 18px; color: #1a1a2e; margin: 0; font-weight: 600;">
+                With warm wishes,
+              </p>
+              <p style="font-size: 20px; color: #4ECDC4; margin: 8px 0 0 0; font-weight: 700;">
+                The Home Care Family 💙
+              </p>
+            </td>
+          </tr>
+          
+          <!-- Birthday Cake Section -->
+          <tr>
+            <td style="padding: 0 40px 40px 40px; text-align: center;">
+              <div style="background: linear-gradient(135deg, #FFF5F5 0%, #F0FDFF 100%); border-radius: 16px; padding: 30px; border: 2px dashed #FFB6C1;">
+                <p style="font-size: 16px; color: #6b6b8a; margin: 0; font-style: italic;">
+                  "Another year older, another year wiser, and another year to make amazing memories!"
+                </p>
+                <div style="font-size: 32px; margin-top: 15px;">🎂✨🎂</div>
+              </div>
+            </td>
+          </tr>
+          
+          <!-- Footer -->
+          <tr>
+            <td style="background-color: #f8fafc; padding: 30px 40px; text-align: center; border-top: 1px solid #e2e8f0;">
+              <p style="font-size: 14px; color: #94a3b8; margin: 0 0 10px 0;">
+                This birthday greeting was sent with love from Home Care
+              </p>
+              <p style="font-size: 12px; color: #cbd5e1; margin: 0;">
+                Caring for you, always 💙
+              </p>
+            </td>
+          </tr>
+          
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
   `;
 }
 
@@ -55,12 +162,17 @@ async function sendBirthdayToClient(client: Client): Promise<BirthdaySendResult>
     emailStatus: 'skipped',
   };
 
+  // Get custom messages
+  const settings = await getBirthdaySettings();
+  const smsMessage = replacePlaceholders(settings.clientSmsMessage, firstName);
+  const emailMessage = replacePlaceholders(settings.clientEmailMessage, firstName);
+
   // Send SMS if phone is available
   if (client.phone && isValidPhone(client.phone)) {
     try {
       const smsResult = await sendSMS({
         to: formatPhoneNumber(client.phone),
-        body: getClientBirthdayMessage(firstName),
+        body: smsMessage,
       });
       result.smsStatus = smsResult.success ? 'sent' : 'failed';
       if (!smsResult.success) {
@@ -77,9 +189,9 @@ async function sendBirthdayToClient(client: Client): Promise<BirthdaySendResult>
     try {
       const emailResult = await sendEmail({
         to: client.email,
-        subject: BIRTHDAY_EMAIL_SUBJECT,
-        text: getClientBirthdayMessage(firstName),
-        html: getBirthdayEmailHtml(firstName, false),
+        subject: settings.emailSubject,
+        text: smsMessage,
+        html: getBirthdayEmailHtml(firstName, false, emailMessage),
       });
       result.emailStatus = emailResult.success ? 'sent' : 'failed';
       if (!emailResult.success) {
@@ -105,12 +217,17 @@ async function sendBirthdayToCaregiver(caregiver: Caregiver): Promise<BirthdaySe
     emailStatus: 'skipped',
   };
 
+  // Get custom messages
+  const settings = await getBirthdaySettings();
+  const smsMessage = replacePlaceholders(settings.caregiverSmsMessage, firstName);
+  const emailMessage = replacePlaceholders(settings.caregiverEmailMessage, firstName);
+
   // Send SMS if phone is available
   if (caregiver.phone && isValidPhone(caregiver.phone)) {
     try {
       const smsResult = await sendSMS({
         to: formatPhoneNumber(caregiver.phone),
-        body: getCaregiverBirthdayMessage(firstName),
+        body: smsMessage,
       });
       result.smsStatus = smsResult.success ? 'sent' : 'failed';
       if (!smsResult.success) {
@@ -127,9 +244,9 @@ async function sendBirthdayToCaregiver(caregiver: Caregiver): Promise<BirthdaySe
     try {
       const emailResult = await sendEmail({
         to: caregiver.email,
-        subject: BIRTHDAY_EMAIL_SUBJECT,
-        text: getCaregiverBirthdayMessage(firstName),
-        html: getBirthdayEmailHtml(firstName, true),
+        subject: settings.emailSubject,
+        text: smsMessage,
+        html: getBirthdayEmailHtml(firstName, true, emailMessage),
       });
       result.emailStatus = emailResult.success ? 'sent' : 'failed';
       if (!emailResult.success) {
