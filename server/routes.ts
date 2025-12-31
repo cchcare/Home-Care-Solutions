@@ -89,6 +89,7 @@ import {
   insertSupportTicketSchema,
   insertTicketMessageSchema,
   insertCustomIntegrationSchema,
+  insertCoordinatorPayRecordSchema,
 } from "@shared/schema";
 import bcrypt from "bcrypt";
 import { ObjectStorageService, ObjectNotFoundError } from "./objectStorage";
@@ -11792,16 +11793,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ message: "Unauthorized" });
       }
       
-      const data = {
+      const validatedData = insertCoordinatorPayRecordSchema.parse({
         ...req.body,
         createdBy: user.id,
-      };
+      });
       
-      const record = await storage.createCoordinatorPayRecord(data);
+      const record = await storage.createCoordinatorPayRecord(validatedData);
       res.status(201).json(record);
     } catch (error: any) {
       console.error("Error creating coordinator pay record:", error);
-      res.status(500).json({ message: error.message || "Failed to create pay record" });
+      res.status(400).json({ message: error.message || "Failed to create pay record" });
     }
   });
 
@@ -11813,11 +11814,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ message: "Unauthorized" });
       }
       
-      const record = await storage.updateCoordinatorPayRecord(req.params.id, req.body);
+      const validatedData = insertCoordinatorPayRecordSchema.partial().parse(req.body);
+      const record = await storage.updateCoordinatorPayRecord(req.params.id, validatedData);
       res.json(record);
     } catch (error: any) {
       console.error("Error updating coordinator pay record:", error);
-      res.status(500).json({ message: error.message || "Failed to update pay record" });
+      res.status(400).json({ message: error.message || "Failed to update pay record" });
     }
   });
 
