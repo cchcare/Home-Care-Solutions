@@ -326,6 +326,9 @@ import {
   generatedLetters,
   type GeneratedLetter,
   type InsertGeneratedLetter,
+  coordinatorPayRecords,
+  type CoordinatorPayRecord,
+  type InsertCoordinatorPayRecord,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, asc, and, or, count, sql, like, gte, lte, inArray } from "drizzle-orm";
@@ -1094,6 +1097,14 @@ export interface IStorage {
   // Generated Letter operations
   createGeneratedLetter(letter: InsertGeneratedLetter): Promise<GeneratedLetter>;
   getGeneratedLettersByTarget(scope: string, targetId: string): Promise<GeneratedLetter[]>;
+
+  // Coordinator Pay Record operations
+  getCoordinatorPayRecords(officeId?: string, year?: number, quarter?: number): Promise<CoordinatorPayRecord[]>;
+  getCoordinatorPayRecord(id: string): Promise<CoordinatorPayRecord | undefined>;
+  getCoordinatorPayRecordsByCoordinator(coordinatorId: string): Promise<CoordinatorPayRecord[]>;
+  createCoordinatorPayRecord(record: InsertCoordinatorPayRecord): Promise<CoordinatorPayRecord>;
+  updateCoordinatorPayRecord(id: string, record: Partial<InsertCoordinatorPayRecord>): Promise<CoordinatorPayRecord>;
+  deleteCoordinatorPayRecord(id: string): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -6662,6 +6673,47 @@ export class DatabaseStorage implements IStorage {
         eq(generatedLetters.targetId, targetId)
       ))
       .orderBy(desc(generatedLetters.createdAt));
+  }
+
+  // Coordinator Pay Record operations
+  async getCoordinatorPayRecords(officeId?: string, year?: number, quarter?: number): Promise<CoordinatorPayRecord[]> {
+    const conditions = [];
+    if (officeId) conditions.push(eq(coordinatorPayRecords.officeId, officeId));
+    if (year) conditions.push(eq(coordinatorPayRecords.year, year));
+    if (quarter) conditions.push(eq(coordinatorPayRecords.quarter, quarter));
+    
+    if (conditions.length > 0) {
+      return db.select().from(coordinatorPayRecords).where(and(...conditions)).orderBy(desc(coordinatorPayRecords.payDateStart));
+    }
+    return db.select().from(coordinatorPayRecords).orderBy(desc(coordinatorPayRecords.payDateStart));
+  }
+
+  async getCoordinatorPayRecord(id: string): Promise<CoordinatorPayRecord | undefined> {
+    const [record] = await db.select().from(coordinatorPayRecords).where(eq(coordinatorPayRecords.id, id));
+    return record;
+  }
+
+  async getCoordinatorPayRecordsByCoordinator(coordinatorId: string): Promise<CoordinatorPayRecord[]> {
+    return db.select().from(coordinatorPayRecords)
+      .where(eq(coordinatorPayRecords.coordinatorId, coordinatorId))
+      .orderBy(desc(coordinatorPayRecords.payDateStart));
+  }
+
+  async createCoordinatorPayRecord(record: InsertCoordinatorPayRecord): Promise<CoordinatorPayRecord> {
+    const [newRecord] = await db.insert(coordinatorPayRecords).values(record).returning();
+    return newRecord;
+  }
+
+  async updateCoordinatorPayRecord(id: string, record: Partial<InsertCoordinatorPayRecord>): Promise<CoordinatorPayRecord> {
+    const [updated] = await db.update(coordinatorPayRecords)
+      .set({ ...record, updatedAt: new Date() })
+      .where(eq(coordinatorPayRecords.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteCoordinatorPayRecord(id: string): Promise<void> {
+    await db.delete(coordinatorPayRecords).where(eq(coordinatorPayRecords.id, id));
   }
 }
 
