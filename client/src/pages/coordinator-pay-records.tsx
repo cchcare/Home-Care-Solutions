@@ -59,6 +59,8 @@ export default function CoordinatorPayRecords() {
   const [yearFilter, setYearFilter] = useState<string>("all");
   const [quarterFilter, setQuarterFilter] = useState<string>("all");
   const [officeFilter, setOfficeFilter] = useState<string>("all");
+  const [createSelectedFile, setCreateSelectedFile] = useState<File | null>(null);
+  const [editSelectedFile, setEditSelectedFile] = useState<File | null>(null);
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -117,17 +119,44 @@ export default function CoordinatorPayRecords() {
     },
   });
 
+  const uploadDocument = async (file: File, coordinatorId: string): Promise<string | null> => {
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("coordinatorId", coordinatorId);
+    formData.append("documentType", "coordinator_pay_record");
+    
+    const response = await fetch("/api/documents/upload", {
+      method: "POST",
+      body: formData,
+    });
+    
+    if (!response.ok) {
+      throw new Error("Document upload failed");
+    }
+    
+    const doc = await response.json();
+    return doc.id;
+  };
+
   const createMutation = useMutation({
     mutationFn: async (data: PayRecordFormData) => {
+      let documentId: string | null = null;
+      
+      if (createSelectedFile) {
+        documentId = await uploadDocument(createSelectedFile, data.coordinatorId);
+      }
+      
       return apiRequest("POST", "/api/coordinator-pay-records", {
         ...data,
         payDateStart: new Date(data.payDateStart).toISOString(),
         payDateEnd: new Date(data.payDateEnd).toISOString(),
+        documentId,
       });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/coordinator-pay-records"] });
       setCreateOpen(false);
+      setCreateSelectedFile(null);
       createForm.reset();
       toast({ title: "Success", description: "Pay record created successfully" });
     },
@@ -138,15 +167,28 @@ export default function CoordinatorPayRecords() {
 
   const updateMutation = useMutation({
     mutationFn: async (data: PayRecordFormData) => {
-      return apiRequest("PATCH", `/api/coordinator-pay-records/${selectedRecord?.id}`, {
+      let documentId: string | undefined = undefined;
+      
+      if (editSelectedFile) {
+        documentId = (await uploadDocument(editSelectedFile, data.coordinatorId)) || undefined;
+      }
+      
+      const updateData: any = {
         ...data,
         payDateStart: new Date(data.payDateStart).toISOString(),
         payDateEnd: new Date(data.payDateEnd).toISOString(),
-      });
+      };
+      
+      if (documentId !== undefined) {
+        updateData.documentId = documentId;
+      }
+      
+      return apiRequest("PATCH", `/api/coordinator-pay-records/${selectedRecord?.id}`, updateData);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/coordinator-pay-records"] });
       setEditOpen(false);
+      setEditSelectedFile(null);
       setSelectedRecord(null);
       toast({ title: "Success", description: "Pay record updated successfully" });
     },
@@ -172,6 +214,7 @@ export default function CoordinatorPayRecords() {
 
   const handleEdit = (record: CoordinatorPayRecord) => {
     setSelectedRecord(record);
+    setEditSelectedFile(null);
     editForm.reset({
       coordinatorId: record.coordinatorId,
       officeId: record.officeId || "",
@@ -225,7 +268,21 @@ export default function CoordinatorPayRecords() {
     return num.toFixed(2);
   };
 
-  const PayRecordForm = ({ form, onSubmit, isPending }: { form: any, onSubmit: (data: PayRecordFormData) => void, isPending: boolean }) => (
+  const PayRecordForm = ({ 
+    form, 
+    onSubmit, 
+    isPending,
+    selectedFile,
+    onFileChange,
+    existingDocumentId 
+  }: { 
+    form: any, 
+    onSubmit: (data: PayRecordFormData) => void, 
+    isPending: boolean,
+    selectedFile: File | null,
+    onFileChange: (file: File | null) => void,
+    existingDocumentId?: string | null
+  }) => (
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
         <div className="grid grid-cols-2 gap-4">
@@ -449,6 +506,44 @@ export default function CoordinatorPayRecords() {
           )}
         />
 
+        <div className="border rounded-lg p-4 bg-muted/30">
+          <div className="flex items-center gap-2 mb-2">
+            <FileUp className="h-4 w-4" />
+            <span className="font-medium">Document Attachment</span>
+          </div>
+          {existingDocumentId && !selectedFile && (
+            <p className="text-sm text-muted-foreground mb-2">
+              A document is already attached. Upload a new file to replace it.
+            </p>
+          )}
+          <div className="flex items-center gap-4">
+            <Input 
+              type="file" 
+              accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg"
+              onChange={(e) => onFileChange(e.target.files?.[0] || null)}
+              data-testid="input-document-file"
+              className="flex-1"
+            />
+            {selectedFile && (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <span>{selectedFile.name}</span>
+                <Button 
+                  type="button" 
+                  variant="ghost" 
+                  size="sm"
+                  onClick={() => onFileChange(null)}
+                  data-testid="button-clear-file"
+                >
+                  Clear
+                </Button>
+              </div>
+            )}
+          </div>
+          <p className="text-xs text-muted-foreground mt-2">
+            Attach supporting documents such as payroll summaries, timesheets, or bonus calculations.
+          </p>
+        </div>
+
         <DialogFooter>
           <Button type="submit" disabled={isPending} data-testid="button-submit">
             {isPending ? "Saving..." : "Save"}
@@ -494,7 +589,9 @@ export default function CoordinatorPayRecords() {
                       <PayRecordForm 
                         form={createForm} 
                         onSubmit={(data) => createMutation.mutate(data)} 
-                        isPending={createMutation.isPending} 
+                        isPending={createMutation.isPending}
+                        selectedFile={createSelectedFile}
+                        onFileChange={setCreateSelectedFile}
                       />
                     </DialogContent>
                   </Dialog>
@@ -647,7 +744,10 @@ export default function CoordinatorPayRecords() {
           <PayRecordForm 
             form={editForm} 
             onSubmit={(data) => updateMutation.mutate(data)} 
-            isPending={updateMutation.isPending} 
+            isPending={updateMutation.isPending}
+            selectedFile={editSelectedFile}
+            onFileChange={setEditSelectedFile}
+            existingDocumentId={selectedRecord?.documentId}
           />
         </DialogContent>
       </Dialog>
