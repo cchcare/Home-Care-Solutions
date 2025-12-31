@@ -75,6 +75,16 @@ Preferred communication style: Simple, everyday language.
     - **Sync Logging**: Track import history with detailed sync logs (records synced, errors, timestamps).
     - **Manual & Full Sync**: Options for importing individual data types or all at once.
     - **File Browser**: View available files in HHAX SFTP Outbox directory.
+- **Letter Template Management System**: Create reusable letter templates with mail-merge placeholders for generating documents:
+    - **Template Editor**: Admin UI at `/letter-templates` for creating and managing templates with HTML content and {{placeholder}} syntax.
+    - **Scopes**: Templates can target caregivers, clients, staff, or general use.
+    - **Placeholders**: Dynamic placeholders like {{caregiverFirstName}}, {{clientFullName}}, {{officeName}}, {{currentDate}} that auto-fill from entity data.
+    - **Version History**: Template changes are versioned for audit trail.
+    - **Status Workflow**: Templates can be draft, published, or archived. Only published templates can be used for generation.
+    - **Theme Settings**: Custom fonts, colors, header/footer text for branded documents.
+    - **Document Generation**: Generate PDFs from templates via profile pages (Caregiver/Client profiles → Documents → "Generate From Template").
+    - **Audit Log**: Generated letters are logged with merged data for compliance tracking.
+    - **Integration**: Generated documents are automatically saved to the entity's document collection.
 
 ### SaaS Multi-Tenancy (v3.0)
 - **Organization-Based Multi-Tenancy**: Each home care agency is an organization with isolated data.
