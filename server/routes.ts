@@ -11738,6 +11738,105 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ===========================================
+  // Coordinator Pay Records API
+  // ===========================================
+
+  // Get all coordinator pay records with optional filters
+  app.get("/api/coordinator-pay-records", isAuthenticated, async (req: any, res) => {
+    try {
+      const { officeId, year, quarter } = req.query;
+      const records = await storage.getCoordinatorPayRecords(
+        officeId as string,
+        year ? parseInt(year as string) : undefined,
+        quarter ? parseInt(quarter as string) : undefined
+      );
+      res.json(records);
+    } catch (error: any) {
+      console.error("Error fetching coordinator pay records:", error);
+      res.status(500).json({ message: error.message || "Failed to fetch pay records" });
+    }
+  });
+
+  // Get coordinator pay records for a specific coordinator
+  app.get("/api/coordinator-pay-records/coordinator/:coordinatorId", isAuthenticated, async (req: any, res) => {
+    try {
+      const { coordinatorId } = req.params;
+      const records = await storage.getCoordinatorPayRecordsByCoordinator(coordinatorId);
+      res.json(records);
+    } catch (error: any) {
+      console.error("Error fetching coordinator pay records:", error);
+      res.status(500).json({ message: error.message || "Failed to fetch pay records" });
+    }
+  });
+
+  // Get a single coordinator pay record
+  app.get("/api/coordinator-pay-records/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const record = await storage.getCoordinatorPayRecord(req.params.id);
+      if (!record) {
+        return res.status(404).json({ message: "Pay record not found" });
+      }
+      res.json(record);
+    } catch (error: any) {
+      console.error("Error fetching coordinator pay record:", error);
+      res.status(500).json({ message: error.message || "Failed to fetch pay record" });
+    }
+  });
+
+  // Create a new coordinator pay record
+  app.post("/api/coordinator-pay-records", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.user;
+      if (!["admin", "office_admin", "super_admin", "supervisor"].includes(user.role)) {
+        return res.status(403).json({ message: "Unauthorized" });
+      }
+      
+      const data = {
+        ...req.body,
+        createdBy: user.id,
+      };
+      
+      const record = await storage.createCoordinatorPayRecord(data);
+      res.status(201).json(record);
+    } catch (error: any) {
+      console.error("Error creating coordinator pay record:", error);
+      res.status(500).json({ message: error.message || "Failed to create pay record" });
+    }
+  });
+
+  // Update a coordinator pay record
+  app.patch("/api/coordinator-pay-records/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.user;
+      if (!["admin", "office_admin", "super_admin", "supervisor"].includes(user.role)) {
+        return res.status(403).json({ message: "Unauthorized" });
+      }
+      
+      const record = await storage.updateCoordinatorPayRecord(req.params.id, req.body);
+      res.json(record);
+    } catch (error: any) {
+      console.error("Error updating coordinator pay record:", error);
+      res.status(500).json({ message: error.message || "Failed to update pay record" });
+    }
+  });
+
+  // Delete a coordinator pay record
+  app.delete("/api/coordinator-pay-records/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.user;
+      if (!["admin", "office_admin", "super_admin", "supervisor"].includes(user.role)) {
+        return res.status(403).json({ message: "Unauthorized" });
+      }
+      
+      await storage.deleteCoordinatorPayRecord(req.params.id);
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Error deleting coordinator pay record:", error);
+      res.status(500).json({ message: error.message || "Failed to delete pay record" });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }
