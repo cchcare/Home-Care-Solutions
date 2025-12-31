@@ -46,6 +46,7 @@ import SupportTickets from "@/pages/support-tickets";
 import CustomIntegrations from "@/pages/custom-integrations";
 import ApiKeys from "@/pages/api-keys";
 import LetterTemplates from "@/pages/letter-templates";
+import CoordinatorPayRecords from "@/pages/coordinator-pay-records";
 
 function Router() {
   const { isAuthenticated, isLoading, error } = useAuth();
@@ -105,6 +106,7 @@ function Router() {
           <Route path="/support-tickets" component={SupportTickets} />
           <Route path="/custom-integrations" component={CustomIntegrations} />
           <Route path="/letter-templates" component={LetterTemplates} />
+          <Route path="/coordinator-pay-records" component={CoordinatorPayRecords} />
           <Route path="/api-keys" component={ApiKeys} />
         </>
       )}
