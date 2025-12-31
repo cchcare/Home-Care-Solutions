@@ -264,13 +264,15 @@ export const documents = pgTable("documents", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   clientId: varchar("client_id").references(() => clients.id),
   caregiverId: varchar("caregiver_id").references(() => caregivers.id),
+  userId: varchar("user_id").references(() => users.id), // For staff/user documents
   uploadedBy: varchar("uploaded_by").references(() => users.id),
   officeId: varchar("office_id").references(() => offices.id),
   fileName: varchar("file_name").notNull(),
   originalName: varchar("original_name").notNull(),
   fileType: varchar("file_type"),
   fileSize: integer("file_size"),
-  documentType: varchar("document_type"), // insurance_card, id_card, care_plan, etc.
+  documentType: varchar("document_type"), // insurance_card, id_card, care_plan, letter_template, etc.
+  templateId: varchar("template_id"), // Reference to letter template if generated from template
   isSignatureRequired: boolean("is_signature_required").default(false),
   isSigned: boolean("is_signed").default(false),
   signedBy: varchar("signed_by").references(() => users.id),
@@ -3391,3 +3393,96 @@ export const helpArticles = pgTable("help_articles", {
 export type HelpArticle = typeof helpArticles.$inferSelect;
 export type InsertHelpArticle = typeof helpArticles.$inferInsert;
 export const insertHelpArticleSchema = createInsertSchema(helpArticles).omit({ id: true, createdAt: true, updatedAt: true, viewCount: true });
+
+// ============================================
+// Letter Templates (Office Admin Managed)
+// ============================================
+
+export const templateScopeEnum = pgEnum("template_scope", ["caregiver", "client", "staff", "general"]);
+export const templateStatusEnum = pgEnum("template_status", ["draft", "published", "archived"]);
+
+export const letterTemplates = pgTable("letter_templates", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  officeId: varchar("office_id").references(() => offices.id),
+  name: varchar("name").notNull(),
+  description: text("description"),
+  scope: templateScopeEnum("scope").default("general"),
+  category: varchar("category"), // employment_verification, welcome_letter, termination, etc.
+  status: templateStatusEnum("status").default("draft"),
+  htmlContent: text("html_content").notNull(), // HTML with {{placeholders}}
+  themeSettings: jsonb("theme_settings"), // fonts, colors, margins, header/footer
+  placeholders: jsonb("placeholders"), // List of available placeholders for this template
+  isDefault: boolean("is_default").default(false),
+  createdBy: varchar("created_by").references(() => users.id),
+  updatedBy: varchar("updated_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_letter_templates_office").on(table.officeId),
+  index("idx_letter_templates_scope").on(table.scope),
+  index("idx_letter_templates_status").on(table.status),
+]);
+
+export const letterTemplatesRelations = relations(letterTemplates, ({ one, many }) => ({
+  office: one(offices, { fields: [letterTemplates.officeId], references: [offices.id] }),
+  creator: one(users, { fields: [letterTemplates.createdBy], references: [users.id] }),
+  updater: one(users, { fields: [letterTemplates.updatedBy], references: [users.id] }),
+  versions: many(letterTemplateVersions),
+  generatedLetters: many(generatedLetters),
+}));
+
+export type LetterTemplate = typeof letterTemplates.$inferSelect;
+export type InsertLetterTemplate = typeof letterTemplates.$inferInsert;
+export const insertLetterTemplateSchema = createInsertSchema(letterTemplates).omit({ id: true, createdAt: true, updatedAt: true });
+
+// Letter Template Versions (for version history)
+export const letterTemplateVersions = pgTable("letter_template_versions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  templateId: varchar("template_id").references(() => letterTemplates.id).notNull(),
+  versionNumber: integer("version_number").notNull(),
+  htmlContent: text("html_content").notNull(),
+  themeSettings: jsonb("theme_settings"),
+  placeholders: jsonb("placeholders"),
+  changeNotes: text("change_notes"),
+  createdBy: varchar("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_template_versions_template").on(table.templateId),
+]);
+
+export const letterTemplateVersionsRelations = relations(letterTemplateVersions, ({ one }) => ({
+  template: one(letterTemplates, { fields: [letterTemplateVersions.templateId], references: [letterTemplates.id] }),
+  creator: one(users, { fields: [letterTemplateVersions.createdBy], references: [users.id] }),
+}));
+
+export type LetterTemplateVersion = typeof letterTemplateVersions.$inferSelect;
+export type InsertLetterTemplateVersion = typeof letterTemplateVersions.$inferInsert;
+export const insertLetterTemplateVersionSchema = createInsertSchema(letterTemplateVersions).omit({ id: true, createdAt: true });
+
+// Generated Letters (audit log of generated documents)
+export const generatedLetters = pgTable("generated_letters", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  templateId: varchar("template_id").references(() => letterTemplates.id),
+  documentId: varchar("document_id").references(() => documents.id),
+  scope: templateScopeEnum("scope").notNull(),
+  targetId: varchar("target_id").notNull(), // caregiverId, clientId, or userId based on scope
+  mergedData: jsonb("merged_data"), // The data that was merged into placeholders
+  generatedBy: varchar("generated_by").references(() => users.id),
+  officeId: varchar("office_id").references(() => offices.id),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_generated_letters_template").on(table.templateId),
+  index("idx_generated_letters_target").on(table.targetId),
+  index("idx_generated_letters_scope").on(table.scope),
+]);
+
+export const generatedLettersRelations = relations(generatedLetters, ({ one }) => ({
+  template: one(letterTemplates, { fields: [generatedLetters.templateId], references: [letterTemplates.id] }),
+  document: one(documents, { fields: [generatedLetters.documentId], references: [documents.id] }),
+  generator: one(users, { fields: [generatedLetters.generatedBy], references: [users.id] }),
+  office: one(offices, { fields: [generatedLetters.officeId], references: [offices.id] }),
+}));
+
+export type GeneratedLetter = typeof generatedLetters.$inferSelect;
+export type InsertGeneratedLetter = typeof generatedLetters.$inferInsert;
+export const insertGeneratedLetterSchema = createInsertSchema(generatedLetters).omit({ id: true, createdAt: true });
