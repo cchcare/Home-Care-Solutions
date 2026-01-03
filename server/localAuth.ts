@@ -735,7 +735,6 @@ export async function setupAuth(app: Express) {
         redirect_uri: redirectUri,
         scope: "openid email profile",
         state: state,
-        prompt: "select_account",
       });
       
       res.redirect(authUrl.href);
