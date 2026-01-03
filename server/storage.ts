@@ -1227,7 +1227,10 @@ export class DatabaseStorage implements IStorage {
 
   // Google OAuth operations
   async getUserByEmail(email: string): Promise<User | undefined> {
-    const [user] = await db.select().from(users).where(eq(users.email, email.toLowerCase()));
+    // Case-insensitive email lookup to handle legacy mixed-case emails
+    const [user] = await db.select().from(users).where(
+      sql`LOWER(${users.email}) = ${email.toLowerCase()}`
+    );
     return user;
   }
 

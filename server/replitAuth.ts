@@ -74,26 +74,36 @@ function updateUserSession(
 async function handleGoogleSignIn(claims: any): Promise<{ user: any; error?: string }> {
   const email = claims["email"];
   const googleId = claims["sub"];
+  const emailVerified = claims["email_verified"];
   
   if (!email) {
     return { user: null, error: "No email provided by Google" };
   }
 
-  // Check if user already exists by email (existing local user or previously linked)
-  const existingUser = await storage.getUserByEmail(email);
+  // Security: Only allow verified email addresses
+  if (!emailVerified) {
+    console.log(`[Google Auth] Rejected unverified email: ${email}`);
+    return { user: null, error: "Your Google email address must be verified to sign in" };
+  }
+
+  // Normalize email to lowercase for consistent matching
+  const normalizedEmail = email.toLowerCase();
+
+  // Check if user already exists by email (case-insensitive)
+  const existingUser = await storage.getUserByEmail(normalizedEmail);
   
   if (existingUser) {
     // Existing user - link their Google account if not already linked
     if (!existingUser.googleId) {
       await storage.linkGoogleAccount(existingUser.id, googleId);
-      console.log(`[Google Auth] Linked Google account for existing user: ${email}`);
+      console.log(`[Google Auth] Linked Google account for existing user: ${normalizedEmail}`);
     }
     return { user: existingUser };
   }
   
   // New user - check if email domain is allowed
-  if (!isEmailDomainAllowed(email)) {
-    console.log(`[Google Auth] Rejected sign-up from unauthorized domain: ${email}`);
+  if (!isEmailDomainAllowed(normalizedEmail)) {
+    console.log(`[Google Auth] Rejected sign-up from unauthorized domain: ${normalizedEmail}`);
     return { 
       user: null, 
       error: `Sign-up is only allowed for users with email addresses from: ${ALLOWED_SIGNUP_DOMAINS.join(", ")}` 
@@ -102,14 +112,14 @@ async function handleGoogleSignIn(claims: any): Promise<{ user: any; error?: str
   
   // Create new user with Google account
   const newUser = await storage.createGoogleUser({
-    email: email,
+    email: normalizedEmail,
     firstName: claims["first_name"] || "",
     lastName: claims["last_name"] || "",
     profileImageUrl: claims["profile_image_url"],
     googleId: googleId,
   });
   
-  console.log(`[Google Auth] Created new user via Google sign-up: ${email}`);
+  console.log(`[Google Auth] Created new user via Google sign-up: ${normalizedEmail}`);
   return { user: newUser };
 }
 
