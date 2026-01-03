@@ -721,14 +721,8 @@ export async function setupAuth(app: Express) {
       
       // Generate and store state for CSRF protection
       const state = crypto.randomBytes(16).toString("hex");
-      
-      // Generate PKCE code verifier and challenge (required by Replit OIDC)
-      const codeVerifier = client.randomPKCECodeVerifier();
-      const codeChallenge = await client.calculatePKCECodeChallenge(codeVerifier);
-      
       (req.session as any).googleOAuthState = state;
-      (req.session as any).googleRedirectUri = redirectUri;
-      (req.session as any).googleCodeVerifier = codeVerifier;
+      (req.session as any).googleRedirectUri = redirectUri; // Store for callback
       
       await new Promise<void>((resolve, reject) => {
         req.session.save((err) => {
@@ -741,8 +735,6 @@ export async function setupAuth(app: Express) {
         redirect_uri: redirectUri,
         scope: "openid email profile",
         state: state,
-        code_challenge: codeChallenge,
-        code_challenge_method: "S256",
       });
       
       res.redirect(authUrl.href);
@@ -758,7 +750,6 @@ export async function setupAuth(app: Express) {
       const config = await getOidcConfig();
       const baseUrl = getBaseUrl(req);
       const redirectUri = (req.session as any).googleRedirectUri || `${baseUrl}/api/auth/google/callback`;
-      const codeVerifier = (req.session as any).googleCodeVerifier;
       
       // Verify state to prevent CSRF
       const state = req.query.state as string;
@@ -769,21 +760,15 @@ export async function setupAuth(app: Express) {
         return res.redirect("/?error=invalid_state");
       }
       
-      if (!codeVerifier) {
-        console.error("[Google Auth] Missing PKCE code verifier");
-        return res.redirect("/?error=missing_verifier");
-      }
-      
-      // Clear the stored state and verifier
+      // Clear the stored state
       delete (req.session as any).googleOAuthState;
       delete (req.session as any).googleRedirectUri;
-      delete (req.session as any).googleCodeVerifier;
       
-      // Exchange authorization code for tokens (with PKCE)
+      // Exchange authorization code for tokens
       const currentUrl = new URL(`${baseUrl}${req.url}`);
       const tokens = await client.authorizationCodeGrant(config, currentUrl, {
         expectedState: state,
-        pkceCodeVerifier: codeVerifier,
+        redirect_uri: redirectUri,
       });
       
       const claims = tokens.claims();
