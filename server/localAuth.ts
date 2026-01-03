@@ -2,10 +2,32 @@ import { Express, RequestHandler } from "express";
 import session from "express-session";
 import bcrypt from "bcrypt";
 import crypto from "crypto";
+import * as client from "openid-client";
+import memoize from "memoizee";
 import { storage } from "./storage";
 import connectPgSimple from "connect-pg-simple";
 import { pool } from "./db";
 import { sendEmail, sendSMS, formatPhoneNumber, isValidPhone } from "./communication-services";
+
+// Allowed email domains for new Google sign-ups
+const ALLOWED_SIGNUP_DOMAINS = ["carechc.com", "rgshomecare.com"];
+
+function isEmailDomainAllowed(email: string): boolean {
+  if (!email) return false;
+  const domain = email.toLowerCase().split("@")[1];
+  return ALLOWED_SIGNUP_DOMAINS.includes(domain);
+}
+
+// Memoized OIDC configuration for Google auth via Replit
+const getOidcConfig = memoize(
+  async () => {
+    return await client.discovery(
+      new URL(process.env.ISSUER_URL ?? "https://replit.com/oidc"),
+      process.env.REPL_ID!
+    );
+  },
+  { maxAge: 3600 * 1000 }
+);
 
 // SMS code rate limiting
 const smsAttempts = new Map<string, { count: number; lastAttempt: number }>();
@@ -676,6 +698,164 @@ export async function setupAuth(app: Express) {
     } catch (error) {
       console.error("Get SMS status error:", error);
       res.status(500).json({ message: "Failed to get mobile status" });
+    }
+  });
+
+  // ============================================
+  // Google OAuth Routes (via Replit OIDC)
+  // ============================================
+  
+  // Helper to get base URL respecting proxy headers
+  function getBaseUrl(req: any): string {
+    const protocol = req.get("x-forwarded-proto") || req.protocol || "https";
+    const host = req.get("x-forwarded-host") || req.get("host") || req.hostname;
+    return `${protocol}://${host}`;
+  }
+
+  // Initiate Google sign-in
+  app.get("/api/auth/google", async (req, res) => {
+    try {
+      const config = await getOidcConfig();
+      const baseUrl = getBaseUrl(req);
+      const redirectUri = `${baseUrl}/api/auth/google/callback`;
+      
+      // Generate and store state for CSRF protection
+      const state = crypto.randomBytes(16).toString("hex");
+      (req.session as any).googleOAuthState = state;
+      (req.session as any).googleRedirectUri = redirectUri; // Store for callback
+      
+      await new Promise<void>((resolve, reject) => {
+        req.session.save((err) => {
+          if (err) reject(err);
+          else resolve();
+        });
+      });
+      
+      const authUrl = client.buildAuthorizationUrl(config, {
+        redirect_uri: redirectUri,
+        scope: "openid email profile",
+        state: state,
+        prompt: "select_account",
+      });
+      
+      res.redirect(authUrl.href);
+    } catch (error) {
+      console.error("[Google Auth] Error initiating OAuth:", error);
+      res.redirect("/?error=google_auth_failed");
+    }
+  });
+  
+  // Google OAuth callback
+  app.get("/api/auth/google/callback", async (req, res) => {
+    try {
+      const config = await getOidcConfig();
+      const baseUrl = getBaseUrl(req);
+      const redirectUri = (req.session as any).googleRedirectUri || `${baseUrl}/api/auth/google/callback`;
+      
+      // Verify state to prevent CSRF
+      const state = req.query.state as string;
+      const storedState = (req.session as any).googleOAuthState;
+      
+      if (!state || state !== storedState) {
+        console.error("[Google Auth] State mismatch - possible CSRF attack");
+        return res.redirect("/?error=invalid_state");
+      }
+      
+      // Clear the stored state
+      delete (req.session as any).googleOAuthState;
+      delete (req.session as any).googleRedirectUri;
+      
+      // Exchange authorization code for tokens
+      const currentUrl = new URL(`${baseUrl}${req.url}`);
+      const tokens = await client.authorizationCodeGrant(config, currentUrl, {
+        expectedState: state,
+        redirect_uri: redirectUri,
+      });
+      
+      const claims = tokens.claims();
+      const email = claims.email as string | undefined;
+      const emailVerified = claims.email_verified;
+      const googleId = claims.sub;
+      
+      if (!email) {
+        console.error("[Google Auth] No email in claims");
+        return res.redirect("/?error=no_email");
+      }
+      
+      // Security: Only allow verified email addresses
+      if (!emailVerified) {
+        console.log(`[Google Auth] Rejected unverified email: ${email}`);
+        return res.redirect("/?error=email_not_verified");
+      }
+      
+      const normalizedEmail = email.toLowerCase();
+      
+      // Check if user already exists
+      const existingUser = await storage.getUserByEmail(normalizedEmail);
+      
+      let user;
+      if (existingUser) {
+        // Link Google account if not already linked
+        if (!existingUser.googleId) {
+          await storage.linkGoogleAccount(existingUser.id, googleId);
+          console.log(`[Google Auth] Linked Google account for: ${normalizedEmail}`);
+        }
+        user = existingUser;
+      } else {
+        // New user - check domain restriction
+        if (!isEmailDomainAllowed(normalizedEmail)) {
+          console.log(`[Google Auth] Rejected unauthorized domain: ${normalizedEmail}`);
+          return res.redirect(`/?error=unauthorized_domain`);
+        }
+        
+        // Create new user
+        user = await storage.createGoogleUser({
+          email: normalizedEmail,
+          firstName: (claims.given_name as string) || (claims.first_name as string) || "",
+          lastName: (claims.family_name as string) || (claims.last_name as string) || "",
+          profileImageUrl: claims.picture as string,
+          googleId: googleId,
+        });
+        console.log(`[Google Auth] Created new user: ${normalizedEmail}`);
+      }
+      
+      if (!user.isActive) {
+        return res.redirect("/?error=account_disabled");
+      }
+      
+      // Update last login
+      await storage.updateUserLastLogin(user.id);
+      
+      // Create session (same as local login)
+      req.session.regenerate((err) => {
+        if (err) {
+          console.error("[Google Auth] Session regeneration error:", err);
+          return res.redirect("/?error=session_error");
+        }
+        
+        (req.session as any).user = {
+          id: user.id,
+          email: user.email,
+          username: user.username,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          role: user.role,
+          primaryOfficeId: user.primaryOfficeId,
+          profileImageUrl: user.profileImageUrl,
+          mustResetPassword: false, // Google users don't have passwords
+        };
+        
+        req.session.save((err) => {
+          if (err) {
+            console.error("[Google Auth] Session save error:", err);
+            return res.redirect("/?error=session_error");
+          }
+          res.redirect("/");
+        });
+      });
+    } catch (error) {
+      console.error("[Google Auth] Callback error:", error);
+      res.redirect("/?error=google_auth_failed");
     }
   });
 }
