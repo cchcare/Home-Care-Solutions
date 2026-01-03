@@ -12,6 +12,15 @@ if (!process.env.REPLIT_DOMAINS) {
   throw new Error("Environment variable REPLIT_DOMAINS not provided");
 }
 
+// Allowed email domains for new Google sign-ups
+const ALLOWED_SIGNUP_DOMAINS = ["carechc.com", "rgshomecare.com"];
+
+function isEmailDomainAllowed(email: string): boolean {
+  if (!email) return false;
+  const domain = email.toLowerCase().split("@")[1];
+  return ALLOWED_SIGNUP_DOMAINS.includes(domain);
+}
+
 const getOidcConfig = memoize(
   async () => {
     return await client.discovery(
@@ -46,24 +55,62 @@ export function getSession() {
 
 function updateUserSession(
   user: any,
-  tokens: client.TokenEndpointResponse & client.TokenEndpointResponseHelpers
+  tokens: client.TokenEndpointResponse & client.TokenEndpointResponseHelpers,
+  dbUser?: any
 ) {
   user.claims = tokens.claims();
   user.access_token = tokens.access_token;
   user.refresh_token = tokens.refresh_token;
   user.expires_at = user.claims?.exp;
+  // Store database user info in session for local auth compatibility
+  if (dbUser) {
+    user.id = dbUser.id;
+    user.role = dbUser.role;
+    user.primaryOfficeId = dbUser.primaryOfficeId;
+    user.organizationId = dbUser.organizationId;
+  }
 }
 
-async function upsertUser(
-  claims: any,
-) {
-  await storage.upsertUser({
-    id: claims["sub"],
-    email: claims["email"],
-    firstName: claims["first_name"],
-    lastName: claims["last_name"],
+async function handleGoogleSignIn(claims: any): Promise<{ user: any; error?: string }> {
+  const email = claims["email"];
+  const googleId = claims["sub"];
+  
+  if (!email) {
+    return { user: null, error: "No email provided by Google" };
+  }
+
+  // Check if user already exists by email (existing local user or previously linked)
+  const existingUser = await storage.getUserByEmail(email);
+  
+  if (existingUser) {
+    // Existing user - link their Google account if not already linked
+    if (!existingUser.googleId) {
+      await storage.linkGoogleAccount(existingUser.id, googleId);
+      console.log(`[Google Auth] Linked Google account for existing user: ${email}`);
+    }
+    return { user: existingUser };
+  }
+  
+  // New user - check if email domain is allowed
+  if (!isEmailDomainAllowed(email)) {
+    console.log(`[Google Auth] Rejected sign-up from unauthorized domain: ${email}`);
+    return { 
+      user: null, 
+      error: `Sign-up is only allowed for users with email addresses from: ${ALLOWED_SIGNUP_DOMAINS.join(", ")}` 
+    };
+  }
+  
+  // Create new user with Google account
+  const newUser = await storage.createGoogleUser({
+    email: email,
+    firstName: claims["first_name"] || "",
+    lastName: claims["last_name"] || "",
     profileImageUrl: claims["profile_image_url"],
+    googleId: googleId,
   });
+  
+  console.log(`[Google Auth] Created new user via Google sign-up: ${email}`);
+  return { user: newUser };
 }
 
 export async function setupAuth(app: Express) {
@@ -78,10 +125,21 @@ export async function setupAuth(app: Express) {
     tokens: client.TokenEndpointResponse & client.TokenEndpointResponseHelpers,
     verified: passport.AuthenticateCallback
   ) => {
-    const user = {};
-    updateUserSession(user, tokens);
-    await upsertUser(tokens.claims());
-    verified(null, user);
+    try {
+      const claims = tokens.claims();
+      const { user: dbUser, error } = await handleGoogleSignIn(claims);
+      
+      if (error || !dbUser) {
+        return verified(new Error(error || "Authentication failed"), undefined);
+      }
+      
+      const sessionUser = {};
+      updateUserSession(sessionUser, tokens, dbUser);
+      verified(null, sessionUser);
+    } catch (err) {
+      console.error("[Google Auth] Error during authentication:", err);
+      verified(err as Error, undefined);
+    }
   };
 
   for (const domain of process.env
@@ -101,6 +159,15 @@ export async function setupAuth(app: Express) {
   passport.serializeUser((user: Express.User, cb) => cb(null, user));
   passport.deserializeUser((user: Express.User, cb) => cb(null, user));
 
+  // Google sign-in endpoint (via Replit Auth which supports Google)
+  app.get("/api/auth/google", (req, res, next) => {
+    passport.authenticate(`replitauth:${req.hostname}`, {
+      prompt: "login consent",
+      scope: ["openid", "email", "profile", "offline_access"],
+    })(req, res, next);
+  });
+
+  // Legacy login endpoint (redirects to Google auth)
   app.get("/api/login", (req, res, next) => {
     passport.authenticate(`replitauth:${req.hostname}`, {
       prompt: "login consent",
@@ -111,7 +178,7 @@ export async function setupAuth(app: Express) {
   app.get("/api/callback", (req, res, next) => {
     passport.authenticate(`replitauth:${req.hostname}`, {
       successReturnToOrRedirect: "/",
-      failureRedirect: "/api/login",
+      failureRedirect: "/auth?error=google_auth_failed",
     })(req, res, next);
   });
 

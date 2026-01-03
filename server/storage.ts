@@ -349,6 +349,11 @@ export interface IStorage {
   setUserSmsCode(id: string, code: string, expiry: Date): Promise<void>;
   clearUserSmsCode(id: string): Promise<void>;
   updateUserMobilePhone(id: string, phone: string, verified: boolean): Promise<void>;
+  
+  // Google OAuth operations
+  getUserByEmail(email: string): Promise<User | undefined>;
+  linkGoogleAccount(userId: string, googleId: string): Promise<void>;
+  createGoogleUser(userData: { email: string; firstName: string; lastName: string; profileImageUrl?: string; googleId: string }): Promise<User>;
 
   // Office operations
   getAllOffices(): Promise<Office[]>;
@@ -1218,6 +1223,34 @@ export class DatabaseStorage implements IStorage {
       smsCodeExpiry: null,
       updatedAt: new Date() 
     }).where(eq(users.id, id));
+  }
+
+  // Google OAuth operations
+  async getUserByEmail(email: string): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.email, email.toLowerCase()));
+    return user;
+  }
+
+  async linkGoogleAccount(userId: string, googleId: string): Promise<void> {
+    await db.update(users).set({
+      googleId: googleId,
+      googleLinkedAt: new Date(),
+      updatedAt: new Date(),
+    }).where(eq(users.id, userId));
+  }
+
+  async createGoogleUser(userData: { email: string; firstName: string; lastName: string; profileImageUrl?: string; googleId: string }): Promise<User> {
+    const [user] = await db.insert(users).values({
+      email: userData.email.toLowerCase(),
+      firstName: userData.firstName,
+      lastName: userData.lastName,
+      profileImageUrl: userData.profileImageUrl,
+      googleId: userData.googleId,
+      googleLinkedAt: new Date(),
+      role: "caregiver", // Default role for new Google sign-ups
+      isActive: true,
+    }).returning();
+    return user;
   }
 
   // Office operations

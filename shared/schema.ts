@@ -99,10 +99,14 @@ export const users = pgTable("users", {
   mobileVerified: boolean("mobile_verified").default(false),
   smsVerificationCode: varchar("sms_verification_code"),
   smsCodeExpiry: timestamp("sms_code_expiry"),
+  // Google OAuth linking
+  googleId: varchar("google_id"),
+  googleLinkedAt: timestamp("google_linked_at"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => [
   index("idx_users_organization").on(table.organizationId),
+  index("idx_users_google_id").on(table.googleId),
 ]);
 
 // Client management
