@@ -5,7 +5,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Heart, Shield, Users, FileText, Bell, BarChart3, Loader2, Eye, EyeOff, Smartphone, KeyRound } from "lucide-react";
+import { Shield, Users, FileText, Bell, BarChart3, Loader2, Eye, EyeOff, Smartphone, KeyRound } from "lucide-react";
+import cchcLogo from "@assets/15A8EB0D-1FA3-4805-BF3C-7810910EC966_1767496211498.png";
 import { Link } from "wouter";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
@@ -148,9 +149,12 @@ export default function Landing() {
       <div className="min-h-screen bg-background flex items-center justify-center p-4">
         <Card className="w-full max-w-md mx-auto">
           <CardHeader className="text-center">
-            <div className="w-12 h-12 bg-primary rounded-lg flex items-center justify-center mx-auto mb-4">
-              <Heart className="w-7 h-7 text-primary-foreground" />
-            </div>
+            <img 
+              src={cchcLogo} 
+              alt="CCHC Solutions" 
+              className="w-24 h-24 mx-auto mb-4 object-contain"
+              data-testid="img-cchc-logo"
+            />
             <CardTitle className="text-2xl">Welcome Back</CardTitle>
             <CardDescription>Sign in to your Home Care account</CardDescription>
           </CardHeader>
@@ -404,10 +408,8 @@ export default function Landing() {
         <div className="container mx-auto px-4 py-6">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-3">
-              <div className="w-10 h-10 bg-primary rounded-lg flex items-center justify-center">
-                <Heart className="w-6 h-6 text-primary-foreground" />
-              </div>
-              <h1 className="text-2xl font-bold text-foreground">Home Care</h1>
+              <img src={cchcLogo} alt="CCHC Solutions" className="w-12 h-12 object-contain" />
+              <h1 className="text-2xl font-bold text-foreground">CCHC Solutions</h1>
             </div>
             <div className="flex items-center gap-4">
               <Link href="/pricing" className="text-sm text-muted-foreground hover:text-foreground" data-testid="link-pricing">
@@ -571,10 +573,8 @@ export default function Landing() {
         <div className="container mx-auto px-4">
           <div className="flex flex-col md:flex-row items-center justify-between gap-4">
             <div className="flex items-center space-x-3">
-              <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
-                <Heart className="w-5 h-5 text-primary-foreground" />
-              </div>
-              <span className="font-semibold text-foreground">Home Care</span>
+              <img src={cchcLogo} alt="CCHC Solutions" className="w-10 h-10 object-contain" />
+              <span className="font-semibold text-foreground">CCHC Solutions</span>
             </div>
             <div className="flex items-center gap-4 text-sm text-muted-foreground">
               <a href="/privacy-policy" className="hover:text-foreground" data-testid="link-privacy-policy">
@@ -588,7 +588,7 @@ export default function Landing() {
               </a>
             </div>
             <p className="text-sm text-muted-foreground">
-              © 2024 Home Care. HIPAA-compliant home care management.
+              © 2024 CCHC Solutions. HIPAA-compliant home care management.
             </p>
           </div>
         </div>
