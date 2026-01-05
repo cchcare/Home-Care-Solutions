@@ -1,5 +1,6 @@
 import { storage } from './storage';
 import { sendEmail, sendSMS, formatPhoneNumber, isValidPhone, isValidEmail } from './communication-services';
+import { sendTemplatedEmail } from './agentmail';
 import type { Client, Caregiver, InsertBirthdayNotification } from '@shared/schema';
 
 const BIRTHDAY_EMAIL_SUBJECT = '🎂 Happy Birthday from Home Care!';
@@ -187,16 +188,20 @@ async function sendBirthdayToClient(client: Client): Promise<BirthdaySendResult>
   // Send email if available
   if (client.email && isValidEmail(client.email)) {
     try {
-      const emailResult = await sendEmail({
-        to: client.email,
-        subject: settings.emailSubject,
-        text: smsMessage,
-        html: getBirthdayEmailHtml(firstName, false, emailMessage),
-      });
+      const emailResult = await sendTemplatedEmail(
+        client.email,
+        "birthday_client",
+        {
+          firstName: firstName,
+          lastName: client.lastName || "",
+          companyName: "CCHC Solutions",
+          currentYear: new Date().getFullYear().toString(),
+        },
+        settings.emailSubject,
+        getBirthdayEmailHtml(firstName, false, emailMessage),
+        smsMessage
+      );
       result.emailStatus = emailResult.success ? 'sent' : 'failed';
-      if (!emailResult.success) {
-        result.emailError = emailResult.error;
-      }
     } catch (error: any) {
       result.emailStatus = 'failed';
       result.emailError = error.message || 'Unknown email error';
@@ -242,16 +247,20 @@ async function sendBirthdayToCaregiver(caregiver: Caregiver): Promise<BirthdaySe
   // Send email if available
   if (caregiver.email && isValidEmail(caregiver.email)) {
     try {
-      const emailResult = await sendEmail({
-        to: caregiver.email,
-        subject: settings.emailSubject,
-        text: smsMessage,
-        html: getBirthdayEmailHtml(firstName, true, emailMessage),
-      });
+      const emailResult = await sendTemplatedEmail(
+        caregiver.email,
+        "birthday_caregiver",
+        {
+          firstName: firstName,
+          lastName: caregiver.lastName || "",
+          companyName: "CCHC Solutions",
+          currentYear: new Date().getFullYear().toString(),
+        },
+        settings.emailSubject,
+        getBirthdayEmailHtml(firstName, true, emailMessage),
+        smsMessage
+      );
       result.emailStatus = emailResult.success ? 'sent' : 'failed';
-      if (!emailResult.success) {
-        result.emailError = emailResult.error;
-      }
     } catch (error: any) {
       result.emailStatus = 'failed';
       result.emailError = error.message || 'Unknown email error';

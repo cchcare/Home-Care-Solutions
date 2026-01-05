@@ -85,6 +85,17 @@ Preferred communication style: Simple, everyday language.
     - **Document Generation**: Generate PDFs from templates via profile pages (Caregiver/Client profiles → Documents → "Generate From Template").
     - **Audit Log**: Generated letters are logged with merged data for compliance tracking.
     - **Integration**: Generated documents are automatically saved to the entity's document collection.
+- **System Email Template Designer**: Super admin-only tool for customizing all system notification emails:
+    - **Template Types**: password_reset, welcome, birthday_client, birthday_caregiver, schedule_change, schedule_reminder, compliance_alert, general.
+    - **Admin UI**: At `/email-templates` for creating and managing email templates with HTML content and {{placeholder}} syntax.
+    - **Placeholder System**: Type-specific placeholders (e.g., {{firstName}}, {{resetUrl}}, {{companyName}}) that auto-fill when sending.
+    - **Theme Customization**: Custom primary colors, fonts, header/footer text for branded emails.
+    - **Live Preview**: Real-time preview of template with sample placeholder values.
+    - **Test Emails**: Send test emails before activating templates.
+    - **Activation**: Set templates as active/default for automatic use in system emails.
+    - **Fallback System**: If no template exists or has unresolved placeholders, hardcoded fallback content is used.
+    - **Security**: All endpoints restricted to super_admin role only.
+    - **Scope**: System-wide templates managed centrally (not per-organization).
 
 ### SaaS Multi-Tenancy (v3.0)
 - **Organization-Based Multi-Tenancy**: Each home care agency is an organization with isolated data.
@@ -118,7 +129,7 @@ Preferred communication style: Simple, everyday language.
 - **Local File System**: For document storage (future cloud integration planned).
 
 ### Communication Services
-- **SendGrid**: For email notifications, including password resets.
+- **AgentMail**: For email notifications with custom domain (donotreply@app.carechc.com), including password resets and birthday emails.
 - **Twilio**: For SMS services, including mobile SMS login and birthday notifications.
 
 ### Third-Party Libraries & Tools

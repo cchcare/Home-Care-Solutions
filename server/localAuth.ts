@@ -8,6 +8,7 @@ import { storage } from "./storage";
 import connectPgSimple from "connect-pg-simple";
 import { pool } from "./db";
 import { sendEmail, sendSMS, formatPhoneNumber, isValidPhone } from "./communication-services";
+import { sendTemplatedEmail } from "./agentmail";
 
 // Allowed email domains for new Google sign-ups
 const ALLOWED_SIGNUP_DOMAINS = ["carechc.com", "rgshomecare.com"];
@@ -341,25 +342,37 @@ export async function setupAuth(app: Express) {
       const baseUrl = process.env.BASE_URL || `${protocol}://${host}`;
       const resetUrl = `${baseUrl}/reset-password?token=${resetToken}`;
 
-      // Send email
-      const emailResult = await sendEmail({
-        to: user.email,
-        subject: "Home Care - Password Reset Request",
-        html: `
-          <h2>Password Reset Request</h2>
-          <p>Hello ${user.firstName || user.username || "User"},</p>
-          <p>You requested to reset your password. Click the link below to set a new password:</p>
-          <p><a href="${resetUrl}" style="display:inline-block;padding:12px 24px;background-color:#0066cc;color:white;text-decoration:none;border-radius:4px;">Reset Password</a></p>
-          <p>Or copy this link: ${resetUrl}</p>
-          <p>This link will expire in 1 hour.</p>
-          <p>If you did not request this, please ignore this email.</p>
-          <p>- Home Care Team</p>
-        `,
-        text: `Password Reset Request\n\nHello ${user.firstName || user.username || "User"},\n\nYou requested to reset your password. Visit this link to set a new password:\n${resetUrl}\n\nThis link will expire in 1 hour.\n\nIf you did not request this, please ignore this email.\n\n- Home Care Team`,
-      });
+      // Fallback email content
+      const fallbackHtml = `
+        <h2>Password Reset Request</h2>
+        <p>Hello ${user.firstName || user.username || "User"},</p>
+        <p>You requested to reset your password. Click the link below to set a new password:</p>
+        <p><a href="${resetUrl}" style="display:inline-block;padding:12px 24px;background-color:#0066cc;color:white;text-decoration:none;border-radius:4px;">Reset Password</a></p>
+        <p>Or copy this link: ${resetUrl}</p>
+        <p>This link will expire in 1 hour.</p>
+        <p>If you did not request this, please ignore this email.</p>
+        <p>- CCHC Solutions Team</p>
+      `;
+      const fallbackText = `Password Reset Request\n\nHello ${user.firstName || user.username || "User"},\n\nYou requested to reset your password. Visit this link to set a new password:\n${resetUrl}\n\nThis link will expire in 1 hour.\n\nIf you did not request this, please ignore this email.\n\n- CCHC Solutions Team`;
+
+      // Send email using template system (with fallback)
+      const emailResult = await sendTemplatedEmail(
+        user.email,
+        "password_reset",
+        {
+          firstName: user.firstName || user.username || "User",
+          resetUrl: resetUrl,
+          expiryTime: "1 hour",
+          companyName: "CCHC Solutions",
+          currentYear: new Date().getFullYear().toString(),
+        },
+        "CCHC Solutions - Password Reset Request",
+        fallbackHtml,
+        fallbackText
+      );
 
       if (!emailResult.success) {
-        console.error("Failed to send password reset email:", emailResult.error);
+        console.error("Failed to send password reset email");
         // Still return success to prevent enumeration
       }
 

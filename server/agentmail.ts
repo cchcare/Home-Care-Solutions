@@ -1,4 +1,6 @@
 import { AgentMailClient } from 'agentmail';
+import { storage } from './storage';
+import type { EmailTemplate } from '@shared/schema';
 
 let connectionSettings: any;
 let cachedCustomInboxId: string | null = null;
@@ -6,6 +8,104 @@ let cachedCustomInboxId: string | null = null;
 const CUSTOM_EMAIL = 'donotreply@app.carechc.com';
 const CUSTOM_USERNAME = 'donotreply';
 const CUSTOM_DOMAIN = 'app.carechc.com';
+
+export type EmailTemplateTypeValue = 'password_reset' | 'welcome' | 'birthday_client' | 'birthday_caregiver' | 'schedule_change' | 'schedule_reminder' | 'compliance_alert' | 'general';
+
+export interface TemplatePlaceholders {
+  [key: string]: string;
+}
+
+export async function getDefaultTemplate(type: EmailTemplateTypeValue): Promise<EmailTemplate | null> {
+  try {
+    const allTemplates = await storage.getEmailTemplates();
+    const templates = allTemplates.filter((t: EmailTemplate) => t.type === type);
+    const defaultTemplate = templates.find((t: EmailTemplate) => t.isDefault && t.isActive);
+    if (defaultTemplate) {
+      return defaultTemplate;
+    }
+    const activeTemplate = templates.find((t: EmailTemplate) => t.isActive);
+    return activeTemplate || null;
+  } catch (error) {
+    console.error(`Error fetching template for type ${type}:`, error);
+    return null;
+  }
+}
+
+export function replacePlaceholders(content: string, placeholders: TemplatePlaceholders): string {
+  let result = content;
+  for (const [key, value] of Object.entries(placeholders)) {
+    const regex = new RegExp(`{{${key}}}`, 'g');
+    result = result.replace(regex, value || '');
+  }
+  return result;
+}
+
+export function hasUnresolvedPlaceholders(content: string): boolean {
+  const placeholderPattern = /\{\{[a-zA-Z_][a-zA-Z0-9_]*\}\}/;
+  return placeholderPattern.test(content);
+}
+
+export function getUnresolvedPlaceholders(content: string): string[] {
+  const placeholderPattern = /\{\{([a-zA-Z_][a-zA-Z0-9_]*)\}\}/g;
+  const matches: string[] = [];
+  let match;
+  while ((match = placeholderPattern.exec(content)) !== null) {
+    if (!matches.includes(match[1])) {
+      matches.push(match[1]);
+    }
+  }
+  return matches;
+}
+
+function removeUnresolvedPlaceholders(content: string): string {
+  return content.replace(/\{\{[a-zA-Z_][a-zA-Z0-9_]*\}\}/g, '');
+}
+
+export async function sendTemplatedEmail(
+  to: string,
+  templateType: EmailTemplateTypeValue,
+  placeholders: TemplatePlaceholders,
+  fallbackSubject: string,
+  fallbackHtml: string,
+  fallbackText?: string
+) {
+  const template = await getDefaultTemplate(templateType);
+  
+  let subject: string;
+  let html: string;
+  let text: string | undefined;
+  
+  if (template && template.isActive) {
+    let processedSubject = replacePlaceholders(template.subject, placeholders);
+    let processedHtml = replacePlaceholders(template.htmlContent, placeholders);
+    let processedText = template.textContent ? replacePlaceholders(template.textContent, placeholders) : undefined;
+    
+    const unresolvedInSubject = getUnresolvedPlaceholders(processedSubject);
+    const unresolvedInHtml = getUnresolvedPlaceholders(processedHtml);
+    const allUnresolved = Array.from(new Set([...unresolvedInSubject, ...unresolvedInHtml]));
+    
+    if (allUnresolved.length > 0) {
+      console.warn(`[Email Templates] Template "${template.name}" (${templateType}) has unresolved placeholders: ${allUnresolved.join(', ')}. Removing unresolved placeholders.`);
+      processedSubject = removeUnresolvedPlaceholders(processedSubject);
+      processedHtml = removeUnresolvedPlaceholders(processedHtml);
+      if (processedText) {
+        processedText = removeUnresolvedPlaceholders(processedText);
+      }
+    }
+    
+    subject = processedSubject;
+    html = processedHtml;
+    text = processedText;
+    console.log(`[Email Templates] Using template "${template.name}" for ${templateType} email to ${to}`);
+  } else {
+    subject = fallbackSubject;
+    html = fallbackHtml;
+    text = fallbackText;
+    console.log(`[Email Templates] No active template found for ${templateType}, using fallback for ${to}`);
+  }
+  
+  return sendEmailWithOptions({ to, subject, html, text });
+}
 
 async function getCredentials() {
   const hostname = process.env.REPLIT_CONNECTORS_HOSTNAME;
