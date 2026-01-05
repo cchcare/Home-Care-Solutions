@@ -3527,3 +3527,44 @@ export const coordinatorPayRecordsRelations = relations(coordinatorPayRecords, (
 export type CoordinatorPayRecord = typeof coordinatorPayRecords.$inferSelect;
 export type InsertCoordinatorPayRecord = typeof coordinatorPayRecords.$inferInsert;
 export const insertCoordinatorPayRecordSchema = createInsertSchema(coordinatorPayRecords).omit({ id: true, createdAt: true, updatedAt: true });
+
+// System Email Templates - Customizable email designs for system notifications
+export const emailTemplateTypeEnum = pgEnum("email_template_type", [
+  "password_reset",
+  "welcome",
+  "birthday_client",
+  "birthday_caregiver",
+  "schedule_change",
+  "schedule_reminder",
+  "compliance_alert",
+  "general"
+]);
+
+export const emailTemplates = pgTable("email_templates", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  type: emailTemplateTypeEnum("type").notNull(),
+  name: varchar("name").notNull(),
+  subject: varchar("subject").notNull(),
+  htmlContent: text("html_content").notNull(),
+  textContent: text("text_content"),
+  placeholders: jsonb("placeholders"), // Array of available placeholders for this template
+  themeSettings: jsonb("theme_settings"), // Colors, fonts, logo URL, etc.
+  isActive: boolean("is_active").default(true),
+  isDefault: boolean("is_default").default(false),
+  createdBy: varchar("created_by").references(() => users.id),
+  updatedBy: varchar("updated_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_email_templates_type").on(table.type),
+  index("idx_email_templates_active").on(table.isActive),
+]);
+
+export const emailTemplatesRelations = relations(emailTemplates, ({ one }) => ({
+  creator: one(users, { fields: [emailTemplates.createdBy], references: [users.id] }),
+  updater: one(users, { fields: [emailTemplates.updatedBy], references: [users.id] }),
+}));
+
+export type EmailTemplate = typeof emailTemplates.$inferSelect;
+export type InsertEmailTemplate = typeof emailTemplates.$inferInsert;
+export const insertEmailTemplateSchema = createInsertSchema(emailTemplates).omit({ id: true, createdAt: true, updatedAt: true });
