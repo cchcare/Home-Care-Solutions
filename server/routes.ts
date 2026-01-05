@@ -11991,6 +11991,217 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // =====================================================
+  // System Email Templates Endpoints (Super Admin Only)
+  // =====================================================
+
+  // Get all email templates
+  app.get("/api/email-templates", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.user;
+      if (user.role !== "super_admin") {
+        return res.status(403).json({ message: "Only super admins can manage email templates" });
+      }
+      const templates = await storage.getEmailTemplates();
+      res.json(templates);
+    } catch (error: any) {
+      console.error("Error fetching email templates:", error);
+      res.status(500).json({ message: error.message || "Failed to fetch email templates" });
+    }
+  });
+
+  // Get a single email template
+  app.get("/api/email-templates/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.user;
+      if (user.role !== "super_admin") {
+        return res.status(403).json({ message: "Only super admins can manage email templates" });
+      }
+      const template = await storage.getEmailTemplate(req.params.id);
+      if (!template) {
+        return res.status(404).json({ message: "Email template not found" });
+      }
+      res.json(template);
+    } catch (error: any) {
+      console.error("Error fetching email template:", error);
+      res.status(500).json({ message: error.message || "Failed to fetch email template" });
+    }
+  });
+
+  // Get email template by type (for internal use)
+  app.get("/api/email-templates/type/:type", isAuthenticated, async (req: any, res) => {
+    try {
+      const template = await storage.getEmailTemplateByType(req.params.type);
+      res.json(template || null);
+    } catch (error: any) {
+      console.error("Error fetching email template by type:", error);
+      res.status(500).json({ message: error.message || "Failed to fetch email template" });
+    }
+  });
+
+  // Create a new email template
+  app.post("/api/email-templates", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.user;
+      if (user.role !== "super_admin") {
+        return res.status(403).json({ message: "Only super admins can manage email templates" });
+      }
+      
+      const templateData = {
+        ...req.body,
+        createdBy: user.id,
+        updatedBy: user.id,
+      };
+      
+      const template = await storage.createEmailTemplate(templateData);
+      res.json(template);
+    } catch (error: any) {
+      console.error("Error creating email template:", error);
+      res.status(400).json({ message: error.message || "Failed to create email template" });
+    }
+  });
+
+  // Update an email template
+  app.patch("/api/email-templates/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.user;
+      if (user.role !== "super_admin") {
+        return res.status(403).json({ message: "Only super admins can manage email templates" });
+      }
+      
+      const templateData = {
+        ...req.body,
+        updatedBy: user.id,
+      };
+      
+      const template = await storage.updateEmailTemplate(req.params.id, templateData);
+      res.json(template);
+    } catch (error: any) {
+      console.error("Error updating email template:", error);
+      res.status(400).json({ message: error.message || "Failed to update email template" });
+    }
+  });
+
+  // Delete an email template
+  app.delete("/api/email-templates/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.user;
+      if (user.role !== "super_admin") {
+        return res.status(403).json({ message: "Only super admins can manage email templates" });
+      }
+      
+      await storage.deleteEmailTemplate(req.params.id);
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Error deleting email template:", error);
+      res.status(500).json({ message: error.message || "Failed to delete email template" });
+    }
+  });
+
+  // Send test email using a template
+  app.post("/api/email-templates/:id/test", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.user;
+      if (user.role !== "super_admin") {
+        return res.status(403).json({ message: "Only super admins can test email templates" });
+      }
+      
+      const template = await storage.getEmailTemplate(req.params.id);
+      if (!template) {
+        return res.status(404).json({ message: "Email template not found" });
+      }
+      
+      const { testEmail, testData } = req.body;
+      if (!testEmail) {
+        return res.status(400).json({ message: "Test email address is required" });
+      }
+      
+      // Replace placeholders with test data
+      let htmlContent = template.htmlContent;
+      let textContent = template.textContent || '';
+      let subject = template.subject;
+      
+      if (testData && typeof testData === 'object') {
+        for (const [key, value] of Object.entries(testData)) {
+          const regex = new RegExp(`{{${key}}}`, 'g');
+          htmlContent = htmlContent.replace(regex, String(value));
+          textContent = textContent.replace(regex, String(value));
+          subject = subject.replace(regex, String(value));
+        }
+      }
+      
+      // Send test email
+      const { sendEmail } = await import('./communication-services');
+      const result = await sendEmail({
+        to: testEmail,
+        subject: `[TEST] ${subject}`,
+        html: htmlContent,
+        text: textContent || undefined,
+      });
+      
+      res.json({ success: result.success, messageId: result.messageId, error: result.error });
+    } catch (error: any) {
+      console.error("Error sending test email:", error);
+      res.status(500).json({ message: error.message || "Failed to send test email" });
+    }
+  });
+
+  // Get available placeholders for each template type
+  app.get("/api/email-templates/placeholders/:type", isAuthenticated, async (req: any, res) => {
+    try {
+      const type = req.params.type;
+      const placeholders: { key: string; label: string; example: string }[] = [];
+      
+      // Common placeholders
+      placeholders.push(
+        { key: "companyName", label: "Company Name", example: "CCHC Solutions" },
+        { key: "companyLogo", label: "Company Logo URL", example: "https://example.com/logo.png" },
+        { key: "currentYear", label: "Current Year", example: new Date().getFullYear().toString() },
+      );
+      
+      if (type === "password_reset") {
+        placeholders.push(
+          { key: "firstName", label: "First Name", example: "John" },
+          { key: "resetUrl", label: "Reset Password URL", example: "https://app.example.com/reset?token=..." },
+          { key: "expiryTime", label: "Link Expiry Time", example: "1 hour" },
+        );
+      } else if (type === "welcome") {
+        placeholders.push(
+          { key: "firstName", label: "First Name", example: "John" },
+          { key: "lastName", label: "Last Name", example: "Doe" },
+          { key: "email", label: "Email", example: "john@example.com" },
+          { key: "loginUrl", label: "Login URL", example: "https://app.example.com/login" },
+        );
+      } else if (type === "birthday_client" || type === "birthday_caregiver") {
+        placeholders.push(
+          { key: "firstName", label: "First Name", example: "John" },
+          { key: "lastName", label: "Last Name", example: "Doe" },
+          { key: "age", label: "Age (if available)", example: "65" },
+        );
+      } else if (type === "schedule_change" || type === "schedule_reminder") {
+        placeholders.push(
+          { key: "clientName", label: "Client Name", example: "Jane Smith" },
+          { key: "caregiverName", label: "Caregiver Name", example: "John Doe" },
+          { key: "scheduleDate", label: "Schedule Date", example: "January 15, 2026" },
+          { key: "scheduleTime", label: "Schedule Time", example: "9:00 AM - 5:00 PM" },
+          { key: "changeType", label: "Change Type", example: "Updated" },
+        );
+      } else if (type === "compliance_alert") {
+        placeholders.push(
+          { key: "caregiverName", label: "Caregiver Name", example: "John Doe" },
+          { key: "itemName", label: "Compliance Item", example: "TB Test" },
+          { key: "expiryDate", label: "Expiry Date", example: "January 31, 2026" },
+          { key: "daysUntilExpiry", label: "Days Until Expiry", example: "7" },
+        );
+      }
+      
+      res.json(placeholders);
+    } catch (error: any) {
+      console.error("Error fetching placeholders:", error);
+      res.status(500).json({ message: error.message || "Failed to fetch placeholders" });
+    }
+  });
+
+  // =====================================================
   // Payroll Runs Endpoints
   // =====================================================
 
