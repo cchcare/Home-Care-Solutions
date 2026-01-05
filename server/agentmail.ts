@@ -37,16 +37,36 @@ export async function getAgentMailClient() {
   });
 }
 
+export interface EmailOptions {
+  to: string;
+  subject: string;
+  text?: string;
+  html?: string;
+  fromName?: string;
+}
+
 export async function sendEmail(to: string, subject: string, body: string, fromName?: string) {
+  return sendEmailWithOptions({ to, subject, text: body, fromName });
+}
+
+export async function sendEmailWithOptions(options: EmailOptions) {
   const client = await getAgentMailClient();
   
   const inbox = await client.inboxes.create({});
   
-  const draft = await client.inboxes.drafts.create(inbox.inboxId, {
-    to: [to],
-    subject: subject,
-    text: body
-  });
+  const draftOptions: any = {
+    to: [options.to],
+    subject: options.subject,
+  };
+  
+  if (options.html) {
+    draftOptions.html = options.html;
+  }
+  if (options.text) {
+    draftOptions.text = options.text;
+  }
+  
+  const draft = await client.inboxes.drafts.create(inbox.inboxId, draftOptions);
   
   const sendResponse = await client.inboxes.drafts.send(inbox.inboxId, draft.draftId, {});
   

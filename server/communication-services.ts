@@ -1,13 +1,5 @@
-import { MailService } from '@sendgrid/mail';
 import twilio from 'twilio';
-
-// SendGrid Email Service
-let mailService: MailService | null = null;
-
-if (process.env.SENDGRID_API_KEY) {
-  mailService = new MailService();
-  mailService.setApiKey(process.env.SENDGRID_API_KEY);
-}
+import { sendEmailWithOptions } from './agentmail';
 
 // Twilio SMS Service
 let twilioClient: any = null;
@@ -31,26 +23,20 @@ export interface SMSParams {
 }
 
 export async function sendEmail(params: EmailParams): Promise<{ success: boolean; messageId?: string; error?: string }> {
-  if (!mailService) {
-    return { success: false, error: "SendGrid API key not configured" };
-  }
-
   try {
-    const msg = {
+    const result = await sendEmailWithOptions({
       to: params.to,
-      from: params.from || process.env.SENDGRID_FROM_EMAIL || 'noreply@healthcare.com',
       subject: params.subject,
       text: params.text,
-      html: params.html || `<p>${params.text || params.subject}</p>`,
-    };
-
-    const response = await mailService.send(msg);
+      html: params.html,
+      fromName: params.from
+    });
     return { 
-      success: true, 
-      messageId: response[0].headers['x-message-id'] || 'unknown'
+      success: result.success, 
+      messageId: result.messageId
     };
   } catch (error: any) {
-    console.error('SendGrid email error:', error);
+    console.error('AgentMail email error:', error);
     return { 
       success: false, 
       error: error.message || 'Failed to send email' 
