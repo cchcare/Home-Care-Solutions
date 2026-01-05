@@ -35,7 +35,8 @@ import {
   HelpCircle,
   Ticket,
   Link2,
-  FileSignature
+  FileSignature,
+  Mail
 } from "lucide-react";
 
 interface NavItem {
@@ -112,20 +113,26 @@ export function Sidebar() {
     baseNavigation.push({ name: "Help & Support", href: "/support-center", icon: HelpCircle, external: true });
 
     if ((user as any)?.role === "admin" || (user as any)?.role === "supervisor" || (user as any)?.role === "super_admin" || (user as any)?.role === "office_admin") {
+      const adminChildren = [
+        { name: "User Management", href: "/user-management", icon: UserCog },
+        { name: "Super Admin", href: "/super-admin", icon: ShieldCheck },
+        { name: "Role & Access Control", href: "/role-wizard", icon: Key },
+        { name: "Office Management", href: "/offices", icon: Building2 },
+        { name: "MCO Setup", href: "/admin-settings", icon: Settings },
+        { name: "Letter Templates", href: "/letter-templates", icon: FileSignature },
+        { name: "Birthday Notifications", href: "/birthday-notifications", icon: Cake },
+        { name: "HHAX Integration", href: "/hhax-integration", icon: Plug },
+        { name: "Exclusion Verification", href: "/exclusion-verification", icon: UserX },
+      ];
+      
+      if ((user as any)?.role === "super_admin") {
+        adminChildren.push({ name: "Email Templates", href: "/email-templates", icon: Mail });
+      }
+      
       baseNavigation.push({
         name: "Admin",
         icon: Cog,
-        children: [
-          { name: "User Management", href: "/user-management", icon: UserCog },
-          { name: "Super Admin", href: "/super-admin", icon: ShieldCheck },
-          { name: "Role & Access Control", href: "/role-wizard", icon: Key },
-          { name: "Office Management", href: "/offices", icon: Building2 },
-          { name: "MCO Setup", href: "/admin-settings", icon: Settings },
-          { name: "Letter Templates", href: "/letter-templates", icon: FileSignature },
-          { name: "Birthday Notifications", href: "/birthday-notifications", icon: Cake },
-          { name: "HHAX Integration", href: "/hhax-integration", icon: Plug },
-          { name: "Exclusion Verification", href: "/exclusion-verification", icon: UserX },
-        ]
+        children: adminChildren
       });
     }
 

@@ -48,6 +48,7 @@ import ApiKeys from "@/pages/api-keys";
 import LetterTemplates from "@/pages/letter-templates";
 import CoordinatorPayRecords from "@/pages/coordinator-pay-records";
 import PayrollHub from "@/pages/payroll-hub";
+import EmailTemplates from "@/pages/email-templates";
 
 function Router() {
   const { isAuthenticated, isLoading, error } = useAuth();
@@ -108,6 +109,7 @@ function Router() {
           <Route path="/custom-integrations" component={CustomIntegrations} />
           <Route path="/letter-templates" component={LetterTemplates} />
           <Route path="/coordinator-pay-records" component={CoordinatorPayRecords} />
+          <Route path="/email-templates" component={EmailTemplates} />
           <Route path="/payroll" component={PayrollHub} />
           <Route path="/api-keys" component={ApiKeys} />
         </>
