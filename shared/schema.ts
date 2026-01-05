@@ -135,6 +135,7 @@ export const clients = pgTable("clients", {
   mcoId: varchar("mco_id"),
   status: varchar("status").default("active"),
   serviceStartDate: timestamp("service_start_date"),
+  lastServiceDate: timestamp("last_service_date"),
   coordinatorId: varchar("coordinator_id").references(() => coordinators.id),
   memberId: varchar("member_id"),
   // SNAP (Supplemental Nutrition Assistance Program) tracking
