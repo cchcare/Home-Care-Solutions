@@ -335,6 +335,7 @@ import {
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, asc, and, or, count, sql, like, gte, lte, inArray } from "drizzle-orm";
+import { encryptNote, decryptNote } from './encryption';
 
 export interface IStorage {
   // User operations
@@ -1569,16 +1570,27 @@ export class DatabaseStorage implements IStorage {
 
   // Progress notes operations
   async getProgressNotesByClient(clientId: string): Promise<ProgressNote[]> {
-    return await db
+    const results = await db
       .select()
       .from(progressNotes)
       .where(eq(progressNotes.clientId, clientId))
       .orderBy(desc(progressNotes.visitDate));
+    return results.map(r => ({
+      ...r,
+      notes: decryptNote(r.notes) || r.notes,
+    }));
   }
 
   async createProgressNote(note: InsertProgressNote): Promise<ProgressNote> {
-    const [newNote] = await db.insert(progressNotes).values(note).returning();
-    return newNote;
+    const encryptedData = {
+      ...note,
+      notes: encryptNote(note.notes) || note.notes,
+    };
+    const [newNote] = await db.insert(progressNotes).values(encryptedData).returning();
+    return {
+      ...newNote,
+      notes: decryptNote(newNote.notes) || newNote.notes,
+    };
   }
 
   // Document operations
@@ -1675,8 +1687,9 @@ export class DatabaseStorage implements IStorage {
 
   // Message operations
   async getMessagesByUser(userId: string, officeId?: string): Promise<Message[]> {
+    let results: Message[];
     if (officeId) {
-      return await db
+      results = await db
         .select({
           id: messages.id,
           senderId: messages.senderId,
@@ -1713,17 +1726,22 @@ export class DatabaseStorage implements IStorage {
           )
         )
         .orderBy(desc(messages.createdAt));
-    }
-    return await db
-      .select()
-      .from(messages)
-      .where(
-        or(
-          eq(messages.senderId, userId),
-          eq(messages.recipientId, userId)
+    } else {
+      results = await db
+        .select()
+        .from(messages)
+        .where(
+          or(
+            eq(messages.senderId, userId),
+            eq(messages.recipientId, userId)
+          )
         )
-      )
-      .orderBy(desc(messages.createdAt));
+        .orderBy(desc(messages.createdAt));
+    }
+    return results.map(r => ({
+      ...r,
+      content: decryptNote(r.content) || r.content,
+    }));
   }
 
   // Channel messages operations (unified communication)
@@ -1758,11 +1776,15 @@ export class DatabaseStorage implements IStorage {
       conditions.push(eq(messages.senderStatus, status as any));
     }
 
-    return await db
+    const results = await db
       .select()
       .from(messages)
       .where(and(...conditions))
       .orderBy(desc(messages.createdAt));
+    return results.map(r => ({
+      ...r,
+      content: decryptNote(r.content) || r.content,
+    }));
   }
 
   async getReceivedMessagesByUser(userId: string, status?: string): Promise<Message[]> {
@@ -1771,16 +1793,27 @@ export class DatabaseStorage implements IStorage {
       conditions.push(eq(messages.recipientStatus, status as any));
     }
 
-    return await db
+    const results = await db
       .select()
       .from(messages)
       .where(and(...conditions))
       .orderBy(desc(messages.createdAt));
+    return results.map(r => ({
+      ...r,
+      content: decryptNote(r.content) || r.content,
+    }));
   }
 
   async createMessage(message: InsertMessage): Promise<Message> {
-    const [newMessage] = await db.insert(messages).values(message).returning();
-    return newMessage;
+    const encryptedData = {
+      ...message,
+      content: encryptNote(message.content) || message.content,
+    };
+    const [newMessage] = await db.insert(messages).values(encryptedData).returning();
+    return {
+      ...newMessage,
+      content: decryptNote(newMessage.content) || newMessage.content,
+    };
   }
 
   async markMessageAsRead(id: string): Promise<void> {
@@ -2040,12 +2073,18 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateMessage(id: string, data: Partial<InsertMessage>): Promise<Message> {
+    const encryptedData = data.content !== undefined
+      ? { ...data, content: encryptNote(data.content) || data.content }
+      : data;
     const [updated] = await db
       .update(messages)
-      .set(data)
+      .set(encryptedData)
       .where(eq(messages.id, id))
       .returning();
-    return updated;
+    return {
+      ...updated,
+      content: decryptNote(updated.content) || updated.content,
+    };
   }
 
   async updateMessageDelivery(messageId: string, delivery: {
@@ -3022,23 +3061,42 @@ export class DatabaseStorage implements IStorage {
 
   // Client Communications operations
   async getClientCommunications(clientId: string): Promise<ClientCommunication[]> {
-    return await db.select().from(clientCommunications)
+    const results = await db.select().from(clientCommunications)
       .where(eq(clientCommunications.clientId, clientId))
       .orderBy(desc(clientCommunications.createdAt));
+    return results.map(r => ({
+      ...r,
+      message: decryptNote(r.message) || r.message,
+    }));
   }
 
   async createClientCommunication(communication: InsertClientCommunication): Promise<ClientCommunication> {
-    const [newCommunication] = await db.insert(clientCommunications).values(communication).returning();
-    return newCommunication;
+    const encryptedData = {
+      ...communication,
+      message: encryptNote(communication.message) || communication.message,
+    };
+    const [newCommunication] = await db.insert(clientCommunications).values(encryptedData).returning();
+    return {
+      ...newCommunication,
+      message: decryptNote(newCommunication.message) || newCommunication.message,
+    };
   }
 
   async updateClientCommunication(id: string, communication: Partial<InsertClientCommunication>): Promise<ClientCommunication> {
+    const encryptedData = {
+      ...communication,
+      ...(communication.message !== undefined && { message: encryptNote(communication.message) || communication.message }),
+      updatedAt: new Date(),
+    };
     const [updatedCommunication] = await db
       .update(clientCommunications)
-      .set({ ...communication, updatedAt: new Date() })
+      .set(encryptedData)
       .where(eq(clientCommunications.id, id))
       .returning();
-    return updatedCommunication;
+    return {
+      ...updatedCommunication,
+      message: decryptNote(updatedCommunication.message) || updatedCommunication.message,
+    };
   }
 
   async deleteClientCommunication(id: string): Promise<void> {
@@ -3451,17 +3509,36 @@ export class DatabaseStorage implements IStorage {
 
   // Caregiver Notes
   async getCaregiverNotes(caregiverId: string): Promise<CaregiverNote[]> {
-    return await db.select().from(caregiverNotes).where(eq(caregiverNotes.caregiverId, caregiverId)).orderBy(desc(caregiverNotes.createdAt));
+    const results = await db.select().from(caregiverNotes).where(eq(caregiverNotes.caregiverId, caregiverId)).orderBy(desc(caregiverNotes.createdAt));
+    return results.map(r => ({
+      ...r,
+      content: decryptNote(r.content) || r.content,
+    }));
   }
 
   async createCaregiverNote(note: InsertCaregiverNote): Promise<CaregiverNote> {
-    const [created] = await db.insert(caregiverNotes).values(note).returning();
-    return created;
+    const encryptedData = {
+      ...note,
+      content: encryptNote(note.content) || note.content,
+    };
+    const [created] = await db.insert(caregiverNotes).values(encryptedData).returning();
+    return {
+      ...created,
+      content: decryptNote(created.content) || created.content,
+    };
   }
 
   async updateCaregiverNote(id: string, note: Partial<InsertCaregiverNote>): Promise<CaregiverNote> {
-    const [updated] = await db.update(caregiverNotes).set({ ...note, updatedAt: new Date() }).where(eq(caregiverNotes.id, id)).returning();
-    return updated;
+    const encryptedData = {
+      ...note,
+      ...(note.content !== undefined && { content: encryptNote(note.content) || note.content }),
+      updatedAt: new Date(),
+    };
+    const [updated] = await db.update(caregiverNotes).set(encryptedData).where(eq(caregiverNotes.id, id)).returning();
+    return {
+      ...updated,
+      content: decryptNote(updated.content) || updated.content,
+    };
   }
 
   async deleteCaregiverNote(id: string): Promise<void> {
