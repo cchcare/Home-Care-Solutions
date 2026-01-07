@@ -98,19 +98,28 @@ export default function BirthdayNotifications() {
       if (!response.ok) throw new Error("Failed to fetch upcoming birthdays");
       const data = await response.json();
       const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      
+      const parseDateOfBirth = (dateStr: string) => {
+        const [year, month, day] = dateStr.split('-').map(Number);
+        return { month: month - 1, day };
+      };
+      
       const combinedBirthdays: UpcomingBirthday[] = [
         ...(data.clients || []).map((c: any) => {
-          const dob = new Date(c.dateOfBirth);
-          const nextBirthday = new Date(today.getFullYear(), dob.getMonth(), dob.getDate());
+          const { month, day } = parseDateOfBirth(c.dateOfBirth);
+          const nextBirthday = new Date(today.getFullYear(), month, day);
+          nextBirthday.setHours(0, 0, 0, 0);
           if (nextBirthday < today) nextBirthday.setFullYear(nextBirthday.getFullYear() + 1);
-          const daysUntil = Math.ceil((nextBirthday.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+          const daysUntil = Math.round((nextBirthday.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
           return { type: "client" as const, id: c.id, name: `${c.firstName} ${c.lastName}`, dateOfBirth: c.dateOfBirth, daysUntil, email: c.email, phone: c.phone, officeId: c.officeId };
         }),
         ...(data.caregivers || []).map((c: any) => {
-          const dob = new Date(c.dateOfBirth);
-          const nextBirthday = new Date(today.getFullYear(), dob.getMonth(), dob.getDate());
+          const { month, day } = parseDateOfBirth(c.dateOfBirth);
+          const nextBirthday = new Date(today.getFullYear(), month, day);
+          nextBirthday.setHours(0, 0, 0, 0);
           if (nextBirthday < today) nextBirthday.setFullYear(nextBirthday.getFullYear() + 1);
-          const daysUntil = Math.ceil((nextBirthday.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+          const daysUntil = Math.round((nextBirthday.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
           return { type: "caregiver" as const, id: c.id, name: `${c.firstName} ${c.lastName}`, dateOfBirth: c.dateOfBirth, daysUntil, email: c.email, phone: c.phone, officeId: c.officeId };
         }),
       ];
