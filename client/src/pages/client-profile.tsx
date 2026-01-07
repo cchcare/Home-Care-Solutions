@@ -1,7 +1,8 @@
 import { useState, type ReactNode } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useRoute, Link } from "wouter";
+import { useRoute, Link, useLocation } from "wouter";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/useAuth";
 import { Sidebar } from "@/components/sidebar";
 import { TopBar } from "@/components/topbar";
 import { MasterWeekTemplateModal } from "@/components/master-week-template-modal";
@@ -28,6 +29,16 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { apiRequest } from "@/lib/queryClient";
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameMonth, isToday, addMonths, subMonths } from "date-fns";
 import { 
@@ -113,7 +124,10 @@ export default function ClientProfile() {
   const [, params] = useRoute("/clients/:id");
   const clientId = params?.id;
   const { toast } = useToast();
+  const { user: currentUser } = useAuth();
+  const [, navigate] = useLocation();
   const queryClient = useQueryClient();
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [uploadCategory, setUploadCategory] = useState("other");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [newMessage, setNewMessage] = useState("");
@@ -406,6 +420,22 @@ export default function ClientProfile() {
       toast({ title: "Error", description: "Failed to update client", variant: "destructive" });
     },
   });
+
+  const deleteClientMutation = useMutation({
+    mutationFn: async () => {
+      return await apiRequest("DELETE", `/api/clients/${clientId}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/clients"] });
+      toast({ title: "Success", description: "Client deleted successfully" });
+      navigate("/clients");
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to delete client", variant: "destructive" });
+    },
+  });
+
+  const canDeleteClient = currentUser && ["super_admin", "admin", "office_admin"].includes(currentUser.role);
 
   const createClientMcoMutation = useMutation({
     mutationFn: async (data: typeof mcoFormData) => {
@@ -924,10 +954,23 @@ export default function ClientProfile() {
                 </Button>
               </div>
             ) : (
-              <Button variant="outline" size="sm" onClick={handleStartEditing} data-testid="button-edit-client">
-                <Edit className="w-4 h-4 mr-2" />
-                Edit
-              </Button>
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" onClick={handleStartEditing} data-testid="button-edit-client">
+                  <Edit className="w-4 h-4 mr-2" />
+                  Edit
+                </Button>
+                {canDeleteClient && (
+                  <Button 
+                    variant="destructive" 
+                    size="sm" 
+                    onClick={() => setShowDeleteDialog(true)}
+                    data-testid="button-delete-client"
+                  >
+                    <Trash2 className="w-4 h-4 mr-2" />
+                    Delete
+                  </Button>
+                )}
+              </div>
             )}
           </div>
         </header>
@@ -3173,6 +3216,29 @@ function DocumentCard({ document, onDelete }: { document: Document; onDelete: ()
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Client</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete {client?.firstName} {client?.lastName}? This action cannot be undone and will permanently remove all associated data including documents, schedules, and communications.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-delete">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => deleteClientMutation.mutate()}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={deleteClientMutation.isPending}
+              data-testid="button-confirm-delete"
+            >
+              {deleteClientMutation.isPending ? "Deleting..." : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }

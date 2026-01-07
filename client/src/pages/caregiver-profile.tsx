@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useRoute, Link } from "wouter";
+import { useRoute, Link, useLocation } from "wouter";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/useAuth";
 import { Sidebar } from "@/components/sidebar";
 import { TopBar } from "@/components/topbar";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -25,6 +26,16 @@ import {
   DialogFooter,
   DialogDescription,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {
   Table,
   TableBody,
@@ -167,8 +178,11 @@ export default function CaregiverProfile() {
   const [, params] = useRoute("/caregivers/:id");
   const caregiverId = params?.id;
   const { toast } = useToast();
+  const { user: currentUser } = useAuth();
+  const [, navigate] = useLocation();
   const queryClient = useQueryClient();
   const [isEditing, setIsEditing] = useState(false);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [editFormData, setEditFormData] = useState<Partial<Caregiver>>({});
   const [uploadCategory, setUploadCategory] = useState("other");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -437,6 +451,22 @@ export default function CaregiverProfile() {
       toast({ title: "Error", description: "Failed to update caregiver", variant: "destructive" });
     },
   });
+
+  const deleteCaregiverMutation = useMutation({
+    mutationFn: async () => {
+      return await apiRequest("DELETE", `/api/caregivers/${caregiverId}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/caregivers"] });
+      toast({ title: "Success", description: "Caregiver deleted successfully" });
+      navigate("/caregivers");
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to delete caregiver", variant: "destructive" });
+    },
+  });
+
+  const canDeleteCaregiver = currentUser && ["super_admin", "admin", "office_admin"].includes(currentUser.role);
 
   const assignClientMutation = useMutation({
     mutationFn: async (clientId: string) => {
@@ -756,10 +786,22 @@ export default function CaregiverProfile() {
                         </Button>
                       </>
                     ) : (
-                      <Button variant="outline" onClick={handleStartEditing} data-testid="button-edit-profile">
-                        <Edit className="w-4 h-4 mr-2" />
-                        Edit Profile
-                      </Button>
+                      <>
+                        <Button variant="outline" onClick={handleStartEditing} data-testid="button-edit-profile">
+                          <Edit className="w-4 h-4 mr-2" />
+                          Edit Profile
+                        </Button>
+                        {canDeleteCaregiver && (
+                          <Button 
+                            variant="destructive" 
+                            onClick={() => setShowDeleteDialog(true)}
+                            data-testid="button-delete-caregiver"
+                          >
+                            <Trash2 className="w-4 h-4 mr-2" />
+                            Delete
+                          </Button>
+                        )}
+                      </>
                     )}
                   </div>
 
@@ -2677,6 +2719,29 @@ export default function CaregiverProfile() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Caregiver</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete {caregiver?.firstName || user?.firstName} {caregiver?.lastName || user?.lastName}? This action cannot be undone and will permanently remove all associated data including documents, schedules, and compliance records.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-delete">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => deleteCaregiverMutation.mutate()}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={deleteCaregiverMutation.isPending}
+              data-testid="button-confirm-delete"
+            >
+              {deleteCaregiverMutation.isPending ? "Deleting..." : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
