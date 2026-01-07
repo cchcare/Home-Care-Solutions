@@ -33,6 +33,7 @@ const COLUMN_MAPPINGS = {
   clients: {
     firstName: ["First Name", "first_name", "firstName"],
     lastName: ["Last Name", "last_name", "lastName"],
+    memberId: ["Member ID", "member_id", "memberId", "MemberID"],
     dateOfBirth: ["Date of Birth", "DOB", "date_of_birth", "dateOfBirth"],
     phone: ["Phone", "phone", "Phone Number", "phone_number"],
     email: ["Email", "email", "Email Address", "email_address"],

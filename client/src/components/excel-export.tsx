@@ -14,6 +14,7 @@ const EXPORT_COLUMNS = {
   clients: [
     { key: "firstName", header: "First Name" },
     { key: "lastName", header: "Last Name" },
+    { key: "memberId", header: "Member ID" },
     { key: "dateOfBirth", header: "Date of Birth" },
     { key: "phone", header: "Phone" },
     { key: "email", header: "Email" },
