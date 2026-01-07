@@ -6507,8 +6507,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Parse Excel file
-      const ExcelJS = require("exceljs");
-      const workbook = new ExcelJS.Workbook();
+      const ExcelJS = await import("exceljs");
+      const workbook = new ExcelJS.default.Workbook();
       await workbook.xlsx.load(file.buffer);
       const worksheet = workbook.worksheets[0];
 
@@ -6824,8 +6824,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Generate Excel file
-      const ExcelJS = require("exceljs");
-      const workbook = new ExcelJS.Workbook();
+      const ExcelJS = await import("exceljs");
+      const workbook = new ExcelJS.default.Workbook();
       const worksheet = workbook.addWorksheet("Payroll Hours");
 
       worksheet.columns = [
@@ -11500,8 +11500,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
-      const ExcelJS = require("exceljs");
-      const workbook = new ExcelJS.Workbook();
+      const ExcelJS = await import("exceljs");
+      const workbook = new ExcelJS.default.Workbook();
       await workbook.xlsx.load(file.buffer);
       const worksheet = workbook.worksheets[0];
 
@@ -11949,8 +11949,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "No file uploaded" });
       }
 
-      const ExcelJS = require("exceljs");
-      const workbook = new ExcelJS.Workbook();
+      const ExcelJS = await import("exceljs");
+      const workbook = new ExcelJS.default.Workbook();
       await workbook.xlsx.load(file.buffer);
       const worksheet = workbook.worksheets[0];
 
