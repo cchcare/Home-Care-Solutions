@@ -5582,9 +5582,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const allClaims = await storage.getClaimsByDateRange(start, end, officeId as string | undefined);
       const agingReport = await storage.getClaimsAgingReport(officeId as string | undefined);
       const claimsSummary = await storage.getClaimsSummary(officeId as string | undefined, start, end);
-      const offices = await storage.getOffices();
-      const mcos = await storage.getMcos();
-      const caregivers = await storage.getCaregivers(officeId as string | undefined);
+      const offices = await storage.getAllOffices();
+      const mcos = await storage.getAllMcos();
+      const caregivers = await storage.getAllCaregivers(officeId as string | undefined);
       
       // Filter by MCO if specified
       const filteredClaims = mcoId 
@@ -12552,6 +12552,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/letter-templates/scope/:scope", isAuthenticated, async (req: any, res) => {
     try {
       const user = req.user;
+      if (!user) {
+        return res.status(401).json({ message: "Unauthorized" });
+      }
       const officeId = req.query.officeId || user.primaryOfficeId;
       const templates = await storage.getLetterTemplatesByScope(req.params.scope, officeId);
       // Only return published templates for non-admin users
@@ -12582,7 +12585,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/letter-templates", isAuthenticated, async (req: any, res) => {
     try {
       const user = req.user;
-      if (!['super_admin', 'admin', 'office_admin'].includes(user.role)) {
+      if (!user || !['super_admin', 'admin', 'office_admin'].includes(user.role)) {
         return res.status(403).json({ message: "Only administrators can create letter templates" });
       }
       
@@ -12616,7 +12619,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.patch("/api/letter-templates/:id", isAuthenticated, async (req: any, res) => {
     try {
       const user = req.user;
-      if (!['super_admin', 'admin', 'office_admin'].includes(user.role)) {
+      if (!user || !['super_admin', 'admin', 'office_admin'].includes(user.role)) {
         return res.status(403).json({ message: "Only administrators can update letter templates" });
       }
       const existing = await storage.getLetterTemplate(req.params.id);
@@ -12653,7 +12656,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.delete("/api/letter-templates/:id", isAuthenticated, async (req: any, res) => {
     try {
       const user = req.user;
-      if (!['super_admin', 'admin', 'office_admin'].includes(user.role)) {
+      if (!user || !['super_admin', 'admin', 'office_admin'].includes(user.role)) {
         return res.status(403).json({ message: "Only administrators can delete letter templates" });
       }
       await storage.deleteLetterTemplate(req.params.id);
@@ -12987,7 +12990,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/coordinator-pay-records", isAuthenticated, async (req: any, res) => {
     try {
       const user = req.user;
-      if (!["admin", "office_admin", "super_admin", "supervisor"].includes(user.role)) {
+      if (!user || !["admin", "office_admin", "super_admin", "supervisor"].includes(user.role)) {
         return res.status(403).json({ message: "Unauthorized" });
       }
       
@@ -13008,7 +13011,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.patch("/api/coordinator-pay-records/:id", isAuthenticated, async (req: any, res) => {
     try {
       const user = req.user;
-      if (!["admin", "office_admin", "super_admin", "supervisor"].includes(user.role)) {
+      if (!user || !["admin", "office_admin", "super_admin", "supervisor"].includes(user.role)) {
         return res.status(403).json({ message: "Unauthorized" });
       }
       
@@ -13025,7 +13028,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.delete("/api/coordinator-pay-records/:id", isAuthenticated, async (req: any, res) => {
     try {
       const user = req.user;
-      if (!["admin", "office_admin", "super_admin", "supervisor"].includes(user.role)) {
+      if (!user || !["admin", "office_admin", "super_admin", "supervisor"].includes(user.role)) {
         return res.status(403).json({ message: "Unauthorized" });
       }
       
@@ -13256,7 +13259,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/payroll-runs", isAuthenticated, async (req: any, res) => {
     try {
       const user = req.user;
-      if (!["admin", "office_admin", "super_admin", "supervisor"].includes(user.role)) {
+      if (!user || !["admin", "office_admin", "super_admin", "supervisor"].includes(user.role)) {
         return res.status(403).json({ message: "Unauthorized" });
       }
       
@@ -13287,7 +13290,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/payroll-runs", isAuthenticated, async (req: any, res) => {
     try {
       const user = req.user;
-      if (!["admin", "office_admin", "super_admin"].includes(user.role)) {
+      if (!user || !["admin", "office_admin", "super_admin"].includes(user.role)) {
         return res.status(403).json({ message: "Unauthorized" });
       }
       
@@ -13339,7 +13342,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.patch("/api/payroll-runs/:id", isAuthenticated, async (req: any, res) => {
     try {
       const user = req.user;
-      if (!["admin", "office_admin", "super_admin"].includes(user.role)) {
+      if (!user || !["admin", "office_admin", "super_admin"].includes(user.role)) {
         return res.status(403).json({ message: "Unauthorized" });
       }
       
@@ -13387,7 +13390,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.delete("/api/payroll-runs/:id", isAuthenticated, async (req: any, res) => {
     try {
       const user = req.user;
-      if (!["admin", "office_admin", "super_admin"].includes(user.role)) {
+      if (!user || !["admin", "office_admin", "super_admin"].includes(user.role)) {
         return res.status(403).json({ message: "Unauthorized" });
       }
       
@@ -13417,7 +13420,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/adp/config", isAuthenticated, async (req: any, res) => {
     try {
       const user = req.user;
-      if (!["admin", "office_admin", "super_admin"].includes(user.role)) {
+      if (!user || !["admin", "office_admin", "super_admin"].includes(user.role)) {
         return res.status(403).json({ message: "Unauthorized" });
       }
 
@@ -13453,7 +13456,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/adp/sync", isAuthenticated, async (req: any, res) => {
     try {
       const user = req.user;
-      if (!["admin", "office_admin", "super_admin"].includes(user.role)) {
+      if (!user || !["admin", "office_admin", "super_admin"].includes(user.role)) {
         return res.status(403).json({ message: "Unauthorized" });
       }
 
@@ -13502,7 +13505,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/adp/test-connection", isAuthenticated, async (req: any, res) => {
     try {
       const user = req.user;
-      if (!["admin", "office_admin", "super_admin"].includes(user.role)) {
+      if (!user || !["admin", "office_admin", "super_admin"].includes(user.role)) {
         return res.status(403).json({ message: "Unauthorized" });
       }
 
@@ -13540,7 +13543,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/admin/expiration-alerts", isAuthenticated, async (req: any, res) => {
     try {
       const user = req.user;
-      if (!["admin", "office_admin", "super_admin"].includes(user.role)) {
+      if (!user || !["admin", "office_admin", "super_admin"].includes(user.role)) {
         return res.status(403).json({ message: "Unauthorized" });
       }
 
@@ -13557,7 +13560,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/admin/expiration-alerts/send", isAuthenticated, async (req: any, res) => {
     try {
       const user = req.user;
-      if (!["admin", "office_admin", "super_admin"].includes(user.role)) {
+      if (!user || !["admin", "office_admin", "super_admin"].includes(user.role)) {
         return res.status(403).json({ message: "Unauthorized" });
       }
 
@@ -13588,7 +13591,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/admin/expiration-alerts/settings", isAuthenticated, async (req: any, res) => {
     try {
       const user = req.user;
-      if (!["admin", "office_admin", "super_admin"].includes(user.role)) {
+      if (!user || !["admin", "office_admin", "super_admin"].includes(user.role)) {
         return res.status(403).json({ message: "Unauthorized" });
       }
 
@@ -13604,7 +13607,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put("/api/admin/expiration-alerts/settings", isAuthenticated, async (req: any, res) => {
     try {
       const user = req.user;
-      if (!["admin", "office_admin", "super_admin"].includes(user.role)) {
+      if (!user || !["admin", "office_admin", "super_admin"].includes(user.role)) {
         return res.status(403).json({ message: "Unauthorized" });
       }
 
@@ -13739,7 +13742,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put("/api/shift-swap-requests/:id/approve", isAuthenticated, async (req: any, res) => {
     try {
       const user = req.user;
-      if (!["admin", "office_admin", "super_admin", "supervisor"].includes(user.role)) {
+      if (!user || !["admin", "office_admin", "super_admin", "supervisor"].includes(user.role)) {
         return res.status(403).json({ message: "Unauthorized - Manager role required" });
       }
       
@@ -13766,7 +13769,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put("/api/shift-swap-requests/:id/reject", isAuthenticated, async (req: any, res) => {
     try {
       const user = req.user;
-      if (!["admin", "office_admin", "super_admin", "supervisor"].includes(user.role)) {
+      if (!user || !["admin", "office_admin", "super_admin", "supervisor"].includes(user.role)) {
         return res.status(403).json({ message: "Unauthorized - Manager role required" });
       }
       
@@ -13793,6 +13796,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put("/api/shift-swap-requests/:id/cancel", isAuthenticated, async (req: any, res) => {
     try {
       const user = req.user;
+      if (!user) {
+        return res.status(401).json({ message: "Unauthorized" });
+      }
+      
       const existingRequest = await storage.getShiftSwapRequest(req.params.id);
       
       if (!existingRequest) {
@@ -13926,7 +13933,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/admin/export/quickbooks/billing", isAuthenticated, requireFeature('billing_payroll'), async (req: any, res) => {
     try {
       const user = req.user;
-      if (!["admin", "office_admin", "super_admin"].includes(user.role)) {
+      if (!user || !["admin", "office_admin", "super_admin"].includes(user.role)) {
         return res.status(403).json({ message: "Unauthorized - Admin role required" });
       }
       
@@ -13947,7 +13954,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
       
       // Get MCOs and office info
-      const mcos = await storage.getMcos();
+      const mcos = await storage.getAllMcos();
       const office = await storage.getOffice(officeId as string);
       
       let content: string;
@@ -13977,7 +13984,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/admin/export/quickbooks/payroll", isAuthenticated, requireFeature('billing_payroll'), async (req: any, res) => {
     try {
       const user = req.user;
-      if (!["admin", "office_admin", "super_admin"].includes(user.role)) {
+      if (!user || !["admin", "office_admin", "super_admin"].includes(user.role)) {
         return res.status(403).json({ message: "Unauthorized - Admin role required" });
       }
       
@@ -14008,7 +14015,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       // Get caregivers and office info
-      const caregivers = await storage.getCaregivers(officeId as string);
+      const caregivers = await storage.getAllCaregivers(officeId as string);
       const office = await storage.getOffice(officeId as string);
       
       let content: string;
