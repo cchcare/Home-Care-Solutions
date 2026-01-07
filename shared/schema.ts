@@ -1944,6 +1944,40 @@ export type CaregiverSchedule = typeof caregiverSchedules.$inferSelect;
 export type InsertCaregiverSchedule = typeof caregiverSchedules.$inferInsert;
 export const insertCaregiverScheduleSchema = createInsertSchema(caregiverSchedules).omit({ id: true, createdAt: true, updatedAt: true });
 
+// Shift Swap Requests - allows caregivers to request shift swaps with manager approval
+export const shiftSwapStatusEnum = pgEnum("shift_swap_status", ["pending", "approved", "rejected", "cancelled"]);
+
+export const shiftSwapRequests = pgTable("shift_swap_requests", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  scheduleId: varchar("schedule_id").references(() => caregiverSchedules.id).notNull(),
+  requestingCaregiverId: varchar("requesting_caregiver_id").references(() => caregivers.id).notNull(),
+  targetCaregiverId: varchar("target_caregiver_id").references(() => caregivers.id),
+  reason: text("reason"),
+  status: shiftSwapStatusEnum("status").default("pending"),
+  officeId: varchar("office_id").references(() => offices.id),
+  reviewedBy: varchar("reviewed_by").references(() => users.id),
+  reviewedAt: timestamp("reviewed_at"),
+  reviewNotes: text("review_notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_shift_swap_requests_status").on(table.status),
+  index("idx_shift_swap_requests_office").on(table.officeId),
+  index("idx_shift_swap_requests_requesting_caregiver").on(table.requestingCaregiverId),
+]);
+
+export const shiftSwapRequestsRelations = relations(shiftSwapRequests, ({ one }) => ({
+  schedule: one(caregiverSchedules, { fields: [shiftSwapRequests.scheduleId], references: [caregiverSchedules.id] }),
+  requestingCaregiver: one(caregivers, { fields: [shiftSwapRequests.requestingCaregiverId], references: [caregivers.id] }),
+  targetCaregiver: one(caregivers, { fields: [shiftSwapRequests.targetCaregiverId], references: [caregivers.id] }),
+  office: one(offices, { fields: [shiftSwapRequests.officeId], references: [offices.id] }),
+  reviewer: one(users, { fields: [shiftSwapRequests.reviewedBy], references: [users.id] }),
+}));
+
+export type ShiftSwapRequest = typeof shiftSwapRequests.$inferSelect;
+export type InsertShiftSwapRequest = typeof shiftSwapRequests.$inferInsert;
+export const insertShiftSwapRequestSchema = createInsertSchema(shiftSwapRequests).omit({ id: true, createdAt: true, updatedAt: true, reviewedAt: true });
+
 // Client MCO assignments - tracks MCO history with start/discharge dates
 export const clientMcos = pgTable("client_mcos", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -3596,3 +3630,68 @@ export const emailTemplatesRelations = relations(emailTemplates, ({ one }) => ({
 export type EmailTemplate = typeof emailTemplates.$inferSelect;
 export type InsertEmailTemplate = typeof emailTemplates.$inferInsert;
 export const insertEmailTemplateSchema = createInsertSchema(emailTemplates).omit({ id: true, createdAt: true, updatedAt: true });
+
+// E-Signature Templates
+export const eSignatureTemplateStatusEnum = pgEnum("esign_template_status", ["draft", "active", "archived"]);
+
+export const eSignatureTemplates = pgTable("esignature_templates", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: varchar("name").notNull(),
+  description: text("description"),
+  content: text("content").notNull(),
+  signatureFields: jsonb("signature_fields"),
+  status: eSignatureTemplateStatusEnum("status").default("draft"),
+  createdBy: varchar("created_by").references(() => users.id),
+  officeId: varchar("office_id").references(() => offices.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_esignature_templates_office").on(table.officeId),
+  index("idx_esignature_templates_status").on(table.status),
+]);
+
+export const eSignatureTemplatesRelations = relations(eSignatureTemplates, ({ one, many }) => ({
+  creator: one(users, { fields: [eSignatureTemplates.createdBy], references: [users.id] }),
+  office: one(offices, { fields: [eSignatureTemplates.officeId], references: [offices.id] }),
+  requests: many(eSignatureRequests),
+}));
+
+export type ESignatureTemplate = typeof eSignatureTemplates.$inferSelect;
+export type InsertESignatureTemplate = typeof eSignatureTemplates.$inferInsert;
+export const insertESignatureTemplateSchema = createInsertSchema(eSignatureTemplates).omit({ id: true, createdAt: true, updatedAt: true });
+
+// E-Signature Requests (sent for signing)
+export const eSignatureRequestStatusEnum = pgEnum("esign_request_status", ["pending", "signed", "declined", "expired"]);
+
+export const eSignatureRequests = pgTable("esignature_requests", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  templateId: varchar("template_id").references(() => eSignatureTemplates.id),
+  documentContent: text("document_content").notNull(),
+  recipientEmail: varchar("recipient_email").notNull(),
+  recipientName: varchar("recipient_name").notNull(),
+  recipientType: varchar("recipient_type"),
+  recipientId: varchar("recipient_id"),
+  status: eSignatureRequestStatusEnum("status").default("pending"),
+  accessToken: varchar("access_token").notNull().unique(),
+  signedAt: timestamp("signed_at"),
+  signatureData: jsonb("signature_data"),
+  signedDocumentId: varchar("signed_document_id").references(() => documents.id),
+  expiresAt: timestamp("expires_at"),
+  sentBy: varchar("sent_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_esignature_requests_template").on(table.templateId),
+  index("idx_esignature_requests_status").on(table.status),
+  index("idx_esignature_requests_token").on(table.accessToken),
+]);
+
+export const eSignatureRequestsRelations = relations(eSignatureRequests, ({ one }) => ({
+  template: one(eSignatureTemplates, { fields: [eSignatureRequests.templateId], references: [eSignatureTemplates.id] }),
+  sender: one(users, { fields: [eSignatureRequests.sentBy], references: [users.id] }),
+  signedDocument: one(documents, { fields: [eSignatureRequests.signedDocumentId], references: [documents.id] }),
+}));
+
+export type ESignatureRequest = typeof eSignatureRequests.$inferSelect;
+export type InsertESignatureRequest = typeof eSignatureRequests.$inferInsert;
+export const insertESignatureRequestSchema = createInsertSchema(eSignatureRequests).omit({ id: true, createdAt: true, updatedAt: true });

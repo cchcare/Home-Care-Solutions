@@ -49,6 +49,13 @@ import LetterTemplates from "@/pages/letter-templates";
 import CoordinatorPayRecords from "@/pages/coordinator-pay-records";
 import PayrollHub from "@/pages/payroll-hub";
 import EmailTemplates from "@/pages/email-templates";
+import ExpirationAlerts from "@/pages/expiration-alerts";
+import ClientIntake from "@/pages/client-intake";
+import ShiftSwapRequests from "@/pages/shift-swap-requests";
+import CareQualityScorecard from "@/pages/care-quality-scorecard";
+import FinancialReports from "@/pages/financial-reports";
+import ESignatureTemplates from "@/pages/esignature-templates";
+import ESign from "@/pages/esign";
 
 function Router() {
   const { isAuthenticated, isLoading, error } = useAuth();
@@ -75,6 +82,7 @@ function Router() {
       <Route path="/signup" component={Signup} />
       <Route path="/signup/success" component={SignupSuccess} />
       <Route path="/support-center" component={SupportCenter} />
+      <Route path="/esign/:token" component={ESign} />
       {!isAuthenticated ? (
         <Route path="/" component={Landing} />
       ) : (
@@ -83,6 +91,7 @@ function Router() {
           <Route path="/family-portal" component={FamilyPortal} />
           <Route path="/clients" component={Clients} />
           <Route path="/clients/:id" component={ClientProfile} />
+          <Route path="/client-intake" component={ClientIntake} />
           <Route path="/caregivers" component={Caregivers} />
           <Route path="/caregivers/:id" component={CaregiverProfile} />
           <Route path="/offices" component={Offices} />
@@ -110,8 +119,13 @@ function Router() {
           <Route path="/letter-templates" component={LetterTemplates} />
           <Route path="/coordinator-pay-records" component={CoordinatorPayRecords} />
           <Route path="/email-templates" component={EmailTemplates} />
+          <Route path="/expiration-alerts" component={ExpirationAlerts} />
           <Route path="/payroll" component={PayrollHub} />
           <Route path="/api-keys" component={ApiKeys} />
+          <Route path="/shift-swap-requests" component={ShiftSwapRequests} />
+          <Route path="/care-quality-scorecard" component={CareQualityScorecard} />
+          <Route path="/financial-reports" component={FinancialReports} />
+          <Route path="/esignature-templates" component={ESignatureTemplates} />
         </>
       )}
       <Route component={NotFound} />

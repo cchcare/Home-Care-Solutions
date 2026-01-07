@@ -91,6 +91,9 @@ import {
   insertCustomIntegrationSchema,
   insertCoordinatorPayRecordSchema,
   insertPayrollRunSchema,
+  insertShiftSwapRequestSchema,
+  insertESignatureTemplateSchema,
+  insertESignatureRequestSchema,
 } from "@shared/schema";
 import bcrypt from "bcrypt";
 import { ObjectStorageService, ObjectNotFoundError } from "./objectStorage";
@@ -119,6 +122,8 @@ import {
   type DateRange,
 } from "./analytics-service";
 import { apiKeyAuth, formatApiResponse, requireScope, type ApiAuthRequest } from "./api-auth";
+import { expirationAlertService } from './expiration-alert-service';
+import { runExpirationAlertsNow } from './scheduler';
 
 // Helper function to coerce date strings to Date objects
 function coerceDate(value: string | Date | null | undefined): Date | null | undefined {
@@ -670,6 +675,211 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error fetching monthly stats:", error);
       res.status(500).json({ message: "Failed to fetch monthly statistics" });
+    }
+  });
+
+  // Care Quality Scorecard metrics endpoint
+  app.get("/api/admin/care-quality-metrics", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.user;
+      if (!user || !["admin", "office_admin", "super_admin", "supervisor"].includes(user.role)) {
+        return res.status(403).json({ message: "Access denied. Admin role required." });
+      }
+      const { officeId, startDate, endDate, caregiverId } = req.query;
+      const officeFilter = officeId && officeId !== 'all' ? String(officeId) : undefined;
+      const caregiverFilter = caregiverId && caregiverId !== 'all' ? String(caregiverId) : undefined;
+      
+      const start = startDate ? new Date(startDate as string) : new Date(Date.now() - 180 * 24 * 60 * 60 * 1000);
+      const end = endDate ? new Date(endDate as string) : new Date();
+      
+      const allSchedules = await storage.getAllCaregiverSchedules(officeFilter);
+      const filteredSchedules = allSchedules.filter(s => {
+        const schedDate = new Date(s.scheduledDate);
+        const inDateRange = schedDate >= start && schedDate <= end;
+        const matchesCaregiver = !caregiverFilter || s.caregiverId === caregiverFilter;
+        return inDateRange && matchesCaregiver;
+      });
+      
+      const totalScheduled = filteredSchedules.length;
+      const completed = filteredSchedules.filter(s => s.status === 'completed').length;
+      const cancelled = filteredSchedules.filter(s => s.status === 'cancelled').length;
+      const noShow = filteredSchedules.filter(s => s.status === 'no_show').length;
+      const evvCompliant = filteredSchedules.filter(s => s.evvStatus === 'compliant').length;
+      
+      const schedulesWithClockIn = filteredSchedules.filter(s => s.clockInTime && s.startTime);
+      let onTimeCount = 0;
+      for (const sched of schedulesWithClockIn) {
+        if (sched.clockInTime && sched.startTime && sched.scheduledDate) {
+          const [hours, minutes] = sched.startTime.split(':').map(Number);
+          const scheduledStart = new Date(sched.scheduledDate);
+          scheduledStart.setHours(hours, minutes, 0, 0);
+          const clockIn = new Date(sched.clockInTime);
+          const diffMinutes = (clockIn.getTime() - scheduledStart.getTime()) / (1000 * 60);
+          if (diffMinutes <= 15) onTimeCount++;
+        }
+      }
+      
+      const visitCompletionRate = totalScheduled > 0 ? (completed / totalScheduled) * 100 : 0;
+      const evvComplianceRate = totalScheduled > 0 ? (evvCompliant / totalScheduled) * 100 : 0;
+      const punctualityRate = schedulesWithClockIn.length > 0 ? (onTimeCount / schedulesWithClockIn.length) * 100 : 0;
+      
+      const surveyResponses = await storage.getSurveyResponses(officeFilter);
+      const validRatings = surveyResponses.filter((s: any) => s.overallRating != null);
+      const avgSatisfaction = validRatings.length > 0 
+        ? validRatings.reduce((sum: number, s: any) => sum + Number(s.overallRating), 0) / validRatings.length 
+        : 0;
+      
+      const offices = await storage.getAllOffices();
+      const metricsByOffice = offices.map(office => {
+        const officeSchedules = allSchedules.filter(s => {
+          const schedDate = new Date(s.scheduledDate);
+          const inDateRange = schedDate >= start && schedDate <= end;
+          const matchesCaregiver = !caregiverFilter || s.caregiverId === caregiverFilter;
+          return inDateRange && matchesCaregiver;
+        });
+        const caregiversInOffice = officeSchedules.filter(async (s) => {
+          const caregiver = await storage.getCaregiver(s.caregiverId);
+          return caregiver?.officeId === office.id;
+        });
+        const officeFiltered = allSchedules.filter(s => {
+          const schedDate = new Date(s.scheduledDate);
+          return schedDate >= start && schedDate <= end;
+        });
+        
+        const total = officeFiltered.length;
+        const comp = officeFiltered.filter(s => s.status === 'completed').length;
+        const evvComp = officeFiltered.filter(s => s.evvStatus === 'compliant').length;
+        
+        return {
+          officeId: office.id,
+          officeName: office.name,
+          visitCompletionRate: total > 0 ? (comp / total) * 100 : 0,
+          evvComplianceRate: total > 0 ? (evvComp / total) * 100 : 0,
+          totalVisits: total,
+        };
+      });
+      
+      const monthlyTrends: { month: string; completionRate: number; evvRate: number; totalVisits: number }[] = [];
+      for (let i = 5; i >= 0; i--) {
+        const monthStart = new Date();
+        monthStart.setMonth(monthStart.getMonth() - i);
+        monthStart.setDate(1);
+        monthStart.setHours(0, 0, 0, 0);
+        
+        const monthEnd = new Date(monthStart);
+        monthEnd.setMonth(monthEnd.getMonth() + 1);
+        monthEnd.setDate(0);
+        monthEnd.setHours(23, 59, 59, 999);
+        
+        const monthSchedules = allSchedules.filter(s => {
+          const schedDate = new Date(s.scheduledDate);
+          const matchesCaregiver = !caregiverFilter || s.caregiverId === caregiverFilter;
+          return schedDate >= monthStart && schedDate <= monthEnd && matchesCaregiver;
+        });
+        
+        if (officeFilter) {
+          const caregivers = await storage.getAllCaregivers(officeFilter);
+          const caregiverIds = new Set(caregivers.map(c => c.id));
+        }
+        
+        const total = monthSchedules.length;
+        const comp = monthSchedules.filter(s => s.status === 'completed').length;
+        const evvComp = monthSchedules.filter(s => s.evvStatus === 'compliant').length;
+        
+        monthlyTrends.push({
+          month: monthStart.toLocaleString('default', { month: 'short', year: 'numeric' }),
+          completionRate: total > 0 ? (comp / total) * 100 : 0,
+          evvRate: total > 0 ? (evvComp / total) * 100 : 0,
+          totalVisits: total,
+        });
+      }
+      
+      const caregivers = await storage.getAllCaregivers(officeFilter);
+      const caregiverStats = await Promise.all(caregivers.map(async (cg) => {
+        const cgSchedules = allSchedules.filter(s => {
+          const schedDate = new Date(s.scheduledDate);
+          return s.caregiverId === cg.id && schedDate >= start && schedDate <= end;
+        });
+        const total = cgSchedules.length;
+        const comp = cgSchedules.filter(s => s.status === 'completed').length;
+        return {
+          caregiverId: cg.id,
+          caregiverName: `${cg.firstName || ''} ${cg.lastName || ''}`.trim(),
+          totalVisits: total,
+          completedVisits: comp,
+          completionRate: total > 0 ? (comp / total) * 100 : 0,
+        };
+      }));
+      
+      const topPerformers = caregiverStats
+        .filter(c => c.totalVisits >= 5)
+        .sort((a, b) => b.completionRate - a.completionRate)
+        .slice(0, 10);
+      
+      const clients = await storage.getAllClients(officeFilter);
+      const clientsNeedingAttention = await Promise.all(clients.map(async (cl) => {
+        const clientSchedules = allSchedules.filter(s => {
+          const schedDate = new Date(s.scheduledDate);
+          return s.clientId === cl.id && schedDate >= start && schedDate <= end;
+        });
+        const total = clientSchedules.length;
+        const missed = clientSchedules.filter(s => s.status === 'no_show' || s.status === 'cancelled').length;
+        const clientSurveys = surveyResponses.filter((sr: any) => sr.clientId === cl.id);
+        const avgRating = clientSurveys.length > 0 
+          ? clientSurveys.reduce((sum: number, s: any) => sum + Number(s.overallRating || 0), 0) / clientSurveys.length 
+          : null;
+        
+        return {
+          clientId: cl.id,
+          clientName: `${cl.firstName} ${cl.lastName}`,
+          totalVisits: total,
+          missedVisits: missed,
+          avgSatisfaction: avgRating,
+          needsAttention: missed > 2 || (avgRating !== null && avgRating < 3),
+        };
+      }));
+      
+      const incidentReports = await storage.getAllIncidentReports(officeFilter);
+      const recentIncidents = incidentReports
+        .filter(i => new Date(i.createdAt!) >= start)
+        .sort((a, b) => new Date(b.createdAt!).getTime() - new Date(a.createdAt!).getTime())
+        .slice(0, 10)
+        .map(i => ({
+          id: i.id,
+          incidentDate: i.incidentDate,
+          incidentType: i.incidentType,
+          severity: i.severity,
+          status: i.status,
+          entityType: i.entityType,
+        }));
+      
+      res.json({
+        summary: {
+          visitCompletionRate: Math.round(visitCompletionRate * 10) / 10,
+          evvComplianceRate: Math.round(evvComplianceRate * 10) / 10,
+          avgSatisfactionScore: Math.round(avgSatisfaction * 10) / 10,
+          punctualityRate: Math.round(punctualityRate * 10) / 10,
+          totalScheduled,
+          completed,
+          cancelled,
+          noShow,
+        },
+        visitStatusBreakdown: {
+          completed,
+          cancelled,
+          noShow,
+          scheduled: filteredSchedules.filter(s => s.status === 'scheduled').length,
+          inProgress: filteredSchedules.filter(s => s.status === 'in_progress').length,
+        },
+        monthlyTrends,
+        metricsByOffice,
+        topPerformers,
+        clientsNeedingAttention: clientsNeedingAttention.filter(c => c.needsAttention).slice(0, 10),
+        recentIncidents,
+      });
+    } catch (error) {
+      console.error("Error fetching care quality metrics:", error);
+      res.status(500).json({ message: "Failed to fetch care quality metrics" });
     }
   });
 
@@ -5294,6 +5504,209 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error deleting MCO:", error);
       res.status(500).json({ message: "Failed to delete MCO" });
+    }
+  });
+
+  // Financial Reports endpoint
+  app.get("/api/admin/financial-reports", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.user;
+      if (!user || !["admin", "office_admin", "super_admin", "supervisor"].includes(user.role)) {
+        return res.status(403).json({ message: "Access denied. Admin role required." });
+      }
+      const { officeId, startDate, endDate, mcoId } = req.query;
+      
+      const start = startDate ? new Date(startDate as string) : new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+      const end = endDate ? new Date(endDate as string) : new Date();
+      
+      // Get all relevant data
+      const billingRecords = await storage.getBillingRecords(officeId as string | undefined);
+      const allClaims = await storage.getClaimsByDateRange(start, end, officeId as string | undefined);
+      const agingReport = await storage.getClaimsAgingReport(officeId as string | undefined);
+      const claimsSummary = await storage.getClaimsSummary(officeId as string | undefined, start, end);
+      const offices = await storage.getOffices();
+      const mcos = await storage.getMcos();
+      const caregivers = await storage.getCaregivers(officeId as string | undefined);
+      
+      // Filter by MCO if specified
+      const filteredClaims = mcoId 
+        ? allClaims.filter(c => c.mcoId === mcoId)
+        : allClaims;
+      const filteredBilling = mcoId
+        ? billingRecords.filter(b => b.mcoId === mcoId)
+        : billingRecords;
+      
+      // Calculate revenue summary
+      const currentMonth = new Date().getMonth();
+      const currentYear = new Date().getFullYear();
+      const currentMonthClaims = filteredClaims.filter(c => {
+        const d = new Date(c.serviceDate);
+        return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
+      });
+      
+      const totalRevenueCurrentMonth = currentMonthClaims.reduce(
+        (sum, c) => sum + parseFloat(c.paidAmount || c.approvedAmount || c.billedAmount || '0'), 0
+      );
+      
+      // Last year same month for YoY comparison
+      const lastYearMonth = filteredClaims.filter(c => {
+        const d = new Date(c.serviceDate);
+        return d.getMonth() === currentMonth && d.getFullYear() === currentYear - 1;
+      });
+      const lastYearRevenue = lastYearMonth.reduce(
+        (sum, c) => sum + parseFloat(c.paidAmount || c.approvedAmount || c.billedAmount || '0'), 0
+      );
+      const yoyChange = lastYearRevenue > 0 
+        ? ((totalRevenueCurrentMonth - lastYearRevenue) / lastYearRevenue) * 100 
+        : 0;
+      
+      // Revenue by MCO
+      const revenueByMco: { [key: string]: { mcoId: string; mcoName: string; revenue: number; claims: number } } = {};
+      for (const claim of filteredClaims) {
+        const mcoInfo = mcos.find(m => m.id === claim.mcoId);
+        const mcoName = mcoInfo?.name || 'Unknown';
+        if (!revenueByMco[claim.mcoId || 'unknown']) {
+          revenueByMco[claim.mcoId || 'unknown'] = { mcoId: claim.mcoId || 'unknown', mcoName, revenue: 0, claims: 0 };
+        }
+        revenueByMco[claim.mcoId || 'unknown'].revenue += parseFloat(claim.paidAmount || claim.approvedAmount || claim.billedAmount || '0');
+        revenueByMco[claim.mcoId || 'unknown'].claims++;
+      }
+      
+      // Revenue by Office
+      const revenueByOffice: { [key: string]: { officeId: string; officeName: string; revenue: number; claims: number } } = {};
+      for (const claim of allClaims) {
+        const officeInfo = offices.find(o => o.id === claim.officeId);
+        const officeName = officeInfo?.name || 'Unknown';
+        if (!revenueByOffice[claim.officeId || 'unknown']) {
+          revenueByOffice[claim.officeId || 'unknown'] = { officeId: claim.officeId || 'unknown', officeName, revenue: 0, claims: 0 };
+        }
+        revenueByOffice[claim.officeId || 'unknown'].revenue += parseFloat(claim.paidAmount || claim.approvedAmount || claim.billedAmount || '0');
+        revenueByOffice[claim.officeId || 'unknown'].claims++;
+      }
+      
+      // AR Aging by MCO
+      const arAgingByMco: { 
+        [key: string]: { 
+          mcoId: string; 
+          mcoName: string; 
+          current: number; 
+          days30: number; 
+          days60: number; 
+          days90: number; 
+          over90: number; 
+          total: number 
+        } 
+      } = {};
+      
+      const now = new Date();
+      const pendingClaims = allClaims.filter(c => ['submitted', 'pending', 'partial'].includes(c.status || ''));
+      
+      for (const claim of pendingClaims) {
+        const mcoInfo = mcos.find(m => m.id === claim.mcoId);
+        const mcoName = mcoInfo?.name || 'Unknown';
+        const mcoKey = claim.mcoId || 'unknown';
+        
+        if (!arAgingByMco[mcoKey]) {
+          arAgingByMco[mcoKey] = { mcoId: mcoKey, mcoName, current: 0, days30: 0, days60: 0, days90: 0, over90: 0, total: 0 };
+        }
+        
+        const serviceDate = new Date(claim.serviceDate);
+        const daysOld = Math.floor((now.getTime() - serviceDate.getTime()) / (24 * 60 * 60 * 1000));
+        const amount = parseFloat(claim.billedAmount || '0');
+        
+        if (daysOld <= 30) {
+          arAgingByMco[mcoKey].current += amount;
+        } else if (daysOld <= 60) {
+          arAgingByMco[mcoKey].days30 += amount;
+        } else if (daysOld <= 90) {
+          arAgingByMco[mcoKey].days60 += amount;
+        } else if (daysOld <= 120) {
+          arAgingByMco[mcoKey].days90 += amount;
+        } else {
+          arAgingByMco[mcoKey].over90 += amount;
+        }
+        arAgingByMco[mcoKey].total += amount;
+      }
+      
+      // Monthly revenue trend (last 12 months)
+      const monthlyRevenue: { month: string; revenue: number; claims: number }[] = [];
+      for (let i = 11; i >= 0; i--) {
+        const d = new Date();
+        d.setMonth(d.getMonth() - i);
+        const month = d.getMonth();
+        const year = d.getFullYear();
+        const monthName = d.toLocaleString('default', { month: 'short', year: '2-digit' });
+        
+        const monthClaims = filteredClaims.filter(c => {
+          const cd = new Date(c.serviceDate);
+          return cd.getMonth() === month && cd.getFullYear() === year;
+        });
+        
+        const revenue = monthClaims.reduce(
+          (sum, c) => sum + parseFloat(c.paidAmount || c.approvedAmount || c.billedAmount || '0'), 0
+        );
+        
+        monthlyRevenue.push({ month: monthName, revenue, claims: monthClaims.length });
+      }
+      
+      // Profitability by MCO (Revenue vs estimated cost based on caregiver wages)
+      const profitabilityByMco: { 
+        mcoId: string; 
+        mcoName: string; 
+        revenue: number; 
+        estimatedCost: number; 
+        margin: number; 
+        marginPercent: number 
+      }[] = [];
+      
+      for (const [mcoKey, data] of Object.entries(revenueByMco)) {
+        const mcoClaims = filteredClaims.filter(c => c.mcoId === mcoKey);
+        let estimatedCost = 0;
+        
+        for (const claim of mcoClaims) {
+          const caregiver = caregivers.find(cg => cg.id === claim.caregiverId);
+          const hourlyWage = parseFloat(caregiver?.hourlyWage || '15');
+          const units = parseFloat(claim.units || '0');
+          estimatedCost += hourlyWage * units;
+        }
+        
+        const margin = data.revenue - estimatedCost;
+        const marginPercent = data.revenue > 0 ? (margin / data.revenue) * 100 : 0;
+        
+        profitabilityByMco.push({
+          mcoId: data.mcoId,
+          mcoName: data.mcoName,
+          revenue: data.revenue,
+          estimatedCost,
+          margin,
+          marginPercent
+        });
+      }
+      
+      // Sort by revenue descending
+      profitabilityByMco.sort((a, b) => b.revenue - a.revenue);
+      
+      res.json({
+        revenueSummary: {
+          totalRevenueCurrentMonth,
+          lastYearRevenue,
+          yoyChange,
+          totalBilled: claimsSummary.totalBilled,
+          totalApproved: claimsSummary.totalApproved,
+          totalPaid: claimsSummary.totalPaid,
+          totalClaims: claimsSummary.totalClaims
+        },
+        revenueByMco: Object.values(revenueByMco),
+        revenueByOffice: Object.values(revenueByOffice),
+        arAging: agingReport,
+        arAgingByMco: Object.values(arAgingByMco),
+        monthlyRevenue,
+        profitabilityByMco,
+        claimsByStatus: claimsSummary.byStatus
+      });
+    } catch (error) {
+      console.error("Error fetching financial reports:", error);
+      res.status(500).json({ message: "Failed to fetch financial reports" });
     }
   });
 
@@ -12538,6 +12951,835 @@ export async function registerRoutes(app: Express): Promise<Server> {
         success: false,
         message: error.message || "Failed to test ADP connection" 
       });
+    }
+  });
+
+  // =====================================================
+  // Expiration Alerts Endpoints
+  // =====================================================
+
+  // Get upcoming expirations
+  app.get("/api/admin/expiration-alerts", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.user;
+      if (!["admin", "office_admin", "super_admin"].includes(user.role)) {
+        return res.status(403).json({ message: "Unauthorized" });
+      }
+
+      const days = parseInt(req.query.days as string) || 30;
+      const expirations = await expirationAlertService.getUpcomingExpirations(days);
+      res.json(expirations);
+    } catch (error: any) {
+      console.error("Error fetching expiration alerts:", error);
+      res.status(500).json({ message: error.message || "Failed to fetch expiration alerts" });
+    }
+  });
+
+  // Trigger manual alert sending
+  app.post("/api/admin/expiration-alerts/send", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.user;
+      if (!["admin", "office_admin", "super_admin"].includes(user.role)) {
+        return res.status(403).json({ message: "Unauthorized" });
+      }
+
+      const result = await runExpirationAlertsNow();
+      
+      await storage.createAuditLog({
+        userId: user.id,
+        action: "send",
+        entityType: "expiration_alerts",
+        entityId: "manual_run",
+        newValues: result,
+        ipAddress: req.ip,
+        userAgent: req.get("User-Agent"),
+      });
+
+      res.json({ 
+        success: true, 
+        message: `Expiration alerts sent: ${result.emailsSent} emails, ${result.smsSent} SMS`,
+        ...result 
+      });
+    } catch (error: any) {
+      console.error("Error sending expiration alerts:", error);
+      res.status(500).json({ message: error.message || "Failed to send expiration alerts" });
+    }
+  });
+
+  // Get alert settings
+  app.get("/api/admin/expiration-alerts/settings", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.user;
+      if (!["admin", "office_admin", "super_admin"].includes(user.role)) {
+        return res.status(403).json({ message: "Unauthorized" });
+      }
+
+      const settings = await expirationAlertService.getAlertSettings();
+      res.json(settings);
+    } catch (error: any) {
+      console.error("Error fetching expiration alert settings:", error);
+      res.status(500).json({ message: error.message || "Failed to fetch settings" });
+    }
+  });
+
+  // Update alert settings
+  app.put("/api/admin/expiration-alerts/settings", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.user;
+      if (!["admin", "office_admin", "super_admin"].includes(user.role)) {
+        return res.status(403).json({ message: "Unauthorized" });
+      }
+
+      const { enabled, alertDaysBefore, sendEmail, sendSms, notifyAdmins, adminEmails } = req.body;
+      
+      const newSettings = {
+        enabled: enabled ?? true,
+        alertDaysBefore: alertDaysBefore ?? [30, 14, 7, 1],
+        sendEmail: sendEmail ?? true,
+        sendSms: sendSms ?? true,
+        notifyAdmins: notifyAdmins ?? true,
+        adminEmails: adminEmails ?? [],
+      };
+
+      await storage.upsertSystemSetting("expiration_alerts", JSON.stringify(newSettings));
+      
+      await storage.createAuditLog({
+        userId: user.id,
+        action: "update",
+        entityType: "expiration_alert_settings",
+        entityId: "settings",
+        newValues: newSettings,
+        ipAddress: req.ip,
+        userAgent: req.get("User-Agent"),
+      });
+
+      res.json(newSettings);
+    } catch (error: any) {
+      console.error("Error updating expiration alert settings:", error);
+      res.status(500).json({ message: error.message || "Failed to update settings" });
+    }
+  });
+
+  // ==================== SHIFT SWAP REQUEST ROUTES ====================
+  
+  app.get("/api/shift-swap-requests", isAuthenticated, async (req: any, res) => {
+    try {
+      const { status, officeId, caregiverId } = req.query;
+      const filters: { status?: string; officeId?: string; caregiverId?: string } = {};
+      
+      if (status) filters.status = status as string;
+      if (officeId) filters.officeId = officeId as string;
+      if (caregiverId) filters.caregiverId = caregiverId as string;
+      
+      const requests = await storage.getShiftSwapRequests(filters);
+      
+      const enrichedRequests = await Promise.all(requests.map(async (request) => {
+        const [schedule, requestingCaregiver, targetCaregiver, reviewer] = await Promise.all([
+          storage.getCaregiverSchedule(request.scheduleId),
+          storage.getCaregiver(request.requestingCaregiverId),
+          request.targetCaregiverId ? storage.getCaregiver(request.targetCaregiverId) : null,
+          request.reviewedBy ? storage.getUser(request.reviewedBy) : null,
+        ]);
+        
+        let client = null;
+        if (schedule?.clientId) {
+          client = await storage.getClient(schedule.clientId);
+        }
+        
+        return {
+          ...request,
+          schedule,
+          requestingCaregiver,
+          targetCaregiver,
+          reviewer,
+          client,
+        };
+      }));
+      
+      res.json(enrichedRequests);
+    } catch (error: any) {
+      console.error("Error fetching shift swap requests:", error);
+      res.status(500).json({ message: error.message || "Failed to fetch shift swap requests" });
+    }
+  });
+
+  app.get("/api/shift-swap-requests/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const request = await storage.getShiftSwapRequest(req.params.id);
+      if (!request) {
+        return res.status(404).json({ message: "Shift swap request not found" });
+      }
+      
+      const [schedule, requestingCaregiver, targetCaregiver, reviewer] = await Promise.all([
+        storage.getCaregiverSchedule(request.scheduleId),
+        storage.getCaregiver(request.requestingCaregiverId),
+        request.targetCaregiverId ? storage.getCaregiver(request.targetCaregiverId) : null,
+        request.reviewedBy ? storage.getUser(request.reviewedBy) : null,
+      ]);
+      
+      let client = null;
+      if (schedule?.clientId) {
+        client = await storage.getClient(schedule.clientId);
+      }
+      
+      res.json({
+        ...request,
+        schedule,
+        requestingCaregiver,
+        targetCaregiver,
+        reviewer,
+        client,
+      });
+    } catch (error: any) {
+      console.error("Error fetching shift swap request:", error);
+      res.status(500).json({ message: error.message || "Failed to fetch shift swap request" });
+    }
+  });
+
+  app.post("/api/shift-swap-requests", isAuthenticated, async (req: any, res) => {
+    try {
+      const validatedData = insertShiftSwapRequestSchema.parse(req.body);
+      const request = await storage.createShiftSwapRequest(validatedData);
+      
+      await storage.createAuditLog({
+        userId: req.user?.id,
+        action: "create",
+        entityType: "shift_swap_request",
+        entityId: request.id,
+        newValues: request,
+        ipAddress: req.ip,
+        userAgent: req.get("User-Agent"),
+      });
+      
+      res.status(201).json(request);
+    } catch (error: any) {
+      console.error("Error creating shift swap request:", error);
+      res.status(400).json({ message: error.message || "Failed to create shift swap request" });
+    }
+  });
+
+  app.put("/api/shift-swap-requests/:id/approve", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.user;
+      if (!["admin", "office_admin", "super_admin", "supervisor"].includes(user.role)) {
+        return res.status(403).json({ message: "Unauthorized - Manager role required" });
+      }
+      
+      const { notes } = req.body;
+      const request = await storage.approveShiftSwapRequest(req.params.id, user.id, notes);
+      
+      await storage.createAuditLog({
+        userId: user.id,
+        action: "approve",
+        entityType: "shift_swap_request",
+        entityId: request.id,
+        newValues: { status: "approved", notes },
+        ipAddress: req.ip,
+        userAgent: req.get("User-Agent"),
+      });
+      
+      res.json(request);
+    } catch (error: any) {
+      console.error("Error approving shift swap request:", error);
+      res.status(400).json({ message: error.message || "Failed to approve shift swap request" });
+    }
+  });
+
+  app.put("/api/shift-swap-requests/:id/reject", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.user;
+      if (!["admin", "office_admin", "super_admin", "supervisor"].includes(user.role)) {
+        return res.status(403).json({ message: "Unauthorized - Manager role required" });
+      }
+      
+      const { notes } = req.body;
+      const request = await storage.rejectShiftSwapRequest(req.params.id, user.id, notes);
+      
+      await storage.createAuditLog({
+        userId: user.id,
+        action: "reject",
+        entityType: "shift_swap_request",
+        entityId: request.id,
+        newValues: { status: "rejected", notes },
+        ipAddress: req.ip,
+        userAgent: req.get("User-Agent"),
+      });
+      
+      res.json(request);
+    } catch (error: any) {
+      console.error("Error rejecting shift swap request:", error);
+      res.status(400).json({ message: error.message || "Failed to reject shift swap request" });
+    }
+  });
+
+  app.put("/api/shift-swap-requests/:id/cancel", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.user;
+      const existingRequest = await storage.getShiftSwapRequest(req.params.id);
+      
+      if (!existingRequest) {
+        return res.status(404).json({ message: "Shift swap request not found" });
+      }
+      
+      const caregiver = await storage.getCaregiverByUserId(user.id);
+      if (!caregiver || caregiver.id !== existingRequest.requestingCaregiverId) {
+        if (!["admin", "office_admin", "super_admin", "supervisor"].includes(user.role)) {
+          return res.status(403).json({ message: "You can only cancel your own requests" });
+        }
+      }
+      
+      const request = await storage.cancelShiftSwapRequest(req.params.id);
+      
+      await storage.createAuditLog({
+        userId: user.id,
+        action: "cancel",
+        entityType: "shift_swap_request",
+        entityId: request.id,
+        newValues: { status: "cancelled" },
+        ipAddress: req.ip,
+        userAgent: req.get("User-Agent"),
+      });
+      
+      res.json(request);
+    } catch (error: any) {
+      console.error("Error cancelling shift swap request:", error);
+      res.status(400).json({ message: error.message || "Failed to cancel shift swap request" });
+    }
+  });
+
+  // ==================== QUICKBOOKS EXPORT ROUTES ====================
+  
+  // Helper function to generate QuickBooks IIF billing format
+  const generateBillingIIF = (records: any[], mcos: any[], office: any): string => {
+    const lines: string[] = [];
+    
+    // IIF Header for invoices
+    lines.push('!TRNS\tTRNSTYPE\tDATE\tACCNT\tNAME\tCLASS\tAMOUNT\tDOCNUM\tMEMO');
+    lines.push('!SPL\tTRNSTYPE\tDATE\tACCNT\tNAME\tCLASS\tAMOUNT\tDOCNUM\tMEMO');
+    lines.push('!ENDTRNS');
+    
+    records.forEach((record, index) => {
+      const mco = mcos.find((m: any) => m.id === record.mcoId);
+      const customerName = mco?.name || 'Unknown MCO';
+      const invoiceNum = `INV-${office?.name?.substring(0, 3)?.toUpperCase() || 'OFF'}-${String(index + 1).padStart(5, '0')}`;
+      const billDate = record.billDate ? new Date(record.billDate).toLocaleDateString('en-US') : '';
+      const amount = parseFloat(record.totalAmount || '0');
+      const memo = `Service: ${record.serviceCode || 'HC'} | Hours: ${record.hours || 0}`;
+      
+      // Transaction line (debit to Accounts Receivable)
+      lines.push(`TRNS\tINVOICE\t${billDate}\tAccounts Receivable\t${customerName}\t\t${amount.toFixed(2)}\t${invoiceNum}\t${memo}`);
+      // Split line (credit to Income)
+      lines.push(`SPL\tINVOICE\t${billDate}\tService Revenue\t${customerName}\t\t${(-amount).toFixed(2)}\t${invoiceNum}\t${memo}`);
+      lines.push('ENDTRNS');
+    });
+    
+    return lines.join('\n');
+  };
+  
+  // Helper function to generate QuickBooks IIF payroll format
+  const generatePayrollIIF = (lineItems: any[], caregivers: any[], payrollRun: any, office: any): string => {
+    const lines: string[] = [];
+    
+    // IIF Header for payroll journal entries
+    lines.push('!TRNS\tTRNSTYPE\tDATE\tACCNT\tNAME\tCLASS\tAMOUNT\tMEMO');
+    lines.push('!SPL\tTRNSTYPE\tDATE\tACCNT\tNAME\tCLASS\tAMOUNT\tMEMO');
+    lines.push('!ENDTRNS');
+    
+    const payDate = payrollRun.paycheckDate ? new Date(payrollRun.paycheckDate).toLocaleDateString('en-US') : '';
+    
+    lineItems.forEach((item: any) => {
+      const caregiver = caregivers.find((c: any) => c.id === item.caregiverId);
+      const employeeName = caregiver ? `${caregiver.firstName || ''} ${caregiver.lastName || ''}`.trim() : 'Unknown Employee';
+      const grossPay = parseFloat(item.grossPay || '0');
+      const regularHours = parseFloat(item.regularHours || '0');
+      const overtimeHours = parseFloat(item.overtimeHours || '0');
+      const memo = `Reg: ${regularHours}h, OT: ${overtimeHours}h`;
+      
+      // Transaction line (debit to Payroll Expense)
+      lines.push(`TRNS\tGENERAL JOURNAL\t${payDate}\tPayroll Expense\t${employeeName}\t\t${grossPay.toFixed(2)}\t${memo}`);
+      // Split line (credit to Payroll Payable)
+      lines.push(`SPL\tGENERAL JOURNAL\t${payDate}\tPayroll Payable\t${employeeName}\t\t${(-grossPay).toFixed(2)}\t${memo}`);
+      lines.push('ENDTRNS');
+    });
+    
+    return lines.join('\n');
+  };
+  
+  // Helper function to generate CSV billing format
+  const generateBillingCSV = (records: any[], mcos: any[], office: any): string => {
+    const lines: string[] = [];
+    lines.push('Invoice Number,Customer Name,Date,Service Code,Hours,Rate,Amount,Status,Notes');
+    
+    records.forEach((record, index) => {
+      const mco = mcos.find((m: any) => m.id === record.mcoId);
+      const customerName = (mco?.name || 'Unknown MCO').replace(/,/g, ';');
+      const invoiceNum = `INV-${office?.name?.substring(0, 3)?.toUpperCase() || 'OFF'}-${String(index + 1).padStart(5, '0')}`;
+      const billDate = record.billDate ? new Date(record.billDate).toLocaleDateString('en-US') : '';
+      const notes = (record.notes || '').replace(/,/g, ';').replace(/\n/g, ' ');
+      
+      lines.push(`${invoiceNum},${customerName},${billDate},${record.serviceCode || ''},${record.hours || ''},${record.rate || ''},${record.totalAmount || '0'},${record.status || 'pending'},${notes}`);
+    });
+    
+    return lines.join('\n');
+  };
+  
+  // Helper function to generate CSV payroll format
+  const generatePayrollCSV = (lineItems: any[], caregivers: any[], payrollRun: any): string => {
+    const lines: string[] = [];
+    lines.push('Employee Name,Employee ID,Pay Date,Pay Period Start,Pay Period End,Regular Hours,Overtime Hours,Hourly Rate,Gross Pay,Deductions,Net Pay');
+    
+    const payDate = payrollRun.paycheckDate ? new Date(payrollRun.paycheckDate).toLocaleDateString('en-US') : '';
+    const periodStart = payrollRun.payPeriodStart ? new Date(payrollRun.payPeriodStart).toLocaleDateString('en-US') : '';
+    const periodEnd = payrollRun.payPeriodEnd ? new Date(payrollRun.payPeriodEnd).toLocaleDateString('en-US') : '';
+    
+    lineItems.forEach((item: any) => {
+      const caregiver = caregivers.find((c: any) => c.id === item.caregiverId);
+      const employeeName = caregiver ? `${caregiver.firstName || ''} ${caregiver.lastName || ''}`.trim().replace(/,/g, ' ') : 'Unknown Employee';
+      const employeeId = caregiver?.employeeId || '';
+      const deductions = item.deductions ? JSON.stringify(item.deductions).replace(/,/g, ';') : '';
+      
+      lines.push(`${employeeName},${employeeId},${payDate},${periodStart},${periodEnd},${item.regularHours || '0'},${item.overtimeHours || '0'},${item.hourlyRate || '0'},${item.grossPay || '0'},${deductions},${item.netPay || '0'}`);
+    });
+    
+    return lines.join('\n');
+  };
+
+  // QuickBooks Billing Export
+  app.get("/api/admin/export/quickbooks/billing", isAuthenticated, requireFeature('billing_payroll'), async (req: any, res) => {
+    try {
+      const user = req.user;
+      if (!["admin", "office_admin", "super_admin"].includes(user.role)) {
+        return res.status(403).json({ message: "Unauthorized - Admin role required" });
+      }
+      
+      const { officeId, startDate, endDate, format = 'csv' } = req.query;
+      
+      if (!officeId || !startDate || !endDate) {
+        return res.status(400).json({ message: "officeId, startDate, and endDate are required" });
+      }
+      
+      // Get billing records for the office and date range
+      const allRecords = await storage.getBillingRecords(officeId as string);
+      const start = new Date(startDate as string);
+      const end = new Date(endDate as string);
+      
+      const records = allRecords.filter((record: any) => {
+        const billDate = new Date(record.billDate);
+        return billDate >= start && billDate <= end;
+      });
+      
+      // Get MCOs and office info
+      const mcos = await storage.getMcos();
+      const office = await storage.getOffice(officeId as string);
+      
+      let content: string;
+      let filename: string;
+      let contentType: string;
+      
+      if (format === 'iif') {
+        content = generateBillingIIF(records, mcos, office);
+        filename = `billing_export_${new Date().toISOString().split('T')[0]}.iif`;
+        contentType = 'text/plain';
+      } else {
+        content = generateBillingCSV(records, mcos, office);
+        filename = `billing_export_${new Date().toISOString().split('T')[0]}.csv`;
+        contentType = 'text/csv';
+      }
+      
+      res.setHeader('Content-Type', contentType);
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      res.send(content);
+    } catch (error: any) {
+      console.error("Error exporting billing data:", error);
+      res.status(500).json({ message: error.message || "Failed to export billing data" });
+    }
+  });
+
+  // QuickBooks Payroll Export
+  app.get("/api/admin/export/quickbooks/payroll", isAuthenticated, requireFeature('billing_payroll'), async (req: any, res) => {
+    try {
+      const user = req.user;
+      if (!["admin", "office_admin", "super_admin"].includes(user.role)) {
+        return res.status(403).json({ message: "Unauthorized - Admin role required" });
+      }
+      
+      const { officeId, payPeriodStart, payPeriodEnd, format = 'csv' } = req.query;
+      
+      if (!officeId || !payPeriodStart || !payPeriodEnd) {
+        return res.status(400).json({ message: "officeId, payPeriodStart, and payPeriodEnd are required" });
+      }
+      
+      // Get payroll runs for the office and date range
+      const allRuns = await storage.getPayrollRuns(officeId as string);
+      const start = new Date(payPeriodStart as string);
+      const end = new Date(payPeriodEnd as string);
+      
+      const matchingRuns = allRuns.filter((run: any) => {
+        const runStart = new Date(run.payPeriodStart);
+        const runEnd = new Date(run.payPeriodEnd);
+        return runStart >= start && runEnd <= end;
+      });
+      
+      // Get all line items for matching runs
+      const allLineItems: any[] = [];
+      for (const run of matchingRuns) {
+        const lineItems = await storage.getPayrollLineItems(run.id);
+        lineItems.forEach((item: any) => {
+          allLineItems.push({ ...item, payrollRun: run });
+        });
+      }
+      
+      // Get caregivers and office info
+      const caregivers = await storage.getCaregivers(officeId as string);
+      const office = await storage.getOffice(officeId as string);
+      
+      let content: string;
+      let filename: string;
+      let contentType: string;
+      
+      // For IIF format, process by payroll run
+      if (format === 'iif') {
+        const lines: string[] = [];
+        lines.push('!TRNS\tTRNSTYPE\tDATE\tACCNT\tNAME\tCLASS\tAMOUNT\tMEMO');
+        lines.push('!SPL\tTRNSTYPE\tDATE\tACCNT\tNAME\tCLASS\tAMOUNT\tMEMO');
+        lines.push('!ENDTRNS');
+        
+        for (const run of matchingRuns) {
+          const runLineItems = allLineItems.filter((item: any) => item.payrollRun.id === run.id);
+          const payDate = run.paycheckDate ? new Date(run.paycheckDate).toLocaleDateString('en-US') : '';
+          
+          runLineItems.forEach((item: any) => {
+            const caregiver = caregivers.find((c: any) => c.id === item.caregiverId);
+            const employeeName = caregiver ? `${caregiver.firstName || ''} ${caregiver.lastName || ''}`.trim() : 'Unknown Employee';
+            const grossPay = parseFloat(item.grossPay || '0');
+            const regularHours = parseFloat(item.regularHours || '0');
+            const overtimeHours = parseFloat(item.overtimeHours || '0');
+            const memo = `Reg: ${regularHours}h, OT: ${overtimeHours}h`;
+            
+            lines.push(`TRNS\tGENERAL JOURNAL\t${payDate}\tPayroll Expense\t${employeeName}\t\t${grossPay.toFixed(2)}\t${memo}`);
+            lines.push(`SPL\tGENERAL JOURNAL\t${payDate}\tPayroll Payable\t${employeeName}\t\t${(-grossPay).toFixed(2)}\t${memo}`);
+            lines.push('ENDTRNS');
+          });
+        }
+        
+        content = lines.join('\n');
+        filename = `payroll_export_${new Date().toISOString().split('T')[0]}.iif`;
+        contentType = 'text/plain';
+      } else {
+        const lines: string[] = [];
+        lines.push('Employee Name,Employee ID,Pay Date,Pay Period Start,Pay Period End,Regular Hours,Overtime Hours,Hourly Rate,Gross Pay,Deductions,Net Pay');
+        
+        allLineItems.forEach((item: any) => {
+          const run = item.payrollRun;
+          const caregiver = caregivers.find((c: any) => c.id === item.caregiverId);
+          const employeeName = caregiver ? `${caregiver.firstName || ''} ${caregiver.lastName || ''}`.trim().replace(/,/g, ' ') : 'Unknown Employee';
+          const employeeId = caregiver?.employeeId || '';
+          const payDate = run.paycheckDate ? new Date(run.paycheckDate).toLocaleDateString('en-US') : '';
+          const periodStart = run.payPeriodStart ? new Date(run.payPeriodStart).toLocaleDateString('en-US') : '';
+          const periodEnd = run.payPeriodEnd ? new Date(run.payPeriodEnd).toLocaleDateString('en-US') : '';
+          const deductions = item.deductions ? JSON.stringify(item.deductions).replace(/,/g, ';') : '';
+          
+          lines.push(`${employeeName},${employeeId},${payDate},${periodStart},${periodEnd},${item.regularHours || '0'},${item.overtimeHours || '0'},${item.hourlyRate || '0'},${item.grossPay || '0'},${deductions},${item.netPay || '0'}`);
+        });
+        
+        content = lines.join('\n');
+        filename = `payroll_export_${new Date().toISOString().split('T')[0]}.csv`;
+        contentType = 'text/csv';
+      }
+      
+      res.setHeader('Content-Type', contentType);
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      res.send(content);
+    } catch (error: any) {
+      console.error("Error exporting payroll data:", error);
+      res.status(500).json({ message: error.message || "Failed to export payroll data" });
+    }
+  });
+
+  // ============================================
+  // E-Signature Template Routes
+  // ============================================
+
+  // Get all e-signature templates
+  app.get("/api/esignature/templates", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.user;
+      if (!user || !["admin", "office_admin", "super_admin"].includes(user.role)) {
+        return res.status(403).json({ message: "Access denied. Admin role required." });
+      }
+      const { officeId, status } = req.query;
+      const templates = await storage.getESignatureTemplates({ 
+        officeId: officeId as string, 
+        status: status as string 
+      });
+      res.json(templates);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to fetch templates" });
+    }
+  });
+
+  // Get single e-signature template
+  app.get("/api/esignature/templates/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.user;
+      if (!user || !["admin", "office_admin", "super_admin"].includes(user.role)) {
+        return res.status(403).json({ message: "Access denied. Admin role required." });
+      }
+      const template = await storage.getESignatureTemplate(req.params.id);
+      if (!template) {
+        return res.status(404).json({ message: "Template not found" });
+      }
+      res.json(template);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to fetch template" });
+    }
+  });
+
+  // Create e-signature template
+  app.post("/api/esignature/templates", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.user;
+      if (!user || !["admin", "office_admin", "super_admin"].includes(user.role)) {
+        return res.status(403).json({ message: "Access denied. Admin role required." });
+      }
+      const data = insertESignatureTemplateSchema.parse({
+        ...req.body,
+        createdBy: user.id,
+      });
+      const template = await storage.createESignatureTemplate(data);
+      res.status(201).json(template);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message || "Failed to create template" });
+    }
+  });
+
+  // Update e-signature template
+  app.put("/api/esignature/templates/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.user;
+      if (!user || !["admin", "office_admin", "super_admin"].includes(user.role)) {
+        return res.status(403).json({ message: "Access denied. Admin role required." });
+      }
+      const existing = await storage.getESignatureTemplate(req.params.id);
+      if (!existing) {
+        return res.status(404).json({ message: "Template not found" });
+      }
+      const template = await storage.updateESignatureTemplate(req.params.id, req.body);
+      res.json(template);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message || "Failed to update template" });
+    }
+  });
+
+  // Delete e-signature template
+  app.delete("/api/esignature/templates/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.user;
+      if (!user || !["admin", "office_admin", "super_admin"].includes(user.role)) {
+        return res.status(403).json({ message: "Access denied. Admin role required." });
+      }
+      await storage.deleteESignatureTemplate(req.params.id);
+      res.status(204).send();
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to delete template" });
+    }
+  });
+
+  // ============================================
+  // E-Signature Request Routes
+  // ============================================
+
+  // Get all e-signature requests
+  app.get("/api/esignature/requests", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.user;
+      if (!user || !["admin", "office_admin", "super_admin"].includes(user.role)) {
+        return res.status(403).json({ message: "Access denied. Admin role required." });
+      }
+      const { status } = req.query;
+      const requests = await storage.getESignatureRequests({ 
+        status: status as string,
+        sentBy: user.id,
+      });
+      res.json(requests);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to fetch requests" });
+    }
+  });
+
+  // Get single e-signature request
+  app.get("/api/esignature/requests/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.user;
+      if (!user || !["admin", "office_admin", "super_admin"].includes(user.role)) {
+        return res.status(403).json({ message: "Access denied. Admin role required." });
+      }
+      const request = await storage.getESignatureRequest(req.params.id);
+      if (!request) {
+        return res.status(404).json({ message: "Request not found" });
+      }
+      res.json(request);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to fetch request" });
+    }
+  });
+
+  // Create and send e-signature request
+  app.post("/api/esignature/requests", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.user;
+      if (!user || !["admin", "office_admin", "super_admin"].includes(user.role)) {
+        return res.status(403).json({ message: "Access denied. Admin role required." });
+      }
+      const accessToken = crypto.randomBytes(32).toString('hex');
+      const expiresAt = new Date();
+      expiresAt.setDate(expiresAt.getDate() + 30); // 30 days expiry
+      
+      const data = insertESignatureRequestSchema.parse({
+        ...req.body,
+        accessToken,
+        expiresAt,
+        sentBy: user.id,
+      });
+      
+      const request = await storage.createESignatureRequest(data);
+      
+      // Send email with signing link
+      const { sendTemplatedEmail } = await import('./agentmail');
+      const signingLink = `${process.env.REPLIT_DEPLOYMENT_URL || 'http://localhost:5000'}/esign/${accessToken}`;
+      
+      await sendTemplatedEmail(
+        data.recipientEmail,
+        'general',
+        {
+          recipientName: data.recipientName,
+          signingLink,
+        },
+        'Document Ready for Signature',
+        `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+            <h2>Document Ready for Your Signature</h2>
+            <p>Hello ${data.recipientName},</p>
+            <p>You have a document waiting for your electronic signature.</p>
+            <p>
+              <a href="${signingLink}" style="background-color: #3b82f6; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">
+                Review and Sign Document
+              </a>
+            </p>
+            <p style="color: #666; font-size: 14px;">This link will expire in 30 days.</p>
+            <p style="color: #666; font-size: 12px;">If you have questions, please contact the sender.</p>
+          </div>
+        `,
+        `Hello ${data.recipientName}, you have a document waiting for your signature. Please visit: ${signingLink}`
+      );
+      
+      res.status(201).json(request);
+    } catch (error: any) {
+      console.error("Error creating signature request:", error);
+      res.status(400).json({ message: error.message || "Failed to create signature request" });
+    }
+  });
+
+  // ============================================
+  // Public E-Sign Routes (no auth required)
+  // ============================================
+
+  // Get document for signing (public route)
+  app.get("/api/esign/:token", async (req, res) => {
+    try {
+      const request = await storage.getESignatureRequestByToken(req.params.token);
+      if (!request) {
+        return res.status(404).json({ message: "Document not found" });
+      }
+      
+      if (request.status === 'signed') {
+        return res.status(400).json({ message: "Document has already been signed" });
+      }
+      
+      if (request.status === 'expired' || (request.expiresAt && new Date(request.expiresAt) < new Date())) {
+        await storage.updateESignatureRequest(request.id, { status: 'expired' });
+        return res.status(400).json({ message: "Document signing link has expired" });
+      }
+      
+      if (request.status === 'declined') {
+        return res.status(400).json({ message: "Document was declined" });
+      }
+      
+      // Get template for signature fields
+      let signatureFields = null;
+      if (request.templateId) {
+        const template = await storage.getESignatureTemplate(request.templateId);
+        signatureFields = template?.signatureFields;
+      }
+      
+      res.json({
+        id: request.id,
+        documentContent: request.documentContent,
+        recipientName: request.recipientName,
+        recipientEmail: request.recipientEmail,
+        signatureFields,
+        status: request.status,
+      });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to fetch document" });
+    }
+  });
+
+  // Submit signature (public route)
+  app.post("/api/esign/:token/sign", async (req, res) => {
+    try {
+      const request = await storage.getESignatureRequestByToken(req.params.token);
+      if (!request) {
+        return res.status(404).json({ message: "Document not found" });
+      }
+      
+      if (request.status === 'signed') {
+        return res.status(400).json({ message: "Document has already been signed" });
+      }
+      
+      if (request.status === 'expired' || (request.expiresAt && new Date(request.expiresAt) < new Date())) {
+        await storage.updateESignatureRequest(request.id, { status: 'expired' });
+        return res.status(400).json({ message: "Document signing link has expired" });
+      }
+      
+      const { signatureData } = req.body;
+      if (!signatureData) {
+        return res.status(400).json({ message: "Signature data is required" });
+      }
+      
+      // Update request with signature
+      const updated = await storage.updateESignatureRequest(request.id, {
+        status: 'signed',
+        signedAt: new Date(),
+        signatureData,
+      });
+      
+      res.json({ 
+        message: "Document signed successfully",
+        signedAt: updated.signedAt,
+      });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to submit signature" });
+    }
+  });
+
+  // Decline signature (public route)
+  app.post("/api/esign/:token/decline", async (req, res) => {
+    try {
+      const request = await storage.getESignatureRequestByToken(req.params.token);
+      if (!request) {
+        return res.status(404).json({ message: "Document not found" });
+      }
+      
+      if (request.status === 'signed') {
+        return res.status(400).json({ message: "Document has already been signed" });
+      }
+      
+      await storage.updateESignatureRequest(request.id, { status: 'declined' });
+      
+      res.json({ message: "Document declined" });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to decline document" });
     }
   });
 

@@ -1,10 +1,12 @@
 import cron from "node-cron";
 import { sendTodaysBirthdayNotifications } from "./birthday-service";
 import { exclusionService } from "./exclusion-service";
+import { expirationAlertService } from "./expiration-alert-service";
 
 const BIRTHDAY_NOTIFICATION_CRON = process.env.BIRTHDAY_CRON_SCHEDULE || "0 8 * * *";
 const BIRTHDAY_NOTIFICATION_HOUR = parseInt(process.env.BIRTHDAY_NOTIFICATION_HOUR || "8", 10);
 const EXCLUSION_CHECK_CRON = process.env.EXCLUSION_CHECK_CRON || "0 2 1 * *";
+const EXPIRATION_ALERT_CRON = process.env.EXPIRATION_ALERT_CRON || "0 7 * * *";
 
 async function runBirthdayJob() {
   console.log(`[Scheduler] Running birthday notifications job at ${new Date().toISOString()}`);
@@ -50,9 +52,25 @@ async function runExclusionCheckJob() {
   }
 }
 
+async function runExpirationAlertJob() {
+  console.log(`[Scheduler] Running expiration alerts job at ${new Date().toISOString()}`);
+  try {
+    const results = await expirationAlertService.sendExpirationAlerts();
+    console.log(`[Scheduler] Expiration alerts completed: ${results.totalItems} items, ${results.emailsSent} emails, ${results.smsSent} SMS`);
+    if (results.errors.length > 0) {
+      console.log(`[Scheduler] Expiration alert errors: ${results.errors.length}`);
+    }
+    return results;
+  } catch (error) {
+    console.error("[Scheduler] Expiration alert job failed:", error);
+    throw error;
+  }
+}
+
 export function startScheduledJobs() {
   console.log(`[Scheduler] Starting birthday notification scheduler with cron: ${BIRTHDAY_NOTIFICATION_CRON}`);
   console.log(`[Scheduler] Starting exclusion check scheduler with cron: ${EXCLUSION_CHECK_CRON}`);
+  console.log(`[Scheduler] Starting expiration alert scheduler with cron: ${EXPIRATION_ALERT_CRON}`);
 
   const now = new Date();
   const currentHour = now.getHours();
@@ -70,6 +88,10 @@ export function startScheduledJobs() {
 
   cron.schedule(EXCLUSION_CHECK_CRON, async () => {
     await runExclusionCheckJob();
+  });
+
+  cron.schedule(EXPIRATION_ALERT_CRON, async () => {
+    await runExpirationAlertJob();
   });
 
   console.log("[Scheduler] Scheduled jobs started successfully");
@@ -95,6 +117,18 @@ export async function runExclusionCheckNow() {
     return results;
   } catch (error) {
     console.error("[Scheduler] Manual exclusion check failed:", error);
+    throw error;
+  }
+}
+
+export async function runExpirationAlertsNow() {
+  console.log(`[Scheduler] Manual expiration alert run triggered at ${new Date().toISOString()}`);
+  try {
+    const results = await runExpirationAlertJob();
+    console.log(`[Scheduler] Manual expiration alert run completed`);
+    return results;
+  } catch (error) {
+    console.error("[Scheduler] Manual expiration alert run failed:", error);
     throw error;
   }
 }

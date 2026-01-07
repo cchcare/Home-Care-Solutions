@@ -50,6 +50,8 @@ import {
 } from "lucide-react";
 import type { Office, BillingRecord, PayrollRun, OfficePayrollConfig, Mco, OfficeMcoBillingRate, Client, Caregiver, PayrollHoliday } from "@shared/schema";
 import { queryClient } from "@/lib/queryClient";
+import { QuickBooksExport } from "@/components/quickbooks-export";
+import { useAuth } from "@/hooks/useAuth";
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
@@ -133,6 +135,7 @@ const mcoRateFormSchema = z.object({
 export default function BillingPayroll() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const { user } = useAuth();
   const [selectedOfficeId, setSelectedOfficeId] = useState<string>("all");
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [showConfigDialog, setShowConfigDialog] = useState(false);
@@ -820,6 +823,9 @@ export default function BillingPayroll() {
 
               {actualOfficeId && (
                 <div className="flex gap-2">
+                  {user && ["admin", "office_admin", "super_admin"].includes(user.role) && (
+                    <QuickBooksExport variant="dialog" selectedOfficeId={actualOfficeId} />
+                  )}
                   <Dialog open={showConfigDialog} onOpenChange={setShowConfigDialog}>
                     <DialogTrigger asChild>
                       <Button variant="outline" data-testid="button-payroll-settings">

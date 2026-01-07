@@ -335,6 +335,15 @@ import {
   officeDashboardLinks,
   type OfficeDashboardLink,
   type InsertOfficeDashboardLink,
+  shiftSwapRequests,
+  type ShiftSwapRequest,
+  type InsertShiftSwapRequest,
+  eSignatureTemplates,
+  type ESignatureTemplate,
+  type InsertESignatureTemplate,
+  eSignatureRequests,
+  type ESignatureRequest,
+  type InsertESignatureRequest,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, asc, and, or, count, sql, like, gte, lte, inArray } from "drizzle-orm";
@@ -742,6 +751,7 @@ export interface IStorage {
   // Caregiver Schedules operations
   getCaregiverSchedules(caregiverId: string, startDate?: Date, endDate?: Date): Promise<CaregiverSchedule[]>;
   getCaregiverSchedule(id: string): Promise<CaregiverSchedule | undefined>;
+  getAllCaregiverSchedules(officeId?: string): Promise<CaregiverSchedule[]>;
   createCaregiverSchedule(schedule: InsertCaregiverSchedule): Promise<CaregiverSchedule>;
   updateCaregiverSchedule(id: string, schedule: Partial<InsertCaregiverSchedule>): Promise<CaregiverSchedule>;
   deleteCaregiverSchedule(id: string): Promise<void>;
@@ -1133,6 +1143,29 @@ export interface IStorage {
   createEmailTemplate(template: InsertEmailTemplate): Promise<EmailTemplate>;
   updateEmailTemplate(id: string, template: Partial<InsertEmailTemplate>): Promise<EmailTemplate>;
   deleteEmailTemplate(id: string): Promise<void>;
+
+  // Shift Swap Request operations
+  getShiftSwapRequests(filters?: { status?: string; officeId?: string; caregiverId?: string }): Promise<ShiftSwapRequest[]>;
+  getShiftSwapRequest(id: string): Promise<ShiftSwapRequest | undefined>;
+  createShiftSwapRequest(request: InsertShiftSwapRequest): Promise<ShiftSwapRequest>;
+  updateShiftSwapRequest(id: string, request: Partial<InsertShiftSwapRequest>): Promise<ShiftSwapRequest>;
+  approveShiftSwapRequest(id: string, reviewedBy: string, notes?: string): Promise<ShiftSwapRequest>;
+  rejectShiftSwapRequest(id: string, reviewedBy: string, notes?: string): Promise<ShiftSwapRequest>;
+  cancelShiftSwapRequest(id: string): Promise<ShiftSwapRequest>;
+
+  // E-Signature Template operations
+  getESignatureTemplates(filters?: { officeId?: string; status?: string }): Promise<ESignatureTemplate[]>;
+  getESignatureTemplate(id: string): Promise<ESignatureTemplate | undefined>;
+  createESignatureTemplate(template: InsertESignatureTemplate): Promise<ESignatureTemplate>;
+  updateESignatureTemplate(id: string, template: Partial<InsertESignatureTemplate>): Promise<ESignatureTemplate>;
+  deleteESignatureTemplate(id: string): Promise<void>;
+
+  // E-Signature Request operations
+  getESignatureRequests(filters?: { status?: string; sentBy?: string }): Promise<ESignatureRequest[]>;
+  getESignatureRequest(id: string): Promise<ESignatureRequest | undefined>;
+  getESignatureRequestByToken(token: string): Promise<ESignatureRequest | undefined>;
+  createESignatureRequest(request: InsertESignatureRequest): Promise<ESignatureRequest>;
+  updateESignatureRequest(id: string, request: Partial<InsertESignatureRequest>): Promise<ESignatureRequest>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -3951,6 +3984,24 @@ export class DatabaseStorage implements IStorage {
   async getCaregiverSchedule(id: string): Promise<CaregiverSchedule | undefined> {
     const [schedule] = await db.select().from(caregiverSchedules).where(eq(caregiverSchedules.id, id));
     return schedule;
+  }
+
+  async getAllCaregiverSchedules(officeId?: string): Promise<CaregiverSchedule[]> {
+    if (officeId) {
+      const officeCaregivers = await db.select({ id: caregivers.id })
+        .from(caregivers)
+        .where(eq(caregivers.officeId, officeId));
+      
+      const caregiverIds = officeCaregivers.map(c => c.id);
+      if (caregiverIds.length === 0) {
+        return [];
+      }
+      
+      return await db.select().from(caregiverSchedules)
+        .where(inArray(caregiverSchedules.caregiverId, caregiverIds))
+        .orderBy(desc(caregiverSchedules.scheduledDate));
+    }
+    return await db.select().from(caregiverSchedules).orderBy(desc(caregiverSchedules.scheduledDate));
   }
 
   // EVV (Electronic Visit Verification) operations
@@ -6921,6 +6972,174 @@ export class DatabaseStorage implements IStorage {
 
   async deleteEmailTemplate(id: string): Promise<void> {
     await db.delete(emailTemplates).where(eq(emailTemplates.id, id));
+  }
+
+  // Shift Swap Request operations
+  async getShiftSwapRequests(filters?: { status?: string; officeId?: string; caregiverId?: string }): Promise<ShiftSwapRequest[]> {
+    const conditions = [];
+    if (filters?.status) {
+      conditions.push(eq(shiftSwapRequests.status, filters.status as any));
+    }
+    if (filters?.officeId) {
+      conditions.push(eq(shiftSwapRequests.officeId, filters.officeId));
+    }
+    if (filters?.caregiverId) {
+      conditions.push(eq(shiftSwapRequests.requestingCaregiverId, filters.caregiverId));
+    }
+    
+    if (conditions.length > 0) {
+      return db.select().from(shiftSwapRequests).where(and(...conditions)).orderBy(desc(shiftSwapRequests.createdAt));
+    }
+    return db.select().from(shiftSwapRequests).orderBy(desc(shiftSwapRequests.createdAt));
+  }
+
+  async getShiftSwapRequest(id: string): Promise<ShiftSwapRequest | undefined> {
+    const [request] = await db.select().from(shiftSwapRequests).where(eq(shiftSwapRequests.id, id));
+    return request;
+  }
+
+  async createShiftSwapRequest(request: InsertShiftSwapRequest): Promise<ShiftSwapRequest> {
+    const [created] = await db.insert(shiftSwapRequests).values(request).returning();
+    return created;
+  }
+
+  async updateShiftSwapRequest(id: string, request: Partial<InsertShiftSwapRequest>): Promise<ShiftSwapRequest> {
+    const [updated] = await db.update(shiftSwapRequests)
+      .set({ ...request, updatedAt: new Date() })
+      .where(eq(shiftSwapRequests.id, id))
+      .returning();
+    return updated;
+  }
+
+  async approveShiftSwapRequest(id: string, reviewedBy: string, notes?: string): Promise<ShiftSwapRequest> {
+    const request = await this.getShiftSwapRequest(id);
+    if (!request) {
+      throw new Error("Shift swap request not found");
+    }
+    
+    const [updated] = await db.update(shiftSwapRequests)
+      .set({
+        status: "approved",
+        reviewedBy,
+        reviewedAt: new Date(),
+        reviewNotes: notes,
+        updatedAt: new Date(),
+      })
+      .where(eq(shiftSwapRequests.id, id))
+      .returning();
+    
+    if (request.targetCaregiverId) {
+      await db.update(caregiverSchedules)
+        .set({
+          caregiverId: request.targetCaregiverId,
+          updatedAt: new Date(),
+        })
+        .where(eq(caregiverSchedules.id, request.scheduleId));
+    }
+    
+    return updated;
+  }
+
+  async rejectShiftSwapRequest(id: string, reviewedBy: string, notes?: string): Promise<ShiftSwapRequest> {
+    const [updated] = await db.update(shiftSwapRequests)
+      .set({
+        status: "rejected",
+        reviewedBy,
+        reviewedAt: new Date(),
+        reviewNotes: notes,
+        updatedAt: new Date(),
+      })
+      .where(eq(shiftSwapRequests.id, id))
+      .returning();
+    return updated;
+  }
+
+  async cancelShiftSwapRequest(id: string): Promise<ShiftSwapRequest> {
+    const [updated] = await db.update(shiftSwapRequests)
+      .set({
+        status: "cancelled",
+        updatedAt: new Date(),
+      })
+      .where(eq(shiftSwapRequests.id, id))
+      .returning();
+    return updated;
+  }
+
+  // E-Signature Template operations
+  async getESignatureTemplates(filters?: { officeId?: string; status?: string }): Promise<ESignatureTemplate[]> {
+    const conditions = [];
+    if (filters?.officeId) {
+      conditions.push(eq(eSignatureTemplates.officeId, filters.officeId));
+    }
+    if (filters?.status) {
+      conditions.push(eq(eSignatureTemplates.status, filters.status as any));
+    }
+    
+    if (conditions.length > 0) {
+      return db.select().from(eSignatureTemplates).where(and(...conditions)).orderBy(desc(eSignatureTemplates.createdAt));
+    }
+    return db.select().from(eSignatureTemplates).orderBy(desc(eSignatureTemplates.createdAt));
+  }
+
+  async getESignatureTemplate(id: string): Promise<ESignatureTemplate | undefined> {
+    const [template] = await db.select().from(eSignatureTemplates).where(eq(eSignatureTemplates.id, id));
+    return template;
+  }
+
+  async createESignatureTemplate(template: InsertESignatureTemplate): Promise<ESignatureTemplate> {
+    const [created] = await db.insert(eSignatureTemplates).values(template).returning();
+    return created;
+  }
+
+  async updateESignatureTemplate(id: string, template: Partial<InsertESignatureTemplate>): Promise<ESignatureTemplate> {
+    const [updated] = await db.update(eSignatureTemplates)
+      .set({ ...template, updatedAt: new Date() })
+      .where(eq(eSignatureTemplates.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteESignatureTemplate(id: string): Promise<void> {
+    await db.delete(eSignatureTemplates).where(eq(eSignatureTemplates.id, id));
+  }
+
+  // E-Signature Request operations
+  async getESignatureRequests(filters?: { status?: string; sentBy?: string }): Promise<ESignatureRequest[]> {
+    const conditions = [];
+    if (filters?.status) {
+      conditions.push(eq(eSignatureRequests.status, filters.status as any));
+    }
+    if (filters?.sentBy) {
+      conditions.push(eq(eSignatureRequests.sentBy, filters.sentBy));
+    }
+    
+    if (conditions.length > 0) {
+      return db.select().from(eSignatureRequests).where(and(...conditions)).orderBy(desc(eSignatureRequests.createdAt));
+    }
+    return db.select().from(eSignatureRequests).orderBy(desc(eSignatureRequests.createdAt));
+  }
+
+  async getESignatureRequest(id: string): Promise<ESignatureRequest | undefined> {
+    const [request] = await db.select().from(eSignatureRequests).where(eq(eSignatureRequests.id, id));
+    return request;
+  }
+
+  async getESignatureRequestByToken(token: string): Promise<ESignatureRequest | undefined> {
+    const [request] = await db.select().from(eSignatureRequests).where(eq(eSignatureRequests.accessToken, token));
+    return request;
+  }
+
+  async createESignatureRequest(request: InsertESignatureRequest): Promise<ESignatureRequest> {
+    const [created] = await db.insert(eSignatureRequests).values(request).returning();
+    return created;
+  }
+
+  async updateESignatureRequest(id: string, request: Partial<InsertESignatureRequest>): Promise<ESignatureRequest> {
+    const [updated] = await db.update(eSignatureRequests)
+      .set({ ...request, updatedAt: new Date() })
+      .where(eq(eSignatureRequests.id, id))
+      .returning();
+    return updated;
   }
 }
 
