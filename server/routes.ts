@@ -883,6 +883,256 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Schedule Overlap Detection Report
+  app.get("/api/reports/schedule-overlaps", isAuthenticated, async (req: any, res) => {
+    try {
+      const currentUser = req.session?.user;
+      const { startDate, endDate, officeId } = req.query;
+      
+      // Default to last 30 days
+      const end = endDate ? new Date(endDate as string) : new Date();
+      const start = startDate ? new Date(startDate as string) : new Date(end.getTime() - 30 * 24 * 60 * 60 * 1000);
+      
+      // Get all caregiver schedules in date range
+      const allCaregiverSchedules = await storage.getAllCaregiverSchedules(officeId as string || undefined);
+      const filteredCaregiverSchedules = allCaregiverSchedules.filter(s => {
+        const schedDate = new Date(s.scheduledDate);
+        return schedDate >= start && schedDate <= end;
+      });
+      
+      // Get all clients and caregivers for name lookups
+      const allClients = await storage.getAllClients(officeId as string || undefined);
+      const allCaregivers = await storage.getAllCaregivers(officeId as string || undefined);
+      
+      const clientMap = new Map(allClients.map(c => [c.id, `${c.firstName} ${c.lastName}`]));
+      const caregiverMap = new Map(allCaregivers.map(c => [c.id, `${c.firstName} ${c.lastName}`]));
+      
+      // Helper to parse time string (HH:MM) to minutes since midnight
+      const parseTime = (timeStr: string): number => {
+        const [hours, minutes] = timeStr.split(':').map(Number);
+        return hours * 60 + minutes;
+      };
+      
+      // Helper to get effective start/end times
+      const getEffectiveTime = (schedule: any): { start: number; end: number; date: Date } => {
+        const schedStart = parseTime(schedule.startTime);
+        const schedEnd = parseTime(schedule.endTime);
+        
+        // If clockIn/clockOut available, use actual visit times but constrain to scheduled hours
+        if (schedule.clockInTime && schedule.clockOutTime) {
+          const clockIn = new Date(schedule.clockInTime);
+          const clockOut = new Date(schedule.clockOutTime);
+          const actualStart = clockIn.getHours() * 60 + clockIn.getMinutes();
+          const actualEnd = clockOut.getHours() * 60 + clockOut.getMinutes();
+          
+          // Effective time is intersection of scheduled and actual
+          return {
+            start: Math.max(schedStart, actualStart),
+            end: Math.min(schedEnd, actualEnd),
+            date: new Date(schedule.scheduledDate)
+          };
+        }
+        
+        return { start: schedStart, end: schedEnd, date: new Date(schedule.scheduledDate) };
+      };
+      
+      // Check if two time ranges overlap
+      const doTimesOverlap = (start1: number, end1: number, start2: number, end2: number): boolean => {
+        return start1 < end2 && start2 < end1;
+      };
+      
+      // Calculate overlap duration in minutes
+      const getOverlapDuration = (start1: number, end1: number, start2: number, end2: number): number => {
+        const overlapStart = Math.max(start1, start2);
+        const overlapEnd = Math.min(end1, end2);
+        return Math.max(0, overlapEnd - overlapStart);
+      };
+      
+      // Format minutes to HH:MM
+      const formatMinutes = (minutes: number): string => {
+        const hrs = Math.floor(minutes / 60);
+        const mins = minutes % 60;
+        return `${hrs}:${mins.toString().padStart(2, '0')}`;
+      };
+      
+      // Group schedules by caregiver for overlap detection
+      const schedulesByCaregiver = new Map<string, any[]>();
+      filteredCaregiverSchedules.forEach(schedule => {
+        const existing = schedulesByCaregiver.get(schedule.caregiverId) || [];
+        existing.push(schedule);
+        schedulesByCaregiver.set(schedule.caregiverId, existing);
+      });
+      
+      // Group schedules by client for overlap detection
+      const schedulesByClient = new Map<string, any[]>();
+      filteredCaregiverSchedules.forEach(schedule => {
+        if (!schedule.clientId) return;
+        const existing = schedulesByClient.get(schedule.clientId) || [];
+        existing.push(schedule);
+        schedulesByClient.set(schedule.clientId, existing);
+      });
+      
+      // Detect caregiver overlaps (same caregiver, multiple clients, same day)
+      const caregiverOverlaps: any[] = [];
+      schedulesByCaregiver.forEach((schedules, caregiverId) => {
+        // Group by date
+        const byDate = new Map<string, any[]>();
+        schedules.forEach(s => {
+          const dateKey = new Date(s.scheduledDate).toISOString().split('T')[0];
+          const existing = byDate.get(dateKey) || [];
+          existing.push(s);
+          byDate.set(dateKey, existing);
+        });
+        
+        // Check for overlaps on each date
+        byDate.forEach((daySchedules, dateKey) => {
+          if (daySchedules.length < 2) return;
+          
+          for (let i = 0; i < daySchedules.length; i++) {
+            for (let j = i + 1; j < daySchedules.length; j++) {
+              const s1 = daySchedules[i];
+              const s2 = daySchedules[j];
+              
+              // Skip if same client
+              if (s1.clientId === s2.clientId) continue;
+              
+              const t1 = getEffectiveTime(s1);
+              const t2 = getEffectiveTime(s2);
+              
+              if (doTimesOverlap(t1.start, t1.end, t2.start, t2.end)) {
+                const duration = getOverlapDuration(t1.start, t1.end, t2.start, t2.end);
+                caregiverOverlaps.push({
+                  caregiverId,
+                  caregiverName: caregiverMap.get(caregiverId) || 'Unknown',
+                  date: dateKey,
+                  shift1: {
+                    id: s1.id,
+                    clientId: s1.clientId,
+                    clientName: clientMap.get(s1.clientId || '') || 'Unknown',
+                    startTime: s1.startTime,
+                    endTime: s1.endTime,
+                    effectiveStart: formatMinutes(t1.start),
+                    effectiveEnd: formatMinutes(t1.end),
+                  },
+                  shift2: {
+                    id: s2.id,
+                    clientId: s2.clientId,
+                    clientName: clientMap.get(s2.clientId || '') || 'Unknown',
+                    startTime: s2.startTime,
+                    endTime: s2.endTime,
+                    effectiveStart: formatMinutes(t2.start),
+                    effectiveEnd: formatMinutes(t2.end),
+                  },
+                  overlapDurationMinutes: duration,
+                  overlapDurationFormatted: `${Math.floor(duration / 60)}h ${duration % 60}m`,
+                });
+              }
+            }
+          }
+        });
+      });
+      
+      // Detect client overlaps (same client, multiple caregivers, same day)
+      const clientOverlaps: any[] = [];
+      schedulesByClient.forEach((schedules, clientId) => {
+        // Group by date
+        const byDate = new Map<string, any[]>();
+        schedules.forEach(s => {
+          const dateKey = new Date(s.scheduledDate).toISOString().split('T')[0];
+          const existing = byDate.get(dateKey) || [];
+          existing.push(s);
+          byDate.set(dateKey, existing);
+        });
+        
+        // Check for overlaps on each date
+        byDate.forEach((daySchedules, dateKey) => {
+          if (daySchedules.length < 2) return;
+          
+          for (let i = 0; i < daySchedules.length; i++) {
+            for (let j = i + 1; j < daySchedules.length; j++) {
+              const s1 = daySchedules[i];
+              const s2 = daySchedules[j];
+              
+              // Skip if same caregiver
+              if (s1.caregiverId === s2.caregiverId) continue;
+              
+              const t1 = getEffectiveTime(s1);
+              const t2 = getEffectiveTime(s2);
+              
+              if (doTimesOverlap(t1.start, t1.end, t2.start, t2.end)) {
+                const duration = getOverlapDuration(t1.start, t1.end, t2.start, t2.end);
+                clientOverlaps.push({
+                  clientId,
+                  clientName: clientMap.get(clientId) || 'Unknown',
+                  date: dateKey,
+                  shift1: {
+                    id: s1.id,
+                    caregiverId: s1.caregiverId,
+                    caregiverName: caregiverMap.get(s1.caregiverId) || 'Unknown',
+                    startTime: s1.startTime,
+                    endTime: s1.endTime,
+                    effectiveStart: formatMinutes(t1.start),
+                    effectiveEnd: formatMinutes(t1.end),
+                  },
+                  shift2: {
+                    id: s2.id,
+                    caregiverId: s2.caregiverId,
+                    caregiverName: caregiverMap.get(s2.caregiverId) || 'Unknown',
+                    startTime: s2.startTime,
+                    endTime: s2.endTime,
+                    effectiveStart: formatMinutes(t2.start),
+                    effectiveEnd: formatMinutes(t2.end),
+                  },
+                  overlapDurationMinutes: duration,
+                  overlapDurationFormatted: `${Math.floor(duration / 60)}h ${duration % 60}m`,
+                });
+              }
+            }
+          }
+        });
+      });
+      
+      // Group overlaps by entity for summary
+      const caregiverOverlapsByPerson = caregiverOverlaps.reduce((acc: any, o) => {
+        if (!acc[o.caregiverId]) {
+          acc[o.caregiverId] = { name: o.caregiverName, overlaps: [] };
+        }
+        acc[o.caregiverId].overlaps.push(o);
+        return acc;
+      }, {});
+      
+      const clientOverlapsByPerson = clientOverlaps.reduce((acc: any, o) => {
+        if (!acc[o.clientId]) {
+          acc[o.clientId] = { name: o.clientName, overlaps: [] };
+        }
+        acc[o.clientId].overlaps.push(o);
+        return acc;
+      }, {});
+      
+      res.json({
+        dateRange: {
+          startDate: start.toISOString(),
+          endDate: end.toISOString(),
+        },
+        summary: {
+          totalCaregiverOverlaps: caregiverOverlaps.length,
+          totalClientOverlaps: clientOverlaps.length,
+          caregiversAffected: Object.keys(caregiverOverlapsByPerson).length,
+          clientsAffected: Object.keys(clientOverlapsByPerson).length,
+          totalOverlapMinutes: caregiverOverlaps.reduce((sum, o) => sum + o.overlapDurationMinutes, 0) + 
+                              clientOverlaps.reduce((sum, o) => sum + o.overlapDurationMinutes, 0),
+        },
+        caregiverOverlaps: Object.values(caregiverOverlapsByPerson),
+        clientOverlaps: Object.values(clientOverlapsByPerson),
+        rawCaregiverOverlaps: caregiverOverlaps,
+        rawClientOverlaps: clientOverlaps,
+      });
+    } catch (error) {
+      console.error("Error fetching schedule overlaps:", error);
+      res.status(500).json({ message: "Failed to fetch schedule overlaps" });
+    }
+  });
+
   // Office routes
   app.get("/api/offices", isAuthenticated, async (req: any, res) => {
     try {

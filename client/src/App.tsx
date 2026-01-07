@@ -57,6 +57,7 @@ import FinancialReports from "@/pages/financial-reports";
 import ESignatureTemplates from "@/pages/esignature-templates";
 import ESign from "@/pages/esign";
 import VisitLogUpload from "@/pages/visit-log-upload";
+import ScheduleOverlapReport from "@/pages/schedule-overlap-report";
 
 function Router() {
   const { isAuthenticated, isLoading, error } = useAuth();
@@ -128,6 +129,7 @@ function Router() {
           <Route path="/financial-reports" component={FinancialReports} />
           <Route path="/esignature-templates" component={ESignatureTemplates} />
           <Route path="/visit-log-upload" component={VisitLogUpload} />
+          <Route path="/reports/schedule-overlaps" component={ScheduleOverlapReport} />
         </>
       )}
       <Route component={NotFound} />
