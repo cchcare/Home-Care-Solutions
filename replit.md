@@ -1,143 +1,62 @@
-# replit.md
+# Home Care Management System
 
 ## Overview
-
-Home Care is a HIPAA-compliant home care agency management system built with React, TypeScript, Express, and PostgreSQL. It streamlines agency operations by providing tools for client management, caregiver coordination, compliance tracking, document management, and regulatory oversight. The system features a modern web interface with secure authentication, role-based access control, and robust data storage, designed specifically for healthcare environments. Key capabilities include office management, MCO-focused billing, comprehensive caregiver compliance and payroll management (including AI-powered paystub uploads), master weekly scheduling templates, and multi-channel birthday notifications.
+Home Care is a HIPAA-compliant agency management system designed for home care providers. It streamlines operations through client and caregiver management, compliance tracking, and automated scheduling. Built with React, TypeScript, Express, and PostgreSQL, it offers a secure, modern web interface with features like role-based access, AI-powered payroll, and multi-channel notifications. The system aims to enhance efficiency, ensure regulatory compliance, and support comprehensive agency management from office operations to advanced analytics and future SaaS multi-tenancy.
 
 ## User Preferences
-
 Preferred communication style: Simple, everyday language.
 
 ## System Architecture
-
-### Frontend
-- **Technology Stack**: React with TypeScript, Wouter for routing, TanStack Query for state management.
-- **UI/UX**: Shadcn/ui components based on Radix UI and Tailwind CSS for a consistent, accessible, and responsive design with dark mode support.
-- **Forms**: React Hook Form with Zod validation.
-- **Build**: Vite for development and production.
-
-### Backend
-- **Technology Stack**: Express.js for RESTful API services.
-- **Authentication**: Local session-based authentication with bcrypt hashing, Express sessions (PostgreSQL-backed), rate limiting, and role-based access control. Features include self-service and admin-initiated password resets, and mobile SMS login via Twilio.
-- **File Handling**: Multer middleware for secure, HIPAA-compliant file uploads with type validation.
-- **API Structure**: Modular and organized, with centralized error handling.
-
-### Database
-- **Technology**: PostgreSQL hosted on Neon, managed with Drizzle ORM and Drizzle Kit for migrations.
-- **Schema**: Comprehensive relational design for managing users, clients, caregivers, care plans, documents, compliance, billing, payroll, and office-specific data, ensuring HIPAA compliance.
+### Core Technologies
+- **Frontend**: React with TypeScript, Wouter (routing), TanStack Query (state management). UI/UX uses Shadcn/ui (Radix UI & Tailwind CSS) with dark mode. Forms are managed with React Hook Form and Zod.
+- **Backend**: Express.js for RESTful APIs. Authentication is session-based with bcrypt, Express sessions (PostgreSQL-backed), rate limiting, and role-based access. Multer handles HIPAA-compliant file uploads.
+- **Database**: PostgreSQL on Neon, managed with Drizzle ORM and Drizzle Kit for migrations. Schema designed for HIPAA compliance across all modules.
 
 ### Key Features
-- **Office Management**: Detailed office profiles, license tracking, staff management, expense tracking, and office-based data filtering across all modules.
-- **Billing System**: MCO-focused billing records with automatic due date calculation based on MCO, and status tracking (Pending, Invoiced, Paid).
-- **Caregiver Management**: Enhanced profiles, HHAX ID integration, automatic MCO assignment from clients.
-- **Caregiver Compliance**: Tracking for PA State Form -9, background checks (FBI, PA State, Child Abuse, Adult Protective), and medical requirements (TB Test, Physical, Drug Test, Vaccines) with expiration and result tracking.
-- **Payroll Management**:
-    - **Bulk Paystub Upload**: AI-powered OCR for extracting data from PDF paystubs, matching to caregivers, and creating paycheck records.
-    - **Payroll Runs**: Management of biweekly payroll cycles.
-    - **Billing Hours Import**: Excel import of billing hours, matching by client/caregiver IDs, with overtime calculation (40+ hours/week).
-    - **Payroll Hours Export**: Export to Excel including ADP codes, regular, and overtime hours.
-- **Master Week Templates**: Define recurring weekly client schedules with detailed per-day configuration and ability to apply templates to calendars.
-- **Birthday Notifications**: Automated SMS/email birthday greetings to clients and caregivers via daily cron job, with admin dashboard for tracking and manual sending.
-
-### Advanced Features (v2.0)
-- **EVV (Electronic Visit Verification)**: GPS-based clock-in/out with location tracking, 150m compliance threshold, mobile-friendly interface at /evv-clock.
-- **Care Plan Management**: Structured goals with priority/status tracking, interventions with frequency and assignment, progress notes.
-- **Medication Tracking**: Complete medication lists with dosage/frequency/route, adherence logging (taken/skipped/refused), refill reminders.
-- **Vital Signs Logging**: Blood pressure, heart rate, temperature, respiratory rate, oxygen saturation, weight, blood sugar, pain level with trends API for charts.
-- **Incident Follow-up Workflow**: Action items with assignees, due dates, priorities, completion tracking, overdue alerts.
-- **Push Notifications**: Template-based SMS/email notifications, queue system with retry logic, schedule change and reminder notifications.
-- **Real-time Availability Tracking**: Weekly recurring patterns, date-specific exceptions (vacation/sick/personal/training), available caregiver finder.
-- **Shift Matching Algorithm**: 100-point scoring system (availability 30pts, skills 25pts, no conflicts 20pts, client preference 15pts, distance 10pts).
-- **Vehicle/Mileage Tracking**: Travel expense logging with IRS reimbursement rate ($0.67/mile), approval workflow, totals by caregiver.
-- **Recruitment Portal**: Applicant tracking with pipeline stages (new → screening → interview → background check → offer → hired), interview scheduling, notes.
-- **Background Check Workflow**: FBI/State/Child Abuse/Adult Protective/Sex Offender/OIG checks, status tracking, expiration alerts, bulk creation.
-- **Shift Differentials**: Weekend/holiday/overtime/evening/night premiums, multiplier or flat bonus, holiday calendar with recurring dates.
-- **Performance Reviews**: Annual/quarterly/probationary reviews, 8 weighted metric categories, acknowledgment workflow, upcoming reviews dashboard.
-- **Time-off Requests**: PTO/vacation/sick/personal/bereavement/FMLA/jury duty, approval workflow, PTO balance tracking with accrual/carryover.
-- **Automated Eligibility Verification**: Medicaid/Medicare/MCO status checks, scheduled verification, coverage details tracking.
-- **Claims Management**: Electronic claims with line items, submission/void/resubmit workflow, aging reports (30/60/90 days), denial tracking.
-- **Advanced Analytics Dashboard**: Operational/financial/compliance/staffing KPIs, monthly trends, linear regression forecasting.
-- **Client Satisfaction Surveys**: Customizable templates, public access tokens for email links, automatic expiration, satisfaction statistics.
-- **Referral Source Tracking**: Physician/hospital/insurance/family/advertising sources, conversion tracking, top performer rankings.
-- **Exclusion Verification System**: Comprehensive caregiver screening against federal and state exclusion databases:
-    - **Data Sources**: OIG (auto-fetched CSV), PA Medicheck (manual CSV upload), SAM.gov (manual CSV upload).
-    - **Matching Engine**: Exact name matching plus fuzzy matching using Levenshtein distance (80%+ threshold).
-    - **Monthly Automation**: Cron job runs on 1st of each month at 2 AM to refresh sources and check all caregivers.
-    - **Admin Dashboard**: 5-tab interface (Overview, Data Sources, Pending Reviews, False Positives, Reports).
-    - **Caregiver Profile Integration**: Exclusion status displayed in caregiver profile "Exclusion Check" tab.
-    - **False Positive Management**: Mark matches as false positives to suppress in future checks.
-    - **Monthly Reports**: Generate compliance reports with caregiver counts and match statistics.
-    - **Security**: All endpoints require admin/supervisor/super_admin role.
-- **HHAeXchange (HHAX) Integration**: Automated SFTP-based data synchronization with HHAeXchange including:
-    - **SFTP Connection**: Secure file transfer using credentials stored as Replit secrets (host, port, username, password).
-    - **Data Import**: Import caregivers, clients, and schedules from CSV files in HHAX Outbox folder.
-    - **Branch to Office Mapping**: Map HHAX Branch names (e.g., "Pittsburgh") to local office IDs (e.g., "Care Crafter Pittsburgh"). HHAX uses "Branch" field in exports which corresponds to "Office" in this system.
-    - **Sync Logging**: Track import history with detailed sync logs (records synced, errors, timestamps).
-    - **Manual & Full Sync**: Options for importing individual data types or all at once.
-    - **File Browser**: View available files in HHAX SFTP Outbox directory.
-- **Letter Template Management System**: Create reusable letter templates with mail-merge placeholders for generating documents:
-    - **Template Editor**: Admin UI at `/letter-templates` for creating and managing templates with HTML content and {{placeholder}} syntax.
-    - **Scopes**: Templates can target caregivers, clients, staff, or general use.
-    - **Placeholders**: Dynamic placeholders like {{caregiverFirstName}}, {{clientFullName}}, {{officeName}}, {{currentDate}} that auto-fill from entity data.
-    - **Version History**: Template changes are versioned for audit trail.
-    - **Status Workflow**: Templates can be draft, published, or archived. Only published templates can be used for generation.
-    - **Theme Settings**: Custom fonts, colors, header/footer text for branded documents.
-    - **Document Generation**: Generate PDFs from templates via profile pages (Caregiver/Client profiles → Documents → "Generate From Template").
-    - **Audit Log**: Generated letters are logged with merged data for compliance tracking.
-    - **Integration**: Generated documents are automatically saved to the entity's document collection.
-- **System Email Template Designer**: Super admin-only tool for customizing all system notification emails:
-    - **Template Types**: password_reset, welcome, birthday_client, birthday_caregiver, schedule_change, schedule_reminder, compliance_alert, general.
-    - **Admin UI**: At `/email-templates` for creating and managing email templates with HTML content and {{placeholder}} syntax.
-    - **Placeholder System**: Type-specific placeholders (e.g., {{firstName}}, {{resetUrl}}, {{companyName}}) that auto-fill when sending.
-    - **Theme Customization**: Custom primary colors, fonts, header/footer text for branded emails.
-    - **Live Preview**: Real-time preview of template with sample placeholder values.
-    - **Test Emails**: Send test emails before activating templates.
-    - **Activation**: Set templates as active/default for automatic use in system emails.
-    - **Fallback System**: If no template exists or has unresolved placeholders, hardcoded fallback content is used.
-    - **Security**: All endpoints restricted to super_admin role only.
-    - **Scope**: System-wide templates managed centrally (not per-organization).
+- **Office & Client Management**: Profiles, license tracking, staff management, expense tracking, and office-based data filtering.
+- **Billing**: MCO-focused billing with automatic due date calculation and status tracking.
+- **Caregiver Management**: Enhanced profiles, HHAX ID integration, and compliance tracking (PA State Form -9, background checks, medical requirements).
+- **Payroll**: AI-powered OCR for paystub uploads, biweekly payroll runs, Excel import of billing hours (with overtime calculation), and Excel export of payroll hours.
+- **Scheduling**: Master weekly templates for recurring client schedules and automated birthday notifications via SMS/email.
+- **Advanced Features (v2.0)**:
+    - **EVV**: GPS-based clock-in/out with location tracking.
+    - **Care Plan & Medication Tracking**: Structured goals, interventions, medication lists, adherence logging, and vital signs logging.
+    - **Workflow Automation**: Incident follow-up, push notifications, real-time availability, and a 100-point shift matching algorithm.
+    - **Operational Tools**: Vehicle/mileage tracking, recruitment portal, background check workflow, and shift differentials.
+    - **Compliance & Analytics**: Time-off requests, automated eligibility verification, claims management, and advanced analytics dashboards.
+    - **Engagement**: Client satisfaction surveys and referral source tracking.
+    - **Exclusion Verification System**: Automated monthly screening against OIG, PA Medicheck, and SAM.gov with fuzzy matching and admin dashboard.
+    - **HHAeXchange (HHAX) Integration**: Automated SFTP-based data sync for caregivers, clients, and schedules with office mapping and logging.
+    - **Visit Log Upload**: Bulk schedule/visit updates via Excel upload with flexible column matching.
+    - **Letter & Email Template Management**: Admin UI for creating mail-merge letter templates and system-wide email templates with placeholders, versioning, and live previews.
 
 ### SaaS Multi-Tenancy (v3.0)
-- **Organization-Based Multi-Tenancy**: Each home care agency is an organization with isolated data.
-- **Subscription Plans**: 4 pricing tiers based on client count:
-    - **Starter ($49/mo, 1-25 clients)**: Client management, caregiver management, basic scheduling, document management, email support.
-    - **Growth ($99/mo, 26-75 clients)**: All Starter + EVV tracking, compliance monitoring, advanced scheduling, priority support.
-    - **Professional ($199/mo, 76-200 clients)**: All Growth + billing & payroll, analytics dashboard, API access, dedicated support.
-    - **Enterprise ($399/mo, 201-500 clients)**: All Professional + custom integrations, white-glove onboarding, SLA guarantee, 24/7 phone support.
-- **Feature Gating System**:
-    - Backend: `requireFeature(featureKey)` middleware protects routes based on organization's plan.
-    - Frontend: `FeatureGate` component and `useFeatures` hook for UI-level access control.
-    - 17 features across 5 categories (core, compliance, billing, analytics, support) with 44 plan mappings.
-- **Stripe Integration**: Checkout sessions, subscription management, billing portal, webhook-based activation.
-- **Agency Signup Wizard**: 3-step registration flow at `/signup` with plan selection and Stripe checkout.
-- **External API** (Professional+ plans):
-    - API key management at `/api-keys` with secure hash storage and key prefix display.
-    - REST API v1 endpoints: `/api/v1/clients`, `/api/v1/caregivers`, `/api/v1/schedules`.
-    - Rate limiting (1000 req/day) and usage logging in `api_usage_logs` table.
-    - Bearer token authentication via API key header.
-- **Support Tickets**: Ticket creation and messaging at `/support-tickets` with status/priority tracking.
-- **Custom Integrations** (Enterprise only): Registry for third-party integrations at `/custom-integrations`.
-- **Support Center**: Help documentation and guides at `/support-center`.
+- **Organization-Based Multi-Tenancy**: Isolated data for each agency.
+- **Subscription Plans**: Four tiers (Starter, Growth, Professional, Enterprise) based on client count with tiered feature access.
+- **Feature Gating**: Backend middleware and frontend components to control access based on subscription plan.
+- **Stripe Integration**: Checkout, subscription management, billing portal, and webhook activation.
+- **Agency Signup Wizard**: Guided registration with plan selection.
+- **External API**: For Professional+ plans, with API key management, rate limiting, and usage logging.
+- **Support**: Integrated support tickets and a support center.
 
 ### Security & Compliance
-- HIPAA compliance is a core design principle, including secure data transmission, storage, access control, and audit logging.
+- Designed for HIPAA compliance, ensuring secure data handling, access control, and audit logging.
 
 ## External Dependencies
-
 ### Database & Storage
 - **Neon Database**: Serverless PostgreSQL.
-- **Local File System**: For document storage (future cloud integration planned).
+- **Local File System**: For document storage (temporary, pending cloud integration).
 
 ### Communication Services
-- **AgentMail**: For email notifications with custom domain (donotreply@app.carechc.com), including password resets and birthday emails.
-- **Twilio**: For SMS services, including mobile SMS login and birthday notifications.
+- **AgentMail**: For email notifications (e.g., password resets, birthdays).
+- **Twilio**: For SMS services (e.g., mobile login, birthday notifications).
 
 ### Third-Party Libraries & Tools
-- **Radix UI**: For accessible UI primitives.
-- **Tailwind CSS**: For utility-first styling.
-- **Zod**: For runtime type validation.
-- **date-fns**: For date manipulation.
-- **Lucide React**: For iconography.
-- **TypeScript**: For type safety.
-- **Vite & ESBuild**: For modern build processes.
-- **Drizzle Kit**: For database schema management.
+- **Radix UI**: Accessible UI primitives.
+- **Tailwind CSS**: Utility-first styling.
+- **Zod**: Runtime type validation.
+- **date-fns**: Date manipulation.
+- **Lucide React**: Iconography.
+- **TypeScript**: Type safety.
+- **Vite & ESBuild**: Build processes.
+- **Drizzle Kit**: Database schema management.
