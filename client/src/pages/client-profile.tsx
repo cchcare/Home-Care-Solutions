@@ -76,6 +76,7 @@ import {
   AlertTriangle
 } from "lucide-react";
 import type { Client, Document, Office, Mco, User as UserType, ClientCommunication, OfficeMcoBillingRate, ClientSchedule, MasterWeekTemplate, MasterWeekSlot, Caregiver, ClientMco, Coordinator, EligibilityCheck, LetterTemplate } from "@shared/schema";
+import { AddressInput } from "@/components/address-input";
 
 const DOCUMENT_CATEGORIES = [
   { value: "id_card", label: "ID Card" },
@@ -1193,40 +1194,14 @@ export default function ClientProfile() {
                           <MapPin className="w-3 h-3" /> Home Address
                         </Label>
                         {isEditing ? (
-                          <div className="space-y-2">
-                            <Input
-                              value={editFormData.address || ""}
-                              onChange={(e) => setEditFormData({ ...editFormData, address: e.target.value })}
-                              placeholder="Street Address"
-                              data-testid="input-address"
-                            />
-                            <Input
-                              value={editFormData.address2 || ""}
-                              onChange={(e) => setEditFormData({ ...editFormData, address2: e.target.value })}
-                              placeholder="Apt, Suite, Unit (optional)"
-                              data-testid="input-address2"
-                            />
-                            <div className="grid grid-cols-3 gap-2">
-                              <Input
-                                value={editFormData.city || ""}
-                                onChange={(e) => setEditFormData({ ...editFormData, city: e.target.value })}
-                                placeholder="City"
-                                data-testid="input-city"
-                              />
-                              <Input
-                                value={editFormData.state || ""}
-                                onChange={(e) => setEditFormData({ ...editFormData, state: e.target.value })}
-                                placeholder="State"
-                                data-testid="input-state"
-                              />
-                              <Input
-                                value={editFormData.zipCode || ""}
-                                onChange={(e) => setEditFormData({ ...editFormData, zipCode: e.target.value })}
-                                placeholder="Zip Code"
-                                data-testid="input-zip-code"
-                              />
-                            </div>
-                          </div>
+                          <AddressInput
+                            streetAddress={editFormData.address || ""}
+                            streetAddress2={editFormData.address2 || ""}
+                            city={editFormData.city || ""}
+                            state={editFormData.state || ""}
+                            zipCode={editFormData.zipCode || ""}
+                            onChange={(field, value) => setEditFormData({ ...editFormData, [field]: value })}
+                          />
                         ) : (
                           <div data-testid="text-client-full-address">
                             <p className="font-medium">{client.address || "N/A"}</p>

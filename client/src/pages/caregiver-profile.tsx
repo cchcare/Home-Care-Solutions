@@ -79,6 +79,7 @@ import {
   FileSignature
 } from "lucide-react";
 import type { Caregiver, User as UserType, Document, Office, Client, ComplianceItem, Coordinator, CaregiverCompliance, LetterTemplate } from "@shared/schema";
+import { AddressInput } from "@/components/address-input";
 
 type EnrichedCaregiver = Caregiver & { firstName?: string | null; lastName?: string | null; email?: string | null };
 
@@ -909,66 +910,41 @@ export default function CaregiverProfile() {
                             </Badge>
                           )}
                         </div>
-                        <div className="space-y-1">
-                          <Label className="text-muted-foreground text-sm">Address</Label>
-                          {isEditing ? (
-                            <Input
-                              value={editFormData.address || ""}
-                              onChange={(e) => setEditFormData({ ...editFormData, address: e.target.value })}
-                              data-testid="input-address"
+                        {isEditing ? (
+                          <div className="col-span-2">
+                            <AddressInput
+                              streetAddress={editFormData.address || ""}
+                              streetAddress2={editFormData.address2 || ""}
+                              city={editFormData.city || ""}
+                              state={editFormData.state || ""}
+                              zipCode={editFormData.zipCode || ""}
+                              onChange={(field, value) => setEditFormData({ ...editFormData, [field]: value })}
                             />
-                          ) : (
-                            <p className="font-medium" data-testid="text-address">{caregiver.address || "N/A"}</p>
-                          )}
-                        </div>
-                        <div className="space-y-1">
-                          <Label className="text-muted-foreground text-sm">Address 2</Label>
-                          {isEditing ? (
-                            <Input
-                              value={editFormData.address2 || ""}
-                              onChange={(e) => setEditFormData({ ...editFormData, address2: e.target.value })}
-                              data-testid="input-address2"
-                            />
-                          ) : (
-                            <p className="font-medium" data-testid="text-address2">{caregiver.address2 || "N/A"}</p>
-                          )}
-                        </div>
-                        <div className="space-y-1">
-                          <Label className="text-muted-foreground text-sm">City</Label>
-                          {isEditing ? (
-                            <Input
-                              value={editFormData.city || ""}
-                              onChange={(e) => setEditFormData({ ...editFormData, city: e.target.value })}
-                              data-testid="input-city"
-                            />
-                          ) : (
-                            <p className="font-medium" data-testid="text-city">{caregiver.city || "N/A"}</p>
-                          )}
-                        </div>
-                        <div className="space-y-1">
-                          <Label className="text-muted-foreground text-sm">State</Label>
-                          {isEditing ? (
-                            <Input
-                              value={editFormData.state || ""}
-                              onChange={(e) => setEditFormData({ ...editFormData, state: e.target.value })}
-                              data-testid="input-state"
-                            />
-                          ) : (
-                            <p className="font-medium" data-testid="text-state">{caregiver.state || "N/A"}</p>
-                          )}
-                        </div>
-                        <div className="space-y-1">
-                          <Label className="text-muted-foreground text-sm">Zip Code</Label>
-                          {isEditing ? (
-                            <Input
-                              value={editFormData.zipCode || ""}
-                              onChange={(e) => setEditFormData({ ...editFormData, zipCode: e.target.value })}
-                              data-testid="input-zip-code"
-                            />
-                          ) : (
-                            <p className="font-medium" data-testid="text-zip-code">{caregiver.zipCode || "N/A"}</p>
-                          )}
-                        </div>
+                          </div>
+                        ) : (
+                          <>
+                            <div className="space-y-1">
+                              <Label className="text-muted-foreground text-sm">Street Address</Label>
+                              <p className="font-medium" data-testid="text-address">{caregiver.address || "N/A"}</p>
+                            </div>
+                            <div className="space-y-1">
+                              <Label className="text-muted-foreground text-sm">Street Address 2</Label>
+                              <p className="font-medium" data-testid="text-address2">{caregiver.address2 || "N/A"}</p>
+                            </div>
+                            <div className="space-y-1">
+                              <Label className="text-muted-foreground text-sm">City</Label>
+                              <p className="font-medium" data-testid="text-city">{caregiver.city || "N/A"}</p>
+                            </div>
+                            <div className="space-y-1">
+                              <Label className="text-muted-foreground text-sm">State</Label>
+                              <p className="font-medium" data-testid="text-state">{caregiver.state || "N/A"}</p>
+                            </div>
+                            <div className="space-y-1">
+                              <Label className="text-muted-foreground text-sm">Zip Code</Label>
+                              <p className="font-medium" data-testid="text-zip-code">{caregiver.zipCode || "N/A"}</p>
+                            </div>
+                          </>
+                        )}
                         <div className="space-y-1">
                           <Label className="text-muted-foreground text-sm">County</Label>
                           {isEditing ? (
