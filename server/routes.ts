@@ -1183,6 +1183,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/clients/:id", isAuthenticated, async (req: any, res) => {
     try {
+      // Only super_admin, admin, and office_admin can delete clients
+      const user = req.session?.user;
+      if (!user) {
+        return res.status(401).json({ message: "Unauthorized" });
+      }
+      
+      const allowedRoles = ["super_admin", "admin", "office_admin"];
+      if (!allowedRoles.includes(user.role)) {
+        return res.status(403).json({ message: "You do not have permission to delete clients" });
+      }
+      
       const client = await storage.getClient(req.params.id);
       if (!client) {
         return res.status(404).json({ message: "Client not found" });
@@ -1689,6 +1700,45 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error updating caregiver:", error);
       res.status(400).json({ message: "Failed to update caregiver" });
+    }
+  });
+
+  // Delete caregiver - restricted to admin roles
+  app.delete("/api/caregivers/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      // Only super_admin, admin, and office_admin can delete caregivers
+      const user = req.session?.user;
+      if (!user) {
+        return res.status(401).json({ message: "Unauthorized" });
+      }
+      
+      const allowedRoles = ["super_admin", "admin", "office_admin"];
+      if (!allowedRoles.includes(user.role)) {
+        return res.status(403).json({ message: "You do not have permission to delete caregivers" });
+      }
+      
+      const caregiver = await storage.getCaregiver(req.params.id);
+      if (!caregiver) {
+        return res.status(404).json({ message: "Caregiver not found" });
+      }
+      
+      await storage.deleteCaregiver(req.params.id);
+      
+      // Log audit trail
+      await storage.createAuditLog({
+        userId: req.session?.user?.id,
+        action: "delete",
+        entityType: "caregiver",
+        entityId: req.params.id,
+        oldValues: caregiver,
+        ipAddress: req.ip,
+        userAgent: req.get("User-Agent"),
+      });
+      
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting caregiver:", error);
+      res.status(500).json({ message: "Failed to delete caregiver" });
     }
   });
 
