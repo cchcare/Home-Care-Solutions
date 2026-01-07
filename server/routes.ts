@@ -11480,9 +11480,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/admin/visit-log/upload", isAuthenticated, excelUpload.single("file"), async (req: any, res) => {
     try {
-      const user = req.user;
-      if (!user || !["admin", "office_admin", "super_admin"].includes(user.role)) {
-        return res.status(403).json({ message: "Access denied. Admin or Office Manager role required." });
+      const user = req.session?.user;
+      if (!user || !["admin", "office_admin", "super_admin", "manager"].includes(user.role)) {
+        return res.status(403).json({ message: "Access denied. Admin, Manager, or Office Manager role required." });
       }
 
       const file = req.file;
@@ -11883,9 +11883,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get expected column format for visit log upload
   app.get("/api/admin/visit-log/template-info", isAuthenticated, async (req: any, res) => {
     try {
-      const user = req.user;
-      if (!user || !["admin", "office_admin", "super_admin"].includes(user.role)) {
-        return res.status(403).json({ message: "Access denied. Admin or Office Manager role required." });
+      const user = req.session?.user;
+      if (!user || !["admin", "office_admin", "super_admin", "manager"].includes(user.role)) {
+        return res.status(403).json({ message: "Access denied. Admin, Manager, or Office Manager role required." });
       }
 
       res.json({
@@ -11913,9 +11913,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Parse Excel headers for column mapping
   app.post("/api/admin/visit-log/parse-headers", isAuthenticated, excelUpload.single("file"), async (req: any, res) => {
     try {
-      const user = req.user;
-      if (!user || !["admin", "office_admin", "super_admin"].includes(user.role)) {
-        return res.status(403).json({ message: "Access denied. Admin or Office Manager role required." });
+      const user = req.session?.user;
+      if (!user || !["admin", "office_admin", "super_admin", "manager"].includes(user.role)) {
+        return res.status(403).json({ message: "Access denied. Admin, Manager, or Office Manager role required." });
       }
 
       const file = req.file;
