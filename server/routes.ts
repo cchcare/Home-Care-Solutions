@@ -3146,8 +3146,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(401).json({ message: "Not authenticated" });
       }
       const user = await storage.getUser(userId);
-      if (!user || (user.role !== "admin" && user.role !== "supervisor" && user.role !== "super_admin" && user.role !== "office_admin")) {
-        return res.status(403).json({ message: "Access denied. Admin, supervisor, or super admin role required." });
+      const allowedRoles = ["admin", "supervisor", "super_admin", "office_admin", "manager"];
+      if (!user || !allowedRoles.includes(user.role || "")) {
+        return res.status(403).json({ message: "Access denied. Admin, supervisor, manager, or super admin role required." });
       }
       next();
     } catch (error) {
@@ -3276,6 +3277,80 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error deleting user:", error);
       res.status(500).json({ message: "Failed to delete user" });
+    }
+  });
+
+  // Reset user password (admin action)
+  app.post("/api/auth/reset-password/:userId", isAuthenticated, requireAdminOrSupervisor, async (req: any, res) => {
+    try {
+      const { userId } = req.params;
+      const { newPassword } = req.body;
+      
+      if (!newPassword || newPassword.length < 8) {
+        return res.status(400).json({ message: "Password must be at least 8 characters" });
+      }
+      
+      const targetUser = await storage.getUser(userId);
+      if (!targetUser) {
+        return res.status(404).json({ message: "User not found" });
+      }
+      
+      // Hash the new password
+      const hashedPassword = await bcrypt.hash(newPassword, 10);
+      
+      // Update user with new password and require password change on next login
+      await storage.updateUser(userId, { 
+        passwordHash: hashedPassword,
+        mustResetPassword: true
+      });
+      
+      // Log audit trail
+      await storage.createAuditLog({
+        userId: req.session?.user?.id,
+        action: "reset_password",
+        entityType: "user",
+        entityId: userId,
+        newValues: { targetUserId: userId, targetEmail: targetUser.email, mustResetPassword: true },
+        ipAddress: req.ip,
+        userAgent: req.get("User-Agent"),
+      });
+      
+      res.json({ message: "Password reset successfully" });
+    } catch (error) {
+      console.error("Error resetting password:", error);
+      res.status(500).json({ message: "Failed to reset password" });
+    }
+  });
+
+  // Deactivate/Activate user
+  app.post("/api/users/:id/toggle-status", isAuthenticated, requireAdminOrSupervisor, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      
+      const targetUser = await storage.getUser(id);
+      if (!targetUser) {
+        return res.status(404).json({ message: "User not found" });
+      }
+      
+      const newStatus = !targetUser.isActive;
+      const updatedUser = await storage.updateUser(id, { isActive: newStatus });
+      
+      // Log audit trail
+      await storage.createAuditLog({
+        userId: req.session?.user?.id,
+        action: newStatus ? "activate_user" : "deactivate_user",
+        entityType: "user",
+        entityId: id,
+        oldValues: { isActive: targetUser.isActive },
+        newValues: { isActive: newStatus },
+        ipAddress: req.ip,
+        userAgent: req.get("User-Agent"),
+      });
+      
+      res.json(updatedUser);
+    } catch (error) {
+      console.error("Error toggling user status:", error);
+      res.status(500).json({ message: "Failed to update user status" });
     }
   });
 

@@ -84,7 +84,8 @@ export default function UserManagementPage() {
   // Check if user has permission to access user management
   const hasPermission = (currentUser as any)?.role === "admin" || 
                         (currentUser as any)?.role === "supervisor" || 
-                        (currentUser as any)?.role === "super_admin";
+                        (currentUser as any)?.role === "super_admin" ||
+                        (currentUser as any)?.role === "manager";
 
   if (!hasPermission) {
     return (
@@ -93,7 +94,7 @@ export default function UserManagementPage() {
           <Shield className="mx-auto h-12 w-12 text-muted-foreground" />
           <h3 className="mt-2 text-sm font-semibold text-gray-900">Access Denied</h3>
           <p className="mt-1 text-sm text-muted-foreground">
-            You don't have permission to access user management. Only administrators and supervisors can manage users.
+            You don't have permission to access user management. Only administrators, supervisors, and managers can manage users.
           </p>
         </div>
       </div>
