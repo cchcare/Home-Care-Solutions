@@ -1844,21 +1844,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
             results.createdRecords++;
           }
         } catch (error: any) {
-          console.error(`Error importing caregiver row ${i + 1}:`, error.message);
-          // Provide more helpful error messages
-          let sanitizedError = 'Failed to import record';
+          console.error(`Error importing caregiver row ${i + 1}:`, error.message, error);
+          // Provide more helpful error messages with actual details
+          let sanitizedError = error.message || 'Failed to import record';
           if (error.message?.includes('duplicate')) {
             sanitizedError = 'Record already exists (duplicate ID or email)';
-          } else if (error.message?.includes('validation')) {
-            sanitizedError = 'Invalid data format - check required fields';
+          } else if (error.issues) {
+            // Zod validation error - show which fields failed
+            const issues = error.issues.map((i: any) => `${i.path.join('.')}: ${i.message}`).join(', ');
+            sanitizedError = `Validation error: ${issues}`;
           } else if (error.message?.includes('null') || error.message?.includes('NOT NULL')) {
             sanitizedError = 'Missing required field';
           } else if (error.message?.includes('unique')) {
-            sanitizedError = 'Duplicate entry found';
+            const match = error.message.match(/unique constraint "([^"]+)"/);
+            sanitizedError = match ? `Duplicate value for: ${match[1]}` : 'Duplicate entry found';
           }
           results.errors.push({
             row: i + 1,
-            error: sanitizedError
+            error: sanitizedError,
+            data: { firstName: data[i]?.firstName, lastName: data[i]?.lastName }
           });
         }
       }
