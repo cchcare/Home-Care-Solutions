@@ -3404,6 +3404,12 @@ export class DatabaseStorage implements IStorage {
     return caregiver;
   }
 
+  // Find caregiver by ADP code for import matching
+  async getCaregiverByAdpCode(adpCode: string): Promise<Caregiver | undefined> {
+    const [caregiver] = await db.select().from(caregivers).where(eq(caregivers.adpCode, adpCode));
+    return caregiver;
+  }
+
   // Find client by HHAX admission ID for billing import matching
   async getClientByHhaxId(hhaxAdmissionId: string): Promise<Client | undefined> {
     const [client] = await db.select().from(clients).where(eq(clients.hhaxAdmissionId, hhaxAdmissionId));

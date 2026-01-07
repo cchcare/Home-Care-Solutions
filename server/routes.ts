@@ -1692,7 +1692,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Caregiver bulk import
+  // Caregiver bulk import - with update support for matching IDs
   app.post("/api/caregivers/bulk-import", isAuthenticated, async (req: any, res) => {
     try {
       const { data } = req.body;
@@ -1704,16 +1704,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       interface BulkImportError {
         row: number;
         error: string;
-        // Don't include sensitive data in error responses
       }
       
       const results: {
         totalRows: number;
         successfulImports: number;
+        updatedRecords: number;
+        createdRecords: number;
         errors: BulkImportError[];
       } = {
         totalRows: data.length,
         successfulImports: 0,
+        updatedRecords: 0,
+        createdRecords: 0,
         errors: []
       };
 
@@ -1724,43 +1727,98 @@ export async function registerRoutes(app: Express): Promise<Server> {
           // Extract user info from the caregiver data
           const { email, firstName, middleName, lastName, dateOfBirth, ...caregiverInfo } = caregiverData;
           
-          // First create the user account for login
-          const user = await storage.upsertUser({
-            email,
-            firstName,
-            middleName,
-            lastName,
-            dateOfBirth,
-            role: "caregiver"
-          });
+          // Check if caregiver already exists by matching IDs (HHAX ID, Assignment ID, or ADP ID)
+          let existingCaregiver = null;
           
-          // Then create the caregiver record linked to the user
-          const validatedCaregiverData = insertCaregiverSchema.parse({
-            ...caregiverInfo,
-            userId: user.id
-          });
+          // Try to find by HHAX Caregiver Code first
+          if (caregiverInfo.hhaxCaregiverCode) {
+            existingCaregiver = await storage.getCaregiverByHhaxCode(caregiverInfo.hhaxCaregiverCode);
+          }
           
-          const caregiver = await storage.createCaregiver(validatedCaregiverData);
+          // If not found, try Assignment ID
+          if (!existingCaregiver && caregiverInfo.assignmentId) {
+            existingCaregiver = await storage.getCaregiverByAssignmentId(caregiverInfo.assignmentId);
+          }
           
-          // Log audit trail
-          await storage.createAuditLog({
-            userId: req.session?.user?.id,
-            action: "bulk_import_create",
-            entityType: "caregiver",
-            entityId: caregiver.id,
-            newValues: { 
-              ...caregiver, 
-              userEmail: email, 
-              userFirstName: firstName, 
-              userMiddleName: middleName,
-              userLastName: lastName,
-              userDateOfBirth: dateOfBirth
-            },
-            ipAddress: req.ip,
-            userAgent: req.get("User-Agent"),
-          });
+          // If not found, try ADP Code
+          if (!existingCaregiver && caregiverInfo.adpCode) {
+            existingCaregiver = await storage.getCaregiverByAdpCode(caregiverInfo.adpCode);
+          }
           
-          results.successfulImports++;
+          if (existingCaregiver) {
+            // Update existing caregiver record
+            const updateData: any = { ...caregiverInfo };
+            
+            // Update user info if provided
+            if (email || firstName || lastName) {
+              await storage.upsertUser({
+                email: email || undefined,
+                firstName: firstName || undefined,
+                middleName: middleName || undefined,
+                lastName: lastName || undefined,
+                dateOfBirth: dateOfBirth || undefined,
+                role: "caregiver"
+              });
+            }
+            
+            const validatedUpdateData = insertCaregiverSchema.partial().parse(updateData);
+            const updatedCaregiver = await storage.updateCaregiver(existingCaregiver.id, validatedUpdateData);
+            
+            // Log audit trail
+            await storage.createAuditLog({
+              userId: req.session?.user?.id,
+              action: "bulk_import_update",
+              entityType: "caregiver",
+              entityId: updatedCaregiver.id,
+              oldValues: existingCaregiver,
+              newValues: updatedCaregiver,
+              ipAddress: req.ip,
+              userAgent: req.get("User-Agent"),
+            });
+            
+            results.successfulImports++;
+            results.updatedRecords++;
+          } else {
+            // Create new caregiver
+            // First create the user account for login
+            const user = await storage.upsertUser({
+              email,
+              firstName,
+              middleName,
+              lastName,
+              dateOfBirth,
+              role: "caregiver"
+            });
+            
+            // Then create the caregiver record linked to the user
+            const validatedCaregiverData = insertCaregiverSchema.parse({
+              ...caregiverInfo,
+              userId: user.id
+            });
+            
+            const caregiver = await storage.createCaregiver(validatedCaregiverData);
+            
+            // Log audit trail
+            await storage.createAuditLog({
+              userId: req.session?.user?.id,
+              action: "bulk_import_create",
+              entityType: "caregiver",
+              entityId: caregiver.id,
+              newValues: { 
+                ...caregiver, 
+                userEmail: email, 
+                userFirstName: firstName, 
+                userMiddleName: middleName,
+                userLastName: lastName,
+                userDateOfBirth: dateOfBirth
+              },
+              ipAddress: req.ip,
+              userAgent: req.get("User-Agent"),
+            });
+            
+            results.successfulImports++;
+            results.createdRecords++;
+          }
         } catch (error: any) {
           // Sanitize error message to avoid exposing sensitive data
           const sanitizedError = error.message?.includes('duplicate') ? 'Record already exists' : 

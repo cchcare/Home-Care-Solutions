@@ -26,6 +26,8 @@ interface ExcelImportProps {
 interface ImportResult {
   totalRows: number;
   successfulImports: number;
+  updatedRecords?: number;
+  createdRecords?: number;
   errors: Array<{ row: number; error: string; data: any }>;
 }
 
@@ -49,6 +51,9 @@ const COLUMN_MAPPINGS = {
     policyNumber: ["Policy Number", "policy_number", "policyNumber"]
   },
   caregivers: {
+    hhaxCaregiverCode: ["HHAX ID", "hhax_id", "hhaxId", "HHAX Caregiver Code", "hhax_caregiver_code", "hhaxCaregiverCode", "HHAXCode"],
+    assignmentId: ["Assignment ID", "assignment_id", "assignmentId", "AssignmentID"],
+    adpCode: ["ADP ID", "adp_id", "adpId", "ADP Code", "adp_code", "adpCode", "ADPID"],
     employeeId: ["Employee ID", "employee_id", "employeeId"],
     firstName: ["First Name", "first_name", "firstName"],
     lastName: ["Last Name", "last_name", "lastName"],
@@ -368,19 +373,37 @@ export function ExcelImport({ type, onImportComplete, officeId }: ExcelImportPro
               <h3 className="font-medium">Import Results</h3>
             </div>
             
-            <div className="grid grid-cols-3 gap-4 text-center">
+            <div className={`grid gap-4 text-center ${importResult.updatedRecords !== undefined ? 'grid-cols-4' : 'grid-cols-3'}`}>
               <Card>
                 <CardContent className="p-4">
                   <div className="text-2xl font-bold">{importResult.totalRows}</div>
                   <div className="text-xs text-muted-foreground">Total Rows</div>
                 </CardContent>
               </Card>
-              <Card>
-                <CardContent className="p-4">
-                  <div className="text-2xl font-bold text-green-600">{importResult.successfulImports}</div>
-                  <div className="text-xs text-muted-foreground">Imported</div>
-                </CardContent>
-              </Card>
+              {importResult.createdRecords !== undefined && (
+                <Card>
+                  <CardContent className="p-4">
+                    <div className="text-2xl font-bold text-green-600">{importResult.createdRecords}</div>
+                    <div className="text-xs text-muted-foreground">Created</div>
+                  </CardContent>
+                </Card>
+              )}
+              {importResult.updatedRecords !== undefined && (
+                <Card>
+                  <CardContent className="p-4">
+                    <div className="text-2xl font-bold text-blue-600">{importResult.updatedRecords}</div>
+                    <div className="text-xs text-muted-foreground">Updated</div>
+                  </CardContent>
+                </Card>
+              )}
+              {importResult.updatedRecords === undefined && (
+                <Card>
+                  <CardContent className="p-4">
+                    <div className="text-2xl font-bold text-green-600">{importResult.successfulImports}</div>
+                    <div className="text-xs text-muted-foreground">Imported</div>
+                  </CardContent>
+                </Card>
+              )}
               <Card>
                 <CardContent className="p-4">
                   <div className="text-2xl font-bold text-red-600">{importResult.errors.length}</div>
