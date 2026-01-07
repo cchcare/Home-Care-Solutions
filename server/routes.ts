@@ -11260,6 +11260,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "No file uploaded" });
       }
 
+      // Parse column mappings from request body (sent as JSON string in FormData)
+      let columnMappings: { [key: string]: string } = {};
+      if (req.body.mappings) {
+        try {
+          columnMappings = JSON.parse(req.body.mappings);
+        } catch (e) {
+          return res.status(400).json({ message: "Invalid column mappings format" });
+        }
+      }
+
       const ExcelJS = require("exceljs");
       const workbook = new ExcelJS.Workbook();
       await workbook.xlsx.load(file.buffer);
@@ -11291,35 +11301,50 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Parse header row to identify columns
       const headerRow = worksheet.getRow(1);
       const headers: { [key: string]: number } = {};
+      const headersByName: { [key: string]: number } = {};
       headerRow.eachCell((cell: any, colNumber: number) => {
-        const value = String(cell.value || '').toLowerCase().trim();
-        headers[value] = colNumber;
+        const value = String(cell.value || '').trim();
+        const lowerValue = value.toLowerCase();
+        headers[lowerValue] = colNumber;
+        headersByName[value] = colNumber;
       });
 
-      // Expected columns (flexible matching)
-      const getColumn = (possibleNames: string[]): number | null => {
-        for (const name of possibleNames) {
+      // Use user-provided mappings or fall back to auto-detection
+      const getColumnByMapping = (systemKey: string, fallbackNames: string[]): number | null => {
+        // First check if user provided a mapping
+        if (columnMappings[systemKey]) {
+          const mappedHeader = columnMappings[systemKey];
+          if (headersByName[mappedHeader]) {
+            return headersByName[mappedHeader];
+          }
+        }
+        // Fall back to auto-detection
+        for (const name of fallbackNames) {
           const key = Object.keys(headers).find(h => h.includes(name.toLowerCase()));
           if (key) return headers[key];
         }
         return null;
       };
 
-      const admissionIdCol = getColumn(['admission id', 'admissionid', 'admission_id', 'client id', 'clientid', 'patient id']);
-      const assignmentIdCol = getColumn(['assignment id', 'assignmentid', 'assignment_id', 'caregiver id', 'caregivercode', 'worker id']);
-      const scheduledDateCol = getColumn(['scheduled date', 'scheduleddate', 'visit date', 'date', 'service date']);
-      const startTimeCol = getColumn(['start time', 'starttime', 'time in', 'clock in', 'in time']);
-      const endTimeCol = getColumn(['end time', 'endtime', 'time out', 'clock out', 'out time']);
-      const clockInTimeCol = getColumn(['actual clock in', 'actual in', 'clock in time', 'checkin time']);
-      const clockOutTimeCol = getColumn(['actual clock out', 'actual out', 'clock out time', 'checkout time']);
-      const statusCol = getColumn(['status', 'visit status', 'schedule status']);
-      const serviceTypeCol = getColumn(['service type', 'servicetype', 'service', 'visit type']);
-      const notesCol = getColumn(['notes', 'comments', 'visit notes']);
+      const admissionIdCol = getColumnByMapping('admissionId', ['admission id', 'admissionid', 'admission_id', 'client id', 'clientid', 'patient id']);
+      const assignmentIdCol = getColumnByMapping('assignmentId', ['assignment id', 'assignmentid', 'assignment_id', 'caregiver id', 'caregivercode', 'worker id']);
+      const scheduledDateCol = getColumnByMapping('visitDate', ['scheduled date', 'scheduleddate', 'visit date', 'date', 'service date']);
+      const scheduleCol = getColumnByMapping('schedule', ['schedule', 'scheduled time', 'shift', 'time']);
+      const visitCol = getColumnByMapping('visit', ['visit', 'actual', 'clock', 'check in', 'status']);
+      
+      // Additional fallback columns for backward compatibility
+      const startTimeCol = getColumnByMapping('startTime', ['start time', 'starttime', 'time in', 'in time']);
+      const endTimeCol = getColumnByMapping('endTime', ['end time', 'endtime', 'time out', 'out time']);
+      const clockInTimeCol = getColumnByMapping('clockIn', ['actual clock in', 'actual in', 'clock in time', 'checkin time']);
+      const clockOutTimeCol = getColumnByMapping('clockOut', ['actual clock out', 'actual out', 'clock out time', 'checkout time']);
+      const statusCol = getColumnByMapping('status', ['status', 'visit status', 'schedule status']);
+      const serviceTypeCol = getColumnByMapping('serviceType', ['service type', 'servicetype', 'service', 'visit type']);
+      const notesCol = getColumnByMapping('notes', ['notes', 'comments', 'visit notes']);
 
       if (!admissionIdCol || !assignmentIdCol) {
         return res.status(400).json({ 
-          message: "Required columns not found. Please ensure the file has 'Admission ID' and 'Assignment ID' columns.",
-          foundHeaders: Object.keys(headers)
+          message: "Required columns not found. Please map 'Admission ID' and 'Assignment ID' columns.",
+          foundHeaders: Object.keys(headersByName)
         });
       }
 
@@ -11405,16 +11430,84 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return null;
         };
 
+        // Parse time range from "Schedule" column (e.g., "9:00 AM - 5:00 PM" or "09:00 - 17:00")
+        const parseTimeRange = (cell: any): { start: string | null; end: string | null } => {
+          const val = cell?.value;
+          if (!val) return { start: null, end: null };
+          const timeStr = String(val);
+          // Match patterns like "9:00 AM - 5:00 PM" or "09:00 - 17:00"
+          const rangeMatch = timeStr.match(/(\d{1,2}):(\d{2})\s*(AM|PM|am|pm)?\s*[-–]\s*(\d{1,2}):(\d{2})\s*(AM|PM|am|pm)?/);
+          if (rangeMatch) {
+            let startHour = parseInt(rangeMatch[1]);
+            const startMin = rangeMatch[2];
+            const startAmPm = rangeMatch[3]?.toLowerCase();
+            let endHour = parseInt(rangeMatch[4]);
+            const endMin = rangeMatch[5];
+            const endAmPm = rangeMatch[6]?.toLowerCase();
+            
+            // Convert to 24-hour format
+            if (startAmPm === 'pm' && startHour !== 12) startHour += 12;
+            if (startAmPm === 'am' && startHour === 12) startHour = 0;
+            if (endAmPm === 'pm' && endHour !== 12) endHour += 12;
+            if (endAmPm === 'am' && endHour === 12) endHour = 0;
+            
+            return {
+              start: `${String(startHour).padStart(2, '0')}:${startMin}`,
+              end: `${String(endHour).padStart(2, '0')}:${endMin}`
+            };
+          }
+          return { start: null, end: null };
+        };
+
         const scheduledDate = scheduledDateCol ? parseDate(row.getCell(scheduledDateCol)) : null;
-        const startTime = startTimeCol ? parseTime(row.getCell(startTimeCol)) : null;
-        const endTime = endTimeCol ? parseTime(row.getCell(endTimeCol)) : null;
-        const clockInTime = clockInTimeCol ? parseDate(row.getCell(clockInTimeCol)) : null;
-        const clockOutTime = clockOutTimeCol ? parseDate(row.getCell(clockOutTimeCol)) : null;
-        const status = statusCol ? String(row.getCell(statusCol).value || '').toLowerCase().trim() : null;
+        
+        // Try to get times from schedule column first, then fall back to separate start/end columns
+        let startTime: string | null = null;
+        let endTime: string | null = null;
+        
+        if (scheduleCol) {
+          const scheduleRange = parseTimeRange(row.getCell(scheduleCol));
+          startTime = scheduleRange.start;
+          endTime = scheduleRange.end;
+        }
+        
+        // Fall back to separate columns if schedule didn't provide times
+        if (!startTime && startTimeCol) {
+          startTime = parseTime(row.getCell(startTimeCol));
+        }
+        if (!endTime && endTimeCol) {
+          endTime = parseTime(row.getCell(endTimeCol));
+        }
+        
+        // Parse visit column for actual clock times or status
+        let clockInTime: Date | null = clockInTimeCol ? parseDate(row.getCell(clockInTimeCol)) : null;
+        let clockOutTime: Date | null = clockOutTimeCol ? parseDate(row.getCell(clockOutTimeCol)) : null;
+        let visitStatus: string | null = null;
+        
+        if (visitCol) {
+          const visitVal = String(row.getCell(visitCol).value || '').trim();
+          // Check if it's a time range
+          const visitRange = parseTimeRange(row.getCell(visitCol));
+          if (visitRange.start && visitRange.end && scheduledDate) {
+            // Convert time strings to Date objects for clock in/out
+            const [inHour, inMin] = visitRange.start.split(':').map(Number);
+            const [outHour, outMin] = visitRange.end.split(':').map(Number);
+            clockInTime = new Date(scheduledDate);
+            clockInTime.setHours(inHour, inMin, 0, 0);
+            clockOutTime = new Date(scheduledDate);
+            clockOutTime.setHours(outHour, outMin, 0, 0);
+          } else {
+            // Treat as status
+            visitStatus = visitVal.toLowerCase();
+          }
+        }
+        
+        const status = visitStatus || (statusCol ? String(row.getCell(statusCol).value || '').toLowerCase().trim() : null);
         const serviceType = serviceTypeCol ? String(row.getCell(serviceTypeCol).value || '').trim() : null;
         const notes = notesCol ? String(row.getCell(notesCol).value || '').trim() : null;
 
-        if (!scheduledDate || !startTime || !endTime) {
+        // Validate required fields
+        if (!scheduledDate) {
           results.push({
             row: rowNum,
             status: 'error',
@@ -11422,7 +11515,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
             assignmentId,
             clientName: client ? `${client.firstName} ${client.lastName}` : undefined,
             caregiverName: `${caregiver.firstName} ${caregiver.lastName}`,
-            message: 'Missing required date/time fields (Scheduled Date, Start Time, End Time)'
+            message: 'Missing required Visit Date field'
+          });
+          errors++;
+          continue;
+        }
+        
+        // Require start and end times - don't use defaults
+        if (!startTime || !endTime) {
+          results.push({
+            row: rowNum,
+            status: 'error',
+            admissionId,
+            assignmentId,
+            clientName: client ? `${client.firstName} ${client.lastName}` : undefined,
+            caregiverName: `${caregiver.firstName} ${caregiver.lastName}`,
+            message: 'Missing or unparseable schedule times. Please ensure Schedule column has format like "9:00 AM - 5:00 PM" or map Start Time and End Time columns.'
           });
           errors++;
           continue;
@@ -11551,29 +11659,109 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       res.json({
-        requiredColumns: [
-          { name: 'Admission ID', description: 'Client Admission ID (matches hhaxAdmissionId)', required: true },
-          { name: 'Assignment ID', description: 'Caregiver Assignment ID', required: true },
-          { name: 'Scheduled Date', description: 'Visit date (e.g., 2024-01-15)', required: true },
-          { name: 'Start Time', description: 'Scheduled start time (e.g., 09:00)', required: true },
-          { name: 'End Time', description: 'Scheduled end time (e.g., 17:00)', required: true },
-        ],
-        optionalColumns: [
-          { name: 'Actual Clock In', description: 'Actual check-in time' },
-          { name: 'Actual Clock Out', description: 'Actual check-out time' },
-          { name: 'Status', description: 'Visit status (Completed, Cancelled, No Show, etc.)' },
-          { name: 'Service Type', description: 'Type of service provided' },
-          { name: 'Notes', description: 'Visit notes or comments' },
+        systemColumns: [
+          { key: 'admissionId', name: 'Admission ID', description: 'Client Admission ID for matching', required: true },
+          { key: 'patientName', name: 'Patient Name', description: 'Client/Patient name (for display)', required: false },
+          { key: 'primaryContract', name: 'Primary Contract', description: 'Primary contract/MCO', required: false },
+          { key: 'caregiver', name: 'Caregiver', description: 'Caregiver name (for display)', required: false },
+          { key: 'assignmentId', name: 'Assignment ID', description: 'Caregiver Assignment ID for matching', required: true },
+          { key: 'visitDate', name: 'Visit Date', description: 'Date of the visit', required: true },
+          { key: 'schedule', name: 'Schedule', description: 'Scheduled time range (e.g., 9:00 AM - 5:00 PM)', required: false },
+          { key: 'visit', name: 'Visit', description: 'Actual visit time or status', required: false },
         ],
         tips: [
-          'Column names are matched flexibly - "Admission ID", "AdmissionId", and "admission_id" all work',
-          'Dates can be in various formats (MM/DD/YYYY, YYYY-MM-DD, etc.)',
-          'Times can be in 12-hour (9:00 AM) or 24-hour (09:00) format',
-          'Existing schedules for the same client, caregiver, date, and start time will be updated',
+          'After uploading, you can map your Excel columns to these system fields',
+          'Admission ID and Assignment ID are required for matching records',
+          'Visit Date is required to create/update schedules',
         ],
       });
     } catch (error: any) {
       res.status(500).json({ message: error.message || "Failed to get template info" });
+    }
+  });
+
+  // Parse Excel headers for column mapping
+  app.post("/api/admin/visit-log/parse-headers", isAuthenticated, excelUpload.single("file"), async (req: any, res) => {
+    try {
+      const user = req.user;
+      if (!user || !["admin", "office_admin", "super_admin"].includes(user.role)) {
+        return res.status(403).json({ message: "Access denied. Admin or Office Manager role required." });
+      }
+
+      const file = req.file;
+      if (!file) {
+        return res.status(400).json({ message: "No file uploaded" });
+      }
+
+      const ExcelJS = require("exceljs");
+      const workbook = new ExcelJS.Workbook();
+      await workbook.xlsx.load(file.buffer);
+      const worksheet = workbook.worksheets[0];
+
+      if (!worksheet) {
+        return res.status(400).json({ message: "No worksheet found in the Excel file" });
+      }
+
+      // Get headers from first row
+      const headerRow = worksheet.getRow(1);
+      const headers: string[] = [];
+      headerRow.eachCell((cell: any, colNumber: number) => {
+        const value = String(cell.value || '').trim();
+        if (value) {
+          headers.push(value);
+        }
+      });
+
+      // Get preview data (first 5 rows)
+      const previewRows: Array<{ [key: string]: any }> = [];
+      for (let rowNum = 2; rowNum <= Math.min(6, worksheet.rowCount); rowNum++) {
+        const row = worksheet.getRow(rowNum);
+        const rowData: { [key: string]: any } = {};
+        headers.forEach((header, index) => {
+          const cell = row.getCell(index + 1);
+          let value = cell.value;
+          if (value instanceof Date) {
+            value = value.toLocaleDateString();
+          }
+          rowData[header] = value !== null && value !== undefined ? String(value) : '';
+        });
+        if (Object.values(rowData).some(v => v !== '')) {
+          previewRows.push(rowData);
+        }
+      }
+
+      // Suggest automatic mappings
+      const suggestedMappings: { [systemColumn: string]: string | null } = {};
+      const systemColumns = ['admissionId', 'patientName', 'primaryContract', 'caregiver', 'assignmentId', 'visitDate', 'schedule', 'visit'];
+      
+      const autoMappings: { [key: string]: string[] } = {
+        admissionId: ['admission id', 'admissionid', 'admission_id', 'client id', 'patient id'],
+        patientName: ['patient name', 'patientname', 'patient', 'client name', 'client'],
+        primaryContract: ['primary contract', 'primarycontract', 'contract', 'mco', 'insurance', 'payer'],
+        caregiver: ['caregiver', 'caregiver name', 'worker', 'aide', 'employee'],
+        assignmentId: ['assignment id', 'assignmentid', 'assignment_id', 'caregiver id', 'worker id'],
+        visitDate: ['visit date', 'visitdate', 'date', 'service date', 'scheduled date'],
+        schedule: ['schedule', 'scheduled', 'scheduled time', 'time', 'shift'],
+        visit: ['visit', 'actual', 'clock', 'check in', 'status'],
+      };
+
+      for (const sysCol of systemColumns) {
+        const possibleNames = autoMappings[sysCol] || [];
+        const match = headers.find(h => 
+          possibleNames.some(name => h.toLowerCase().includes(name))
+        );
+        suggestedMappings[sysCol] = match || null;
+      }
+
+      res.json({
+        headers,
+        previewRows,
+        suggestedMappings,
+        rowCount: worksheet.rowCount - 1,
+      });
+    } catch (error: any) {
+      console.error("Error parsing visit log headers:", error);
+      res.status(500).json({ message: error.message || "Failed to parse Excel file" });
     }
   });
 
