@@ -71,6 +71,13 @@ interface BirthdaySettings {
   emailSubject: string;
 }
 
+const formatBirthdayDate = (dateStr: string): string => {
+  if (!dateStr) return "N/A";
+  const [year, month, day] = dateStr.split('-').map(Number);
+  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  return `${months[month - 1]} ${day}`;
+};
+
 export default function BirthdayNotifications() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -405,7 +412,7 @@ export default function BirthdayNotifications() {
                                 </TableCell>
                                 <TableCell className="font-medium">{birthday.name}</TableCell>
                                 <TableCell>
-                                  {birthday.dateOfBirth ? format(parseISO(birthday.dateOfBirth), "MMM d") : "N/A"}
+                                  {formatBirthdayDate(birthday.dateOfBirth)}
                                 </TableCell>
                                 <TableCell>{getDaysUntilBadge(birthday.daysUntil)}</TableCell>
                                 <TableCell>
