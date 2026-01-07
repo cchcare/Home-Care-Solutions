@@ -11187,6 +11187,338 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ==================== VISIT LOG UPLOAD ====================
+  // Upload Excel spreadsheet to update schedules and visits based on Admission ID (Client) and Assignment ID (Caregiver)
+
+  app.post("/api/admin/visit-log/upload", isAuthenticated, excelUpload.single("file"), async (req: any, res) => {
+    try {
+      const user = req.user;
+      if (!user || !["admin", "office_admin", "super_admin"].includes(user.role)) {
+        return res.status(403).json({ message: "Access denied. Admin or Office Manager role required." });
+      }
+
+      const file = req.file;
+      if (!file) {
+        return res.status(400).json({ message: "No file uploaded" });
+      }
+
+      const ExcelJS = require("exceljs");
+      const workbook = new ExcelJS.Workbook();
+      await workbook.xlsx.load(file.buffer);
+      const worksheet = workbook.worksheets[0];
+
+      if (!worksheet) {
+        return res.status(400).json({ message: "No worksheet found in the Excel file" });
+      }
+
+      // Get all clients and caregivers for matching
+      const allClients = await storage.getAllClients();
+      const allCaregivers = await storage.getAllCaregivers();
+
+      // Create lookup maps
+      const clientByAdmissionId = new Map<string, any>();
+      for (const client of allClients) {
+        if (client.hhaxAdmissionId) {
+          clientByAdmissionId.set(client.hhaxAdmissionId.toLowerCase().trim(), client);
+        }
+      }
+
+      const caregiverByAssignmentId = new Map<string, any>();
+      for (const caregiver of allCaregivers) {
+        if (caregiver.assignmentId) {
+          caregiverByAssignmentId.set(caregiver.assignmentId.toLowerCase().trim(), caregiver);
+        }
+      }
+
+      // Parse header row to identify columns
+      const headerRow = worksheet.getRow(1);
+      const headers: { [key: string]: number } = {};
+      headerRow.eachCell((cell: any, colNumber: number) => {
+        const value = String(cell.value || '').toLowerCase().trim();
+        headers[value] = colNumber;
+      });
+
+      // Expected columns (flexible matching)
+      const getColumn = (possibleNames: string[]): number | null => {
+        for (const name of possibleNames) {
+          const key = Object.keys(headers).find(h => h.includes(name.toLowerCase()));
+          if (key) return headers[key];
+        }
+        return null;
+      };
+
+      const admissionIdCol = getColumn(['admission id', 'admissionid', 'admission_id', 'client id', 'clientid', 'patient id']);
+      const assignmentIdCol = getColumn(['assignment id', 'assignmentid', 'assignment_id', 'caregiver id', 'caregivercode', 'worker id']);
+      const scheduledDateCol = getColumn(['scheduled date', 'scheduleddate', 'visit date', 'date', 'service date']);
+      const startTimeCol = getColumn(['start time', 'starttime', 'time in', 'clock in', 'in time']);
+      const endTimeCol = getColumn(['end time', 'endtime', 'time out', 'clock out', 'out time']);
+      const clockInTimeCol = getColumn(['actual clock in', 'actual in', 'clock in time', 'checkin time']);
+      const clockOutTimeCol = getColumn(['actual clock out', 'actual out', 'clock out time', 'checkout time']);
+      const statusCol = getColumn(['status', 'visit status', 'schedule status']);
+      const serviceTypeCol = getColumn(['service type', 'servicetype', 'service', 'visit type']);
+      const notesCol = getColumn(['notes', 'comments', 'visit notes']);
+
+      if (!admissionIdCol || !assignmentIdCol) {
+        return res.status(400).json({ 
+          message: "Required columns not found. Please ensure the file has 'Admission ID' and 'Assignment ID' columns.",
+          foundHeaders: Object.keys(headers)
+        });
+      }
+
+      const results: Array<{
+        row: number;
+        status: 'created' | 'updated' | 'skipped' | 'error';
+        admissionId?: string;
+        assignmentId?: string;
+        clientName?: string;
+        caregiverName?: string;
+        message: string;
+      }> = [];
+
+      let created = 0;
+      let updated = 0;
+      let skipped = 0;
+      let errors = 0;
+
+      // Process each row (skip header)
+      for (let rowNum = 2; rowNum <= worksheet.rowCount; rowNum++) {
+        const row = worksheet.getRow(rowNum);
+        
+        const admissionId = String(row.getCell(admissionIdCol).value || '').trim();
+        const assignmentId = String(row.getCell(assignmentIdCol).value || '').trim();
+
+        if (!admissionId && !assignmentId) {
+          continue; // Skip empty rows
+        }
+
+        // Find client by Admission ID
+        const client = admissionId ? clientByAdmissionId.get(admissionId.toLowerCase()) : null;
+        
+        // Find caregiver by Assignment ID
+        const caregiver = assignmentId ? caregiverByAssignmentId.get(assignmentId.toLowerCase()) : null;
+
+        if (!client && !caregiver) {
+          results.push({
+            row: rowNum,
+            status: 'error',
+            admissionId,
+            assignmentId,
+            message: `Neither client (Admission ID: ${admissionId}) nor caregiver (Assignment ID: ${assignmentId}) found`
+          });
+          errors++;
+          continue;
+        }
+
+        if (!caregiver) {
+          results.push({
+            row: rowNum,
+            status: 'error',
+            admissionId,
+            assignmentId,
+            clientName: client ? `${client.firstName} ${client.lastName}` : undefined,
+            message: `Caregiver not found for Assignment ID: ${assignmentId}`
+          });
+          errors++;
+          continue;
+        }
+
+        // Parse date and times
+        const parseDate = (cell: any): Date | null => {
+          const val = cell.value;
+          if (!val) return null;
+          if (val instanceof Date) return val;
+          const dateStr = String(val);
+          const parsed = new Date(dateStr);
+          return isNaN(parsed.getTime()) ? null : parsed;
+        };
+
+        const parseTime = (cell: any): string | null => {
+          const val = cell.value;
+          if (!val) return null;
+          if (val instanceof Date) {
+            return `${String(val.getHours()).padStart(2, '0')}:${String(val.getMinutes()).padStart(2, '0')}`;
+          }
+          const timeStr = String(val);
+          // Try to extract HH:MM format
+          const timeMatch = timeStr.match(/(\d{1,2}):(\d{2})/);
+          if (timeMatch) {
+            return `${timeMatch[1].padStart(2, '0')}:${timeMatch[2]}`;
+          }
+          return null;
+        };
+
+        const scheduledDate = scheduledDateCol ? parseDate(row.getCell(scheduledDateCol)) : null;
+        const startTime = startTimeCol ? parseTime(row.getCell(startTimeCol)) : null;
+        const endTime = endTimeCol ? parseTime(row.getCell(endTimeCol)) : null;
+        const clockInTime = clockInTimeCol ? parseDate(row.getCell(clockInTimeCol)) : null;
+        const clockOutTime = clockOutTimeCol ? parseDate(row.getCell(clockOutTimeCol)) : null;
+        const status = statusCol ? String(row.getCell(statusCol).value || '').toLowerCase().trim() : null;
+        const serviceType = serviceTypeCol ? String(row.getCell(serviceTypeCol).value || '').trim() : null;
+        const notes = notesCol ? String(row.getCell(notesCol).value || '').trim() : null;
+
+        if (!scheduledDate || !startTime || !endTime) {
+          results.push({
+            row: rowNum,
+            status: 'error',
+            admissionId,
+            assignmentId,
+            clientName: client ? `${client.firstName} ${client.lastName}` : undefined,
+            caregiverName: `${caregiver.firstName} ${caregiver.lastName}`,
+            message: 'Missing required date/time fields (Scheduled Date, Start Time, End Time)'
+          });
+          errors++;
+          continue;
+        }
+
+        // Map status values
+        const mapStatus = (s: string | null): string => {
+          if (!s) return 'scheduled';
+          const statusMap: { [key: string]: string } = {
+            'completed': 'completed',
+            'done': 'completed',
+            'finished': 'completed',
+            'cancelled': 'cancelled',
+            'canceled': 'cancelled',
+            'no show': 'no_show',
+            'noshow': 'no_show',
+            'no-show': 'no_show',
+            'scheduled': 'scheduled',
+            'pending': 'scheduled',
+            'confirmed': 'confirmed',
+            'in progress': 'in_progress',
+            'in_progress': 'in_progress',
+          };
+          return statusMap[s] || 'scheduled';
+        };
+
+        try {
+          // Check if schedule already exists for this caregiver, client, date
+          const existingSchedules = await storage.getCaregiverSchedules(caregiver.id);
+          const sameDaySchedule = existingSchedules.find((s: any) => {
+            if (!s.scheduledDate) return false;
+            const sDate = new Date(s.scheduledDate);
+            return sDate.toDateString() === scheduledDate.toDateString() && 
+                   s.clientId === (client?.id || null) &&
+                   s.startTime === startTime;
+          });
+
+          if (sameDaySchedule) {
+            // Update existing schedule
+            await storage.updateCaregiverSchedule(sameDaySchedule.id, {
+              endTime,
+              clockInTime,
+              clockOutTime,
+              status: mapStatus(status),
+              serviceType: serviceType || sameDaySchedule.serviceType,
+              notes: notes || sameDaySchedule.notes,
+              evvStatus: clockInTime && clockOutTime ? 'compliant' : 'pending',
+              updatedAt: new Date(),
+            });
+
+            results.push({
+              row: rowNum,
+              status: 'updated',
+              admissionId,
+              assignmentId,
+              clientName: client ? `${client.firstName} ${client.lastName}` : undefined,
+              caregiverName: `${caregiver.firstName} ${caregiver.lastName}`,
+              message: `Schedule updated for ${scheduledDate.toLocaleDateString()}`
+            });
+            updated++;
+          } else {
+            // Create new schedule
+            await storage.createCaregiverSchedule({
+              caregiverId: caregiver.id,
+              clientId: client?.id || null,
+              scheduledDate,
+              startTime,
+              endTime,
+              clockInTime,
+              clockOutTime,
+              status: mapStatus(status),
+              serviceType: serviceType || undefined,
+              notes: notes || undefined,
+              evvStatus: clockInTime && clockOutTime ? 'compliant' : 'pending',
+              createdBy: user.id,
+            });
+
+            results.push({
+              row: rowNum,
+              status: 'created',
+              admissionId,
+              assignmentId,
+              clientName: client ? `${client.firstName} ${client.lastName}` : undefined,
+              caregiverName: `${caregiver.firstName} ${caregiver.lastName}`,
+              message: `New schedule created for ${scheduledDate.toLocaleDateString()}`
+            });
+            created++;
+          }
+        } catch (err: any) {
+          results.push({
+            row: rowNum,
+            status: 'error',
+            admissionId,
+            assignmentId,
+            clientName: client ? `${client.firstName} ${client.lastName}` : undefined,
+            caregiverName: `${caregiver.firstName} ${caregiver.lastName}`,
+            message: err.message || 'Failed to process row'
+          });
+          errors++;
+        }
+      }
+
+      res.json({
+        success: true,
+        summary: {
+          totalRows: worksheet.rowCount - 1,
+          created,
+          updated,
+          skipped,
+          errors,
+        },
+        results,
+      });
+    } catch (error: any) {
+      console.error("Error processing visit log upload:", error);
+      res.status(500).json({ message: error.message || "Failed to process visit log file" });
+    }
+  });
+
+  // Get expected column format for visit log upload
+  app.get("/api/admin/visit-log/template-info", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.user;
+      if (!user || !["admin", "office_admin", "super_admin"].includes(user.role)) {
+        return res.status(403).json({ message: "Access denied. Admin or Office Manager role required." });
+      }
+
+      res.json({
+        requiredColumns: [
+          { name: 'Admission ID', description: 'Client Admission ID (matches hhaxAdmissionId)', required: true },
+          { name: 'Assignment ID', description: 'Caregiver Assignment ID', required: true },
+          { name: 'Scheduled Date', description: 'Visit date (e.g., 2024-01-15)', required: true },
+          { name: 'Start Time', description: 'Scheduled start time (e.g., 09:00)', required: true },
+          { name: 'End Time', description: 'Scheduled end time (e.g., 17:00)', required: true },
+        ],
+        optionalColumns: [
+          { name: 'Actual Clock In', description: 'Actual check-in time' },
+          { name: 'Actual Clock Out', description: 'Actual check-out time' },
+          { name: 'Status', description: 'Visit status (Completed, Cancelled, No Show, etc.)' },
+          { name: 'Service Type', description: 'Type of service provided' },
+          { name: 'Notes', description: 'Visit notes or comments' },
+        ],
+        tips: [
+          'Column names are matched flexibly - "Admission ID", "AdmissionId", and "admission_id" all work',
+          'Dates can be in various formats (MM/DD/YYYY, YYYY-MM-DD, etc.)',
+          'Times can be in 12-hour (9:00 AM) or 24-hour (09:00) format',
+          'Existing schedules for the same client, caregiver, date, and start time will be updated',
+        ],
+      });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to get template info" });
+    }
+  });
+
   // ==================== EXCLUSION VERIFICATION ROUTES ====================
 
   app.get("/api/exclusions/sources", isAuthenticated, async (req: any, res) => {

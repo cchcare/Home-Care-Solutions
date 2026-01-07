@@ -2,8 +2,8 @@ import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import Sidebar from "@/components/sidebar";
-import Topbar from "@/components/topbar";
+import { Sidebar } from "@/components/sidebar";
+import { TopBar } from "@/components/topbar";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -171,7 +171,7 @@ export default function ESignatureTemplates() {
     <div className="flex h-screen bg-gray-50 dark:bg-gray-900">
       <Sidebar />
       <div className="flex-1 flex flex-col overflow-hidden">
-        <Topbar />
+        <TopBar />
         <main className="flex-1 overflow-y-auto p-6">
           <div className="max-w-7xl mx-auto">
             <div className="flex justify-between items-center mb-6">

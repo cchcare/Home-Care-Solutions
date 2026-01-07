@@ -36,7 +36,8 @@ import {
   Ticket,
   Link2,
   FileSignature,
-  Mail
+  Mail,
+  FileUp
 } from "lucide-react";
 
 interface NavItem {
@@ -122,6 +123,7 @@ export function Sidebar() {
         { name: "Letter Templates", href: "/letter-templates", icon: FileSignature },
         { name: "Birthday Notifications", href: "/birthday-notifications", icon: Cake },
         { name: "HHAX Integration", href: "/hhax-integration", icon: Plug },
+        { name: "Visit Log Upload", href: "/visit-log-upload", icon: FileUp },
         { name: "Exclusion Verification", href: "/exclusion-verification", icon: UserX },
       ];
       

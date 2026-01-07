@@ -56,6 +56,7 @@ import CareQualityScorecard from "@/pages/care-quality-scorecard";
 import FinancialReports from "@/pages/financial-reports";
 import ESignatureTemplates from "@/pages/esignature-templates";
 import ESign from "@/pages/esign";
+import VisitLogUpload from "@/pages/visit-log-upload";
 
 function Router() {
   const { isAuthenticated, isLoading, error } = useAuth();
@@ -126,6 +127,7 @@ function Router() {
           <Route path="/care-quality-scorecard" component={CareQualityScorecard} />
           <Route path="/financial-reports" component={FinancialReports} />
           <Route path="/esignature-templates" component={ESignatureTemplates} />
+          <Route path="/visit-log-upload" component={VisitLogUpload} />
         </>
       )}
       <Route component={NotFound} />
