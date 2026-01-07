@@ -1768,6 +1768,48 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Invalid data format" });
       }
 
+      // Helper function to convert Excel dates to JavaScript Date objects
+      const parseExcelDate = (value: any): Date | undefined => {
+        if (!value) return undefined;
+        
+        // Already a Date object
+        if (value instanceof Date) return value;
+        
+        // Excel serial number (days since 1900-01-01, with Excel's leap year bug)
+        if (typeof value === 'number') {
+          // Excel incorrectly considers 1900 a leap year, so subtract 1 for dates after Feb 28, 1900
+          const excelEpoch = new Date(1899, 11, 30); // Dec 30, 1899
+          const date = new Date(excelEpoch.getTime() + value * 24 * 60 * 60 * 1000);
+          return date;
+        }
+        
+        // String date - try parsing various formats
+        if (typeof value === 'string') {
+          const trimmed = value.trim();
+          if (!trimmed) return undefined;
+          
+          // Try ISO format first (YYYY-MM-DD)
+          let parsed = new Date(trimmed);
+          if (!isNaN(parsed.getTime())) return parsed;
+          
+          // Try MM/DD/YYYY format
+          const mdyMatch = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+          if (mdyMatch) {
+            parsed = new Date(parseInt(mdyMatch[3]), parseInt(mdyMatch[1]) - 1, parseInt(mdyMatch[2]));
+            if (!isNaN(parsed.getTime())) return parsed;
+          }
+          
+          // Try DD/MM/YYYY format (if month > 12, swap)
+          const dmyMatch = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+          if (dmyMatch && parseInt(dmyMatch[1]) > 12) {
+            parsed = new Date(parseInt(dmyMatch[3]), parseInt(dmyMatch[2]) - 1, parseInt(dmyMatch[1]));
+            if (!isNaN(parsed.getTime())) return parsed;
+          }
+        }
+        
+        return undefined;
+      };
+
       interface BulkImportError {
         row: number;
         error: string;
@@ -1789,7 +1831,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       for (let i = 0; i < data.length; i++) {
         try {
-          const caregiverData = data[i];
+          const rawCaregiverData = data[i];
+          
+          // Convert Excel date fields to Date objects
+          const caregiverData = {
+            ...rawCaregiverData,
+            dateOfBirth: parseExcelDate(rawCaregiverData.dateOfBirth),
+            hireDate: parseExcelDate(rawCaregiverData.hireDate),
+            terminationDate: parseExcelDate(rawCaregiverData.terminationDate),
+            orientationDate: parseExcelDate(rawCaregiverData.orientationDate),
+            lastPayDate: parseExcelDate(rawCaregiverData.lastPayDate),
+          };
           
           // Extract user info from the caregiver data
           const { email, firstName, middleName, lastName, dateOfBirth, ...caregiverInfo } = caregiverData;
