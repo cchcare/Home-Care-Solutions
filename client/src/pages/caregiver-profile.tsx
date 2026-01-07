@@ -18,6 +18,7 @@ import {
   SelectTrigger,
   SelectValue 
 } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -209,6 +210,16 @@ export default function CaregiverProfile() {
   });
   const [showTemplateDialog, setShowTemplateDialog] = useState(false);
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
+  const [absenceForm, setAbsenceForm] = useState({
+    absenceType: "vacation",
+    startDate: "",
+    endDate: "",
+    isAllDay: true,
+    startTime: "",
+    endTime: "",
+    reason: "",
+    status: "approved",
+  });
 
   const { data: caregiver, isLoading: caregiverLoading } = useQuery<EnrichedCaregiver>({
     queryKey: ["/api/caregivers", caregiverId],
@@ -539,6 +550,52 @@ export default function CaregiverProfile() {
       toast({ title: "Error", description: "Failed to delete compliance item", variant: "destructive" });
     },
   });
+
+  const createAbsenceMutation = useMutation({
+    mutationFn: async (data: any) => {
+      return await apiRequest("POST", `/api/caregivers/${caregiverId}/absences`, data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/caregivers", caregiverId, "absences"] });
+      setShowAddDialog(false);
+      resetAbsenceForm();
+      toast({ title: "Success", description: "Absence added successfully" });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to add absence", variant: "destructive" });
+    },
+  });
+
+  const resetAbsenceForm = () => {
+    setAbsenceForm({
+      absenceType: "vacation",
+      startDate: "",
+      endDate: "",
+      isAllDay: true,
+      startTime: "",
+      endTime: "",
+      reason: "",
+      status: "approved",
+    });
+  };
+
+  const handleSaveAbsence = () => {
+    if (!absenceForm.startDate) {
+      toast({ title: "Error", description: "Start date is required", variant: "destructive" });
+      return;
+    }
+    const data = {
+      absenceType: absenceForm.absenceType,
+      startDate: new Date(absenceForm.startDate),
+      endDate: absenceForm.endDate ? new Date(absenceForm.endDate) : null,
+      isAllDay: absenceForm.isAllDay,
+      startTime: absenceForm.isAllDay ? null : (absenceForm.startTime || null),
+      endTime: absenceForm.isAllDay ? null : (absenceForm.endTime || null),
+      reason: absenceForm.reason || null,
+      status: absenceForm.status,
+    };
+    createAbsenceMutation.mutate(data);
+  };
 
   const resetComplianceForm = () => {
     setComplianceForm({
@@ -2385,15 +2442,130 @@ export default function CaregiverProfile() {
               {dialogType === "payroll-info" && "Setup Payroll Info"}
             </DialogTitle>
           </DialogHeader>
-          <div className="py-4">
-            <p className="text-sm text-muted-foreground">
-              Form for adding {dialogType} would be implemented here with proper validation and API calls.
-            </p>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowAddDialog(false)}>Cancel</Button>
-            <Button onClick={() => setShowAddDialog(false)}>Save</Button>
-          </DialogFooter>
+          {dialogType === "absence" ? (
+            <>
+              <div className="py-4 space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="absenceType">Absence Type</Label>
+                  <Select
+                    value={absenceForm.absenceType}
+                    onValueChange={(value) => setAbsenceForm(prev => ({ ...prev, absenceType: value }))}
+                  >
+                    <SelectTrigger id="absenceType" data-testid="select-absence-type">
+                      <SelectValue placeholder="Select type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="vacation">Vacation</SelectItem>
+                      <SelectItem value="sick">Sick</SelectItem>
+                      <SelectItem value="personal">Personal</SelectItem>
+                      <SelectItem value="fmla">FMLA</SelectItem>
+                      <SelectItem value="restriction">Restriction</SelectItem>
+                      <SelectItem value="unavailable">Unavailable</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="startDate">Start Date *</Label>
+                    <Input
+                      id="startDate"
+                      type="date"
+                      value={absenceForm.startDate}
+                      onChange={(e) => setAbsenceForm(prev => ({ ...prev, startDate: e.target.value }))}
+                      data-testid="input-absence-start-date"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="endDate">End Date</Label>
+                    <Input
+                      id="endDate"
+                      type="date"
+                      value={absenceForm.endDate}
+                      onChange={(e) => setAbsenceForm(prev => ({ ...prev, endDate: e.target.value }))}
+                      data-testid="input-absence-end-date"
+                    />
+                  </div>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <Checkbox
+                    id="isAllDay"
+                    checked={absenceForm.isAllDay}
+                    onCheckedChange={(checked) => setAbsenceForm(prev => ({ ...prev, isAllDay: checked === true }))}
+                    data-testid="checkbox-absence-all-day"
+                  />
+                  <Label htmlFor="isAllDay">All Day</Label>
+                </div>
+                {!absenceForm.isAllDay && (
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="startTime">Start Time (HH:MM)</Label>
+                      <Input
+                        id="startTime"
+                        type="time"
+                        value={absenceForm.startTime}
+                        onChange={(e) => setAbsenceForm(prev => ({ ...prev, startTime: e.target.value }))}
+                        data-testid="input-absence-start-time"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="endTime">End Time (HH:MM)</Label>
+                      <Input
+                        id="endTime"
+                        type="time"
+                        value={absenceForm.endTime}
+                        onChange={(e) => setAbsenceForm(prev => ({ ...prev, endTime: e.target.value }))}
+                        data-testid="input-absence-end-time"
+                      />
+                    </div>
+                  </div>
+                )}
+                <div className="space-y-2">
+                  <Label htmlFor="reason">Reason</Label>
+                  <Textarea
+                    id="reason"
+                    value={absenceForm.reason}
+                    onChange={(e) => setAbsenceForm(prev => ({ ...prev, reason: e.target.value }))}
+                    placeholder="Enter reason for absence..."
+                    data-testid="textarea-absence-reason"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="status">Status</Label>
+                  <Select
+                    value={absenceForm.status}
+                    onValueChange={(value) => setAbsenceForm(prev => ({ ...prev, status: value }))}
+                  >
+                    <SelectTrigger id="status" data-testid="select-absence-status">
+                      <SelectValue placeholder="Select status" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="pending">Pending</SelectItem>
+                      <SelectItem value="approved">Approved</SelectItem>
+                      <SelectItem value="denied">Denied</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => { setShowAddDialog(false); resetAbsenceForm(); }} data-testid="button-cancel-absence">Cancel</Button>
+                <Button onClick={handleSaveAbsence} disabled={createAbsenceMutation.isPending} data-testid="button-save-absence">
+                  {createAbsenceMutation.isPending ? "Saving..." : "Save"}
+                </Button>
+              </DialogFooter>
+            </>
+          ) : (
+            <>
+              <div className="py-4">
+                <p className="text-sm text-muted-foreground">
+                  Form for adding {dialogType} would be implemented here with proper validation and API calls.
+                </p>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setShowAddDialog(false)}>Cancel</Button>
+                <Button onClick={() => setShowAddDialog(false)}>Save</Button>
+              </DialogFooter>
+            </>
+          )}
         </DialogContent>
       </Dialog>
 
