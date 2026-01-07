@@ -13116,8 +13116,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Create a new letter template (admin only)
   app.post("/api/letter-templates", isAuthenticated, async (req: any, res) => {
     try {
-      const user = req.user;
-      if (!user || !['super_admin', 'admin', 'office_admin'].includes(user.role)) {
+      const user = req.session?.user;
+      if (!user || !['super_admin', 'admin', 'office_admin', 'manager'].includes(user.role)) {
         return res.status(403).json({ message: "Only administrators can create letter templates" });
       }
       
@@ -13150,8 +13150,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Update a letter template (admin only)
   app.patch("/api/letter-templates/:id", isAuthenticated, async (req: any, res) => {
     try {
-      const user = req.user;
-      if (!user || !['super_admin', 'admin', 'office_admin'].includes(user.role)) {
+      const user = req.session?.user;
+      if (!user || !['super_admin', 'admin', 'office_admin', 'manager'].includes(user.role)) {
         return res.status(403).json({ message: "Only administrators can update letter templates" });
       }
       const existing = await storage.getLetterTemplate(req.params.id);
@@ -13187,8 +13187,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Delete a letter template (admin only)
   app.delete("/api/letter-templates/:id", isAuthenticated, async (req: any, res) => {
     try {
-      const user = req.user;
-      if (!user || !['super_admin', 'admin', 'office_admin'].includes(user.role)) {
+      const user = req.session?.user;
+      if (!user || !['super_admin', 'admin', 'office_admin', 'manager'].includes(user.role)) {
         return res.status(403).json({ message: "Only administrators can delete letter templates" });
       }
       await storage.deleteLetterTemplate(req.params.id);
