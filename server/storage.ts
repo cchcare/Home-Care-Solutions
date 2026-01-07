@@ -1432,6 +1432,93 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deleteClient(id: string): Promise<void> {
+    // Delete all related records first to handle foreign key constraints
+    // Order matters - delete child tables before parent
+    
+    // Delete caregiver assignments
+    await db.delete(clientCaregiverAssignments).where(eq(clientCaregiverAssignments.clientId, id));
+    
+    // Delete caregiver schedules related to this client
+    await db.delete(caregiverSchedules).where(eq(caregiverSchedules.clientId, id));
+    
+    // Delete caregiver time entries related to this client
+    await db.delete(caregiverTimeEntries).where(eq(caregiverTimeEntries.clientId, id));
+    
+    // Delete master week slots first (they reference master week templates)
+    const templates = await db.select().from(masterWeekTemplates).where(eq(masterWeekTemplates.clientId, id));
+    for (const template of templates) {
+      await db.delete(masterWeekSlots).where(eq(masterWeekSlots.templateId, template.id));
+    }
+    await db.delete(masterWeekTemplates).where(eq(masterWeekTemplates.clientId, id));
+    
+    // Delete schedule change logs first (they reference schedules)
+    const schedules = await db.select().from(clientSchedules).where(eq(clientSchedules.clientId, id));
+    for (const schedule of schedules) {
+      await db.delete(scheduleChangeLog).where(eq(scheduleChangeLog.scheduleId, schedule.id));
+    }
+    await db.delete(clientSchedules).where(eq(clientSchedules.clientId, id));
+    
+    // Delete client communications
+    await db.delete(clientCommunications).where(eq(clientCommunications.clientId, id));
+    
+    // Delete client MCOs
+    await db.delete(clientMcos).where(eq(clientMcos.clientId, id));
+    
+    // Delete eligibility schedule and checks
+    await db.delete(eligibilitySchedule).where(eq(eligibilitySchedule.clientId, id));
+    await db.delete(eligibilityChecks).where(eq(eligibilityChecks.clientId, id));
+    
+    // Delete medication logs first (they reference medications)
+    await db.delete(medicationLogs).where(eq(medicationLogs.clientId, id));
+    
+    // Delete medications
+    await db.delete(medications).where(eq(medications.clientId, id));
+    
+    // Delete vital signs
+    await db.delete(vitalSigns).where(eq(vitalSigns.clientId, id));
+    
+    // Delete documents related to client
+    await db.delete(documents).where(eq(documents.clientId, id));
+    
+    // Delete mileage logs
+    await db.delete(mileageLogs).where(eq(mileageLogs.clientId, id));
+    
+    // Delete generated letters for this client (using targetId with scope=client)
+    await db.delete(generatedLetters).where(
+      and(eq(generatedLetters.targetId, id), eq(generatedLetters.scope, "client"))
+    );
+    
+    // Delete incident follow-ups first (they reference incident reports)
+    const incidents = await db.select().from(incidentReports).where(eq(incidentReports.clientId, id));
+    for (const incident of incidents) {
+      await db.delete(incidentFollowUps).where(eq(incidentFollowUps.incidentId, incident.id));
+    }
+    await db.delete(incidentReports).where(eq(incidentReports.clientId, id));
+    
+    // Delete care plans and related data
+    const carePlansToDelete = await db.select().from(carePlans).where(eq(carePlans.clientId, id));
+    for (const carePlan of carePlansToDelete) {
+      await db.delete(carePlanInterventions).where(eq(carePlanInterventions.carePlanId, carePlan.id));
+      await db.delete(carePlanGoals).where(eq(carePlanGoals.carePlanId, carePlan.id));
+    }
+    await db.delete(carePlans).where(eq(carePlans.clientId, id));
+    
+    // Delete progress notes
+    await db.delete(progressNotes).where(eq(progressNotes.clientId, id));
+    
+    // Delete claims
+    await db.delete(claims).where(eq(claims.clientId, id));
+    
+    // Delete survey responses
+    await db.delete(surveyResponses).where(eq(surveyResponses.clientId, id));
+    
+    // Delete client referrals
+    await db.delete(clientReferrals).where(eq(clientReferrals.clientId, id));
+    
+    // Delete client family member associations
+    await db.delete(clientFamilyMembers).where(eq(clientFamilyMembers.clientId, id));
+    
+    // Finally delete the client
     await db.delete(clients).where(eq(clients.id, id));
   }
 

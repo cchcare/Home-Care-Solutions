@@ -884,10 +884,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Office routes
-  app.get("/api/offices", isAuthenticated, async (req, res) => {
+  app.get("/api/offices", isAuthenticated, async (req: any, res) => {
     try {
-      const offices = await storage.getAllOffices();
-      res.json(offices);
+      const currentUser = req.session?.user;
+      const allOffices = await storage.getAllOffices();
+      
+      // Super admins can see all offices regardless of assignment
+      if (currentUser?.role === "super_admin") {
+        return res.json(allOffices);
+      }
+      
+      // All other roles only see their assigned office
+      // If no office assigned, return empty array
+      if (currentUser?.primaryOfficeId) {
+        const filteredOffices = allOffices.filter(
+          office => office.id === currentUser.primaryOfficeId
+        );
+        return res.json(filteredOffices);
+      }
+      
+      // No office assignment - return empty array
+      return res.json([]);
     } catch (error) {
       console.error("Error fetching offices:", error);
       res.status(500).json({ message: "Failed to fetch offices" });

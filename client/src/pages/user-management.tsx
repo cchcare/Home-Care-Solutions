@@ -22,17 +22,47 @@ import { format } from "date-fns";
 import { z } from "zod";
 import { useAuth } from "@/hooks/useAuth";
 
+// Schema for form - password validation is context-dependent (handled in onSubmit)
 const userFormSchema = insertUserSchema.extend({
-  password: z.string().min(8, "Password must be at least 8 characters").optional(),
+  password: z.string().optional(),
   passwordConfirm: z.string().optional(),
-}).omit({ id: true, createdAt: true, updatedAt: true }).refine((data) => {
-  if (data.password && data.passwordConfirm && data.password !== data.passwordConfirm) {
-    return false;
+  isEditing: z.boolean().optional(), // Hidden field to track edit mode
+}).omit({ id: true, createdAt: true, updatedAt: true }).superRefine((data, ctx) => {
+  // When creating new user (not editing), password is required
+  if (!data.isEditing) {
+    if (!data.password || data.password.length < 8) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Password must be at least 8 characters",
+        path: ["password"],
+      });
+    }
+    if (!data.passwordConfirm) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Please confirm password",
+        path: ["passwordConfirm"],
+      });
+    }
+  } else {
+    // When editing, if password is provided, it must be at least 8 chars
+    if (data.password && data.password.length > 0 && data.password.length < 8) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Password must be at least 8 characters",
+        path: ["password"],
+      });
+    }
   }
-  return true;
-}, {
-  message: "Passwords do not match",
-  path: ["passwordConfirm"],
+  
+  // Check password match if password is provided
+  if (data.password && data.password.length > 0 && data.password !== data.passwordConfirm) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Passwords do not match",
+      path: ["passwordConfirm"],
+    });
+  }
 });
 
 type UserFormData = z.infer<typeof userFormSchema>;
@@ -199,13 +229,31 @@ export default function UserManagementPage() {
       state: "",
       zipCode: "",
       isActive: true,
+      isEditing: false,
     },
   });
 
   const handleClose = () => {
     setOpen(false);
     setEditingUser(null);
-    form.reset();
+    form.reset({
+      username: "",
+      email: "",
+      password: "",
+      passwordConfirm: "",
+      firstName: "",
+      lastName: "",
+      profileImageUrl: "",
+      role: "caregiver",
+      primaryOfficeId: "",
+      address: "",
+      address2: "",
+      city: "",
+      state: "",
+      zipCode: "",
+      isActive: true,
+      isEditing: false,
+    });
   };
 
   const handleViewUser = (user: User) => {
@@ -236,6 +284,7 @@ export default function UserManagementPage() {
       state: user.state || "",
       zipCode: user.zipCode || "",
       isActive: user.isActive,
+      isEditing: true,
     });
     setOpen(true);
   };
@@ -245,10 +294,18 @@ export default function UserManagementPage() {
   };
 
   const onSubmit = (data: UserFormData) => {
+    // Strip internal fields before sending to API
+    const { isEditing, passwordConfirm, ...apiData } = data;
+    
+    // Remove password from update if empty (user doesn't want to change it)
+    const cleanedData = editingUser && (!apiData.password || apiData.password === "")
+      ? { ...apiData, password: undefined }
+      : apiData;
+    
     if (editingUser) {
-      updateUserMutation.mutate({ id: editingUser.id, data });
+      updateUserMutation.mutate({ id: editingUser.id, data: cleanedData });
     } else {
-      createUserMutation.mutate(data);
+      createUserMutation.mutate(cleanedData);
     }
   };
 
@@ -307,7 +364,30 @@ export default function UserManagementPage() {
           <ExcelImport type="users" onImportComplete={() => {
             queryClient.invalidateQueries({ queryKey: ["/api/users"] });
           }} />
-          <Dialog open={open} onOpenChange={setOpen}>
+          <Dialog open={open} onOpenChange={(isOpen) => {
+            setOpen(isOpen);
+            // When opening for new user creation (not via handleEdit), reset form with isEditing=false
+            if (isOpen && !editingUser) {
+              form.reset({
+                username: "",
+                email: "",
+                password: "",
+                passwordConfirm: "",
+                firstName: "",
+                lastName: "",
+                profileImageUrl: "",
+                role: "caregiver",
+                primaryOfficeId: "",
+                address: "",
+                address2: "",
+                city: "",
+                state: "",
+                zipCode: "",
+                isActive: true,
+                isEditing: false,
+              });
+            }
+          }}>
             <DialogTrigger asChild>
               <Button data-testid="button-create-user">
                 <Plus className="mr-2 h-4 w-4" />
