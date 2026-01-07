@@ -5145,6 +5145,62 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Office Dashboard Links routes
+  app.get("/api/offices/:officeId/dashboard-links", isAuthenticated, async (req, res) => {
+    try {
+      const links = await storage.getOfficeDashboardLinks(req.params.officeId);
+      res.json(links);
+    } catch (error) {
+      console.error("Error fetching dashboard links:", error);
+      res.status(500).json({ message: "Failed to fetch dashboard links" });
+    }
+  });
+
+  app.post("/api/offices/:officeId/dashboard-links", isAuthenticated, async (req, res) => {
+    try {
+      const user = req.user as any;
+      if (!user || (user.role !== "admin" && user.role !== "office_admin" && user.role !== "super_admin")) {
+        return res.status(403).json({ message: "Only office managers can add dashboard links" });
+      }
+      const link = await storage.createOfficeDashboardLink({
+        ...req.body,
+        officeId: req.params.officeId,
+      });
+      res.status(201).json(link);
+    } catch (error) {
+      console.error("Error creating dashboard link:", error);
+      res.status(500).json({ message: "Failed to create dashboard link" });
+    }
+  });
+
+  app.patch("/api/dashboard-links/:id", isAuthenticated, async (req, res) => {
+    try {
+      const user = req.user as any;
+      if (!user || (user.role !== "admin" && user.role !== "office_admin" && user.role !== "super_admin")) {
+        return res.status(403).json({ message: "Only office managers can edit dashboard links" });
+      }
+      const link = await storage.updateOfficeDashboardLink(req.params.id, req.body);
+      res.json(link);
+    } catch (error) {
+      console.error("Error updating dashboard link:", error);
+      res.status(500).json({ message: "Failed to update dashboard link" });
+    }
+  });
+
+  app.delete("/api/dashboard-links/:id", isAuthenticated, async (req, res) => {
+    try {
+      const user = req.user as any;
+      if (!user || (user.role !== "admin" && user.role !== "office_admin" && user.role !== "super_admin")) {
+        return res.status(403).json({ message: "Only office managers can delete dashboard links" });
+      }
+      await storage.deleteOfficeDashboardLink(req.params.id);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting dashboard link:", error);
+      res.status(500).json({ message: "Failed to delete dashboard link" });
+    }
+  });
+
   // MCOs routes - admin endpoint
   app.get("/api/admin/mcos", isAuthenticated, async (req, res) => {
     try {

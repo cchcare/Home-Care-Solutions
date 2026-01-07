@@ -332,6 +332,9 @@ import {
   emailTemplates,
   type EmailTemplate,
   type InsertEmailTemplate,
+  officeDashboardLinks,
+  type OfficeDashboardLink,
+  type InsertOfficeDashboardLink,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, asc, and, or, count, sql, like, gte, lte, inArray } from "drizzle-orm";
@@ -365,6 +368,13 @@ export interface IStorage {
   createOffice(office: InsertOffice): Promise<Office>;
   updateOffice(id: string, office: Partial<InsertOffice>): Promise<Office>;
   deleteOffice(id: string): Promise<void>;
+
+  // Office Dashboard Links operations
+  getOfficeDashboardLinks(officeId: string): Promise<OfficeDashboardLink[]>;
+  getOfficeDashboardLink(id: string): Promise<OfficeDashboardLink | undefined>;
+  createOfficeDashboardLink(link: InsertOfficeDashboardLink): Promise<OfficeDashboardLink>;
+  updateOfficeDashboardLink(id: string, link: Partial<InsertOfficeDashboardLink>): Promise<OfficeDashboardLink>;
+  deleteOfficeDashboardLink(id: string): Promise<void>;
 
   // Coordinator operations
   getAllCoordinators(officeId?: string): Promise<Coordinator[]>;
@@ -1294,6 +1304,35 @@ export class DatabaseStorage implements IStorage {
 
   async deleteOffice(id: string): Promise<void> {
     await db.delete(offices).where(eq(offices.id, id));
+  }
+
+  // Office Dashboard Links
+  async getOfficeDashboardLinks(officeId: string): Promise<OfficeDashboardLink[]> {
+    return await db.select().from(officeDashboardLinks)
+      .where(and(eq(officeDashboardLinks.officeId, officeId), eq(officeDashboardLinks.isActive, true)))
+      .orderBy(asc(officeDashboardLinks.sortOrder));
+  }
+
+  async getOfficeDashboardLink(id: string): Promise<OfficeDashboardLink | undefined> {
+    const [link] = await db.select().from(officeDashboardLinks).where(eq(officeDashboardLinks.id, id));
+    return link;
+  }
+
+  async createOfficeDashboardLink(link: InsertOfficeDashboardLink): Promise<OfficeDashboardLink> {
+    const [created] = await db.insert(officeDashboardLinks).values(link).returning();
+    return created;
+  }
+
+  async updateOfficeDashboardLink(id: string, link: Partial<InsertOfficeDashboardLink>): Promise<OfficeDashboardLink> {
+    const [updated] = await db.update(officeDashboardLinks)
+      .set({ ...link, updatedAt: new Date() })
+      .where(eq(officeDashboardLinks.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteOfficeDashboardLink(id: string): Promise<void> {
+    await db.delete(officeDashboardLinks).where(eq(officeDashboardLinks.id, id));
   }
 
   // Coordinator operations

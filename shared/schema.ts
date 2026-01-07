@@ -844,10 +844,37 @@ export const filesRelations = relations(files, ({ one }) => ({
   }),
 }));
 
+// Office Dashboard Links - custom quick links for 3rd party applications
+export const officeDashboardLinks = pgTable("office_dashboard_links", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  officeId: varchar("office_id").notNull().references(() => offices.id),
+  title: varchar("title").notNull(),
+  url: text("url").notNull(),
+  description: text("description"),
+  icon: varchar("icon"), // lucide icon name
+  sortOrder: integer("sort_order").default(0),
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_dashboard_links_office").on(table.officeId),
+]);
+
+export const officeDashboardLinksRelations = relations(officeDashboardLinks, ({ one }) => ({
+  office: one(offices, {
+    fields: [officeDashboardLinks.officeId],
+    references: [offices.id],
+  }),
+}));
+
 // Schema types
 export type Office = typeof offices.$inferSelect;
 export type InsertOffice = typeof offices.$inferInsert;
 export const insertOfficeSchema = createInsertSchema(offices);
+
+export type OfficeDashboardLink = typeof officeDashboardLinks.$inferSelect;
+export type InsertOfficeDashboardLink = typeof officeDashboardLinks.$inferInsert;
+export const insertOfficeDashboardLinkSchema = createInsertSchema(officeDashboardLinks).omit({ id: true, createdAt: true, updatedAt: true });
 
 export type Coordinator = typeof coordinators.$inferSelect;
 export type InsertCoordinator = typeof coordinators.$inferInsert;

@@ -1,7 +1,7 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -35,7 +35,13 @@ import {
   User,
   Key,
   LogOut,
-  ChevronDown
+  ChevronDown,
+  ExternalLink,
+  Trash2,
+  PlusCircle,
+  Pencil,
+  Globe,
+  X
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -45,6 +51,12 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { AiIssuesPanel } from "@/components/ai-issues-panel";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import type { OfficeDashboardLink } from "@shared/schema";
 
 export default function Dashboard() {
   const { toast } = useToast();
@@ -108,6 +120,74 @@ export default function Dashboard() {
     queryFn: () => fetch(`/api/dashboard/monthly-stats?year=${new Date().getFullYear()}${selectedOfficeId !== "all" ? `&officeId=${selectedOfficeId}` : ""}`).then(r => r.json()),
     retry: false,
   });
+
+  const { data: quickLinks = [], isLoading: quickLinksLoading } = useQuery<OfficeDashboardLink[]>({
+    queryKey: ["/api/offices", selectedOfficeId, "dashboard-links"],
+    queryFn: () => fetch(`/api/offices/${selectedOfficeId}/dashboard-links`).then(r => r.json()),
+    enabled: !!selectedOfficeId && selectedOfficeId !== "all",
+  });
+
+  const [linkDialogOpen, setLinkDialogOpen] = useState(false);
+  const [editingLink, setEditingLink] = useState<OfficeDashboardLink | null>(null);
+  const [linkForm, setLinkForm] = useState({ title: "", url: "", description: "" });
+
+  const createLinkMutation = useMutation({
+    mutationFn: async (data: { title: string; url: string; description?: string }) => {
+      return await apiRequest("POST", `/api/offices/${selectedOfficeId}/dashboard-links`, data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/offices", selectedOfficeId, "dashboard-links"] });
+      setLinkDialogOpen(false);
+      setLinkForm({ title: "", url: "", description: "" });
+      toast({ title: "Success", description: "Link added successfully" });
+    },
+  });
+
+  const updateLinkMutation = useMutation({
+    mutationFn: async ({ id, data }: { id: string; data: Partial<OfficeDashboardLink> }) => {
+      return await apiRequest("PATCH", `/api/dashboard-links/${id}`, data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/offices", selectedOfficeId, "dashboard-links"] });
+      setLinkDialogOpen(false);
+      setEditingLink(null);
+      setLinkForm({ title: "", url: "", description: "" });
+      toast({ title: "Success", description: "Link updated successfully" });
+    },
+  });
+
+  const deleteLinkMutation = useMutation({
+    mutationFn: async (id: string) => {
+      return await apiRequest("DELETE", `/api/dashboard-links/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/offices", selectedOfficeId, "dashboard-links"] });
+      toast({ title: "Success", description: "Link deleted successfully" });
+    },
+  });
+
+  const handleOpenAddLink = () => {
+    setEditingLink(null);
+    setLinkForm({ title: "", url: "", description: "" });
+    setLinkDialogOpen(true);
+  };
+
+  const handleOpenEditLink = (link: OfficeDashboardLink) => {
+    setEditingLink(link);
+    setLinkForm({ title: link.title, url: link.url, description: link.description || "" });
+    setLinkDialogOpen(true);
+  };
+
+  const handleSaveLink = () => {
+    if (!linkForm.title || !linkForm.url) return;
+    if (editingLink) {
+      updateLinkMutation.mutate({ id: editingLink.id, data: linkForm });
+    } else {
+      createLinkMutation.mutate(linkForm);
+    }
+  };
+
+  const isOfficeManager = user?.role === "admin" || user?.role === "office_admin" || user?.role === "super_admin";
 
   const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
   const chartData = monthlyStats.map((stat) => ({
@@ -367,6 +447,83 @@ export default function Dashboard() {
 
             {/* AI Issue Detection Panel */}
             <AiIssuesPanel />
+
+            {/* Quick Links Section */}
+            {selectedOfficeId !== "all" && (
+              <Card data-testid="card-quick-links">
+                <CardHeader className="border-b border-border flex flex-row items-center justify-between">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Globe className="w-5 h-5" />
+                    Quick Links
+                  </CardTitle>
+                  {isOfficeManager && (
+                    <Button size="sm" variant="outline" onClick={handleOpenAddLink} data-testid="button-add-quick-link">
+                      <PlusCircle className="w-4 h-4 mr-1" />
+                      Add Link
+                    </Button>
+                  )}
+                </CardHeader>
+                <CardContent className="p-4">
+                  {quickLinksLoading ? (
+                    <div className="text-center text-muted-foreground py-4">Loading...</div>
+                  ) : quickLinks.length === 0 ? (
+                    <div className="text-center text-muted-foreground py-4">
+                      No quick links configured. {isOfficeManager && "Click 'Add Link' to add your first link."}
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+                      {quickLinks.map((link) => (
+                        <div
+                          key={link.id}
+                          className="group relative flex items-center gap-3 p-3 border rounded-lg hover:bg-muted/50 transition-colors"
+                          data-testid={`quick-link-${link.id}`}
+                        >
+                          <div className="w-10 h-10 bg-primary/10 rounded-lg flex items-center justify-center flex-shrink-0">
+                            <ExternalLink className="w-5 h-5 text-primary" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <a
+                              href={link.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="font-medium text-sm hover:text-primary truncate block"
+                              data-testid={`link-title-${link.id}`}
+                            >
+                              {link.title}
+                            </a>
+                            {link.description && (
+                              <p className="text-xs text-muted-foreground truncate">{link.description}</p>
+                            )}
+                          </div>
+                          {isOfficeManager && (
+                            <div className="absolute right-2 top-2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="h-6 w-6"
+                                onClick={() => handleOpenEditLink(link)}
+                                data-testid={`button-edit-link-${link.id}`}
+                              >
+                                <Pencil className="w-3 h-3" />
+                              </Button>
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="h-6 w-6 text-destructive hover:text-destructive"
+                                onClick={() => deleteLinkMutation.mutate(link.id)}
+                                data-testid={`button-delete-link-${link.id}`}
+                              >
+                                <Trash2 className="w-3 h-3" />
+                              </Button>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            )}
 
             {/* Recent Activity & Quick Actions Row */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -692,6 +849,58 @@ export default function Dashboard() {
           </div>
         </div>
       </main>
+
+      {/* Quick Links Dialog */}
+      <Dialog open={linkDialogOpen} onOpenChange={setLinkDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{editingLink ? "Edit Link" : "Add Quick Link"}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="link-title">Title *</Label>
+              <Input
+                id="link-title"
+                value={linkForm.title}
+                onChange={(e) => setLinkForm({ ...linkForm, title: e.target.value })}
+                placeholder="e.g., HHAexchange Portal"
+                data-testid="input-link-title"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="link-url">URL *</Label>
+              <Input
+                id="link-url"
+                value={linkForm.url}
+                onChange={(e) => setLinkForm({ ...linkForm, url: e.target.value })}
+                placeholder="https://example.com"
+                data-testid="input-link-url"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="link-description">Description (optional)</Label>
+              <Textarea
+                id="link-description"
+                value={linkForm.description}
+                onChange={(e) => setLinkForm({ ...linkForm, description: e.target.value })}
+                placeholder="Brief description of this link"
+                rows={2}
+                data-testid="input-link-description"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setLinkDialogOpen(false)}>Cancel</Button>
+            <Button 
+              onClick={handleSaveLink}
+              disabled={!linkForm.title || !linkForm.url || createLinkMutation.isPending || updateLinkMutation.isPending}
+              data-testid="button-save-link"
+            >
+              {createLinkMutation.isPending || updateLinkMutation.isPending ? "Saving..." : "Save"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
