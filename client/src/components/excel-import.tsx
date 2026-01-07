@@ -13,8 +13,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { Upload, FileSpreadsheet, AlertCircle, CheckCircle, X } from "lucide-react";
+import { Upload, FileSpreadsheet, AlertCircle, CheckCircle, X, ArrowRight, MapPin, Loader2 } from "lucide-react";
 import ExcelJS from "exceljs";
 
 interface ExcelImportProps {
@@ -31,52 +33,59 @@ interface ImportResult {
   errors: Array<{ row: number; error: string; data: any }>;
 }
 
-const COLUMN_MAPPINGS = {
-  clients: {
-    firstName: ["First Name", "first_name", "firstName"],
-    lastName: ["Last Name", "last_name", "lastName"],
-    memberId: ["Member ID", "member_id", "memberId", "MemberID"],
-    dateOfBirth: ["Date of Birth", "DOB", "date_of_birth", "dateOfBirth"],
-    phone: ["Phone", "phone", "Phone Number", "phone_number"],
-    email: ["Email", "email", "Email Address", "email_address"],
-    address: ["Address", "address"],
-    emergencyContactName: ["Emergency Contact Name", "emergency_contact_name", "emergencyContactName", "Emergency Contact"],
-    emergencyContactPhone: ["Emergency Contact Phone", "emergency_contact_phone", "emergencyContactPhone"],
-    emergencyContactRelation: ["Emergency Contact Relation", "emergency_contact_relation", "emergencyContactRelation", "Relationship"],
-    medicalConditions: ["Medical Conditions", "medical_conditions", "medicalConditions"],
-    medications: ["Medications", "medications"],
-    allergies: ["Allergies", "allergies"],
-    dietaryRestrictions: ["Dietary Restrictions", "dietary_restrictions", "dietaryRestrictions"],
-    insuranceProvider: ["Insurance Provider", "insurance_provider", "insuranceProvider", "Insurance"],
-    policyNumber: ["Policy Number", "policy_number", "policyNumber"]
-  },
-  caregivers: {
-    hhaxCaregiverCode: ["HHAX ID", "hhax_id", "hhaxId", "HHAX Caregiver Code", "hhax_caregiver_code", "hhaxCaregiverCode", "HHAXCode"],
-    assignmentId: ["Assignment ID", "assignment_id", "assignmentId", "AssignmentID"],
-    adpCode: ["ADP ID", "adp_id", "adpId", "ADP Code", "adp_code", "adpCode", "ADPID"],
-    employeeId: ["Employee ID", "employee_id", "employeeId"],
-    firstName: ["First Name", "first_name", "firstName"],
-    lastName: ["Last Name", "last_name", "lastName"],
-    phone: ["Phone", "phone", "Phone Number", "phone_number"],
-    email: ["Email", "email", "Email Address", "email_address"],
-    address: ["Address", "address"],
-    dateOfBirth: ["Date of Birth", "DOB", "date_of_birth", "dateOfBirth"],
-    hireDate: ["Hire Date", "hire_date", "hireDate"],
-    hourlyRate: ["Hourly Rate", "hourly_rate", "hourlyRate", "Rate"],
-    specializations: ["Specializations", "specializations", "Skills"],
-    certifications: ["Certifications", "certifications"],
-    yearsOfExperience: ["Years of Experience", "years_of_experience", "yearsOfExperience", "Experience"],
-    isActive: ["Active", "is_active", "isActive", "Status"]
-  },
-  users: {
-    email: ["Email", "email", "Email Address", "email_address"],
-    firstName: ["First Name", "first_name", "firstName"],
-    middleName: ["Middle Name", "middle_name", "middleName"],
-    lastName: ["Last Name", "last_name", "lastName"],
-    dateOfBirth: ["Date of Birth", "DOB", "date_of_birth", "dateOfBirth"],
-    role: ["Role", "role", "User Role", "user_role"],
-    isActive: ["Active", "is_active", "isActive", "Status"]
-  }
+interface SystemField {
+  key: string;
+  label: string;
+  required?: boolean;
+  aliases: string[];
+}
+
+const SYSTEM_FIELDS: Record<string, SystemField[]> = {
+  clients: [
+    { key: "firstName", label: "First Name", required: true, aliases: ["First Name", "first_name", "firstName"] },
+    { key: "lastName", label: "Last Name", required: true, aliases: ["Last Name", "last_name", "lastName"] },
+    { key: "memberId", label: "Member ID", aliases: ["Member ID", "member_id", "memberId", "MemberID"] },
+    { key: "dateOfBirth", label: "Date of Birth", aliases: ["Date of Birth", "DOB", "date_of_birth", "dateOfBirth"] },
+    { key: "phone", label: "Phone", aliases: ["Phone", "phone", "Phone Number", "phone_number"] },
+    { key: "email", label: "Email", aliases: ["Email", "email", "Email Address", "email_address"] },
+    { key: "address", label: "Address", aliases: ["Address", "address"] },
+    { key: "emergencyContactName", label: "Emergency Contact Name", aliases: ["Emergency Contact Name", "emergency_contact_name", "emergencyContactName", "Emergency Contact"] },
+    { key: "emergencyContactPhone", label: "Emergency Contact Phone", aliases: ["Emergency Contact Phone", "emergency_contact_phone", "emergencyContactPhone"] },
+    { key: "emergencyContactRelation", label: "Emergency Contact Relation", aliases: ["Emergency Contact Relation", "emergency_contact_relation", "emergencyContactRelation", "Relationship"] },
+    { key: "medicalConditions", label: "Medical Conditions", aliases: ["Medical Conditions", "medical_conditions", "medicalConditions"] },
+    { key: "medications", label: "Medications", aliases: ["Medications", "medications"] },
+    { key: "allergies", label: "Allergies", aliases: ["Allergies", "allergies"] },
+    { key: "dietaryRestrictions", label: "Dietary Restrictions", aliases: ["Dietary Restrictions", "dietary_restrictions", "dietaryRestrictions"] },
+    { key: "insuranceProvider", label: "Insurance Provider", aliases: ["Insurance Provider", "insurance_provider", "insuranceProvider", "Insurance"] },
+    { key: "policyNumber", label: "Policy Number", aliases: ["Policy Number", "policy_number", "policyNumber"] }
+  ],
+  caregivers: [
+    { key: "hhaxCaregiverCode", label: "HHAX ID", aliases: ["HHAX ID", "hhax_id", "hhaxId", "HHAX Caregiver Code", "hhax_caregiver_code", "hhaxCaregiverCode", "HHAXCode"] },
+    { key: "assignmentId", label: "Assignment ID", aliases: ["Assignment ID", "assignment_id", "assignmentId", "AssignmentID"] },
+    { key: "adpCode", label: "ADP ID", aliases: ["ADP ID", "adp_id", "adpId", "ADP Code", "adp_code", "adpCode", "ADPID"] },
+    { key: "employeeId", label: "Employee ID", aliases: ["Employee ID", "employee_id", "employeeId"] },
+    { key: "firstName", label: "First Name", required: true, aliases: ["First Name", "first_name", "firstName"] },
+    { key: "lastName", label: "Last Name", required: true, aliases: ["Last Name", "last_name", "lastName"] },
+    { key: "phone", label: "Phone", aliases: ["Phone", "phone", "Phone Number", "phone_number"] },
+    { key: "email", label: "Email", aliases: ["Email", "email", "Email Address", "email_address"] },
+    { key: "address", label: "Address", aliases: ["Address", "address"] },
+    { key: "dateOfBirth", label: "Date of Birth", aliases: ["Date of Birth", "DOB", "date_of_birth", "dateOfBirth"] },
+    { key: "hireDate", label: "Hire Date", aliases: ["Hire Date", "hire_date", "hireDate"] },
+    { key: "hourlyRate", label: "Hourly Rate", aliases: ["Hourly Rate", "hourly_rate", "hourlyRate", "Rate"] },
+    { key: "specializations", label: "Specializations", aliases: ["Specializations", "specializations", "Skills"] },
+    { key: "certifications", label: "Certifications", aliases: ["Certifications", "certifications"] },
+    { key: "yearsOfExperience", label: "Years of Experience", aliases: ["Years of Experience", "years_of_experience", "yearsOfExperience", "Experience"] },
+    { key: "isActive", label: "Active Status", aliases: ["Active", "is_active", "isActive", "Status"] }
+  ],
+  users: [
+    { key: "email", label: "Email", required: true, aliases: ["Email", "email", "Email Address", "email_address"] },
+    { key: "firstName", label: "First Name", required: true, aliases: ["First Name", "first_name", "firstName"] },
+    { key: "middleName", label: "Middle Name", aliases: ["Middle Name", "middle_name", "middleName"] },
+    { key: "lastName", label: "Last Name", required: true, aliases: ["Last Name", "last_name", "lastName"] },
+    { key: "dateOfBirth", label: "Date of Birth", aliases: ["Date of Birth", "DOB", "date_of_birth", "dateOfBirth"] },
+    { key: "role", label: "Role", aliases: ["Role", "role", "User Role", "user_role"] },
+    { key: "isActive", label: "Active Status", aliases: ["Active", "is_active", "isActive", "Status"] }
+  ]
 };
 
 function excelDateToJSDate(excelDate: number): Date {
@@ -87,9 +96,12 @@ function excelDateToJSDate(excelDate: number): Date {
 export function ExcelImport({ type, onImportComplete, officeId }: ExcelImportProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [excelHeaders, setExcelHeaders] = useState<string[]>([]);
+  const [rawRows, setRawRows] = useState<any[][]>([]);
+  const [columnMappings, setColumnMappings] = useState<Record<string, string>>({});
   const [previewData, setPreviewData] = useState<any[]>([]);
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
-  const [step, setStep] = useState<"upload" | "preview" | "result">("upload");
+  const [step, setStep] = useState<"upload" | "mapping" | "preview" | "result">("upload");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -130,7 +142,17 @@ export function ExcelImport({ type, onImportComplete, officeId }: ExcelImportPro
     },
   });
 
-  const parseExcelFile = async (file: File): Promise<any[]> => {
+  const suggestMapping = (header: string): string | null => {
+    const fields = SYSTEM_FIELDS[type];
+    for (const field of fields) {
+      if (field.aliases.some(alias => alias.toLowerCase() === header.toLowerCase().trim())) {
+        return field.key;
+      }
+    }
+    return null;
+  };
+
+  const parseExcelHeaders = async (file: File): Promise<{ headers: string[]; rows: any[][] }> => {
     const workbook = new ExcelJS.Workbook();
     const arrayBuffer = await file.arrayBuffer();
     await workbook.xlsx.load(arrayBuffer);
@@ -156,14 +178,25 @@ export function ExcelImport({ type, onImportComplete, officeId }: ExcelImportPro
       }
     });
 
-    const mappedData = rows.map((row) => {
+    return { headers, rows };
+  };
+
+  const applyMappings = (headers: string[], rows: any[][], mappings: Record<string, string>): any[] => {
+    const reverseMapping: Record<string, string> = {};
+    for (const [systemKey, excelHeader] of Object.entries(mappings)) {
+      if (excelHeader && excelHeader !== "__skip__") {
+        reverseMapping[excelHeader] = systemKey;
+      }
+    }
+
+    return rows.map((row) => {
       const obj: any = {};
       headers.forEach((header, headerIndex) => {
-        const mappedKey = findMappedKey(header, COLUMN_MAPPINGS[type]);
-        if (mappedKey && row[headerIndex] !== undefined && row[headerIndex] !== '') {
+        const systemKey = reverseMapping[header];
+        if (systemKey && row[headerIndex] !== undefined && row[headerIndex] !== '') {
           let value = row[headerIndex];
           
-          if (mappedKey.includes('Date') || mappedKey === 'dateOfBirth' || mappedKey === 'hireDate') {
+          if (systemKey.includes('Date') || systemKey === 'dateOfBirth' || systemKey === 'hireDate') {
             if (typeof value === 'number') {
               const date = excelDateToJSDate(value);
               value = date.toISOString().split('T')[0];
@@ -175,19 +208,17 @@ export function ExcelImport({ type, onImportComplete, officeId }: ExcelImportPro
                 value = date.toISOString().split('T')[0];
               }
             }
-          } else if (mappedKey === 'isActive') {
+          } else if (systemKey === 'isActive') {
             value = value === 'Active' || value === 'true' || value === true || value === 1;
-          } else if (mappedKey === 'hourlyRate' || mappedKey === 'yearsOfExperience') {
+          } else if (systemKey === 'hourlyRate' || systemKey === 'yearsOfExperience') {
             value = parseFloat(value) || 0;
           }
           
-          obj[mappedKey] = value;
+          obj[systemKey] = value;
         }
       });
       return obj;
     }).filter(obj => Object.keys(obj).length > 0);
-
-    return mappedData;
   };
 
   const handleFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -206,9 +237,19 @@ export function ExcelImport({ type, onImportComplete, officeId }: ExcelImportPro
     setSelectedFile(file);
     
     try {
-      const mappedData = await parseExcelFile(file);
-      setPreviewData(mappedData.slice(0, 5));
-      setStep("preview");
+      const { headers, rows } = await parseExcelHeaders(file);
+      setExcelHeaders(headers);
+      setRawRows(rows);
+      
+      const initialMappings: Record<string, string> = {};
+      for (const field of SYSTEM_FIELDS[type]) {
+        const suggested = headers.find(h => suggestMapping(h) === field.key);
+        if (suggested) {
+          initialMappings[field.key] = suggested;
+        }
+      }
+      setColumnMappings(initialMappings);
+      setStep("mapping");
     } catch (error) {
       toast({
         title: "File Parse Error",
@@ -218,22 +259,24 @@ export function ExcelImport({ type, onImportComplete, officeId }: ExcelImportPro
     }
   };
 
-  const findMappedKey = (header: string, mappings: any): string | null => {
-    for (const [key, possibleNames] of Object.entries(mappings)) {
-      if ((possibleNames as string[]).some((name: string) => 
-        name.toLowerCase() === header.toLowerCase().trim()
-      )) {
-        return key;
-      }
-    }
-    return null;
+  const updateMapping = (systemKey: string, excelHeader: string) => {
+    setColumnMappings(prev => ({
+      ...prev,
+      [systemKey]: excelHeader === "__skip__" ? "" : excelHeader,
+    }));
+  };
+
+  const handleContinueToPreview = () => {
+    const mappedData = applyMappings(excelHeaders, rawRows, columnMappings);
+    setPreviewData(mappedData.slice(0, 5));
+    setStep("preview");
   };
 
   const handleImport = async () => {
     if (!selectedFile) return;
     
     try {
-      const mappedData = await parseExcelFile(selectedFile);
+      const mappedData = applyMappings(excelHeaders, rawRows, columnMappings);
       importMutation.mutate(mappedData);
     } catch (error) {
       toast({
@@ -247,6 +290,9 @@ export function ExcelImport({ type, onImportComplete, officeId }: ExcelImportPro
   const resetDialog = () => {
     setStep("upload");
     setSelectedFile(null);
+    setExcelHeaders([]);
+    setRawRows([]);
+    setColumnMappings({});
     setPreviewData([]);
     setImportResult(null);
     if (fileInputRef.current) {
@@ -259,6 +305,11 @@ export function ExcelImport({ type, onImportComplete, officeId }: ExcelImportPro
     resetDialog();
   };
 
+  const requiredFields = SYSTEM_FIELDS[type].filter(f => f.required);
+  const hasRequiredMappings = requiredFields.every(f => columnMappings[f.key]);
+
+  const typeLabel = type === "clients" ? "Clients" : type === "caregivers" ? "Caregivers" : "Users";
+
   return (
     <Dialog open={isOpen} onOpenChange={setIsOpen}>
       <DialogTrigger asChild>
@@ -267,13 +318,32 @@ export function ExcelImport({ type, onImportComplete, officeId }: ExcelImportPro
           Import from Excel
         </Button>
       </DialogTrigger>
-      <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
+      <DialogContent className="max-w-4xl max-h-[85vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Import {type === "clients" ? "Clients" : "Caregivers"} from Excel</DialogTitle>
+          <DialogTitle>Import {typeLabel} from Excel</DialogTitle>
           <DialogDescription>
-            Upload an Excel file to bulk import {type}. Make sure your columns match the expected format.
+            Upload an Excel file to bulk import {type}. You can map columns and skip fields you don't need.
           </DialogDescription>
         </DialogHeader>
+
+        {/* Step Indicator */}
+        <div className="flex items-center justify-center gap-2 py-2 text-xs">
+          <div className={`flex items-center gap-1 px-3 py-1 rounded-full ${step === "upload" ? "bg-primary text-primary-foreground" : "bg-muted"}`}>
+            <span className="font-medium">1. Upload</span>
+          </div>
+          <ArrowRight className="w-3 h-3 text-muted-foreground" />
+          <div className={`flex items-center gap-1 px-3 py-1 rounded-full ${step === "mapping" ? "bg-primary text-primary-foreground" : "bg-muted"}`}>
+            <span className="font-medium">2. Map Columns</span>
+          </div>
+          <ArrowRight className="w-3 h-3 text-muted-foreground" />
+          <div className={`flex items-center gap-1 px-3 py-1 rounded-full ${step === "preview" ? "bg-primary text-primary-foreground" : "bg-muted"}`}>
+            <span className="font-medium">3. Preview</span>
+          </div>
+          <ArrowRight className="w-3 h-3 text-muted-foreground" />
+          <div className={`flex items-center gap-1 px-3 py-1 rounded-full ${step === "result" ? "bg-primary text-primary-foreground" : "bg-muted"}`}>
+            <span className="font-medium">4. Results</span>
+          </div>
+        </div>
 
         {step === "upload" && (
           <div className="space-y-4">
@@ -298,14 +368,14 @@ export function ExcelImport({ type, onImportComplete, officeId }: ExcelImportPro
             
             <Card>
               <CardHeader>
-                <CardTitle className="text-sm">Expected Columns for {type === "clients" ? "Clients" : "Caregivers"}</CardTitle>
+                <CardTitle className="text-sm">Available Fields for {typeLabel}</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="grid grid-cols-2 gap-2 text-xs">
-                  {Object.entries(COLUMN_MAPPINGS[type]).map(([key, aliases]) => (
-                    <div key={key} className="flex items-center space-x-2">
-                      <span className="font-medium">{key}:</span>
-                      <span className="text-muted-foreground">{aliases[0]}</span>
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-2 text-xs">
+                  {SYSTEM_FIELDS[type].map((field) => (
+                    <div key={field.key} className="flex items-center gap-1">
+                      <span className="font-medium">{field.label}</span>
+                      {field.required && <Badge variant="outline" className="text-[10px] px-1 py-0">Required</Badge>}
                     </div>
                   ))}
                 </div>
@@ -314,13 +384,82 @@ export function ExcelImport({ type, onImportComplete, officeId }: ExcelImportPro
           </div>
         )}
 
+        {step === "mapping" && (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <MapPin className="w-4 h-4" />
+                <h3 className="text-sm font-medium">Map Your Columns</h3>
+              </div>
+              <Button variant="outline" size="sm" onClick={resetDialog}>
+                <X className="w-4 h-4 mr-2" />
+                Change File
+              </Button>
+            </div>
+            
+            <p className="text-xs text-muted-foreground">
+              Match each system field to a column from your Excel file, or skip fields you don't want to import.
+            </p>
+
+            <div className="grid gap-2 max-h-[400px] overflow-y-auto pr-2">
+              {SYSTEM_FIELDS[type].map((field) => (
+                <div key={field.key} className="flex items-center gap-3 p-2 border rounded-lg">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium text-sm truncate">{field.label}</span>
+                      {field.required && (
+                        <Badge variant="outline" className="text-[10px] px-1 py-0 border-red-500 text-red-700 flex-shrink-0">Required</Badge>
+                      )}
+                    </div>
+                  </div>
+                  <ArrowRight className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                  <Select
+                    value={columnMappings[field.key] || "__skip__"}
+                    onValueChange={(value) => updateMapping(field.key, value)}
+                  >
+                    <SelectTrigger className="w-[180px]" data-testid={`select-mapping-${field.key}`}>
+                      <SelectValue placeholder="Skip this field" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__skip__">-- Skip this field --</SelectItem>
+                      {excelHeaders.filter(h => h && h.trim()).map((header) => (
+                        <SelectItem key={header} value={header}>
+                          {header}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              ))}
+            </div>
+
+            {!hasRequiredMappings && (
+              <div className="p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-700 rounded-lg text-yellow-800 dark:text-yellow-200 text-sm">
+                <AlertCircle className="w-4 h-4 inline mr-2" />
+                Please map all required fields before continuing.
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={resetDialog}>Cancel</Button>
+              <Button 
+                onClick={handleContinueToPreview}
+                disabled={!hasRequiredMappings}
+                data-testid="button-continue-preview"
+              >
+                Continue to Preview
+                <ArrowRight className="w-4 h-4 ml-2" />
+              </Button>
+            </div>
+          </div>
+        )}
+
         {step === "preview" && (
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-medium">Preview Data (First 5 rows)</h3>
-              <Button variant="outline" size="sm" onClick={resetDialog}>
-                <X className="w-4 h-4 mr-2" />
-                Change File
+              <Button variant="outline" size="sm" onClick={() => setStep("mapping")}>
+                Back to Mapping
               </Button>
             </div>
             
@@ -348,15 +487,26 @@ export function ExcelImport({ type, onImportComplete, officeId }: ExcelImportPro
                 </table>
               </div>
             </div>
+
+            <p className="text-xs text-muted-foreground">
+              Total rows to import: {rawRows.length}
+            </p>
             
             <div className="flex justify-end space-x-2">
-              <Button variant="outline" onClick={resetDialog}>Cancel</Button>
+              <Button variant="outline" onClick={() => setStep("mapping")}>Back</Button>
               <Button 
                 onClick={handleImport} 
                 disabled={importMutation.isPending}
                 data-testid="button-confirm-import"
               >
-                {importMutation.isPending ? "Importing..." : "Import Data"}
+                {importMutation.isPending ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Importing...
+                  </>
+                ) : (
+                  "Import Data"
+                )}
               </Button>
             </div>
           </div>

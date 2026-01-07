@@ -13045,7 +13045,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/email-templates", isAuthenticated, async (req: any, res) => {
     try {
       const user = req.user;
-      if (user.role !== "super_admin") {
+      if (!user || user.role !== "super_admin") {
         return res.status(403).json({ message: "Only super admins can manage email templates" });
       }
       const templates = await storage.getEmailTemplates();
