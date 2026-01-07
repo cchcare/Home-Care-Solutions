@@ -14,9 +14,18 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { X, Edit, History, Phone, MapPin, Calendar } from "lucide-react";
-import type { Client } from "@shared/schema";
+import { X, Edit, History, Phone, MapPin, Calendar, FileText } from "lucide-react";
+import type { Client, ClientAuthorization } from "@shared/schema";
 import { ClientScheduling } from "./client-scheduling";
+import { useToast } from "@/hooks/use-toast";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 
 interface ClientProfileModalProps {
   client: Client | null;
@@ -27,17 +36,46 @@ interface ClientProfileModalProps {
 }
 
 export function ClientProfileModal({ client, isOpen, onClose, onUpdate, isLoading }: ClientProfileModalProps) {
-  const { data: carePlans = [] } = useQuery({
+  const { toast } = useToast();
+
+  const { data: carePlans = [] } = useQuery<any[]>({
     queryKey: ["/api/clients", client?.id, "care-plans"],
     enabled: !!client?.id,
     retry: false,
   });
 
-  const { data: progressNotes = [] } = useQuery({
+  const { data: progressNotes = [] } = useQuery<any[]>({
     queryKey: ["/api/clients", client?.id, "progress-notes"],
     enabled: !!client?.id,
     retry: false,
   });
+
+  const { data: authorizations = [] } = useQuery<ClientAuthorization[]>({
+    queryKey: ["/api/clients", client?.id, "authorizations"],
+    enabled: !!client?.id,
+    retry: false,
+  });
+
+  const getStatusBadgeVariant = (status: string) => {
+    switch (status) {
+      case "active": return "default";
+      case "pending": return "outline";
+      case "expired": return "destructive";
+      case "exhausted": return "secondary";
+      case "cancelled": return "secondary";
+      default: return "outline";
+    }
+  };
+
+  const getStatusBadgeClass = (status: string) => {
+    switch (status) {
+      case "active": return "bg-green-500 hover:bg-green-600";
+      case "pending": return "bg-yellow-500 hover:bg-yellow-600 text-black";
+      case "expired": return "bg-red-500 hover:bg-red-600";
+      case "exhausted": return "bg-orange-500 hover:bg-orange-600";
+      default: return "";
+    }
+  };
 
   if (!client) return null;
 
@@ -68,7 +106,7 @@ export function ClientProfileModal({ client, isOpen, onClose, onUpdate, isLoadin
         </DialogHeader>
 
         <Tabs defaultValue="overview" className="w-full">
-          <TabsList className="grid w-full grid-cols-4">
+          <TabsList className="grid w-full grid-cols-5">
             <TabsTrigger value="overview" data-testid="tab-overview">
               <Edit className="w-4 h-4 mr-2" />
               Overview
@@ -84,6 +122,10 @@ export function ClientProfileModal({ client, isOpen, onClose, onUpdate, isLoadin
             <TabsTrigger value="progress" data-testid="tab-progress">
               <History className="w-4 h-4 mr-2" />
               Progress Notes
+            </TabsTrigger>
+            <TabsTrigger value="auth-orders" data-testid="tab-auth-orders">
+              <FileText className="w-4 h-4 mr-2" />
+              Auth/Orders
             </TabsTrigger>
           </TabsList>
 
@@ -235,6 +277,66 @@ export function ClientProfileModal({ client, isOpen, onClose, onUpdate, isLoadin
                   </div>
                 ) : (
                   <p className="text-sm text-muted-foreground">No progress notes found</p>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="auth-orders">
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between">
+                <CardTitle>Client Authorizations</CardTitle>
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    toast({
+                      title: "Coming Soon",
+                      description: "Add Authorization functionality will be available soon.",
+                    });
+                  }}
+                  data-testid="button-add-authorization"
+                >
+                  Add Authorization
+                </Button>
+              </CardHeader>
+              <CardContent>
+                {authorizations && authorizations.length > 0 ? (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Auth #</TableHead>
+                        <TableHead>Service Type</TableHead>
+                        <TableHead>Approved Hours</TableHead>
+                        <TableHead>Used Hours</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead>Start Date</TableHead>
+                        <TableHead>End Date</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {authorizations.map((auth) => (
+                        <TableRow key={auth.id} data-testid={`authorization-${auth.id}`}>
+                          <TableCell className="font-medium">{auth.authorizationNumber}</TableCell>
+                          <TableCell>{auth.serviceType}</TableCell>
+                          <TableCell>{auth.approvedHours || "N/A"}</TableCell>
+                          <TableCell>{auth.usedHours || "0"}</TableCell>
+                          <TableCell>
+                            <Badge className={getStatusBadgeClass(auth.status || "active")}>
+                              {auth.status || "active"}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>
+                            {auth.startDate ? new Date(auth.startDate).toLocaleDateString() : "N/A"}
+                          </TableCell>
+                          <TableCell>
+                            {auth.endDate ? new Date(auth.endDate).toLocaleDateString() : "N/A"}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                ) : (
+                  <p className="text-sm text-muted-foreground">No authorizations found</p>
                 )}
               </CardContent>
             </Card>

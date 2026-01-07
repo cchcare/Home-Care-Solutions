@@ -20,7 +20,7 @@ import { Upload, FileSpreadsheet, AlertCircle, CheckCircle, X, ArrowRight, MapPi
 import ExcelJS from "exceljs";
 
 interface ExcelImportProps {
-  type: "clients" | "caregivers" | "users";
+  type: "clients" | "caregivers" | "users" | "authorizations";
   onImportComplete?: () => void;
   officeId?: string;
 }
@@ -93,6 +93,19 @@ const SYSTEM_FIELDS: Record<string, SystemField[]> = {
     { key: "dateOfBirth", label: "Date of Birth", aliases: ["Date of Birth", "DOB", "date_of_birth", "dateOfBirth"] },
     { key: "role", label: "Role", aliases: ["Role", "role", "User Role", "user_role"] },
     { key: "isActive", label: "Active Status", aliases: ["Active", "is_active", "isActive", "Status"] }
+  ],
+  authorizations: [
+    { key: "clientId", label: "Client ID", aliases: ["Client ID", "client_id", "clientId", "ClientID"] },
+    { key: "memberId", label: "Member ID", aliases: ["Member ID", "member_id", "memberId", "MemberID", "Member Number", "memberNumber"] },
+    { key: "authorizationNumber", label: "Authorization Number", required: true, aliases: ["Authorization Number", "authorization_number", "authorizationNumber", "Auth Number", "Auth #", "AuthNumber"] },
+    { key: "serviceType", label: "Service Type", required: true, aliases: ["Service Type", "service_type", "serviceType", "Service", "Type"] },
+    { key: "approvedHours", label: "Approved Hours", aliases: ["Approved Hours", "approved_hours", "approvedHours", "Hours", "Authorized Hours"] },
+    { key: "frequencyPerWeek", label: "Frequency Per Week", aliases: ["Frequency Per Week", "frequency_per_week", "frequencyPerWeek", "Weekly Frequency", "Visits Per Week"] },
+    { key: "startDate", label: "Start Date", required: true, aliases: ["Start Date", "start_date", "startDate", "Effective Date", "Begin Date"] },
+    { key: "endDate", label: "End Date", aliases: ["End Date", "end_date", "endDate", "Expiration Date", "Exp Date"] },
+    { key: "renewalDate", label: "Renewal Date", aliases: ["Renewal Date", "renewal_date", "renewalDate"] },
+    { key: "status", label: "Status", aliases: ["Status", "status", "Auth Status"] },
+    { key: "notes", label: "Notes", aliases: ["Notes", "notes", "Comments", "Remarks"] }
   ]
 };
 
@@ -218,8 +231,10 @@ export function ExcelImport({ type, onImportComplete, officeId }: ExcelImportPro
             }
           } else if (systemKey === 'isActive') {
             value = value === 'Active' || value === 'true' || value === true || value === 1;
-          } else if (systemKey === 'hourlyRate' || systemKey === 'yearsOfExperience') {
+          } else if (systemKey === 'hourlyRate' || systemKey === 'yearsOfExperience' || systemKey === 'approvedHours') {
             value = parseFloat(value) || 0;
+          } else if (systemKey === 'frequencyPerWeek') {
+            value = parseInt(value) || null;
           }
           
           obj[systemKey] = value;
@@ -316,7 +331,7 @@ export function ExcelImport({ type, onImportComplete, officeId }: ExcelImportPro
   const requiredFields = SYSTEM_FIELDS[type].filter(f => f.required);
   const hasRequiredMappings = requiredFields.every(f => columnMappings[f.key]);
 
-  const typeLabel = type === "clients" ? "Clients" : type === "caregivers" ? "Caregivers" : "Users";
+  const typeLabel = type === "clients" ? "Clients" : type === "caregivers" ? "Caregivers" : type === "users" ? "Users" : "Authorizations";
 
   return (
     <Dialog open={isOpen} onOpenChange={setIsOpen}>

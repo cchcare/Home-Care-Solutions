@@ -1,6 +1,8 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
+import { db } from "./db";
+import { eq, and, desc, asc, ilike, or } from "drizzle-orm";
 import { setupAuth, isAuthenticated, hashPassword } from "./localAuth";
 import { requireFeature, getOrganizationFeatures } from "./feature-gate";
 import multer from "multer";
@@ -56,6 +58,9 @@ import {
   insertCaregiverOfficeMoveSchema,
   insertCaregiverScheduleSchema,
   insertClientMcoSchema,
+  insertClientAuthorizationSchema,
+  clientAuthorizations,
+  clients,
   insertCoordinatorSchema,
   insertOfficeLicenseSchema,
   insertOfficeStaffSchema,
@@ -1373,25 +1378,63 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Client routes
   app.get("/api/clients", isAuthenticated, async (req, res) => {
     try {
-      const { search, officeId } = req.query;
-      const officeFilter = officeId && officeId !== 'all' ? String(officeId) : undefined;
-      let clients;
+      const { search, officeId, mcoId, sortField, sortDirection } = req.query;
       
-      if (search) {
-        // Validate search parameter to prevent injection attacks
-        if (typeof search !== 'string' || search.length > 100 || search.trim().length === 0) {
-          return res.status(400).json({ message: "Invalid search parameter" });
-        }
-        
-        // Sanitize search input (remove potentially dangerous characters)
-        const sanitizedSearch = search.replace(/[<>\"'%;()&+]/g, '');
-        
-        clients = await storage.searchClients(sanitizedSearch, officeFilter);
-      } else {
-        clients = await storage.getAllClients(officeFilter);
+      // Build filter conditions array
+      const conditions = [];
+      
+      // Office filtering
+      if (officeId && officeId !== 'all' && typeof officeId === 'string') {
+        conditions.push(eq(clients.officeId, officeId));
       }
       
-      res.json(clients);
+      // MCO filtering
+      if (mcoId && mcoId !== 'all' && typeof mcoId === 'string') {
+        conditions.push(eq(clients.mcoId, mcoId));
+      }
+      
+      // Search filtering (firstName, lastName, phone)
+      if (search && typeof search === 'string') {
+        if (search.length > 100 || search.trim().length === 0) {
+          return res.status(400).json({ message: "Invalid search parameter" });
+        }
+        const searchPattern = `%${search.trim()}%`;
+        conditions.push(
+          or(
+            ilike(clients.firstName, searchPattern),
+            ilike(clients.lastName, searchPattern),
+            ilike(clients.phone, searchPattern)
+          )
+        );
+      }
+      
+      // Build query with filters
+      let query = db.select().from(clients);
+      
+      if (conditions.length > 0) {
+        query = query.where(and(...conditions)) as typeof query;
+      }
+      
+      // Apply sorting at database level
+      if (sortField === 'name') {
+        if (sortDirection === 'desc') {
+          query = query.orderBy(desc(clients.lastName), desc(clients.firstName)) as typeof query;
+        } else {
+          query = query.orderBy(asc(clients.lastName), asc(clients.firstName)) as typeof query;
+        }
+      } else if (sortField === 'serviceStartDate') {
+        if (sortDirection === 'desc') {
+          query = query.orderBy(desc(clients.serviceStartDate)) as typeof query;
+        } else {
+          query = query.orderBy(asc(clients.serviceStartDate)) as typeof query;
+        }
+      } else {
+        // Default sorting by lastName, firstName
+        query = query.orderBy(asc(clients.lastName), asc(clients.firstName)) as typeof query;
+      }
+      
+      const result = await query;
+      res.json(result);
     } catch (error) {
       console.error("Error fetching clients:", error);
       res.status(500).json({ message: "Failed to fetch clients" });
@@ -1548,7 +1591,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Client bulk import
   app.post("/api/clients/bulk-import", isAuthenticated, async (req: any, res) => {
     try {
-      const { data } = req.body;
+      const { data: clientData, rows: excelRows } = req.body;
+      const data = clientData || excelRows;
       
       if (!Array.isArray(data) || data.length === 0) {
         return res.status(400).json({ message: "Invalid data format" });
@@ -2038,7 +2082,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Caregiver bulk import - with update support for matching IDs
   app.post("/api/caregivers/bulk-import", isAuthenticated, async (req: any, res) => {
     try {
-      const { data } = req.body;
+      const { data: caregiverData, rows: excelRows } = req.body;
+      const data = caregiverData || excelRows;
       
       if (!Array.isArray(data) || data.length === 0) {
         return res.status(400).json({ message: "Invalid data format" });
@@ -3633,7 +3678,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Users bulk import
   app.post("/api/users/bulk-import", isAuthenticated, requireAdminOrSupervisor, async (req: any, res) => {
     try {
-      const { data } = req.body;
+      const { data: userData, rows: excelRows } = req.body;
+      const data = userData || excelRows;
       
       if (!Array.isArray(data) || data.length === 0) {
         return res.status(400).json({ message: "Invalid data format" });
@@ -4668,6 +4714,172 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error deleting client MCO:", error);
       res.status(400).json({ message: "Failed to delete client MCO" });
+    }
+  });
+
+  // ==================== CLIENT AUTHORIZATION ROUTES ====================
+  // Get all authorizations for a client
+  app.get("/api/clients/:clientId/authorizations", isAuthenticated, async (req, res) => {
+    try {
+      const authorizations = await db.select()
+        .from(clientAuthorizations)
+        .where(eq(clientAuthorizations.clientId, req.params.clientId))
+        .orderBy(desc(clientAuthorizations.createdAt));
+      res.json(authorizations);
+    } catch (error) {
+      console.error("Error fetching client authorizations:", error);
+      res.status(500).json({ message: "Failed to fetch client authorizations" });
+    }
+  });
+
+  // Create a new authorization
+  app.post("/api/clients/:clientId/authorizations", isAuthenticated, async (req, res) => {
+    try {
+      const { clientId: _, ...userBody } = req.body;
+      const coercedData = {
+        ...userBody,
+        startDate: coerceDate(userBody.startDate),
+        endDate: coerceDate(userBody.endDate),
+        renewalDate: coerceDate(userBody.renewalDate),
+      };
+      const validatedBody = insertClientAuthorizationSchema.omit({ clientId: true }).parse(coercedData);
+      const [authorization] = await db.insert(clientAuthorizations)
+        .values({
+          ...validatedBody,
+          clientId: req.params.clientId,
+        })
+        .returning();
+      res.status(201).json(authorization);
+    } catch (error) {
+      console.error("Error creating client authorization:", error);
+      res.status(400).json({ message: "Failed to create client authorization" });
+    }
+  });
+
+  // Update an authorization
+  app.put("/api/authorizations/:id", isAuthenticated, async (req, res) => {
+    try {
+      const { clientId, ...updateData } = req.body;
+      const coercedData = {
+        ...updateData,
+        startDate: coerceDate(updateData.startDate),
+        endDate: coerceDate(updateData.endDate),
+        renewalDate: coerceDate(updateData.renewalDate),
+      };
+      const validatedData = insertClientAuthorizationSchema.partial().parse(coercedData);
+      const [authorization] = await db.update(clientAuthorizations)
+        .set({ ...validatedData, updatedAt: new Date() })
+        .where(eq(clientAuthorizations.id, req.params.id))
+        .returning();
+      if (!authorization) {
+        return res.status(404).json({ message: "Authorization not found" });
+      }
+      res.json(authorization);
+    } catch (error) {
+      console.error("Error updating authorization:", error);
+      res.status(400).json({ message: "Failed to update authorization" });
+    }
+  });
+
+  // Delete an authorization
+  app.delete("/api/authorizations/:id", isAuthenticated, async (req, res) => {
+    try {
+      const [deleted] = await db.delete(clientAuthorizations)
+        .where(eq(clientAuthorizations.id, req.params.id))
+        .returning();
+      if (!deleted) {
+        return res.status(404).json({ message: "Authorization not found" });
+      }
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting authorization:", error);
+      res.status(400).json({ message: "Failed to delete authorization" });
+    }
+  });
+
+  // Bulk import authorizations from Excel data
+  app.post("/api/authorizations/bulk-import", isAuthenticated, async (req, res) => {
+    try {
+      const { data: authorizationsData, authorizations: legacyData, rows: excelRows } = req.body;
+      const dataToProcess = authorizationsData || legacyData || excelRows;
+      
+      if (!Array.isArray(dataToProcess) || dataToProcess.length === 0) {
+        return res.status(400).json({ message: "No authorization data provided" });
+      }
+      
+      interface BulkImportError {
+        row: number;
+        error: string;
+        data?: any;
+      }
+      
+      const results = {
+        totalRows: dataToProcess.length,
+        successfulImports: 0,
+        errors: [] as BulkImportError[],
+      };
+      
+      for (let i = 0; i < dataToProcess.length; i++) {
+        const authData = dataToProcess[i];
+        try {
+          let clientId = authData.clientId;
+          
+          // If clientId is not provided but memberId is, look up the client
+          if (!clientId && authData.memberId) {
+            const [client] = await db.select()
+              .from(clients)
+              .where(eq(clients.memberId, String(authData.memberId)))
+              .limit(1);
+            
+            if (client) {
+              clientId = client.id;
+            } else {
+              results.errors.push({
+                row: i + 2,
+                error: `Client not found with Member ID: ${authData.memberId}`,
+              });
+              continue;
+            }
+          }
+          
+          if (!clientId) {
+            results.errors.push({
+              row: i + 2,
+              error: "Either clientId or memberId is required",
+            });
+            continue;
+          }
+          
+          const coercedData = {
+            clientId,
+            authorizationNumber: authData.authorizationNumber,
+            serviceType: authData.serviceType,
+            approvedHours: authData.approvedHours ? String(authData.approvedHours) : undefined,
+            frequencyPerWeek: authData.frequencyPerWeek || undefined,
+            startDate: coerceDate(authData.startDate),
+            endDate: coerceDate(authData.endDate),
+            renewalDate: coerceDate(authData.renewalDate),
+            status: authData.status || "active",
+            notes: authData.notes,
+            officeId: authData.officeId,
+            mcoId: authData.mcoId,
+          };
+          
+          const validatedData = insertClientAuthorizationSchema.parse(coercedData);
+          await db.insert(clientAuthorizations).values(validatedData);
+          results.successfulImports++;
+        } catch (err: any) {
+          results.errors.push({
+            row: i + 2,
+            error: err.message || 'Unknown error',
+          });
+        }
+      }
+      
+      res.json(results);
+    } catch (error) {
+      console.error("Error bulk importing authorizations:", error);
+      res.status(400).json({ message: "Failed to bulk import authorizations" });
     }
   });
 

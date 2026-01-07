@@ -262,16 +262,34 @@ export default function Clients() {
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
   const [selectedClientIds, setSelectedClientIds] = useState<Set<string>>(new Set());
   const [showBulkUpdateModal, setShowBulkUpdateModal] = useState(false);
+  const [mcoFilter, setMcoFilter] = useState("all");
+  const [sortOption, setSortOption] = useState("nameAsc");
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { selectedOfficeId, setSelectedOfficeId } = useOffice();
   const [, navigate] = useLocation();
 
-  const officeQuery = selectedOfficeId !== "all" ? `?officeId=${selectedOfficeId}` : "";
+  const { data: mcos = [] } = useQuery<Mco[]>({
+    queryKey: ["/api/mcos"],
+    queryFn: () => fetch("/api/mcos").then(r => r.json()),
+  });
+
+  const buildQueryString = () => {
+    const params = new URLSearchParams();
+    if (selectedOfficeId !== "all") params.append("officeId", selectedOfficeId);
+    if (mcoFilter !== "all") params.append("mcoId", mcoFilter);
+    if (searchTerm.trim()) params.append("search", searchTerm.trim());
+    const sortField = sortOption.startsWith("name") ? "name" : "serviceStartDate";
+    const sortDirection = sortOption.endsWith("Asc") ? "asc" : "desc";
+    params.append("sortField", sortField);
+    params.append("sortDirection", sortDirection);
+    const queryString = params.toString();
+    return queryString ? `?${queryString}` : "";
+  };
 
   const { data: clients = [], isLoading } = useQuery<Client[]>({
-    queryKey: ["/api/clients", selectedOfficeId, searchTerm],
-    queryFn: () => fetch(`/api/clients${officeQuery}`).then(r => r.json()),
+    queryKey: ["/api/clients", selectedOfficeId, mcoFilter, sortOption, searchTerm],
+    queryFn: () => fetch(`/api/clients${buildQueryString()}`).then(r => r.json()),
     retry: false,
   });
 
@@ -394,11 +412,34 @@ export default function Clients() {
     });
   };
 
-  const filteredClients = clients?.filter((client: Client) =>
-    searchTerm === "" || 
-    `${client.firstName} ${client.lastName}`.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    client.phone?.includes(searchTerm)
-  ) || [];
+  const filteredClients = (() => {
+    let result = clients?.filter((client: Client) => {
+      const matchesSearch = searchTerm === "" || 
+        `${client.firstName} ${client.lastName}`.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        client.phone?.includes(searchTerm);
+      const matchesMco = mcoFilter === "all" || client.mcoId === mcoFilter;
+      return matchesSearch && matchesMco;
+    }) || [];
+
+    result.sort((a, b) => {
+      if (sortOption === "nameAsc") {
+        return `${a.firstName} ${a.lastName}`.localeCompare(`${b.firstName} ${b.lastName}`);
+      } else if (sortOption === "nameDesc") {
+        return `${b.firstName} ${b.lastName}`.localeCompare(`${a.firstName} ${a.lastName}`);
+      } else if (sortOption === "dateDesc") {
+        const dateA = a.serviceStartDate ? new Date(a.serviceStartDate).getTime() : 0;
+        const dateB = b.serviceStartDate ? new Date(b.serviceStartDate).getTime() : 0;
+        return dateB - dateA;
+      } else if (sortOption === "dateAsc") {
+        const dateA = a.serviceStartDate ? new Date(a.serviceStartDate).getTime() : 0;
+        const dateB = b.serviceStartDate ? new Date(b.serviceStartDate).getTime() : 0;
+        return dateA - dateB;
+      }
+      return 0;
+    });
+
+    return result;
+  })();
 
   const toggleClientSelection = (clientId: string) => {
     const newSet = new Set(selectedClientIds);
@@ -448,6 +489,14 @@ export default function Clients() {
               onImportComplete={() => {
                 queryClient.invalidateQueries({ queryKey: ["/api/clients"] });
                 queryClient.invalidateQueries({ queryKey: ["/api/dashboard/metrics"] });
+              }} 
+            />
+            <ExcelImport 
+              type="authorizations" 
+              officeId={selectedOfficeId !== "all" ? selectedOfficeId : undefined}
+              onImportComplete={() => {
+                queryClient.invalidateQueries({ queryKey: ["/api/authorizations"] });
+                queryClient.invalidateQueries({ queryKey: ["/api/clients"] });
               }} 
             />
             <Button variant="outline" onClick={() => setShowOcrDialog(true)} data-testid="button-scan-client">
@@ -513,14 +562,30 @@ export default function Clients() {
                       data-testid="input-search-clients"
                     />
                   </div>
-                  <Button 
-                    variant="outline" 
-                    onClick={() => toast({ title: "Filter", description: "Client filtering coming soon" })}
-                    data-testid="button-filter-clients"
-                  >
-                    <Users className="w-4 h-4 mr-2" />
-                    Filter
-                  </Button>
+                  <Select value={mcoFilter} onValueChange={setMcoFilter}>
+                    <SelectTrigger className="w-[180px]" data-testid="select-mco-filter">
+                      <SelectValue placeholder="Filter by MCO" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All MCOs</SelectItem>
+                      {mcos.map((mco) => (
+                        <SelectItem key={mco.id} value={mco.id}>
+                          {mco.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Select value={sortOption} onValueChange={setSortOption}>
+                    <SelectTrigger className="w-[180px]" data-testid="select-sort-option">
+                      <SelectValue placeholder="Sort by" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="nameAsc">Name (A-Z)</SelectItem>
+                      <SelectItem value="nameDesc">Name (Z-A)</SelectItem>
+                      <SelectItem value="dateDesc">Start Date (Newest)</SelectItem>
+                      <SelectItem value="dateAsc">Start Date (Oldest)</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
               </CardContent>
             </Card>
