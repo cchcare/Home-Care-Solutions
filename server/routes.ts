@@ -5967,6 +5967,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const requestData = {
         ...req.body,
         officeId: req.params.officeId,
+        startDate: coerceDate(req.body.startDate),
+        endDate: coerceDate(req.body.endDate),
       };
       const validatedData = insertOfficeStaffSchema.parse(requestData);
       const staff = await storage.createOfficeStaff(validatedData);
