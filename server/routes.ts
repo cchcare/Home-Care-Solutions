@@ -914,9 +914,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       };
       
       // Helper to get effective start/end times
-      const getEffectiveTime = (schedule: any): { start: number; end: number; date: Date } => {
+      const getEffectiveTime = (schedule: any): { start: number; end: number; date: Date; valid: boolean } => {
         const schedStart = parseTime(schedule.startTime);
         const schedEnd = parseTime(schedule.endTime);
+        
+        // Handle invalid schedule times
+        if (isNaN(schedStart) || isNaN(schedEnd) || schedEnd <= schedStart) {
+          return { start: 0, end: 0, date: new Date(schedule.scheduledDate), valid: false };
+        }
         
         // If clockIn/clockOut available, use actual visit times but constrain to scheduled hours
         if (schedule.clockInTime && schedule.clockOutTime) {
@@ -926,14 +931,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const actualEnd = clockOut.getHours() * 60 + clockOut.getMinutes();
           
           // Effective time is intersection of scheduled and actual
+          const effectiveStart = Math.max(schedStart, actualStart);
+          const effectiveEnd = Math.min(schedEnd, actualEnd);
+          
+          // If effective end <= effective start, the visit is completely outside scheduled hours
+          if (effectiveEnd <= effectiveStart) {
+            return { start: 0, end: 0, date: new Date(schedule.scheduledDate), valid: false };
+          }
+          
           return {
-            start: Math.max(schedStart, actualStart),
-            end: Math.min(schedEnd, actualEnd),
-            date: new Date(schedule.scheduledDate)
+            start: effectiveStart,
+            end: effectiveEnd,
+            date: new Date(schedule.scheduledDate),
+            valid: true
           };
         }
         
-        return { start: schedStart, end: schedEnd, date: new Date(schedule.scheduledDate) };
+        return { start: schedStart, end: schedEnd, date: new Date(schedule.scheduledDate), valid: true };
       };
       
       // Check if two time ranges overlap
@@ -999,8 +1013,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
               const t1 = getEffectiveTime(s1);
               const t2 = getEffectiveTime(s2);
               
+              // Skip if either time is invalid
+              if (!t1.valid || !t2.valid) continue;
+              
               if (doTimesOverlap(t1.start, t1.end, t2.start, t2.end)) {
                 const duration = getOverlapDuration(t1.start, t1.end, t2.start, t2.end);
+                // Skip zero duration overlaps
+                if (duration <= 0) continue;
+                
                 caregiverOverlaps.push({
                   caregiverId,
                   caregiverName: caregiverMap.get(caregiverId) || 'Unknown',
@@ -1059,8 +1079,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
               const t1 = getEffectiveTime(s1);
               const t2 = getEffectiveTime(s2);
               
+              // Skip if either time is invalid
+              if (!t1.valid || !t2.valid) continue;
+              
               if (doTimesOverlap(t1.start, t1.end, t2.start, t2.end)) {
                 const duration = getOverlapDuration(t1.start, t1.end, t2.start, t2.end);
+                // Skip zero duration overlaps
+                if (duration <= 0) continue;
+                
                 clientOverlaps.push({
                   clientId,
                   clientName: clientMap.get(clientId) || 'Unknown',
