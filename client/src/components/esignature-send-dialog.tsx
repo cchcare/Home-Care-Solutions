@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import DOMPurify from "dompurify";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -21,6 +22,8 @@ export function ESignatureSendDialog({ open, onOpenChange, template }: ESignatur
   const { toast } = useToast();
   const [recipientType, setRecipientType] = useState<"manual" | "client" | "caregiver">("manual");
   const [selectedRecipientId, setSelectedRecipientId] = useState("");
+  
+  const sanitizedContent = useMemo(() => DOMPurify.sanitize(template.content), [template.content]);
   const [manualRecipient, setManualRecipient] = useState({
     name: "",
     email: "",
@@ -217,7 +220,7 @@ export function ESignatureSendDialog({ open, onOpenChange, template }: ESignatur
           <h4 className="text-sm font-medium mb-2">Document Preview</h4>
           <div 
             className="prose prose-sm max-w-none max-h-[150px] overflow-y-auto bg-white dark:bg-gray-900 border rounded p-3"
-            dangerouslySetInnerHTML={{ __html: template.content }}
+            dangerouslySetInnerHTML={{ __html: sanitizedContent }}
             data-testid="document-preview"
           />
         </div>
