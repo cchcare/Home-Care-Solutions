@@ -11660,12 +11660,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return null;
         };
 
-        // Parse time range from "Schedule" column (e.g., "9:00 AM - 5:00 PM" or "09:00 - 17:00")
+        // Parse time range from "Schedule" column (e.g., "9:00 AM - 5:00 PM", "09:00 - 17:00", or "0900-1300")
         const parseTimeRange = (cell: any): { start: string | null; end: string | null } => {
           const val = cell?.value;
           if (!val) return { start: null, end: null };
-          const timeStr = String(val);
-          // Match patterns like "9:00 AM - 5:00 PM" or "09:00 - 17:00"
+          const timeStr = String(val).trim();
+          
+          // Pattern 1: Military time without colons (e.g., "0900-1300", "0900 - 1300")
+          const militaryMatch = timeStr.match(/^(\d{4})\s*[-–]\s*(\d{4})$/);
+          if (militaryMatch) {
+            const startHour = militaryMatch[1].slice(0, 2);
+            const startMin = militaryMatch[1].slice(2, 4);
+            const endHour = militaryMatch[2].slice(0, 2);
+            const endMin = militaryMatch[2].slice(2, 4);
+            return {
+              start: `${startHour}:${startMin}`,
+              end: `${endHour}:${endMin}`
+            };
+          }
+          
+          // Pattern 2: Standard time with colons (e.g., "9:00 AM - 5:00 PM" or "09:00 - 17:00")
           const rangeMatch = timeStr.match(/(\d{1,2}):(\d{2})\s*(AM|PM|am|pm)?\s*[-–]\s*(\d{1,2}):(\d{2})\s*(AM|PM|am|pm)?/);
           if (rangeMatch) {
             let startHour = parseInt(rangeMatch[1]);
@@ -11686,6 +11700,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
               end: `${String(endHour).padStart(2, '0')}:${endMin}`
             };
           }
+          
+          // Pattern 3: Single 4-digit military time (just start time, e.g., "0900")
+          const singleMilitaryMatch = timeStr.match(/^(\d{4})$/);
+          if (singleMilitaryMatch) {
+            const hour = singleMilitaryMatch[1].slice(0, 2);
+            const min = singleMilitaryMatch[1].slice(2, 4);
+            return {
+              start: `${hour}:${min}`,
+              end: null
+            };
+          }
+          
           return { start: null, end: null };
         };
 
