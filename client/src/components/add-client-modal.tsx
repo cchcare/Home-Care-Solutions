@@ -34,11 +34,11 @@ import { insertClientSchema, type Office } from "@shared/schema";
 const clientFormSchema = insertClientSchema.extend({
   firstName: z.string().min(1, "First name is required"),
   lastName: z.string().min(1, "Last name is required"),
-  phone: z.string().min(1, "Phone number is required"),
+  phone: z.string().optional(),
   address: z.string().min(1, "Address is required"),
-  emergencyContactName: z.string().min(1, "Emergency contact name is required"),
-  emergencyContactPhone: z.string().min(1, "Emergency contact phone is required"),
-  emergencyContactRelation: z.string().min(1, "Emergency contact relationship is required"),
+  emergencyContactName: z.string().optional(),
+  emergencyContactPhone: z.string().optional(),
+  emergencyContactRelation: z.string().optional(),
   officeId: z.string().min(1, "Office assignment is required"),
   hipaaAcknowledged: z.boolean().refine(val => val === true, {
     message: "HIPAA acknowledgment is required"
