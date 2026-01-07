@@ -1749,16 +1749,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
             // Update existing caregiver record
             const updateData: any = { ...caregiverInfo };
             
-            // Update user info if provided
-            if (email || firstName || lastName) {
-              await storage.upsertUser({
-                email: email || undefined,
-                firstName: firstName || undefined,
-                middleName: middleName || undefined,
-                lastName: lastName || undefined,
-                dateOfBirth: dateOfBirth || undefined,
-                role: "caregiver"
-              });
+            // Update user info only if email is provided (required for user upsert)
+            if (email && typeof email === 'string' && email.trim()) {
+              try {
+                await storage.upsertUser({
+                  email: email.trim(),
+                  firstName: firstName || undefined,
+                  middleName: middleName || undefined,
+                  lastName: lastName || undefined,
+                  dateOfBirth: dateOfBirth || undefined,
+                  role: "caregiver"
+                });
+              } catch (userError: any) {
+                console.error(`Warning: Could not update user for caregiver row ${i + 1}:`, userError.message);
+                // Continue with caregiver update even if user update fails
+              }
             }
             
             const validatedUpdateData = insertCaregiverSchema.partial().parse(updateData);
@@ -1780,21 +1785,40 @@ export async function registerRoutes(app: Express): Promise<Server> {
             results.updatedRecords++;
           } else {
             // Create new caregiver
-            // First create the user account for login
-            const user = await storage.upsertUser({
-              email,
+            let userId: string | undefined = undefined;
+            
+            // Only create user account if email is provided
+            if (email && typeof email === 'string' && email.trim()) {
+              try {
+                const user = await storage.upsertUser({
+                  email: email.trim(),
+                  firstName,
+                  middleName,
+                  lastName,
+                  dateOfBirth,
+                  role: "caregiver"
+                });
+                userId = user.id;
+              } catch (userError: any) {
+                console.error(`Warning: Could not create user for caregiver row ${i + 1}:`, userError.message);
+                // Continue creating caregiver without linked user
+              }
+            }
+            
+            // Create the caregiver record (with or without linked user)
+            const caregiverDataToValidate: any = {
+              ...caregiverInfo,
               firstName,
               middleName,
               lastName,
               dateOfBirth,
-              role: "caregiver"
-            });
+              email: email?.trim() || undefined,
+            };
+            if (userId) {
+              caregiverDataToValidate.userId = userId;
+            }
             
-            // Then create the caregiver record linked to the user
-            const validatedCaregiverData = insertCaregiverSchema.parse({
-              ...caregiverInfo,
-              userId: user.id
-            });
+            const validatedCaregiverData = insertCaregiverSchema.parse(caregiverDataToValidate);
             
             const caregiver = await storage.createCaregiver(validatedCaregiverData);
             
@@ -1820,10 +1844,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
             results.createdRecords++;
           }
         } catch (error: any) {
-          // Sanitize error message to avoid exposing sensitive data
-          const sanitizedError = error.message?.includes('duplicate') ? 'Record already exists' : 
-                                error.message?.includes('validation') ? 'Invalid data format' :
-                                'Failed to import record';
+          console.error(`Error importing caregiver row ${i + 1}:`, error.message);
+          // Provide more helpful error messages
+          let sanitizedError = 'Failed to import record';
+          if (error.message?.includes('duplicate')) {
+            sanitizedError = 'Record already exists (duplicate ID or email)';
+          } else if (error.message?.includes('validation')) {
+            sanitizedError = 'Invalid data format - check required fields';
+          } else if (error.message?.includes('null') || error.message?.includes('NOT NULL')) {
+            sanitizedError = 'Missing required field';
+          } else if (error.message?.includes('unique')) {
+            sanitizedError = 'Duplicate entry found';
+          }
           results.errors.push({
             row: i + 1,
             error: sanitizedError
@@ -1832,9 +1864,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       res.json(results);
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error during bulk caregiver import:", error);
-      res.status(500).json({ message: "Failed to import caregivers" });
+      res.status(500).json({ message: error.message || "Failed to import caregivers" });
     }
   });
 
