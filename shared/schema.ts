@@ -11,6 +11,7 @@ import {
   numeric,
   pgEnum,
   primaryKey,
+  smallint,
 } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
@@ -1997,6 +1998,39 @@ export const clientMcos = pgTable("client_mcos", {
 export type ClientMco = typeof clientMcos.$inferSelect;
 export type InsertClientMco = typeof clientMcos.$inferInsert;
 export const insertClientMcoSchema = createInsertSchema(clientMcos).omit({ id: true, createdAt: true, updatedAt: true });
+
+// Client Authorizations - tracks service authorizations from MCOs
+export const clientAuthorizations = pgTable("client_authorizations", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  clientId: varchar("client_id").references(() => clients.id).notNull(),
+  mcoId: varchar("mco_id").references(() => mcos.id),
+  officeId: varchar("office_id").references(() => offices.id),
+  authorizationNumber: varchar("authorization_number").notNull(),
+  serviceType: varchar("service_type").notNull(),
+  approvedHours: numeric("approved_hours", { precision: 10, scale: 2 }),
+  usedHours: numeric("used_hours", { precision: 10, scale: 2 }).default("0"),
+  frequencyPerWeek: smallint("frequency_per_week"),
+  startDate: timestamp("start_date").notNull(),
+  endDate: timestamp("end_date"),
+  renewalDate: timestamp("renewal_date"),
+  status: varchar("status").default("active"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_client_authorizations_client").on(table.clientId),
+  index("idx_client_authorizations_status").on(table.status),
+]);
+
+export const clientAuthorizationsRelations = relations(clientAuthorizations, ({ one }) => ({
+  client: one(clients, { fields: [clientAuthorizations.clientId], references: [clients.id] }),
+  mco: one(mcos, { fields: [clientAuthorizations.mcoId], references: [mcos.id] }),
+  office: one(offices, { fields: [clientAuthorizations.officeId], references: [offices.id] }),
+}));
+
+export type ClientAuthorization = typeof clientAuthorizations.$inferSelect;
+export type InsertClientAuthorization = typeof clientAuthorizations.$inferInsert;
+export const insertClientAuthorizationSchema = createInsertSchema(clientAuthorizations).omit({ id: true, createdAt: true, updatedAt: true });
 
 // Office Licenses - tracks health licenses with renewal history
 export const officeLicenses = pgTable("office_licenses", {
