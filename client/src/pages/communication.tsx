@@ -99,7 +99,7 @@ export default function Communication() {
   });
 
   // Get all users for displaying names in channel
-  const { data: users = [] } = useQuery({
+  const { data: users = [] } = useQuery<User[]>({
     queryKey: ["/api/users"],
     retry: false,
   });
@@ -444,7 +444,7 @@ export default function Communication() {
                   </div>
                   <div className="flex items-center space-x-1">
                     <span className="text-xs text-muted-foreground">
-                      {new Date(message.createdAt).toLocaleDateString()} {new Date(message.createdAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                      {message.createdAt ? new Date(message.createdAt).toLocaleDateString() : ""} {message.createdAt ? new Date(message.createdAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : ""}
                     </span>
                   </div>
                 </div>
@@ -619,7 +619,7 @@ export default function Communication() {
                                           {getUserName(message.senderId || "")}
                                         </span>
                                         <span className="text-xs opacity-70">
-                                          {new Date(message.createdAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                                          {(message.createdAt ? new Date(message.createdAt) : new Date()).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
                                         </span>
                                       </div>
                                       <p className="text-sm">{message.content}</p>

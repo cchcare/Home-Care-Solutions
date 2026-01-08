@@ -28,7 +28,7 @@ interface SignatureField {
 
 export default function ESignatureTemplates() {
   const { toast } = useToast();
-  const { selectedOffice } = useOffice();
+  const { selectedOfficeId } = useOffice();
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
@@ -44,16 +44,13 @@ export default function ESignatureTemplates() {
   });
 
   const { data: templates, isLoading } = useQuery<ESignatureTemplate[]>({
-    queryKey: ["/api/esignature/templates", selectedOffice?.id],
+    queryKey: ["/api/esignature/templates", selectedOfficeId],
   });
 
   const createMutation = useMutation({
-    mutationFn: (data: typeof formData) => apiRequest("/api/esignature/templates", {
-      method: "POST",
-      body: JSON.stringify({
-        ...data,
-        officeId: selectedOffice?.id,
-      }),
+    mutationFn: (data: typeof formData) => apiRequest("POST", "/api/esignature/templates", {
+      ...data,
+      officeId: selectedOfficeId,
     }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/esignature/templates"] });
@@ -68,10 +65,7 @@ export default function ESignatureTemplates() {
 
   const updateMutation = useMutation({
     mutationFn: ({ id, data }: { id: string; data: Partial<typeof formData> }) => 
-      apiRequest(`/api/esignature/templates/${id}`, {
-        method: "PUT",
-        body: JSON.stringify(data),
-      }),
+      apiRequest("PUT", `/api/esignature/templates/${id}`, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/esignature/templates"] });
       setIsEditOpen(false);
@@ -85,9 +79,7 @@ export default function ESignatureTemplates() {
   });
 
   const deleteMutation = useMutation({
-    mutationFn: (id: string) => apiRequest(`/api/esignature/templates/${id}`, {
-      method: "DELETE",
-    }),
+    mutationFn: (id: string) => apiRequest("DELETE", `/api/esignature/templates/${id}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/esignature/templates"] });
       toast({ title: "Template deleted successfully" });

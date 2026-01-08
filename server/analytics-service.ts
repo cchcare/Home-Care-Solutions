@@ -105,7 +105,7 @@ export async function getComplianceKPIs(officeId?: string, dateRange?: DateRange
   const visitStats = await storage.getVisitStats(officeId, dateRange?.startDate, dateRange?.endDate);
   const allEvvData = await storage.getAllEvvData(officeId);
   const evvComplianceRate = allEvvData.length > 0 
-    ? Math.round((allEvvData.filter(e => e.clockInVerified && e.clockOutVerified).length / allEvvData.length) * 100)
+    ? Math.round(allEvvData.reduce((sum, e) => sum + parseFloat(e.percentage || "0"), 0) / allEvvData.length)
     : 85;
 
   const allComplianceItems = await storage.getAllComplianceItems(officeId);

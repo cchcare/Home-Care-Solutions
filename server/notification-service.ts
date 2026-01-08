@@ -277,7 +277,7 @@ export async function sendScheduleChangeNotification(
     cancelled: 'Schedule cancelled',
   }[changeType];
 
-  const scheduleDate = schedule.scheduleDate ? new Date(schedule.scheduleDate).toLocaleDateString() : 'TBD';
+  const scheduleDate = schedule.scheduledDate ? new Date(schedule.scheduledDate).toLocaleDateString() : 'TBD';
   const scheduleTime = `${schedule.startTime || 'TBD'} - ${schedule.endTime || 'TBD'}`;
 
   const variables = {
@@ -328,7 +328,7 @@ export async function sendReminderNotification(scheduleId: string): Promise<Noti
   const client = schedule.clientId ? await storage.getClient(schedule.clientId) : null;
   const caregiver = schedule.caregiverId ? await storage.getCaregiver(schedule.caregiverId) : null;
 
-  const scheduleDate = schedule.scheduleDate ? new Date(schedule.scheduleDate).toLocaleDateString() : 'TBD';
+  const scheduleDate = schedule.scheduledDate ? new Date(schedule.scheduledDate).toLocaleDateString() : 'TBD';
   const scheduleTime = schedule.startTime || 'TBD';
 
   const body = `Reminder: You have a scheduled visit with ${client ? `${client.firstName} ${client.lastName}` : 'a client'} today at ${scheduleTime}.`;

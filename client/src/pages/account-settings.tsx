@@ -398,7 +398,7 @@ export default function AccountSettingsPage() {
     );
   }
 
-  const RoleIcon = getRoleIcon(currentUser.role);
+  const RoleIcon = getRoleIcon(currentUser.role || "caregiver");
   const officeName = offices.find((office: any) => office.id === currentUser.primaryOfficeId)?.name;
 
   return (
@@ -482,7 +482,7 @@ export default function AccountSettingsPage() {
                       }
                     </h3>
                     <div className="flex justify-center mt-2">
-                      <Badge variant={getRoleColor(currentUser.role)}>
+                      <Badge variant={getRoleColor(currentUser.role || "caregiver")}>
                         <RoleIcon className="mr-1 h-3 w-3" />
                         {currentUser.role?.replace('_', ' ')}
                       </Badge>
@@ -515,7 +515,7 @@ export default function AccountSettingsPage() {
                       <div>
                         <p className="text-sm font-medium">Member Since</p>
                         <p className="text-sm text-muted-foreground">
-                          {format(new Date(currentUser.createdAt), "MMMM d, yyyy")}
+                          {format(currentUser.createdAt ? new Date(currentUser.createdAt) : new Date(), "MMMM d, yyyy")}
                         </p>
                       </div>
                     </div>
@@ -991,14 +991,14 @@ export default function AccountSettingsPage() {
                   <div className="space-y-2">
                     <p className="text-sm font-medium">Account Created</p>
                     <p className="text-sm text-muted-foreground">
-                      {format(new Date(currentUser.createdAt), "PPP")}
+                      {format(currentUser.createdAt ? new Date(currentUser.createdAt) : new Date(), "PPP")}
                     </p>
                   </div>
 
                   <div className="space-y-2">
                     <p className="text-sm font-medium">Last Updated</p>
                     <p className="text-sm text-muted-foreground">
-                      {format(new Date(currentUser.updatedAt), "PPP")}
+                      {format(currentUser.updatedAt ? new Date(currentUser.updatedAt) : new Date(), "PPP")}
                     </p>
                   </div>
                 </div>

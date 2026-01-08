@@ -2451,7 +2451,7 @@ export default function ClientProfile() {
                                     <td className="p-3">{check.checkDate ? format(new Date(check.checkDate), "MM/dd/yyyy") : "-"}</td>
                                     <td className="p-3">{checkMco?.name || "N/A"}</td>
                                     <td className="p-3">
-                                      <Badge variant={check.status === "verified" ? "default" : check.status === "failed" ? "destructive" : "secondary"}>
+                                      <Badge variant={check.status === "active" ? "default" : check.status === "error" || check.status === "not_found" ? "destructive" : "secondary"}>
                                         {check.status || "pending"}
                                       </Badge>
                                     </td>
@@ -2947,8 +2947,8 @@ export default function ClientProfile() {
                   if (!searchQuery.trim()) return true;
                   const query = searchQuery.toLowerCase();
                   const name = `${cl.firstName || ""} ${cl.lastName || ""}`.toLowerCase();
-                  const medicaidId = (cl.medicaidId || "").toLowerCase();
-                  return name.includes(query) || medicaidId.includes(query);
+                  const memberId = (cl.memberId || "").toLowerCase();
+                  return name.includes(query) || memberId.includes(query);
                 })
                 .slice(0, 10)
                 .map((cl) => (
@@ -2969,7 +2969,7 @@ export default function ClientProfile() {
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="font-medium truncate">{cl.firstName} {cl.lastName}</p>
-                        <p className="text-sm text-muted-foreground">{cl.medicaidId || "No Medicaid ID"}</p>
+                        <p className="text-sm text-muted-foreground">{cl.memberId || "No Member ID"}</p>
                       </div>
                       <Badge variant={cl.status === "active" ? "default" : "secondary"} className="flex-shrink-0">
                         {cl.status || "active"}
@@ -2981,8 +2981,8 @@ export default function ClientProfile() {
                 if (!searchQuery.trim()) return true;
                 const query = searchQuery.toLowerCase();
                 const name = `${cl.firstName || ""} ${cl.lastName || ""}`.toLowerCase();
-                const medicaidId = (cl.medicaidId || "").toLowerCase();
-                return name.includes(query) || medicaidId.includes(query);
+                const memberId = (cl.memberId || "").toLowerCase();
+                return name.includes(query) || memberId.includes(query);
               }).length === 0 && (
                 <p className="text-muted-foreground text-center py-4">No clients found</p>
               )}

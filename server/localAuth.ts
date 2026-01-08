@@ -781,10 +781,13 @@ export async function setupAuth(app: Express) {
       const currentUrl = new URL(`${baseUrl}${req.url}`);
       const tokens = await client.authorizationCodeGrant(config, currentUrl, {
         expectedState: state,
-        redirect_uri: redirectUri,
       });
       
       const claims = tokens.claims();
+      if (!claims) {
+        console.error("[Google Auth] No claims returned from token");
+        return res.redirect("/?error=no_claims");
+      }
       const email = claims.email as string | undefined;
       const emailVerified = claims.email_verified;
       const googleId = claims.sub;
@@ -823,9 +826,9 @@ export async function setupAuth(app: Express) {
         // Create new user
         user = await storage.createGoogleUser({
           email: normalizedEmail,
-          firstName: (claims.given_name as string) || (claims.first_name as string) || "",
-          lastName: (claims.family_name as string) || (claims.last_name as string) || "",
-          profileImageUrl: claims.picture as string,
+          firstName: (claims.given_name as string) || "",
+          lastName: (claims.family_name as string) || "",
+          profileImageUrl: (claims.picture as string) || undefined,
           googleId: googleId,
         });
         console.log(`[Google Auth] Created new user: ${normalizedEmail}`);

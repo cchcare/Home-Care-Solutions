@@ -762,8 +762,6 @@ export default function CaregiverProfile() {
       <main className="flex-1 flex flex-col overflow-hidden">
         <TopBar 
           title={caregiverName}
-          showBackButton 
-          backUrl="/caregivers"
         />
 
         <div className="flex flex-1 overflow-hidden">
@@ -928,7 +926,7 @@ export default function CaregiverProfile() {
                           {isEditing ? (
                             <Select
                               value={editFormData.gender || ""}
-                              onValueChange={(value) => setEditFormData({ ...editFormData, gender: value })}
+                              onValueChange={(value) => setEditFormData({ ...editFormData, gender: value as "male" | "female" | "non_binary" | "prefer_not_to_say" | null })}
                             >
                               <SelectTrigger data-testid="select-gender">
                                 <SelectValue placeholder="Select gender" />
@@ -936,7 +934,8 @@ export default function CaregiverProfile() {
                               <SelectContent>
                                 <SelectItem value="male">Male</SelectItem>
                                 <SelectItem value="female">Female</SelectItem>
-                                <SelectItem value="other">Other</SelectItem>
+                                <SelectItem value="non_binary">Non-Binary</SelectItem>
+                                <SelectItem value="prefer_not_to_say">Prefer Not to Say</SelectItem>
                               </SelectContent>
                             </Select>
                           ) : (

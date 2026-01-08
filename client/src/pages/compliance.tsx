@@ -415,7 +415,7 @@ export default function Compliance() {
                       render={({ field }) => (
                         <FormItem>
                           <FormLabel>Caregiver</FormLabel>
-                          <Select onValueChange={field.onChange} defaultValue={field.value}>
+                          <Select onValueChange={field.onChange} defaultValue={field.value || ""}>
                             <FormControl>
                               <SelectTrigger>
                                 <SelectValue placeholder="Select caregiver" />
@@ -466,7 +466,7 @@ export default function Compliance() {
                       render={({ field }) => (
                         <FormItem>
                           <FormLabel>Status</FormLabel>
-                          <Select onValueChange={field.onChange} defaultValue={field.value}>
+                          <Select onValueChange={field.onChange} defaultValue={field.value || ""}>
                             <FormControl>
                               <SelectTrigger>
                                 <SelectValue placeholder="Select status" />
@@ -519,7 +519,7 @@ export default function Compliance() {
                         <FormItem>
                           <FormLabel>Notes (Optional)</FormLabel>
                           <FormControl>
-                            <Textarea placeholder="Additional notes..." {...field} />
+                            <Textarea placeholder="Additional notes..." {...field} value={field.value || ""} />
                           </FormControl>
                           <FormMessage />
                         </FormItem>
@@ -698,7 +698,7 @@ export default function Compliance() {
                             <h3 className="font-medium text-foreground">
                               {item.itemType.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
                             </h3>
-                            {getComplianceStatusBadge(item.status)}
+                            {getComplianceStatusBadge(item.status || "pending")}
                           </div>
                           <p className="text-sm text-muted-foreground mb-1">
                             Caregiver: {getCaregiverName(item.caregiverId)}

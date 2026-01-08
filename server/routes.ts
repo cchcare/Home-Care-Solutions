@@ -2302,7 +2302,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
           results.errors.push({
             row: i + 1,
             error: sanitizedError,
-            data: { firstName: data[i]?.firstName, lastName: data[i]?.lastName }
           });
         }
       }

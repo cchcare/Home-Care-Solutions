@@ -242,7 +242,7 @@ export default function Offices() {
                       <FormItem className="col-span-2">
                         <FormLabel>Address</FormLabel>
                         <FormControl>
-                          <Textarea placeholder="123 Main St, New York, NY 10001" {...field} data-testid="input-office-address" />
+                          <Textarea placeholder="123 Main St, New York, NY 10001" {...field} value={field.value || ""} data-testid="input-office-address" />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -256,7 +256,7 @@ export default function Offices() {
                       <FormItem>
                         <FormLabel>Phone</FormLabel>
                         <FormControl>
-                          <Input placeholder="(555) 123-4567" {...field} data-testid="input-office-phone" />
+                          <Input placeholder="(555) 123-4567" {...field} value={field.value || ""} data-testid="input-office-phone" />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -270,7 +270,7 @@ export default function Offices() {
                       <FormItem className="col-span-2">
                         <FormLabel>Email</FormLabel>
                         <FormControl>
-                          <Input placeholder="office@company.com" type="email" {...field} data-testid="input-office-email" />
+                          <Input placeholder="office@company.com" type="email" {...field} value={field.value || ""} data-testid="input-office-email" />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -290,7 +290,7 @@ export default function Offices() {
                         </div>
                         <FormControl>
                           <Switch
-                            checked={field.value}
+                            checked={field.value ?? false}
                             onCheckedChange={field.onChange}
                             data-testid="switch-office-active"
                           />
@@ -444,7 +444,7 @@ export default function Offices() {
                     <FormItem className="col-span-2">
                       <FormLabel>Address</FormLabel>
                       <FormControl>
-                        <Textarea placeholder="123 Main St, New York, NY 10001" {...field} data-testid="input-edit-office-address" />
+                        <Textarea placeholder="123 Main St, New York, NY 10001" {...field} value={field.value || ""} data-testid="input-edit-office-address" />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -458,7 +458,7 @@ export default function Offices() {
                     <FormItem>
                       <FormLabel>Phone</FormLabel>
                       <FormControl>
-                        <Input placeholder="(555) 123-4567" {...field} data-testid="input-edit-office-phone" />
+                        <Input placeholder="(555) 123-4567" {...field} value={field.value || ""} data-testid="input-edit-office-phone" />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -472,7 +472,7 @@ export default function Offices() {
                     <FormItem className="col-span-2">
                       <FormLabel>Email</FormLabel>
                       <FormControl>
-                        <Input placeholder="office@company.com" type="email" {...field} data-testid="input-edit-office-email" />
+                        <Input placeholder="office@company.com" type="email" {...field} value={field.value || ""} data-testid="input-edit-office-email" />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -492,7 +492,7 @@ export default function Offices() {
                       </div>
                       <FormControl>
                         <Switch
-                          checked={field.value}
+                          checked={field.value ?? false}
                           onCheckedChange={field.onChange}
                           data-testid="switch-edit-office-active"
                         />

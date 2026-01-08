@@ -417,7 +417,18 @@ export default function FamilyPortal() {
         <FamilyUpdateForm
           isOpen={showUpdateForm}
           onClose={() => setShowUpdateForm(false)}
-          client={selectedClient.client}
+          client={{
+            id: selectedClient.client.id,
+            firstName: selectedClient.client.firstName,
+            lastName: selectedClient.client.lastName,
+            phone: selectedClient.client.phone ?? undefined,
+            address: selectedClient.client.address ?? undefined,
+            emergencyContactName: selectedClient.client.emergencyContactName ?? undefined,
+            emergencyContactPhone: selectedClient.client.emergencyContactPhone ?? undefined,
+            primaryDiagnosis: selectedClient.client.primaryDiagnosis ?? undefined,
+            allergies: selectedClient.client.allergies ?? undefined,
+            medications: selectedClient.client.medications ?? undefined,
+          }}
           accessLevel={selectedClient.accessPermissions.accessLevel}
         />
       )}

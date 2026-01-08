@@ -134,7 +134,7 @@ export default function RoleWizard() {
   const queryClient = useQueryClient();
   
   // Get current user for setting createdBy field
-  const { data: currentUser } = useQuery({
+  const { data: currentUser } = useQuery<{ id: string }>({
     queryKey: ["/api/auth/user"],
     retry: false,
   });

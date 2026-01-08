@@ -48,10 +48,7 @@ export default function SupportTicketsPage() {
 
   const createTicketMutation = useMutation({
     mutationFn: async (data: TicketFormData) => {
-      return apiRequest("/api/support-tickets", {
-        method: "POST",
-        body: JSON.stringify(data),
-      });
+      return apiRequest("POST", "/api/support-tickets", data);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/support-tickets"] });
@@ -66,10 +63,7 @@ export default function SupportTicketsPage() {
 
   const addMessageMutation = useMutation({
     mutationFn: async ({ ticketId, message }: { ticketId: string; message: string }) => {
-      return apiRequest(`/api/support-tickets/${ticketId}/messages`, {
-        method: "POST",
-        body: JSON.stringify({ message }),
-      });
+      return apiRequest("POST", `/api/support-tickets/${ticketId}/messages`, { message });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/support-tickets", selectedTicketId] });

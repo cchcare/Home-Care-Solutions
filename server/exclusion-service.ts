@@ -326,9 +326,9 @@ export class ExclusionService {
         try {
           const matches = await this.checkCaregiverAgainstExclusions(
             caregiver.id,
-            caregiver.firstName,
-            caregiver.lastName,
-            caregiver.dateOfBirth
+            caregiver.firstName || "",
+            caregiver.lastName || "",
+            caregiver.dateOfBirth ?? null
           );
 
           if (matches.length === 0) {

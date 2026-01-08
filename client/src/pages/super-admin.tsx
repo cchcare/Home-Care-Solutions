@@ -383,7 +383,7 @@ export default function SuperAdminPage() {
                                 <div className="flex items-center justify-between">
                                   <span className="text-sm font-medium">Created:</span>
                                   <span className="text-xs text-muted-foreground">
-                                    {format(new Date(office.createdAt), "MMM dd, yyyy")}
+                                    {office.createdAt ? format(new Date(office.createdAt), "MMM dd, yyyy") : "N/A"}
                                   </span>
                                 </div>
                               </div>
@@ -555,7 +555,7 @@ export default function SuperAdminPage() {
                     <FormItem>
                       <FormLabel>Address</FormLabel>
                       <FormControl>
-                        <Textarea {...field} placeholder="Office address" data-testid="textarea-office-address" />
+                        <Textarea {...field} value={field.value || ""} placeholder="Office address" data-testid="textarea-office-address" />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -570,7 +570,7 @@ export default function SuperAdminPage() {
                       <FormItem>
                         <FormLabel>Phone</FormLabel>
                         <FormControl>
-                          <Input {...field} placeholder="(555) 123-4567" data-testid="input-office-phone" />
+                          <Input {...field} value={field.value || ""} placeholder="(555) 123-4567" data-testid="input-office-phone" />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -583,7 +583,7 @@ export default function SuperAdminPage() {
                       <FormItem>
                         <FormLabel>Email</FormLabel>
                         <FormControl>
-                          <Input {...field} placeholder="office@company.com" data-testid="input-office-email" />
+                          <Input {...field} value={field.value || ""} placeholder="office@company.com" data-testid="input-office-email" />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -649,7 +649,7 @@ export default function SuperAdminPage() {
                       <FormItem>
                         <FormLabel>First Name</FormLabel>
                         <FormControl>
-                          <Input {...field} placeholder="John" data-testid="input-user-firstname" />
+                          <Input {...field} value={field.value || ""} placeholder="John" data-testid="input-user-firstname" />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -662,7 +662,7 @@ export default function SuperAdminPage() {
                       <FormItem>
                         <FormLabel>Last Name</FormLabel>
                         <FormControl>
-                          <Input {...field} placeholder="Doe" data-testid="input-user-lastname" />
+                          <Input {...field} value={field.value || ""} placeholder="Doe" data-testid="input-user-lastname" />
                         </FormControl>
                         <FormMessage />
                       </FormItem>

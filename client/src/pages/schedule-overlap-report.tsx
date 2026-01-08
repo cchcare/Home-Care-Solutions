@@ -70,7 +70,7 @@ interface ScheduleOverlapReport {
 }
 
 export default function ScheduleOverlapReport() {
-  const { selectedOfficeId } = useOffice();
+  const { selectedOfficeId, setSelectedOfficeId } = useOffice();
   const [startDate, setStartDate] = useState(format(subDays(new Date(), 30), 'yyyy-MM-dd'));
   const [endDate, setEndDate] = useState(format(new Date(), 'yyyy-MM-dd'));
 
