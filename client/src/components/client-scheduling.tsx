@@ -46,7 +46,7 @@ export function ClientScheduling({ client }: ClientSchedulingProps) {
   const queryClient = useQueryClient();
 
   // Fetch master week templates
-  const { data: masterWeekTemplates = [] } = useQuery({
+  const { data: masterWeekTemplates = [] } = useQuery<MasterWeekTemplate[]>({
     queryKey: ["/api/clients", client.id, "master-week-templates"],
     enabled: !!client.id,
     retry: false,
@@ -58,7 +58,7 @@ export function ClientScheduling({ client }: ClientSchedulingProps) {
   const currentWeekEnd = new Date(currentWeekStart);
   currentWeekEnd.setDate(currentWeekEnd.getDate() + 6);
 
-  const { data: currentWeekSchedules = [] } = useQuery({
+  const { data: currentWeekSchedules = [] } = useQuery<ClientSchedule[]>({
     queryKey: ["/api/clients", client.id, "schedules", currentWeekStart.toISOString(), currentWeekEnd.toISOString()],
     enabled: !!client.id,
     retry: false,

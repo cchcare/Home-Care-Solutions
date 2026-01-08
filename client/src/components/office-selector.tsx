@@ -22,7 +22,7 @@ export function OfficeSelector({
   onOfficeChange, 
   showAllOption = true 
 }: OfficeSelectorProps) {
-  const { data: offices, isLoading } = useQuery({
+  const { data: offices, isLoading } = useQuery<Office[]>({
     queryKey: ["/api/offices"],
     retry: false,
   });

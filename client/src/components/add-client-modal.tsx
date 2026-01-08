@@ -101,8 +101,7 @@ export function AddClientModal({ isOpen, onClose, onSubmit, isLoading, initialDa
   }, [initialData, isOpen, form]);
 
   const handleSubmit = (data: ClientFormData) => {
-    const { hipaaAcknowledged, ...clientData } = data;
-    onSubmit(clientData);
+    onSubmit(data);
   };
 
   const handleClose = () => {
@@ -271,7 +270,8 @@ export function AddClientModal({ isOpen, onClose, onSubmit, isLoading, initialDa
                       <Textarea 
                         placeholder="Enter primary medical conditions" 
                         rows={2}
-                        {...field} 
+                        {...field}
+                        value={field.value || ""}
                         data-testid="textarea-primary-diagnosis"
                       />
                     </FormControl>
@@ -288,7 +288,7 @@ export function AddClientModal({ isOpen, onClose, onSubmit, isLoading, initialDa
                     <FormItem>
                       <FormLabel>Allergies</FormLabel>
                       <FormControl>
-                        <Input placeholder="List any allergies" {...field} data-testid="input-allergies" />
+                        <Input placeholder="List any allergies" {...field} value={field.value || ""} data-testid="input-allergies" />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -301,7 +301,7 @@ export function AddClientModal({ isOpen, onClose, onSubmit, isLoading, initialDa
                     <FormItem>
                       <FormLabel>Primary Physician</FormLabel>
                       <FormControl>
-                        <Input placeholder="Dr. Name" {...field} data-testid="input-primary-physician" />
+                        <Input placeholder="Dr. Name" {...field} value={field.value || ""} data-testid="input-primary-physician" />
                       </FormControl>
                       <FormMessage />
                     </FormItem>

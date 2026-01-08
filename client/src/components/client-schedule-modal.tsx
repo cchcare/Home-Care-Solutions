@@ -224,7 +224,8 @@ export function ClientScheduleModal({
                   <FormLabel>Service Type</FormLabel>
                   <FormControl>
                     <Input 
-                      {...field} 
+                      {...field}
+                      value={field.value || ""}
                       placeholder="e.g., Personal care, Medication reminder" 
                       data-testid="input-service-type" 
                     />
@@ -240,7 +241,7 @@ export function ClientScheduleModal({
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>Status</FormLabel>
-                  <Select onValueChange={field.onChange} value={field.value}>
+                  <Select onValueChange={field.onChange} value={field.value || "scheduled"}>
                     <FormControl>
                       <SelectTrigger data-testid="select-status">
                         <SelectValue />
@@ -266,7 +267,8 @@ export function ClientScheduleModal({
                   <FormLabel>Notes (Optional)</FormLabel>
                   <FormControl>
                     <Textarea 
-                      {...field} 
+                      {...field}
+                      value={field.value || ""}
                       placeholder="Additional notes about this visit..." 
                       rows={3}
                       data-testid="textarea-notes" 

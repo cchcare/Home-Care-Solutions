@@ -95,13 +95,7 @@ export function FamilyUpdateForm({ isOpen, onClose, client, accessLevel }: Famil
 
   const createUpdateMutation = useMutation({
     mutationFn: async (data: FamilyUpdateFormData) => {
-      return await apiRequest(`/api/family-portal/client/${client.id}/update-request`, {
-        method: "POST",
-        body: JSON.stringify(data),
-        headers: {
-          "Content-Type": "application/json",
-        },
-      });
+      return await apiRequest("POST", `/api/family-portal/client/${client.id}/update-request`, data);
     },
     onSuccess: () => {
       toast({
@@ -156,8 +150,8 @@ export function FamilyUpdateForm({ isOpen, onClose, client, accessLevel }: Famil
       requestedChanges: {
         ...requestedChanges,
         reason: data.reason,
+        currentValues,
       },
-      currentValues,
     });
   };
 

@@ -48,10 +48,7 @@ export function ESignatureSendDialog({ open, onOpenChange, template }: ESignatur
       recipientType?: string;
       recipientId?: string;
     }) => {
-      return apiRequest("/api/esignature/requests", {
-        method: "POST",
-        body: JSON.stringify(data),
-      });
+      return apiRequest("POST", "/api/esignature/requests", data);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/esignature/requests"] });
