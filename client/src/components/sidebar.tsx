@@ -78,6 +78,18 @@ export function Sidebar() {
       ];
     }
 
+    // Caregiver role: limited access to own data only
+    if ((user as any)?.role === "caregiver") {
+      return [
+        { name: "My Profile", href: "/my-profile", icon: UserCheck },
+        { name: "My Compliance", href: "/my-compliance", icon: Shield },
+        { name: "Forms & Documents", href: "/my-documents", icon: FileText },
+        { name: "Communication", href: "/my-communication", icon: MessageSquare },
+        { name: "Support Tickets", href: "/my-support-tickets", icon: Ticket },
+        { name: "Help & Support", href: "/support-center", icon: HelpCircle, external: true },
+      ];
+    }
+
     const baseNavigation: NavItem[] = [
       { name: "Dashboard", href: "/", icon: LayoutDashboard },
       { name: "Client Management", href: "/clients", icon: Users },

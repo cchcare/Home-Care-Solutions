@@ -59,6 +59,11 @@ import ESignatureTemplates from "@/pages/esignature-templates";
 import ESign from "@/pages/esign";
 import VisitLogUpload from "@/pages/visit-log-upload";
 import ScheduleOverlapReport from "@/pages/schedule-overlap-report";
+import MyProfile from "@/pages/my-profile";
+import MyCompliance from "@/pages/my-compliance";
+import MyDocuments from "@/pages/my-documents";
+import MyCommunication from "@/pages/my-communication";
+import MySupportTickets from "@/pages/my-support-tickets";
 
 function Router() {
   const { isAuthenticated, isLoading, error } = useAuth();
@@ -133,6 +138,11 @@ function Router() {
           <Route path="/esignature-templates" component={ESignatureTemplates} />
           <Route path="/visit-log-upload" component={VisitLogUpload} />
           <Route path="/reports/schedule-overlaps" component={ScheduleOverlapReport} />
+          <Route path="/my-profile" component={MyProfile} />
+          <Route path="/my-compliance" component={MyCompliance} />
+          <Route path="/my-documents" component={MyDocuments} />
+          <Route path="/my-communication" component={MyCommunication} />
+          <Route path="/my-support-tickets" component={MySupportTickets} />
         </>
       )}
       <Route component={NotFound} />
