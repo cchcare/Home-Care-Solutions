@@ -63,6 +63,16 @@ export default function Dashboard() {
   const { isAuthenticated, isLoading, user } = useAuth();
   const { selectedOfficeId, setSelectedOfficeId, isAllOffices, canMutate, viewOnlyMessage } = useOfficeScope();
 
+  const isCaregiver = (user as any)?.role === "caregiver";
+  const canViewDashboard = !isLoading && isAuthenticated && !isCaregiver;
+
+  // Redirect caregivers to their profile - they should not see the dashboard
+  useEffect(() => {
+    if (!isLoading && isAuthenticated && isCaregiver) {
+      window.location.href = "/my-profile";
+    }
+  }, [isAuthenticated, isLoading, isCaregiver]);
+
   // Redirect to login if not authenticated
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
@@ -74,40 +84,45 @@ export default function Dashboard() {
       setTimeout(() => {
         window.location.href = "/api/login";
       }, 500);
-      return;
     }
   }, [isAuthenticated, isLoading, toast]);
 
   const officeQuery = selectedOfficeId !== "all" ? `?officeId=${selectedOfficeId}` : "";
 
+  // All queries are disabled until we confirm user is NOT a caregiver
   const { data: metrics = {}, isLoading: metricsLoading } = useQuery<any>({
     queryKey: ["/api/dashboard/metrics", selectedOfficeId],
     queryFn: () => fetch(`/api/dashboard/metrics${officeQuery}`).then(r => r.json()),
     retry: false,
+    enabled: canViewDashboard,
   });
 
   const { data: clients = [], isLoading: clientsLoading } = useQuery<any[]>({
     queryKey: ["/api/clients", selectedOfficeId],
     queryFn: () => fetch(`/api/clients${officeQuery}`).then(r => r.json()),
     retry: false,
+    enabled: canViewDashboard,
   });
 
   const { data: tasks = [], isLoading: tasksLoading } = useQuery<any[]>({
     queryKey: ["/api/tasks", selectedOfficeId],
     queryFn: () => fetch(`/api/tasks${officeQuery}`).then(r => r.json()),
     retry: false,
+    enabled: canViewDashboard,
   });
 
   const { data: messages = [], isLoading: messagesLoading } = useQuery<any[]>({
     queryKey: ["/api/messages", selectedOfficeId],
     queryFn: () => fetch(`/api/messages${officeQuery}`).then(r => r.json()),
     retry: false,
+    enabled: canViewDashboard,
   });
 
   const { data: documents = [], isLoading: documentsLoading } = useQuery<any[]>({
     queryKey: ["/api/documents", selectedOfficeId],
     queryFn: () => fetch(`/api/documents${officeQuery}`).then(r => r.json()),
     retry: false,
+    enabled: canViewDashboard,
   });
 
   const { data: monthlyStats = [], isLoading: monthlyStatsLoading } = useQuery<{
@@ -119,12 +134,13 @@ export default function Dashboard() {
     queryKey: ["/api/dashboard/monthly-stats", new Date().getFullYear(), selectedOfficeId],
     queryFn: () => fetch(`/api/dashboard/monthly-stats?year=${new Date().getFullYear()}${selectedOfficeId !== "all" ? `&officeId=${selectedOfficeId}` : ""}`).then(r => r.json()),
     retry: false,
+    enabled: canViewDashboard,
   });
 
   const { data: quickLinks = [], isLoading: quickLinksLoading } = useQuery<OfficeDashboardLink[]>({
     queryKey: ["/api/offices", selectedOfficeId, "dashboard-links"],
     queryFn: () => fetch(`/api/offices/${selectedOfficeId}/dashboard-links`).then(r => r.json()),
-    enabled: !!selectedOfficeId && selectedOfficeId !== "all",
+    enabled: canViewDashboard && !!selectedOfficeId && selectedOfficeId !== "all",
   });
 
   const [linkDialogOpen, setLinkDialogOpen] = useState(false);
@@ -195,7 +211,8 @@ export default function Dashboard() {
     monthName: monthNames[stat.month - 1],
   }));
 
-  if (isLoading || !isAuthenticated) {
+  // Block rendering for caregivers and show loading state
+  if (!canViewDashboard) {
     return <div>Loading...</div>;
   }
 

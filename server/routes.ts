@@ -664,9 +664,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Dashboard metrics
-  app.get("/api/dashboard/metrics", isAuthenticated, async (req, res) => {
+  // Dashboard metrics - restricted from caregivers
+  app.get("/api/dashboard/metrics", isAuthenticated, async (req: any, res) => {
     try {
+      const user = req.session.user;
+      if (user.role === "caregiver") {
+        return res.status(403).json({ message: "Access restricted" });
+      }
       const { officeId } = req.query;
       const officeFilter = officeId && officeId !== 'all' ? String(officeId) : undefined;
       const metrics = await storage.getDashboardMetrics(officeFilter);
@@ -677,9 +681,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Monthly dashboard statistics for charts
-  app.get("/api/dashboard/monthly-stats", isAuthenticated, async (req, res) => {
+  // Monthly dashboard statistics for charts - restricted from caregivers
+  app.get("/api/dashboard/monthly-stats", isAuthenticated, async (req: any, res) => {
     try {
+      const user = req.session.user;
+      if (user.role === "caregiver") {
+        return res.status(403).json({ message: "Access restricted" });
+      }
       const year = parseInt(req.query.year as string) || new Date().getFullYear();
       const { officeId } = req.query;
       const officeFilter = officeId && officeId !== 'all' ? String(officeId) : undefined;

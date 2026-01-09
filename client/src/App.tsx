@@ -65,8 +65,35 @@ import MyDocuments from "@/pages/my-documents";
 import MyCommunication from "@/pages/my-communication";
 import MySupportTickets from "@/pages/my-support-tickets";
 
+import { Redirect } from "wouter";
+
+function CaregiverHome() {
+  return <Redirect to="/my-profile" />;
+}
+
+function HomeRoute() {
+  const { isLoading, user } = useAuth();
+  
+  if (isLoading) {
+    return (
+      <div className="min-h-screen w-full flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900 mx-auto"></div>
+          <p className="mt-2 text-gray-600">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+  
+  if ((user as any)?.role === "caregiver") {
+    return <Redirect to="/my-profile" />;
+  }
+  
+  return <Dashboard />;
+}
+
 function Router() {
-  const { isAuthenticated, isLoading, error } = useAuth();
+  const { isAuthenticated, isLoading, error, user } = useAuth();
 
   // If loading, show a loading state instead of the landing page
   if (isLoading) {
@@ -79,6 +106,8 @@ function Router() {
       </div>
     );
   }
+
+  const isCaregiver = (user as any)?.role === "caregiver";
 
   return (
     <Switch>
@@ -97,7 +126,7 @@ function Router() {
         <Route path="/" component={Landing} />
       ) : (
         <>
-          <Route path="/" component={Dashboard} />
+          <Route path="/" component={HomeRoute} />
           <Route path="/family-portal" component={FamilyPortal} />
           <Route path="/clients" component={Clients} />
           <Route path="/clients/:id" component={ClientProfile} />
