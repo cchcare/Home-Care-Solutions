@@ -42,6 +42,7 @@ import Pricing from "@/pages/pricing";
 import Signup from "@/pages/signup";
 import SignupSuccess from "@/pages/signup-success";
 import SupportCenter from "@/pages/support-center";
+import ApiDocumentation from "@/pages/api-documentation";
 import SupportTickets from "@/pages/support-tickets";
 import CustomIntegrations from "@/pages/custom-integrations";
 import ApiKeys from "@/pages/api-keys";
@@ -84,6 +85,8 @@ function Router() {
       <Route path="/signup" component={Signup} />
       <Route path="/signup/success" component={SignupSuccess} />
       <Route path="/support-center" component={SupportCenter} />
+      <Route path="/support" component={SupportCenter} />
+      <Route path="/api-docs" component={ApiDocumentation} />
       <Route path="/esign/:token" component={ESign} />
       {!isAuthenticated ? (
         <Route path="/" component={Landing} />

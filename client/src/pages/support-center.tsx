@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 import { 
   Search, 
   BookOpen, 
@@ -13,7 +13,8 @@ import {
   HelpCircle,
   ChevronRight,
   ExternalLink,
-  ArrowLeft
+  ArrowLeft,
+  Code2
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -29,6 +30,7 @@ const categories = [
   { id: "billing", name: "Billing & Payroll", icon: CreditCard, articleCount: 9 },
   { id: "documents", name: "Documents", icon: FileText, articleCount: 7 },
   { id: "compliance", name: "Compliance", icon: Shield, articleCount: 11 },
+  { id: "api", name: "API Documentation", icon: Code2, articleCount: 4 },
   { id: "settings", name: "Settings", icon: Settings, articleCount: 6 },
   { id: "faq", name: "FAQ", icon: HelpCircle, articleCount: 20 },
 ];
@@ -128,6 +130,12 @@ const articles: Record<string, Array<{ id: string; title: string; description: s
     { id: "st-5", title: "Notification Settings", description: "Configuring email and SMS notifications." },
     { id: "st-6", title: "Integration Settings", description: "Managing third-party integrations.", isNew: true },
   ],
+  "api": [
+    { id: "api-1", title: "Mobile API Overview", description: "Introduction to the mobile app API for caregivers.", isNew: true, isPopular: true },
+    { id: "api-2", title: "Authentication", description: "JWT-based authentication for login, logout, and profile access." },
+    { id: "api-3", title: "Schedules & Clock In/Out", description: "Endpoints for managing schedules and EVV clock in/out." },
+    { id: "api-4", title: "Error Handling", description: "Common error codes and how to handle them." },
+  ],
   "faq": [
     { id: "fq-1", title: "How do I reset my password?", description: "Steps to reset your login password.", isPopular: true },
     { id: "fq-2", title: "Why can't I see certain clients?", description: "Understanding office and role permissions." },
@@ -155,6 +163,7 @@ const articles: Record<string, Array<{ id: string; title: string; description: s
 export default function SupportCenter() {
   const [selectedCategory, setSelectedCategory] = useState("getting-started");
   const [searchQuery, setSearchQuery] = useState("");
+  const [, navigate] = useLocation();
 
   const filteredArticles = articles[selectedCategory]?.filter(article =>
     article.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -273,6 +282,11 @@ export default function SupportCenter() {
                     key={article.id} 
                     className="group hover:shadow-md hover:border-indigo-200 transition-all cursor-pointer bg-white/70 backdrop-blur-sm"
                     data-testid={`article-${article.id}`}
+                    onClick={() => {
+                      if (selectedCategory === "api") {
+                        navigate("/api-docs");
+                      }
+                    }}
                   >
                     <CardHeader className="pb-2">
                       <div className="flex items-start justify-between">
