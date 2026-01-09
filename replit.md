@@ -16,6 +16,7 @@ Preferred communication style: Simple, everyday language.
 - **Office & Client Management**: Profiles, license tracking, staff management, expense tracking, and office-based data filtering.
 - **Billing**: MCO-focused billing with automatic due date calculation and status tracking.
 - **Caregiver Management**: Enhanced profiles, HHAX ID integration, and compliance tracking (PA State Form -9, background checks, medical requirements).
+- **Caregiver Self-Service Portal**: Role-restricted web portal allowing caregivers to view their own profile, compliance items, documents, communications, and support tickets. All /api/my-* endpoints enforce caregiver role with sanitized data responses.
 - **Payroll**: AI-powered OCR for paystub uploads, biweekly payroll runs, Excel import of billing hours (with overtime calculation), and Excel export of payroll hours.
 - **Scheduling**: Master weekly templates for recurring client schedules and automated birthday notifications via SMS/email.
 - **Advanced Features (v2.0)**:
