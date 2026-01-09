@@ -16,15 +16,29 @@ The mobile API uses JWT (JSON Web Token) bearer authentication. After successful
 Authorization: Bearer <token>
 ```
 
-Tokens expire after **7 days**. Use the refresh endpoint to obtain a new token before expiration.
+Tokens expire after **7 days**. Log out to invalidate the token early.
 
 ---
 
-## Endpoints
+## Endpoints Summary
 
-### Authentication
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/auth/login` | Login with email/password, returns JWT token |
+| POST | `/auth/logout` | Invalidate current token |
+| GET | `/auth/profile` | Get current caregiver profile |
+| GET | `/schedules` | Get caregiver's scheduled shifts |
+| GET | `/schedules/history` | Get completed shift history |
+| GET | `/schedules/:id` | Get single schedule details |
+| POST | `/clock/in` | Clock in with GPS location |
+| POST | `/clock/out` | Clock out with GPS location |
+| GET | `/clients` | Get assigned clients |
 
-#### Login
+---
+
+## Authentication Endpoints
+
+### Login
 
 Authenticate a caregiver with email and password.
 
@@ -43,6 +57,7 @@ Authenticate a caregiver with email and password.
 {
   "success": true,
   "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "expiresIn": "7d",
   "caregiver": {
     "id": "uuid-string",
     "firstName": "John",
@@ -69,11 +84,40 @@ Authenticate a caregiver with email and password.
 
 ---
 
-#### Get Current Profile
+### Logout
+
+Invalidate the current JWT token.
+
+**Endpoint:** `POST /auth/logout`
+
+**Headers:**
+```
+Authorization: Bearer <token>
+```
+
+**Success Response (200):**
+```json
+{
+  "success": true,
+  "message": "Successfully logged out"
+}
+```
+
+**Error Responses:**
+
+| Status | Error Code | Description |
+|--------|------------|-------------|
+| 401 | `unauthorized` | Missing or invalid Authorization header |
+| 401 | `invalid_token` | Token is invalid or expired |
+| 500 | `server_error` | Logout failed |
+
+---
+
+### Get Profile
 
 Retrieve the authenticated caregiver's profile.
 
-**Endpoint:** `GET /auth/me`
+**Endpoint:** `GET /auth/profile`
 
 **Headers:**
 ```
@@ -105,32 +149,11 @@ Authorization: Bearer <token>
 
 ---
 
-#### Refresh Token
+## Schedule Endpoints
 
-Obtain a new JWT token before the current one expires.
+### Get Scheduled Shifts
 
-**Endpoint:** `POST /auth/refresh`
-
-**Headers:**
-```
-Authorization: Bearer <current-token>
-```
-
-**Success Response (200):**
-```json
-{
-  "success": true,
-  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
-}
-```
-
----
-
-### Schedules
-
-#### Get Schedules
-
-Retrieve the caregiver's schedules within a date range.
+Retrieve the caregiver's upcoming scheduled shifts.
 
 **Endpoint:** `GET /schedules`
 
@@ -192,7 +215,77 @@ GET /api/mobile/schedules?startDate=2024-01-15&endDate=2024-01-31
 
 ---
 
-#### Get Single Schedule
+### Get Shift History
+
+Retrieve completed shift history with pagination.
+
+**Endpoint:** `GET /schedules/history`
+
+**Headers:**
+```
+Authorization: Bearer <token>
+```
+
+**Query Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| startDate | string (YYYY-MM-DD) | No | 30 days ago | Start of date range |
+| endDate | string (YYYY-MM-DD) | No | Today | End of date range |
+| limit | number | No | 50 | Max results per page (max 100) |
+| offset | number | No | 0 | Number of results to skip |
+
+**Example Request:**
+```
+GET /api/mobile/schedules/history?limit=20&offset=0
+```
+
+**Success Response (200):**
+```json
+{
+  "schedules": [
+    {
+      "id": "schedule-uuid",
+      "scheduledDate": "2024-01-18",
+      "startTime": "09:00",
+      "endTime": "13:00",
+      "serviceType": "Personal Care",
+      "status": "completed",
+      "notes": "Visit went well",
+      "clockInTime": "2024-01-18T09:05:00.000Z",
+      "clockOutTime": "2024-01-18T13:02:00.000Z",
+      "clockInLatitude": "40.7128",
+      "clockInLongitude": "-74.0060",
+      "clockOutLatitude": "40.7128",
+      "clockOutLongitude": "-74.0060",
+      "clockInDistance": "150",
+      "clockOutDistance": "120",
+      "evvStatus": "verified",
+      "hoursWorked": "3.95",
+      "client": {
+        "id": "client-uuid",
+        "firstName": "Jane",
+        "lastName": "Smith",
+        "address": "123 Main St, City, ST 12345",
+        "phone": "+1987654321",
+        "status": "active"
+      }
+    }
+  ],
+  "meta": {
+    "startDate": "2023-12-19",
+    "endDate": "2024-01-18",
+    "total": 45,
+    "limit": 20,
+    "offset": 0,
+    "hasMore": true
+  }
+}
+```
+
+---
+
+### Get Single Schedule
 
 Retrieve details for a specific schedule.
 
@@ -248,11 +341,13 @@ Authorization: Bearer <token>
 
 ---
 
-#### Clock In
+## Clock In/Out (EVV) Endpoints
+
+### Clock In
 
 Record clock-in time with GPS location for EVV compliance.
 
-**Endpoint:** `POST /schedules/:id/clock-in`
+**Endpoint:** `POST /clock/in`
 
 **Headers:**
 ```
@@ -260,15 +355,10 @@ Authorization: Bearer <token>
 Content-Type: application/json
 ```
 
-**URL Parameters:**
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| id | string | Schedule UUID |
-
 **Request Body:**
 ```json
 {
+  "scheduleId": "schedule-uuid",
   "latitude": 40.7128,
   "longitude": -74.0060,
   "distance": 150
@@ -277,6 +367,7 @@ Content-Type: application/json
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
+| scheduleId | string | Yes | Schedule UUID to clock into |
 | latitude | number | Yes | GPS latitude coordinate |
 | longitude | number | Yes | GPS longitude coordinate |
 | distance | number | No | Distance from client address in meters |
@@ -291,7 +382,8 @@ Content-Type: application/json
     "clockInTime": "2024-01-20T09:05:00.000Z",
     "clockInLatitude": "40.7128",
     "clockInLongitude": "-74.0060",
-    "clockInDistance": "150"
+    "clockInDistance": "150",
+    "evvStatus": "clocked_in"
   }
 }
 ```
@@ -300,6 +392,7 @@ Content-Type: application/json
 
 | Status | Error Code | Description |
 |--------|------------|-------------|
+| 400 | `missing_schedule_id` | Schedule ID is required |
 | 400 | `missing_location` | Latitude and longitude are required |
 | 400 | `already_clocked_in` | Already clocked in for this schedule |
 | 403 | `forbidden` | You don't have access to this schedule |
@@ -307,11 +400,11 @@ Content-Type: application/json
 
 ---
 
-#### Clock Out
+### Clock Out
 
 Record clock-out time with GPS location for EVV compliance.
 
-**Endpoint:** `POST /schedules/:id/clock-out`
+**Endpoint:** `POST /clock/out`
 
 **Headers:**
 ```
@@ -319,15 +412,10 @@ Authorization: Bearer <token>
 Content-Type: application/json
 ```
 
-**URL Parameters:**
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| id | string | Schedule UUID |
-
 **Request Body:**
 ```json
 {
+  "scheduleId": "schedule-uuid",
   "latitude": 40.7128,
   "longitude": -74.0060,
   "distance": 120
@@ -336,6 +424,7 @@ Content-Type: application/json
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
+| scheduleId | string | Yes | Schedule UUID to clock out of |
 | latitude | number | Yes | GPS latitude coordinate |
 | longitude | number | Yes | GPS longitude coordinate |
 | distance | number | No | Distance from client address in meters |
@@ -352,7 +441,8 @@ Content-Type: application/json
     "clockOutLatitude": "40.7128",
     "clockOutLongitude": "-74.0060",
     "clockOutDistance": "120",
-    "evvStatus": "verified"
+    "evvStatus": "verified",
+    "hoursWorked": "3.95"
   }
 }
 ```
@@ -361,6 +451,7 @@ Content-Type: application/json
 
 | Status | Error Code | Description |
 |--------|------------|-------------|
+| 400 | `missing_schedule_id` | Schedule ID is required |
 | 400 | `missing_location` | Latitude and longitude are required |
 | 400 | `not_clocked_in` | Must clock in before clocking out |
 | 400 | `already_clocked_out` | Already clocked out for this schedule |
@@ -369,9 +460,9 @@ Content-Type: application/json
 
 ---
 
-### Clients
+## Clients Endpoint
 
-#### Get Assigned Clients
+### Get Assigned Clients
 
 Retrieve all clients assigned to the authenticated caregiver.
 
@@ -461,7 +552,7 @@ The schedule `status` field can have these values:
 
 ### Token Management
 - Store the JWT token securely (e.g., Keychain on iOS, EncryptedSharedPreferences on Android)
-- Refresh the token before it expires (tokens are valid for 7 days)
+- Call `/auth/logout` when the user logs out to invalidate the token
 - Handle 401 errors by redirecting to login
 
 ### Location Permissions
@@ -478,6 +569,11 @@ The schedule `status` field can have these values:
 - Parse the `error` field to handle specific error cases
 - Display the `message` field to users
 - Implement retry logic for 500 errors
+
+### Pagination
+- Use `limit` and `offset` parameters for history endpoints
+- Check `hasMore` in response to determine if more pages exist
+- Default to reasonable page sizes (20-50 items)
 
 ---
 

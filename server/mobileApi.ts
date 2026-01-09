@@ -6,10 +6,13 @@ import { storage } from "./storage";
 const JWT_SECRET = process.env.JWT_SECRET || process.env.SESSION_SECRET || "mobile-app-secret-key";
 const JWT_EXPIRY = "7d";
 
+const invalidatedTokens = new Set<string>();
+
 interface JwtPayload {
   caregiverId: string;
   email: string;
   role: string;
+  jti?: string;
 }
 
 interface AuthenticatedRequest extends Request {
@@ -18,15 +21,21 @@ interface AuthenticatedRequest extends Request {
     email: string;
     role: string;
   };
+  token?: string;
 }
 
 function generateToken(payload: JwtPayload): string {
-  return jwt.sign(payload, JWT_SECRET, { expiresIn: JWT_EXPIRY });
+  const jti = `${Date.now()}-${Math.random().toString(36).substring(2, 15)}`;
+  return jwt.sign({ ...payload, jti }, JWT_SECRET, { expiresIn: JWT_EXPIRY });
 }
 
 function verifyToken(token: string): JwtPayload | null {
   try {
-    return jwt.verify(token, JWT_SECRET) as JwtPayload;
+    const payload = jwt.verify(token, JWT_SECRET) as JwtPayload;
+    if (payload.jti && invalidatedTokens.has(payload.jti)) {
+      return null;
+    }
+    return payload;
   } catch {
     return null;
   }
@@ -72,11 +81,16 @@ async function mobileAuth(req: AuthenticatedRequest, res: Response, next: NextFu
     email: payload.email,
     role: payload.role
   };
+  req.token = token;
   
   next();
 }
 
 export function setupMobileApi(app: Express) {
+  // ============================================
+  // Authentication Endpoints
+  // ============================================
+
   app.post("/api/mobile/auth/login", async (req: Request, res: Response) => {
     try {
       const { email, password } = req.body;
@@ -142,6 +156,7 @@ export function setupMobileApi(app: Express) {
       res.json({
         success: true,
         token,
+        expiresIn: "7d",
         caregiver: {
           id: caregiver.id,
           firstName: caregiver.firstName,
@@ -162,7 +177,33 @@ export function setupMobileApi(app: Express) {
     }
   });
 
-  app.get("/api/mobile/auth/me", mobileAuth, async (req: AuthenticatedRequest, res: Response) => {
+  app.post("/api/mobile/auth/logout", mobileAuth, async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const token = req.token;
+      if (token) {
+        const payload = jwt.decode(token) as JwtPayload;
+        if (payload?.jti) {
+          invalidatedTokens.add(payload.jti);
+          setTimeout(() => {
+            invalidatedTokens.delete(payload.jti!);
+          }, 7 * 24 * 60 * 60 * 1000);
+        }
+      }
+      
+      res.json({
+        success: true,
+        message: "Successfully logged out"
+      });
+    } catch (error) {
+      console.error("[Mobile API] Logout error:", error);
+      res.status(500).json({ 
+        error: "server_error",
+        message: "Logout failed" 
+      });
+    }
+  });
+
+  app.get("/api/mobile/auth/profile", mobileAuth, async (req: AuthenticatedRequest, res: Response) => {
     try {
       const caregiver = await storage.getCaregiver(req.caregiver!.id);
       
@@ -192,6 +233,10 @@ export function setupMobileApi(app: Express) {
     }
   });
 
+  // ============================================
+  // Schedule Endpoints
+  // ============================================
+
   app.get("/api/mobile/schedules", mobileAuth, async (req: AuthenticatedRequest, res: Response) => {
     try {
       const caregiverId = req.caregiver!.id;
@@ -208,8 +253,12 @@ export function setupMobileApi(app: Express) {
       
       const schedules = await storage.getSchedulesByCaregiver(caregiverId, start, end);
       
+      const upcomingSchedules = schedules.filter((s: any) => 
+        s.status !== 'completed' && s.status !== 'cancelled'
+      );
+      
       const schedulesWithClients = await Promise.all(
-        schedules.map(async (schedule: any) => {
+        upcomingSchedules.map(async (schedule: any) => {
           let client = null;
           if (schedule.clientId) {
             client = await storage.getClient(schedule.clientId);
@@ -256,6 +305,92 @@ export function setupMobileApi(app: Express) {
       res.status(500).json({ 
         error: "server_error",
         message: "Failed to fetch schedules" 
+      });
+    }
+  });
+
+  app.get("/api/mobile/schedules/history", mobileAuth, async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const caregiverId = req.caregiver!.id;
+      const { startDate, endDate, limit, offset } = req.query;
+      
+      const today = new Date();
+      const defaultStartDate = new Date(today);
+      defaultStartDate.setDate(defaultStartDate.getDate() - 30);
+      
+      const start = startDate ? new Date(String(startDate)) : defaultStartDate;
+      const end = endDate ? new Date(String(endDate)) : today;
+      const resultLimit = Math.min(Number(limit) || 50, 100);
+      const resultOffset = Number(offset) || 0;
+      
+      const schedules = await storage.getSchedulesByCaregiver(caregiverId, start, end);
+      
+      const completedSchedules = schedules.filter((s: any) => 
+        s.status === 'completed' || s.clockOutTime
+      );
+      
+      completedSchedules.sort((a: any, b: any) => {
+        const dateA = new Date(a.scheduledDate);
+        const dateB = new Date(b.scheduledDate);
+        return dateB.getTime() - dateA.getTime();
+      });
+      
+      const paginatedSchedules = completedSchedules.slice(resultOffset, resultOffset + resultLimit);
+      
+      const schedulesWithClients = await Promise.all(
+        paginatedSchedules.map(async (schedule: any) => {
+          let client = null;
+          if (schedule.clientId) {
+            client = await storage.getClient(schedule.clientId);
+          }
+          return {
+            id: schedule.id,
+            scheduledDate: schedule.scheduledDate,
+            startTime: schedule.startTime,
+            endTime: schedule.endTime,
+            serviceType: schedule.serviceType,
+            status: schedule.status,
+            notes: schedule.notes,
+            clockInTime: schedule.clockInTime,
+            clockOutTime: schedule.clockOutTime,
+            clockInLatitude: schedule.clockInLatitude,
+            clockInLongitude: schedule.clockInLongitude,
+            clockOutLatitude: schedule.clockOutLatitude,
+            clockOutLongitude: schedule.clockOutLongitude,
+            clockInDistance: schedule.clockInDistance,
+            clockOutDistance: schedule.clockOutDistance,
+            evvStatus: schedule.evvStatus,
+            hoursWorked: schedule.clockInTime && schedule.clockOutTime 
+              ? ((new Date(schedule.clockOutTime).getTime() - new Date(schedule.clockInTime).getTime()) / (1000 * 60 * 60)).toFixed(2)
+              : null,
+            client: client ? {
+              id: client.id,
+              firstName: client.firstName,
+              lastName: client.lastName,
+              address: client.address,
+              phone: client.phone,
+              status: client.status
+            } : null
+          };
+        })
+      );
+      
+      res.json({
+        schedules: schedulesWithClients,
+        meta: {
+          startDate: start.toISOString().split("T")[0],
+          endDate: end.toISOString().split("T")[0],
+          total: completedSchedules.length,
+          limit: resultLimit,
+          offset: resultOffset,
+          hasMore: resultOffset + resultLimit < completedSchedules.length
+        }
+      });
+    } catch (error) {
+      console.error("[Mobile API] Get schedule history error:", error);
+      res.status(500).json({ 
+        error: "server_error",
+        message: "Failed to fetch schedule history" 
       });
     }
   });
@@ -321,11 +456,21 @@ export function setupMobileApi(app: Express) {
     }
   });
 
-  app.post("/api/mobile/schedules/:id/clock-in", mobileAuth, async (req: AuthenticatedRequest, res: Response) => {
+  // ============================================
+  // Clock In/Out (EVV) Endpoints
+  // ============================================
+
+  app.post("/api/mobile/clock/in", mobileAuth, async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const { id } = req.params;
       const caregiverId = req.caregiver!.id;
-      const { latitude, longitude, distance } = req.body;
+      const { scheduleId, latitude, longitude, distance } = req.body;
+      
+      if (!scheduleId) {
+        return res.status(400).json({ 
+          error: "missing_schedule_id",
+          message: "Schedule ID is required" 
+        });
+      }
       
       if (latitude === undefined || longitude === undefined) {
         return res.status(400).json({ 
@@ -334,7 +479,7 @@ export function setupMobileApi(app: Express) {
         });
       }
       
-      const schedule = await storage.getCaregiverSchedule(id);
+      const schedule = await storage.getCaregiverSchedule(scheduleId);
       
       if (!schedule) {
         return res.status(404).json({ 
@@ -359,7 +504,7 @@ export function setupMobileApi(app: Express) {
       }
       
       const updatedSchedule = await storage.clockInWithLocation(
-        id,
+        scheduleId,
         String(latitude),
         String(longitude),
         distance ? String(distance) : undefined
@@ -373,7 +518,8 @@ export function setupMobileApi(app: Express) {
           clockInTime: updatedSchedule.clockInTime,
           clockInLatitude: updatedSchedule.clockInLatitude,
           clockInLongitude: updatedSchedule.clockInLongitude,
-          clockInDistance: updatedSchedule.clockInDistance
+          clockInDistance: updatedSchedule.clockInDistance,
+          evvStatus: updatedSchedule.evvStatus
         }
       });
     } catch (error) {
@@ -385,11 +531,17 @@ export function setupMobileApi(app: Express) {
     }
   });
 
-  app.post("/api/mobile/schedules/:id/clock-out", mobileAuth, async (req: AuthenticatedRequest, res: Response) => {
+  app.post("/api/mobile/clock/out", mobileAuth, async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const { id } = req.params;
       const caregiverId = req.caregiver!.id;
-      const { latitude, longitude, distance } = req.body;
+      const { scheduleId, latitude, longitude, distance } = req.body;
+      
+      if (!scheduleId) {
+        return res.status(400).json({ 
+          error: "missing_schedule_id",
+          message: "Schedule ID is required" 
+        });
+      }
       
       if (latitude === undefined || longitude === undefined) {
         return res.status(400).json({ 
@@ -398,7 +550,7 @@ export function setupMobileApi(app: Express) {
         });
       }
       
-      const schedule = await storage.getCaregiverSchedule(id);
+      const schedule = await storage.getCaregiverSchedule(scheduleId);
       
       if (!schedule) {
         return res.status(404).json({ 
@@ -430,11 +582,15 @@ export function setupMobileApi(app: Express) {
       }
       
       const updatedSchedule = await storage.clockOutWithLocation(
-        id,
+        scheduleId,
         String(latitude),
         String(longitude),
         distance ? String(distance) : undefined
       );
+      
+      const hoursWorked = updatedSchedule.clockInTime && updatedSchedule.clockOutTime
+        ? ((new Date(updatedSchedule.clockOutTime).getTime() - new Date(updatedSchedule.clockInTime).getTime()) / (1000 * 60 * 60)).toFixed(2)
+        : null;
       
       res.json({
         success: true,
@@ -446,7 +602,8 @@ export function setupMobileApi(app: Express) {
           clockOutLatitude: updatedSchedule.clockOutLatitude,
           clockOutLongitude: updatedSchedule.clockOutLongitude,
           clockOutDistance: updatedSchedule.clockOutDistance,
-          evvStatus: updatedSchedule.evvStatus
+          evvStatus: updatedSchedule.evvStatus,
+          hoursWorked
         }
       });
     } catch (error) {
@@ -458,26 +615,9 @@ export function setupMobileApi(app: Express) {
     }
   });
 
-  app.post("/api/mobile/auth/refresh", mobileAuth, async (req: AuthenticatedRequest, res: Response) => {
-    try {
-      const newToken = generateToken({
-        caregiverId: req.caregiver!.id,
-        email: req.caregiver!.email,
-        role: req.caregiver!.role
-      });
-      
-      res.json({
-        success: true,
-        token: newToken
-      });
-    } catch (error) {
-      console.error("[Mobile API] Token refresh error:", error);
-      res.status(500).json({ 
-        error: "server_error",
-        message: "Failed to refresh token" 
-      });
-    }
-  });
+  // ============================================
+  // Clients Endpoint
+  // ============================================
 
   app.get("/api/mobile/clients", mobileAuth, async (req: AuthenticatedRequest, res: Response) => {
     try {
