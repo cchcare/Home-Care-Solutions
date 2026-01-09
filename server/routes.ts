@@ -12798,6 +12798,256 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ============================================
+  // Caregiver Self-Service Routes (My Profile, My Compliance, etc.)
+  // ============================================
+
+  // Get caregiver's own profile (sanitized - only safe fields)
+  app.get("/api/my-profile", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      if (!user) {
+        return res.status(401).json({ message: "Not authenticated" });
+      }
+      if (user.role !== "caregiver") {
+        return res.status(403).json({ message: "Access restricted to caregivers only" });
+      }
+      const caregiver = await storage.getCaregiverByUserId(user.id);
+      if (!caregiver) {
+        return res.status(404).json({ message: "Caregiver profile not found" });
+      }
+      const sanitizedProfile = {
+        id: caregiver.id,
+        firstName: caregiver.firstName,
+        lastName: caregiver.lastName,
+        email: caregiver.email,
+        phone: caregiver.phone,
+        address: caregiver.address,
+        city: caregiver.city,
+        state: caregiver.state,
+        zipCode: caregiver.zipCode,
+        officeId: caregiver.officeId,
+        isActive: caregiver.isActive,
+        startDate: caregiver.startDate,
+        hhaxCaregiverCode: caregiver.hhaxCaregiverCode,
+      };
+      res.json(sanitizedProfile);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to fetch profile" });
+    }
+  });
+
+  // Update caregiver's own profile (limited fields)
+  app.patch("/api/my-profile", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      if (!user) {
+        return res.status(401).json({ message: "Not authenticated" });
+      }
+      if (user.role !== "caregiver") {
+        return res.status(403).json({ message: "Access restricted to caregivers only" });
+      }
+      const caregiver = await storage.getCaregiverByUserId(user.id);
+      if (!caregiver) {
+        return res.status(404).json({ message: "Caregiver profile not found" });
+      }
+      const allowedFields = ['phone', 'address', 'city', 'state', 'zipCode'];
+      const updateData: any = {};
+      for (const field of allowedFields) {
+        if (req.body[field] !== undefined) {
+          updateData[field] = req.body[field];
+        }
+      }
+      const updated = await storage.updateCaregiver(caregiver.id, updateData);
+      const sanitizedProfile = {
+        id: updated.id,
+        firstName: updated.firstName,
+        lastName: updated.lastName,
+        email: updated.email,
+        phone: updated.phone,
+        address: updated.address,
+        city: updated.city,
+        state: updated.state,
+        zipCode: updated.zipCode,
+        officeId: updated.officeId,
+        isActive: updated.isActive,
+        startDate: updated.startDate,
+        hhaxCaregiverCode: updated.hhaxCaregiverCode,
+      };
+      res.json(sanitizedProfile);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to update profile" });
+    }
+  });
+
+  // Get caregiver's own compliance items
+  app.get("/api/my-compliance", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      if (!user) {
+        return res.status(401).json({ message: "Not authenticated" });
+      }
+      if (user.role !== "caregiver") {
+        return res.status(403).json({ message: "Access restricted to caregivers only" });
+      }
+      const caregiver = await storage.getCaregiverByUserId(user.id);
+      if (!caregiver) {
+        return res.status(404).json({ message: "Caregiver profile not found" });
+      }
+      const complianceItems = await storage.getCaregiverComplianceByCaregiver(caregiver.id);
+      res.json(complianceItems);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to fetch compliance items" });
+    }
+  });
+
+  // Get caregiver's own documents
+  app.get("/api/my-documents", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      if (!user) {
+        return res.status(401).json({ message: "Not authenticated" });
+      }
+      if (user.role !== "caregiver") {
+        return res.status(403).json({ message: "Access restricted to caregivers only" });
+      }
+      const caregiver = await storage.getCaregiverByUserId(user.id);
+      if (!caregiver) {
+        return res.status(404).json({ message: "Caregiver profile not found" });
+      }
+      const documents = await storage.getDocumentsByCaregiver(caregiver.id);
+      res.json(documents);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to fetch documents" });
+    }
+  });
+
+  // Get caregiver's own communication messages (placeholder - returns empty for now)
+  app.get("/api/my-communication/messages", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      if (!user) {
+        return res.status(401).json({ message: "Not authenticated" });
+      }
+      if (user.role !== "caregiver") {
+        return res.status(403).json({ message: "Access restricted to caregivers only" });
+      }
+      res.json([]);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to fetch messages" });
+    }
+  });
+
+  // Get caregiver's own notifications (placeholder - returns empty for now)
+  app.get("/api/my-communication/notifications", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      if (!user) {
+        return res.status(401).json({ message: "Not authenticated" });
+      }
+      if (user.role !== "caregiver") {
+        return res.status(403).json({ message: "Access restricted to caregivers only" });
+      }
+      res.json([]);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to fetch notifications" });
+    }
+  });
+
+  // Get caregiver's own support tickets (only tickets they created)
+  app.get("/api/my-support-tickets", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      if (!user) {
+        return res.status(401).json({ message: "Not authenticated" });
+      }
+      if (user.role !== "caregiver") {
+        return res.status(403).json({ message: "Access restricted to caregivers only" });
+      }
+      const allTickets = await storage.getSupportTicketsByOrganization(user.organizationId);
+      const myTickets = allTickets.filter((t: any) => t.userId === user.id);
+      res.json(myTickets);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to fetch support tickets" });
+    }
+  });
+
+  // Create a support ticket for caregiver
+  app.post("/api/my-support-tickets", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      if (!user?.organizationId) {
+        return res.status(400).json({ message: "Organization required" });
+      }
+      if (user.role !== "caregiver") {
+        return res.status(403).json({ message: "Access restricted to caregivers only" });
+      }
+      const validatedData = insertSupportTicketSchema.parse({
+        ...req.body,
+        organizationId: user.organizationId,
+        userId: user.id,
+      });
+      const ticket = await storage.createSupportTicket(validatedData);
+      res.status(201).json(ticket);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message || "Failed to create support ticket" });
+    }
+  });
+
+  // Get a specific support ticket (only if caregiver owns it)
+  app.get("/api/my-support-tickets/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      if (!user) {
+        return res.status(401).json({ message: "Not authenticated" });
+      }
+      if (user.role !== "caregiver") {
+        return res.status(403).json({ message: "Access restricted to caregivers only" });
+      }
+      const ticket = await storage.getSupportTicket(req.params.id);
+      if (!ticket) {
+        return res.status(404).json({ message: "Ticket not found" });
+      }
+      if (ticket.userId !== user.id) {
+        return res.status(403).json({ message: "Unauthorized" });
+      }
+      const messages = await storage.getTicketMessages(ticket.id);
+      res.json({ ...ticket, messages });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to fetch support ticket" });
+    }
+  });
+
+  // Add message to caregiver's own support ticket
+  app.post("/api/my-support-tickets/:id/messages", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      if (!user) {
+        return res.status(401).json({ message: "Not authenticated" });
+      }
+      if (user.role !== "caregiver") {
+        return res.status(403).json({ message: "Access restricted to caregivers only" });
+      }
+      const ticket = await storage.getSupportTicket(req.params.id);
+      if (!ticket) {
+        return res.status(404).json({ message: "Ticket not found" });
+      }
+      if (ticket.userId !== user.id) {
+        return res.status(403).json({ message: "Unauthorized" });
+      }
+      const validatedData = insertTicketMessageSchema.parse({
+        ...req.body,
+        ticketId: ticket.id,
+        userId: user.id,
+        isStaffReply: false,
+      });
+      const message = await storage.createTicketMessage(validatedData);
+      res.status(201).json(message);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message || "Failed to add message" });
+    }
+  });
+
+  // ============================================
   // Support Tickets Routes
   // ============================================
 
