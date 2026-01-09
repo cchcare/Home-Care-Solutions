@@ -60,7 +60,7 @@ import type { OfficeDashboardLink } from "@shared/schema";
 
 export default function Dashboard() {
   const { toast } = useToast();
-  const { isAuthenticated, isLoading, user } = useAuth();
+  const { isAuthenticated, isLoading, user, logout } = useAuth();
   const { selectedOfficeId, setSelectedOfficeId, isAllOffices, canMutate, viewOnlyMessage } = useOfficeScope();
 
   const isCaregiver = (user as any)?.role === "caregiver";
@@ -306,7 +306,7 @@ export default function Dashboard() {
                 </Link>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem 
-                  onClick={() => window.location.href = "/api/logout"}
+                  onClick={() => logout()}
                   className="text-destructive focus:text-destructive"
                   data-testid="menu-item-logout"
                 >
