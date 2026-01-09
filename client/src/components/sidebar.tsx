@@ -37,7 +37,13 @@ import {
   Link2,
   FileSignature,
   Mail,
-  FileUp
+  FileUp,
+  ArrowLeftRight,
+  PenTool,
+  Bell,
+  TrendingUp,
+  FileBarChart,
+  UserPlus
 } from "lucide-react";
 
 interface NavItem {
@@ -81,6 +87,7 @@ export function Sidebar() {
         children: [
           { name: "Caregiver Management", href: "/caregivers", icon: UserCheck },
           { name: "EVV Clock In/Out", href: "/evv-clock", icon: Clock },
+          { name: "Shift Swap Requests", href: "/shift-swap-requests", icon: ArrowLeftRight },
         ]
       },
       { name: "Training & Resources", href: "/training", icon: GraduationCap },
@@ -97,6 +104,8 @@ export function Sidebar() {
           { name: "Payroll Hub", href: "/payroll", icon: DollarSign },
           { name: "Billing & Payroll", href: "/billing-payroll", icon: DollarSign },
           { name: "Coordinator Pay", href: "/coordinator-pay-records", icon: DollarSign },
+          { name: "Financial Reports", href: "/financial-reports", icon: FileBarChart },
+          { name: "Care Quality Scorecard", href: "/care-quality-scorecard", icon: TrendingUp },
         ]
       },
       { name: "AI Assistant", href: "/ai-assistant", icon: Bot },
@@ -121,7 +130,10 @@ export function Sidebar() {
         { name: "Office Management", href: "/offices", icon: Building2 },
         { name: "MCO Setup", href: "/admin-settings", icon: Settings },
         { name: "Letter Templates", href: "/letter-templates", icon: FileSignature },
+        { name: "E-Signature Templates", href: "/esignature-templates", icon: PenTool },
         { name: "Birthday Notifications", href: "/birthday-notifications", icon: Cake },
+        { name: "Expiration Alerts", href: "/expiration-alerts", icon: Bell },
+        { name: "Client Intake", href: "/client-intake", icon: UserPlus },
         { name: "HHAX Integration", href: "/hhax-integration", icon: Plug },
         { name: "Visit Log Upload", href: "/visit-log-upload", icon: FileUp },
         { name: "Exclusion Verification", href: "/exclusion-verification", icon: UserX },
