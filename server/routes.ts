@@ -3,7 +3,10 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { db } from "./db";
 import { eq, and, desc, asc, ilike, or } from "drizzle-orm";
-import { setupAuth, isAuthenticated, hashPassword } from "./localAuth";
+import { setupAuth } from "./localAuth";
+import { setupMobileApi } from "./mobileApi";
+import { setupReplitAuth } from "./replitAuth";
+import { setupStripeRoutes } from "./stripe";
 import { requireFeature, getOrganizationFeatures } from "./feature-gate";
 import multer from "multer";
 import crypto from "crypto";
@@ -184,9 +187,14 @@ const excelUpload = multer({
   },
 });
 
+import { setupMobileApi } from "./mobileApi";
+
 export async function registerRoutes(app: Express): Promise<Server> {
   // Auth middleware
   await setupAuth(app);
+  
+  // Register Mobile API
+  setupMobileApi(app);
 
   // Ensure uploads directory exists
   if (!fs.existsSync("uploads")) {

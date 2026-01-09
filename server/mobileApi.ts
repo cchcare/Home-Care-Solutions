@@ -60,7 +60,7 @@ async function mobileAuth(req: AuthenticatedRequest, res: Response, next: NextFu
     });
   }
   
-  if (caregiver.status !== "active") {
+  if (caregiver.isActive === false) {
     return res.status(403).json({ 
       error: "account_inactive",
       message: "Your account is not active. Please contact your administrator." 
@@ -124,7 +124,7 @@ export function setupMobileApi(app: Express) {
         });
       }
       
-      if (caregiver.status !== "active") {
+      if (caregiver.isActive === false) {
         return res.status(403).json({ 
           error: "account_inactive",
           message: "Your caregiver account is not active. Please contact your administrator." 
@@ -149,8 +149,8 @@ export function setupMobileApi(app: Express) {
           email: caregiver.email,
           phone: caregiver.phone,
           officeId: caregiver.officeId,
-          status: caregiver.status,
-          hhaxId: caregiver.hhaxId
+          isActive: caregiver.isActive,
+          hhaxCaregiverCode: caregiver.hhaxCaregiverCode
         }
       });
     } catch (error) {
@@ -180,9 +180,8 @@ export function setupMobileApi(app: Express) {
         email: caregiver.email,
         phone: caregiver.phone,
         officeId: caregiver.officeId,
-        status: caregiver.status,
-        hhaxId: caregiver.hhaxId,
-        profileImageUrl: caregiver.profileImageUrl
+        isActive: caregiver.isActive,
+        hhaxCaregiverCode: caregiver.hhaxCaregiverCode,
       });
     } catch (error) {
       console.error("[Mobile API] Get profile error:", error);
@@ -204,13 +203,13 @@ export function setupMobileApi(app: Express) {
       const defaultEndDate = new Date(today);
       defaultEndDate.setDate(defaultEndDate.getDate() + 14);
       
-      const start = startDate ? String(startDate) : defaultStartDate.toISOString().split("T")[0];
-      const end = endDate ? String(endDate) : defaultEndDate.toISOString().split("T")[0];
+      const start = startDate ? new Date(String(startDate)) : defaultStartDate;
+      const end = endDate ? new Date(String(endDate)) : defaultEndDate;
       
-      const schedules = await storage.getCaregiverSchedulesByCaregiver(caregiverId, start, end);
+      const schedules = await storage.getSchedulesByCaregiver(caregiverId, start, end);
       
       const schedulesWithClients = await Promise.all(
-        schedules.map(async (schedule) => {
+        schedules.map(async (schedule: any) => {
           let client = null;
           if (schedule.clientId) {
             client = await storage.getClient(schedule.clientId);
@@ -238,8 +237,7 @@ export function setupMobileApi(app: Express) {
               lastName: client.lastName,
               address: client.address,
               phone: client.phone,
-              latitude: client.latitude,
-              longitude: client.longitude
+              status: client.status
             } : null
           };
         })
@@ -248,8 +246,8 @@ export function setupMobileApi(app: Express) {
       res.json({
         schedules: schedulesWithClients,
         meta: {
-          startDate: start,
-          endDate: end,
+          startDate: start.toISOString().split("T")[0],
+          endDate: end.toISOString().split("T")[0],
           count: schedulesWithClients.length
         }
       });
@@ -311,8 +309,7 @@ export function setupMobileApi(app: Express) {
           lastName: client.lastName,
           address: client.address,
           phone: client.phone,
-          latitude: client.latitude,
-          longitude: client.longitude
+          status: client.status
         } : null
       });
     } catch (error) {
@@ -478,6 +475,34 @@ export function setupMobileApi(app: Express) {
       res.status(500).json({ 
         error: "server_error",
         message: "Failed to refresh token" 
+      });
+    }
+  });
+
+  app.get("/api/mobile/clients", mobileAuth, async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const caregiverId = req.caregiver!.id;
+      const clients = await storage.getAssignedClientsByCaregiver(caregiverId);
+      
+      res.json({
+        clients: clients.map(client => ({
+          id: client.id,
+          firstName: client.firstName,
+          lastName: client.lastName,
+          phone: client.phone,
+          email: client.email,
+          address: client.address,
+          city: client.city,
+          state: client.state,
+          zipCode: client.zipCode,
+          status: client.status
+        }))
+      });
+    } catch (error) {
+      console.error("[Mobile API] Get assigned clients error:", error);
+      res.status(500).json({ 
+        error: "server_error",
+        message: "Failed to fetch assigned clients" 
       });
     }
   });
