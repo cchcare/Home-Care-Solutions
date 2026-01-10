@@ -3,7 +3,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { db } from "./db";
 import { eq, and, desc, asc, ilike, or } from "drizzle-orm";
-import { setupAuth, isAuthenticated } from "./localAuth";
+import { setupAuth, isAuthenticated, hashPassword } from "./localAuth";
 import { setupMobileApi } from "./mobileApi";
 import { setupReplitAuth } from "./replitAuth";
 import { setupStripeRoutes } from "./stripe";
