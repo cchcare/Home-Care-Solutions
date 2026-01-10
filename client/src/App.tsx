@@ -64,6 +64,7 @@ import MyCompliance from "@/pages/my-compliance";
 import MyDocuments from "@/pages/my-documents";
 import MyCommunication from "@/pages/my-communication";
 import MySupportTickets from "@/pages/my-support-tickets";
+import CaregiverLogin from "@/pages/caregiver-login";
 
 import { Redirect } from "wouter";
 
@@ -118,6 +119,7 @@ function Router() {
       <Route path="/pricing" component={Pricing} />
       <Route path="/signup" component={Signup} />
       <Route path="/signup/success" component={SignupSuccess} />
+      <Route path="/caregiver-login" component={CaregiverLogin} />
       <Route path="/support-center" component={SupportCenter} />
       <Route path="/support" component={SupportCenter} />
       <Route path="/api-docs" component={ApiDocumentation} />

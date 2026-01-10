@@ -155,8 +155,8 @@ export default function Landing() {
               className="w-24 h-24 mx-auto mb-4 object-contain"
               data-testid="img-cchc-logo"
             />
-            <CardTitle className="text-2xl">Welcome Back</CardTitle>
-            <CardDescription>Sign in to your Home Care account</CardDescription>
+            <CardTitle className="text-2xl">Staff Login</CardTitle>
+            <CardDescription>Sign in to the staff portal. Caregivers should use the <Link href="/caregiver-login" className="text-primary hover:underline">Caregiver Portal</Link> instead.</CardDescription>
           </CardHeader>
           <CardContent>
             <Tabs value={loginTab} onValueChange={(v) => setLoginTab(v as "password" | "sms")} className="w-full">
@@ -416,8 +416,13 @@ export default function Landing() {
                 Pricing
               </Link>
               <Button onClick={() => setShowLoginForm(true)} variant="outline" data-testid="button-login">
-                Sign In
+                Staff Login
               </Button>
+              <Link href="/caregiver-login">
+                <Button variant="ghost" data-testid="button-caregiver-login">
+                  Caregiver Portal
+                </Button>
+              </Link>
               <Button onClick={() => window.location.href = '/pricing'} data-testid="button-get-started-header">
                 Get Started
               </Button>
@@ -557,13 +562,24 @@ export default function Landing() {
                 Your data is protected with enterprise-grade encryption, audit logging, 
                 and compliance with all healthcare privacy regulations. We take security seriously.
               </p>
-              <Button 
-                onClick={() => setShowLoginForm(true)} 
-                className="px-8"
-                data-testid="button-secure-login"
-              >
-                Secure Login
-              </Button>
+              <div className="flex flex-col sm:flex-row gap-4 justify-center">
+                <Button 
+                  onClick={() => setShowLoginForm(true)} 
+                  className="px-8"
+                  data-testid="button-secure-login"
+                >
+                  Staff Login
+                </Button>
+                <Link href="/caregiver-login">
+                  <Button 
+                    variant="outline"
+                    className="px-8"
+                    data-testid="button-caregiver-portal"
+                  >
+                    Caregiver Portal
+                  </Button>
+                </Link>
+              </div>
             </CardContent>
           </Card>
         </div>

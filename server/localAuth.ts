@@ -130,7 +130,7 @@ export async function setupAuth(app: Express) {
   app.set("trust proxy", 1);
   app.use(session(sessionSettings));
 
-  // Login endpoint
+  // Staff login endpoint - rejects caregivers
   app.post("/api/auth/login", async (req, res) => {
     try {
       const { username, password } = req.body;
@@ -154,6 +154,11 @@ export async function setupAuth(app: Express) {
       if (!user || !user.passwordHash) {
         recordFailedAttempt(identifier);
         return res.status(401).json({ message: "Invalid username or password" });
+      }
+
+      // Reject caregivers from staff login
+      if (user.role === "caregiver") {
+        return res.status(403).json({ message: "Caregivers must use the Caregiver Portal login at /caregiver-login" });
       }
 
       if (!user.isActive) {
@@ -215,6 +220,273 @@ export async function setupAuth(app: Express) {
     } catch (error) {
       console.error("Login error:", error);
       res.status(500).json({ message: "An error occurred during login" });
+    }
+  });
+
+  // Caregiver login endpoint - only allows caregivers
+  app.post("/api/auth/caregiver/login", async (req, res) => {
+    try {
+      const { username, password } = req.body;
+      
+      if (!username || !password) {
+        return res.status(400).json({ message: "Username and password are required" });
+      }
+
+      const identifier = username.toLowerCase();
+      
+      // Check for lockout
+      if (isLockedOut(identifier)) {
+        return res.status(429).json({ 
+          message: "Too many failed login attempts. Please try again in 15 minutes." 
+        });
+      }
+
+      // Find user by username or email
+      const user = await storage.getUserByUsernameOrEmail(identifier);
+      
+      if (!user || !user.passwordHash) {
+        recordFailedAttempt(identifier);
+        return res.status(401).json({ message: "Invalid username or password" });
+      }
+
+      // Only allow caregivers
+      if (user.role !== "caregiver") {
+        return res.status(403).json({ message: "Staff members must use the main login page" });
+      }
+
+      if (!user.isActive) {
+        return res.status(401).json({ message: "Account is disabled. Contact your administrator." });
+      }
+
+      const isValid = await verifyPassword(password, user.passwordHash);
+      
+      if (!isValid) {
+        recordFailedAttempt(identifier);
+        return res.status(401).json({ message: "Invalid username or password" });
+      }
+
+      // Clear failed attempts on successful login
+      clearLoginAttempts(identifier);
+
+      // Update last login
+      await storage.updateUserLastLogin(user.id);
+
+      // Regenerate session to prevent fixation
+      req.session.regenerate((err) => {
+        if (err) {
+          console.error("Session regeneration error:", err);
+          return res.status(500).json({ message: "Login failed" });
+        }
+
+        // Store user info in session (exclude sensitive data)
+        (req.session as any).user = {
+          id: user.id,
+          email: user.email,
+          username: user.username,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          role: user.role,
+          primaryOfficeId: user.primaryOfficeId,
+          profileImageUrl: user.profileImageUrl,
+          mustResetPassword: user.mustResetPassword,
+        };
+
+        req.session.save((err) => {
+          if (err) {
+            console.error("Session save error:", err);
+            return res.status(500).json({ message: "Login failed" });
+          }
+          
+          res.json({
+            id: user.id,
+            email: user.email,
+            username: user.username,
+            firstName: user.firstName,
+            lastName: user.lastName,
+            role: user.role,
+            primaryOfficeId: user.primaryOfficeId,
+            profileImageUrl: user.profileImageUrl,
+            mustResetPassword: user.mustResetPassword,
+          });
+        });
+      });
+    } catch (error) {
+      console.error("Caregiver login error:", error);
+      res.status(500).json({ message: "An error occurred during login" });
+    }
+  });
+
+  // Caregiver SMS login request
+  app.post("/api/auth/caregiver/sms/request-login-code", async (req, res) => {
+    try {
+      const { phone } = req.body;
+      
+      if (!phone) {
+        return res.status(400).json({ message: "Phone number is required" });
+      }
+
+      const { formatPhoneNumber, sendSMS } = require('./communication-services');
+      const formattedPhone = formatPhoneNumber(phone);
+
+      // Find user by verified mobile phone
+      const user = await storage.getUserByMobilePhone(formattedPhone);
+      
+      if (!user || user.role !== "caregiver") {
+        // Don't reveal whether the phone exists
+        return res.json({ message: "If registered, a code has been sent" });
+      }
+
+      // Check rate limiting
+      if (isSmsLockedOut(formattedPhone)) {
+        return res.status(429).json({ message: "Too many requests. Please wait a few minutes." });
+      }
+      recordSmsAttempt(formattedPhone);
+
+      // Generate and send SMS code
+      const code = Math.floor(100000 + Math.random() * 900000).toString();
+      const expiry = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
+      await storage.setUserSmsCode(user.id, code, expiry);
+      
+      await sendSMS({
+        to: formattedPhone,
+        body: `Your CCHC caregiver login code is: ${code}. Valid for 5 minutes.`,
+      });
+
+      res.json({ message: "If registered, a code has been sent" });
+    } catch (error) {
+      console.error("Caregiver SMS request error:", error);
+      res.json({ message: "If registered, a code has been sent" });
+    }
+  });
+
+  // Caregiver SMS login verify
+  app.post("/api/auth/caregiver/sms/login", async (req, res) => {
+    try {
+      const { phone, code } = req.body;
+      
+      if (!phone || !code) {
+        return res.status(400).json({ message: "Phone and code are required" });
+      }
+
+      const { formatPhoneNumber } = require('./communication-services');
+      const formattedPhone = formatPhoneNumber(phone);
+
+      const user = await storage.getUserByMobilePhone(formattedPhone);
+      
+      if (!user || user.role !== "caregiver") {
+        return res.status(401).json({ message: "Invalid phone or code" });
+      }
+
+      // Check if code matches and is not expired
+      const fullUser = await storage.getUser(user.id);
+      if (!fullUser || 
+          fullUser.smsVerificationCode !== code || 
+          !fullUser.smsCodeExpiry || 
+          new Date() > new Date(fullUser.smsCodeExpiry)) {
+        return res.status(401).json({ message: "Invalid or expired code" });
+      }
+
+      // Clear the code after successful verification
+      await storage.clearUserSmsCode(user.id);
+      clearSmsAttempts(formattedPhone);
+      
+      // Update last login
+      await storage.updateUserLastLogin(user.id);
+
+      // Regenerate session
+      req.session.regenerate((err) => {
+        if (err) {
+          console.error("Session regeneration error:", err);
+          return res.status(500).json({ message: "Login failed" });
+        }
+
+        (req.session as any).user = {
+          id: user.id,
+          email: user.email,
+          username: user.username,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          role: user.role,
+          primaryOfficeId: user.primaryOfficeId,
+          profileImageUrl: user.profileImageUrl,
+          mustResetPassword: false,
+        };
+
+        req.session.save((err) => {
+          if (err) {
+            console.error("Session save error:", err);
+            return res.status(500).json({ message: "Login failed" });
+          }
+          
+          res.json({
+            id: user.id,
+            email: user.email,
+            username: user.username,
+            firstName: user.firstName,
+            lastName: user.lastName,
+            role: user.role,
+            primaryOfficeId: user.primaryOfficeId,
+            profileImageUrl: user.profileImageUrl,
+          });
+        });
+      });
+    } catch (error) {
+      console.error("Caregiver SMS login error:", error);
+      res.status(500).json({ message: "An error occurred during login" });
+    }
+  });
+
+  // Caregiver forgot password
+  app.post("/api/auth/caregiver/forgot-password", async (req, res) => {
+    try {
+      const { email } = req.body;
+      
+      if (!email) {
+        return res.status(400).json({ message: "Email is required" });
+      }
+
+      const user = await storage.getUserByEmail(email.toLowerCase());
+      
+      // Only process for caregivers, but don't reveal whether the email exists
+      if (user && user.role === "caregiver") {
+        // Generate reset token and send email (reuse existing logic)
+        const resetToken = require('crypto').randomBytes(32).toString('hex');
+        const resetExpires = new Date(Date.now() + 3600000); // 1 hour
+        
+        await storage.setUserResetToken(user.id, resetToken, resetExpires);
+        
+        // Send email using existing email service
+        const baseUrl = process.env.BASE_URL || 'https://homecare.replit.app';
+        const resetUrl = `${baseUrl}/reset-password?token=${resetToken}`;
+        
+        // Use AgentMail if configured
+        try {
+          const AgentMail = require('agentmail').default;
+          const agentmail = new AgentMail(process.env.AGENTMAIL_API_KEY);
+          
+          await agentmail.sendEmail({
+            from: process.env.AGENTMAIL_FROM_ADDRESS,
+            to: user.email,
+            subject: 'Reset Your CCHC Caregiver Portal Password',
+            html: `
+              <h2>Password Reset Request</h2>
+              <p>Hi ${user.firstName},</p>
+              <p>You requested to reset your password for the CCHC Caregiver Portal.</p>
+              <p><a href="${resetUrl}" style="background-color: #0066cc; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">Reset Password</a></p>
+              <p>This link expires in 1 hour.</p>
+              <p>If you didn't request this, please ignore this email.</p>
+            `
+          });
+        } catch (emailError) {
+          console.error("Failed to send caregiver password reset email:", emailError);
+        }
+      }
+
+      // Always return success to prevent email enumeration
+      res.json({ message: "If an account exists, a reset link has been sent" });
+    } catch (error) {
+      console.error("Caregiver forgot password error:", error);
+      res.json({ message: "If an account exists, a reset link has been sent" });
     }
   });
 
