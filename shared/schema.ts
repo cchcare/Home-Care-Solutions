@@ -3729,3 +3729,47 @@ export const eSignatureRequestsRelations = relations(eSignatureRequests, ({ one 
 export type ESignatureRequest = typeof eSignatureRequests.$inferSelect;
 export type InsertESignatureRequest = typeof eSignatureRequests.$inferInsert;
 export const insertESignatureRequestSchema = createInsertSchema(eSignatureRequests).omit({ id: true, createdAt: true, updatedAt: true });
+
+// SMS Message Logs - for Twilio webhook tracking
+export const smsDirectionEnum = pgEnum("sms_direction", ["inbound", "outbound"]);
+export const smsStatusEnum = pgEnum("sms_status", ["queued", "sending", "sent", "delivered", "undelivered", "failed", "received"]);
+
+export const smsLogs = pgTable("sms_logs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id"),
+  messageSid: varchar("message_sid").unique(),
+  direction: smsDirectionEnum("direction").notNull(),
+  fromNumber: varchar("from_number").notNull(),
+  toNumber: varchar("to_number").notNull(),
+  body: text("body"),
+  status: smsStatusEnum("status").default("queued"),
+  errorCode: varchar("error_code"),
+  errorMessage: text("error_message"),
+  // Link to user/caregiver/client if identifiable
+  userId: varchar("user_id").references(() => users.id),
+  caregiverId: varchar("caregiver_id").references(() => caregivers.id),
+  clientId: varchar("client_id").references(() => clients.id),
+  // Metadata
+  numSegments: integer("num_segments"),
+  numMedia: integer("num_media"),
+  mediaUrls: jsonb("media_urls"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_sms_logs_organization").on(table.organizationId),
+  index("idx_sms_logs_message_sid").on(table.messageSid),
+  index("idx_sms_logs_direction").on(table.direction),
+  index("idx_sms_logs_status").on(table.status),
+  index("idx_sms_logs_from").on(table.fromNumber),
+  index("idx_sms_logs_to").on(table.toNumber),
+]);
+
+export const smsLogsRelations = relations(smsLogs, ({ one }) => ({
+  user: one(users, { fields: [smsLogs.userId], references: [users.id] }),
+  caregiver: one(caregivers, { fields: [smsLogs.caregiverId], references: [caregivers.id] }),
+  client: one(clients, { fields: [smsLogs.clientId], references: [clients.id] }),
+}));
+
+export type SmsLog = typeof smsLogs.$inferSelect;
+export type InsertSmsLog = typeof smsLogs.$inferInsert;
+export const insertSmsLogSchema = createInsertSchema(smsLogs).omit({ id: true, createdAt: true, updatedAt: true });

@@ -188,6 +188,7 @@ const excelUpload = multer({
 });
 
 import { setupMobileApi } from "./mobileApi";
+import { setupTwilioWebhooks } from "./twilio";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Auth middleware
@@ -195,6 +196,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   
   // Register Mobile API
   setupMobileApi(app);
+  
+  // Register Twilio webhooks
+  setupTwilioWebhooks(app);
 
   // Ensure uploads directory exists
   if (!fs.existsSync("uploads")) {
