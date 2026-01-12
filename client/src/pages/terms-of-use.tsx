@@ -29,7 +29,7 @@ export default function TermsOfUse() {
         <Card>
           <CardHeader>
             <CardTitle className="text-3xl">Terms of Use</CardTitle>
-            <p className="text-muted-foreground">Last updated: December 2024</p>
+            <p className="text-muted-foreground">Last updated: January 2026</p>
           </CardHeader>
           <CardContent className="prose prose-sm dark:prose-invert max-w-none space-y-6">
             <section>
@@ -99,14 +99,62 @@ export default function TermsOfUse() {
             </section>
 
             <section>
-              <h2 className="text-xl font-semibold mb-3">9. Modifications</h2>
+              <h2 className="text-xl font-semibold mb-3">9. Text Messaging (SMS) Consent & Policy</h2>
+              <p className="text-muted-foreground mb-3">
+                By providing your mobile phone number and opting in to receive text messages from Home Care, you expressly consent to receive SMS/text messages from us. These messages may include:
+              </p>
+              <ul className="list-disc pl-6 text-muted-foreground space-y-1 mb-3">
+                <li>Account verification and login codes</li>
+                <li>Schedule notifications and reminders</li>
+                <li>Shift assignments and updates</li>
+                <li>Compliance alerts and deadline reminders</li>
+                <li>Birthday and special occasion messages</li>
+                <li>Important operational communications</li>
+              </ul>
+              <p className="text-muted-foreground mb-3">
+                <strong>Message Frequency:</strong> Message frequency varies based on your role and activity. Standard message and data rates may apply depending on your mobile carrier plan.
+              </p>
+              <p className="text-muted-foreground mb-3">
+                <strong>Opt-Out:</strong> You may opt out of receiving text messages at any time by replying STOP to any message, updating your communication preferences in your account settings, or contacting support. Note that opting out of SMS may affect your ability to receive important notifications and use SMS-based login features.
+              </p>
+              <p className="text-muted-foreground mb-3">
+                <strong>Help:</strong> For help with text messaging, reply HELP to any message or contact our support team.
+              </p>
+              <p className="text-muted-foreground">
+                <strong>Carriers:</strong> Supported carriers include AT&T, Verizon, T-Mobile, Sprint, and most other major US carriers. Carriers are not liable for delayed or undelivered messages.
+              </p>
+            </section>
+
+            <section>
+              <h2 className="text-xl font-semibold mb-3">10. Email Communications Consent & Policy</h2>
+              <p className="text-muted-foreground mb-3">
+                By providing your email address and creating an account, you consent to receive email communications from Home Care. These emails may include:
+              </p>
+              <ul className="list-disc pl-6 text-muted-foreground space-y-1 mb-3">
+                <li>Account-related notifications (password resets, security alerts)</li>
+                <li>Schedule updates and shift notifications</li>
+                <li>Compliance reminders and deadline alerts</li>
+                <li>Training and certification updates</li>
+                <li>System announcements and feature updates</li>
+                <li>Administrative communications from your agency</li>
+              </ul>
+              <p className="text-muted-foreground mb-3">
+                <strong>Opt-Out:</strong> You may unsubscribe from non-essential email communications at any time by clicking the "Unsubscribe" link in any email or updating your notification preferences in your account settings. Please note that you cannot opt out of essential transactional emails related to your account security and operation.
+              </p>
+              <p className="text-muted-foreground">
+                <strong>Email Frequency:</strong> We will only send emails that are necessary for the operation of your account and the services you have requested. We do not sell or share your email address with third parties for marketing purposes.
+              </p>
+            </section>
+
+            <section>
+              <h2 className="text-xl font-semibold mb-3">11. Modifications</h2>
               <p className="text-muted-foreground">
                 We reserve the right to modify these Terms of Use at any time. Changes will be effective immediately upon posting. Your continued use of the platform after changes are posted constitutes acceptance of the modified terms.
               </p>
             </section>
 
             <section>
-              <h2 className="text-xl font-semibold mb-3">10. Contact Information</h2>
+              <h2 className="text-xl font-semibold mb-3">12. Contact Information</h2>
               <p className="text-muted-foreground">
                 For questions about these Terms of Use, please contact your system administrator or the Home Care support team.
               </p>

@@ -29,7 +29,7 @@ export default function PrivacyPolicy() {
         <Card>
           <CardHeader>
             <CardTitle className="text-3xl">Privacy Policy</CardTitle>
-            <p className="text-muted-foreground">Last updated: December 2024</p>
+            <p className="text-muted-foreground">Last updated: January 2026</p>
           </CardHeader>
           <CardContent className="prose prose-sm dark:prose-invert max-w-none space-y-6">
             <section>
@@ -96,7 +96,50 @@ export default function PrivacyPolicy() {
             </section>
 
             <section>
-              <h2 className="text-xl font-semibold mb-3">8. Contact Us</h2>
+              <h2 className="text-xl font-semibold mb-3">8. Text Messaging (SMS) Privacy</h2>
+              <p className="text-muted-foreground mb-3">
+                When you opt in to receive SMS/text messages from Home Care, we collect and use your mobile phone number to send you important communications. We are committed to protecting your privacy in SMS communications:
+              </p>
+              <ul className="list-disc pl-6 text-muted-foreground space-y-1 mb-3">
+                <li><strong>Data Collection:</strong> We collect your mobile phone number and SMS consent status</li>
+                <li><strong>Data Use:</strong> Your phone number is used solely for sending authorized messages related to your account and services</li>
+                <li><strong>Data Sharing:</strong> We do not sell, rent, or share your mobile phone number with third parties for marketing purposes. Your number may be shared with our SMS service provider (Twilio) solely for the purpose of delivering messages</li>
+                <li><strong>Data Retention:</strong> SMS logs are retained for operational and compliance purposes in accordance with our data retention policy</li>
+                <li><strong>Opt-Out:</strong> You can opt out at any time by replying STOP to any message or updating your account settings</li>
+              </ul>
+              <p className="text-muted-foreground">
+                Message and data rates may apply. Message frequency varies. For help, reply HELP or contact support.
+              </p>
+            </section>
+
+            <section>
+              <h2 className="text-xl font-semibold mb-3">9. Email Communications Privacy</h2>
+              <p className="text-muted-foreground mb-3">
+                We collect and use your email address to communicate with you about your account and services:
+              </p>
+              <ul className="list-disc pl-6 text-muted-foreground space-y-1 mb-3">
+                <li><strong>Data Collection:</strong> We collect your email address during account registration</li>
+                <li><strong>Data Use:</strong> Your email is used for account notifications, security alerts, operational updates, and service-related communications</li>
+                <li><strong>Data Sharing:</strong> We do not sell or share your email address with third parties for marketing purposes. Your email may be shared with our email service provider solely for the purpose of delivering messages</li>
+                <li><strong>Opt-Out:</strong> You can unsubscribe from non-essential emails at any time using the unsubscribe link in any email. Transactional emails related to account security cannot be opted out</li>
+              </ul>
+            </section>
+
+            <section>
+              <h2 className="text-xl font-semibold mb-3">10. Communication Preferences</h2>
+              <p className="text-muted-foreground mb-3">
+                You can manage your communication preferences at any time through your account settings. Options include:
+              </p>
+              <ul className="list-disc pl-6 text-muted-foreground space-y-1">
+                <li>Enabling or disabling SMS notifications</li>
+                <li>Choosing which types of email notifications to receive</li>
+                <li>Updating your contact information</li>
+                <li>Viewing your current consent status</li>
+              </ul>
+            </section>
+
+            <section>
+              <h2 className="text-xl font-semibold mb-3">11. Contact Us</h2>
               <p className="text-muted-foreground">
                 If you have questions about this Privacy Policy or our data practices, please contact your system administrator or the Home Care support team.
               </p>
