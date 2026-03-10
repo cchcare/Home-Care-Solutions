@@ -2,7 +2,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { db } from "./db";
-import { eq, and, desc, asc, ilike, or } from "drizzle-orm";
+import { eq, and, desc, asc, ilike, or, isNull, gte, lte } from "drizzle-orm";
 import { setupAuth, isAuthenticated, hashPassword } from "./localAuth";
 import { setupMobileApi } from "./mobileApi";
 import { setupReplitAuth } from "./replitAuth";
@@ -64,6 +64,8 @@ import {
   insertClientAuthorizationSchema,
   clientAuthorizations,
   clients,
+  users,
+  staffTimeRecords,
   insertCoordinatorSchema,
   insertOfficeLicenseSchema,
   insertOfficeStaffSchema,
@@ -15380,6 +15382,219 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ message: "Document declined" });
     } catch (error: any) {
       res.status(500).json({ message: error.message || "Failed to decline document" });
+    }
+  });
+
+  // Staff Time Tracking - Clock In/Out
+  app.get("/api/staff/time-records", isAuthenticated, async (req: any, res) => {
+    try {
+      const sessionUser = req.session.user;
+      const startDate = req.query.startDate as string;
+      const endDate = req.query.endDate as string;
+
+      let query = db.select({
+        id: staffTimeRecords.id,
+        userId: staffTimeRecords.userId,
+        officeId: staffTimeRecords.officeId,
+        clockInTime: staffTimeRecords.clockInTime,
+        clockOutTime: staffTimeRecords.clockOutTime,
+        breakMinutes: staffTimeRecords.breakMinutes,
+        notes: staffTimeRecords.notes,
+        status: staffTimeRecords.status,
+        createdAt: staffTimeRecords.createdAt,
+        userName: users.firstName,
+        userLastName: users.lastName,
+        userEmail: users.email,
+      })
+      .from(staffTimeRecords)
+      .leftJoin(users, eq(staffTimeRecords.userId, users.id))
+      .orderBy(desc(staffTimeRecords.clockInTime));
+
+      const conditions = [];
+      const isAdmin = sessionUser.role === 'super_admin' || sessionUser.role === 'admin';
+      if (!isAdmin) {
+        conditions.push(eq(staffTimeRecords.userId, sessionUser.id));
+      } else if (req.query.userId) {
+        conditions.push(eq(staffTimeRecords.userId, req.query.userId as string));
+      }
+      if (startDate) conditions.push(gte(staffTimeRecords.clockInTime, new Date(startDate + "T00:00:00.000Z")));
+      if (endDate) {
+        const endOfDay = new Date(endDate + "T23:59:59.999Z");
+        conditions.push(lte(staffTimeRecords.clockInTime, endOfDay));
+      }
+
+      const records = conditions.length > 0
+        ? await query.where(and(...conditions))
+        : await query;
+
+      res.json(records);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to fetch time records" });
+    }
+  });
+
+  app.get("/api/staff/time-records/active", isAuthenticated, async (req: any, res) => {
+    try {
+      const sessionUser = req.session.user;
+      const record = await db.select()
+        .from(staffTimeRecords)
+        .where(and(
+          eq(staffTimeRecords.userId, sessionUser.id),
+          isNull(staffTimeRecords.clockOutTime)
+        ))
+        .orderBy(desc(staffTimeRecords.clockInTime))
+        .limit(1);
+
+      res.json(record[0] || null);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to fetch active record" });
+    }
+  });
+
+  app.post("/api/staff/clock-in", isAuthenticated, async (req: any, res) => {
+    try {
+      const sessionUser = req.session.user;
+      const existing = await db.select()
+        .from(staffTimeRecords)
+        .where(and(
+          eq(staffTimeRecords.userId, sessionUser.id),
+          isNull(staffTimeRecords.clockOutTime)
+        ))
+        .limit(1);
+
+      if (existing.length > 0) {
+        return res.status(400).json({ message: "You are already clocked in. Please clock out first." });
+      }
+
+      const [record] = await db.insert(staffTimeRecords).values({
+        userId: sessionUser.id,
+        officeId: sessionUser.primaryOfficeId || null,
+        clockInTime: new Date(),
+        notes: req.body.notes || null,
+        status: 'active',
+      }).returning();
+
+      res.json(record);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to clock in" });
+    }
+  });
+
+  app.post("/api/staff/clock-out", isAuthenticated, async (req: any, res) => {
+    try {
+      const sessionUser = req.session.user;
+      const [existing] = await db.select()
+        .from(staffTimeRecords)
+        .where(and(
+          eq(staffTimeRecords.userId, sessionUser.id),
+          isNull(staffTimeRecords.clockOutTime)
+        ))
+        .orderBy(desc(staffTimeRecords.clockInTime))
+        .limit(1);
+
+      if (!existing) {
+        return res.status(400).json({ message: "No active clock-in found." });
+      }
+
+      const [updated] = await db.update(staffTimeRecords)
+        .set({
+          clockOutTime: new Date(),
+          breakMinutes: req.body.breakMinutes || 0,
+          notes: req.body.notes || existing.notes,
+          status: 'completed',
+          updatedAt: new Date(),
+        })
+        .where(eq(staffTimeRecords.id, existing.id))
+        .returning();
+
+      res.json(updated);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to clock out" });
+    }
+  });
+
+  app.get("/api/staff/ot-report", isAuthenticated, async (req: any, res) => {
+    try {
+      const sessionUser = req.session.user;
+      const startDate = req.query.startDate ? new Date((req.query.startDate as string) + "T00:00:00.000Z") : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+      const endDate = req.query.endDate ? new Date((req.query.endDate as string) + "T23:59:59.999Z") : new Date();
+
+      const targetUserId = req.query.userId as string;
+      const conditions = [
+        gte(staffTimeRecords.clockInTime, startDate),
+        lte(staffTimeRecords.clockInTime, endDate),
+      ];
+      const isAdmin = sessionUser.role === 'super_admin' || sessionUser.role === 'admin' || sessionUser.role === 'office_admin';
+      if (!isAdmin) {
+        conditions.push(eq(staffTimeRecords.userId, sessionUser.id));
+      } else if (targetUserId) {
+        conditions.push(eq(staffTimeRecords.userId, targetUserId));
+      }
+
+      const records = await db.select({
+        id: staffTimeRecords.id,
+        userId: staffTimeRecords.userId,
+        clockInTime: staffTimeRecords.clockInTime,
+        clockOutTime: staffTimeRecords.clockOutTime,
+        breakMinutes: staffTimeRecords.breakMinutes,
+        userName: users.firstName,
+        userLastName: users.lastName,
+      })
+      .from(staffTimeRecords)
+      .leftJoin(users, eq(staffTimeRecords.userId, users.id))
+      .where(and(...conditions))
+      .orderBy(staffTimeRecords.userId, staffTimeRecords.clockInTime);
+
+      // Group by user and week, calculate regular and OT hours
+      const weeklyData: Record<string, Record<string, {
+        userId: string; userName: string; weekStart: string;
+        regularHours: number; otHours: number; totalHours: number; days: string[];
+      }>> = {};
+
+      for (const record of records) {
+        if (!record.clockOutTime) continue;
+        const clockIn = new Date(record.clockInTime);
+        const clockOut = new Date(record.clockOutTime);
+        const workedMs = clockOut.getTime() - clockIn.getTime() - (record.breakMinutes || 0) * 60000;
+        const workedHours = workedMs / 3600000;
+        
+        const weekStart = new Date(clockIn);
+        weekStart.setDate(weekStart.getDate() - weekStart.getDay());
+        weekStart.setHours(0, 0, 0, 0);
+        const weekKey = weekStart.toISOString().split('T')[0];
+        const userKey = record.userId;
+
+        if (!weeklyData[userKey]) weeklyData[userKey] = {};
+        if (!weeklyData[userKey][weekKey]) {
+          weeklyData[userKey][weekKey] = {
+            userId: record.userId,
+            userName: `${record.userName || ''} ${record.userLastName || ''}`.trim(),
+            weekStart: weekKey,
+            regularHours: 0, otHours: 0, totalHours: 0, days: [],
+          };
+        }
+        weeklyData[userKey][weekKey].totalHours += workedHours;
+        const dayStr = clockIn.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+        if (!weeklyData[userKey][weekKey].days.includes(dayStr)) {
+          weeklyData[userKey][weekKey].days.push(dayStr);
+        }
+      }
+
+      // Apply OT threshold (40h/week)
+      const OT_THRESHOLD = 40;
+      const result = [];
+      for (const userWeeks of Object.values(weeklyData)) {
+        for (const week of Object.values(userWeeks)) {
+          week.regularHours = Math.min(week.totalHours, OT_THRESHOLD);
+          week.otHours = Math.max(0, week.totalHours - OT_THRESHOLD);
+          result.push(week);
+        }
+      }
+      result.sort((a, b) => b.weekStart.localeCompare(a.weekStart));
+
+      res.json(result);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to generate OT report" });
     }
   });
 

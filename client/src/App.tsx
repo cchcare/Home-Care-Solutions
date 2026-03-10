@@ -53,6 +53,7 @@ import EmailTemplates from "@/pages/email-templates";
 import ExpirationAlerts from "@/pages/expiration-alerts";
 import ClientIntake from "@/pages/client-intake";
 import ShiftSwapRequests from "@/pages/shift-swap-requests";
+import StaffTimeTracking from "@/pages/staff-time-tracking";
 import CareQualityScorecard from "@/pages/care-quality-scorecard";
 import FinancialReports from "@/pages/financial-reports";
 import ESignatureTemplates from "@/pages/esignature-templates";
@@ -164,6 +165,7 @@ function Router() {
           <Route path="/payroll" component={PayrollHub} />
           <Route path="/api-keys" component={ApiKeys} />
           <Route path="/shift-swap-requests" component={ShiftSwapRequests} />
+          <Route path="/staff-time-tracking" component={StaffTimeTracking} />
           <Route path="/care-quality-scorecard" component={CareQualityScorecard} />
           <Route path="/financial-reports" component={FinancialReports} />
           <Route path="/esignature-templates" component={ESignatureTemplates} />

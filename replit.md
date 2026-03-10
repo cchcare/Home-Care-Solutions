@@ -30,6 +30,7 @@ Preferred communication style: Simple, everyday language.
     - **HHAeXchange (HHAX) Integration**: Automated SFTP-based data sync for caregivers, clients, and schedules with office mapping and logging.
     - **Visit Log Upload**: Bulk schedule/visit updates via Excel upload with flexible column matching.
     - **Letter & Email Template Management**: Admin UI for creating mail-merge letter templates and system-wide email templates with placeholders, versioning, and live previews.
+    - **Staff Time Tracking**: Office staff clock-in/out system (separate from caregiver EVV). Includes work history view (tabular clock records with hours worked), schedule history grouped by week, and automated OT tracking report (40hr/week threshold) with regular vs overtime hour breakdown. Database table: `staff_time_records`. API routes: `/api/staff/clock-in`, `/api/staff/clock-out`, `/api/staff/time-records`, `/api/staff/time-records/active`, `/api/staff/ot-report`. Frontend page: `/staff-time-tracking` (sidebar: Staff > Staff Time Tracking).
 
 ### SaaS Multi-Tenancy (v3.0)
 - **Organization-Based Multi-Tenancy**: Isolated data for each agency.

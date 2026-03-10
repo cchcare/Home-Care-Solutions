@@ -3773,3 +3773,30 @@ export const smsLogsRelations = relations(smsLogs, ({ one }) => ({
 export type SmsLog = typeof smsLogs.$inferSelect;
 export type InsertSmsLog = typeof smsLogs.$inferInsert;
 export const insertSmsLogSchema = createInsertSchema(smsLogs).omit({ id: true, createdAt: true, updatedAt: true });
+
+// Staff Time Records - for staff clock-in/out tracking
+export const staffTimeRecords = pgTable("staff_time_records", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  officeId: varchar("office_id").references(() => offices.id),
+  clockInTime: timestamp("clock_in_time").notNull(),
+  clockOutTime: timestamp("clock_out_time"),
+  breakMinutes: integer("break_minutes").default(0),
+  notes: text("notes"),
+  status: varchar("status").default("active"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_staff_time_records_user").on(table.userId),
+  index("idx_staff_time_records_office").on(table.officeId),
+  index("idx_staff_time_records_clock_in").on(table.clockInTime),
+]);
+
+export const staffTimeRecordsRelations = relations(staffTimeRecords, ({ one }) => ({
+  user: one(users, { fields: [staffTimeRecords.userId], references: [users.id] }),
+  office: one(offices, { fields: [staffTimeRecords.officeId], references: [offices.id] }),
+}));
+
+export type StaffTimeRecord = typeof staffTimeRecords.$inferSelect;
+export type InsertStaffTimeRecord = typeof staffTimeRecords.$inferInsert;
+export const insertStaffTimeRecordSchema = createInsertSchema(staffTimeRecords).omit({ id: true, createdAt: true, updatedAt: true });

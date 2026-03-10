@@ -102,6 +102,13 @@ export function Sidebar() {
           { name: "Shift Swap Requests", href: "/shift-swap-requests", icon: ArrowLeftRight },
         ]
       },
+      {
+        name: "Staff",
+        icon: UserCog,
+        children: [
+          { name: "Staff Time Tracking", href: "/staff-time-tracking", icon: Clock },
+        ]
+      },
       { name: "Training & Resources", href: "/training", icon: GraduationCap },
       { name: "Incident Reports", href: "/incidents", icon: AlertTriangle },
       { name: "Compliance", href: "/compliance", icon: Shield },
