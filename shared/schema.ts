@@ -3784,6 +3784,29 @@ export const staffTimeRecords = pgTable("staff_time_records", {
   breakMinutes: integer("break_minutes").default(0),
   notes: text("notes"),
   status: varchar("status").default("active"),
+  // GPS tracking
+  clockInLatitude: numeric("clock_in_latitude", { precision: 10, scale: 7 }),
+  clockInLongitude: numeric("clock_in_longitude", { precision: 10, scale: 7 }),
+  clockOutLatitude: numeric("clock_out_latitude", { precision: 10, scale: 7 }),
+  clockOutLongitude: numeric("clock_out_longitude", { precision: 10, scale: 7 }),
+  // Security/device tracking
+  clockInIpAddress: varchar("clock_in_ip_address"),
+  clockOutIpAddress: varchar("clock_out_ip_address"),
+  deviceInfo: text("device_info"),
+  // Manager edit tracking
+  isEdited: boolean("is_edited").default(false),
+  editedBy: varchar("edited_by").references(() => users.id),
+  editedAt: timestamp("edited_at"),
+  editReason: text("edit_reason"),
+  // Approval & locking
+  approvedBy: varchar("approved_by").references(() => users.id),
+  approvedAt: timestamp("approved_at"),
+  payrollLocked: boolean("payroll_locked").default(false),
+  payrollLockedAt: timestamp("payroll_locked_at"),
+  payrollLockedBy: varchar("payroll_locked_by").references(() => users.id),
+  // Flags
+  isFlagged: boolean("is_flagged").default(false),
+  flagReason: text("flag_reason"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => [
@@ -3792,11 +3815,37 @@ export const staffTimeRecords = pgTable("staff_time_records", {
   index("idx_staff_time_records_clock_in").on(table.clockInTime),
 ]);
 
-export const staffTimeRecordsRelations = relations(staffTimeRecords, ({ one }) => ({
+export const staffTimeRecordsRelations = relations(staffTimeRecords, ({ one, many }) => ({
   user: one(users, { fields: [staffTimeRecords.userId], references: [users.id] }),
   office: one(offices, { fields: [staffTimeRecords.officeId], references: [offices.id] }),
+  auditLogs: many(staffTimeAuditLogs),
 }));
 
 export type StaffTimeRecord = typeof staffTimeRecords.$inferSelect;
 export type InsertStaffTimeRecord = typeof staffTimeRecords.$inferInsert;
 export const insertStaffTimeRecordSchema = createInsertSchema(staffTimeRecords).omit({ id: true, createdAt: true, updatedAt: true });
+
+// Staff Time Audit Logs - immutable audit trail for all time record changes
+export const staffTimeAuditLogs = pgTable("staff_time_audit_logs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  timeRecordId: varchar("time_record_id").references(() => staffTimeRecords.id),
+  action: varchar("action").notNull(),
+  oldValues: jsonb("old_values"),
+  newValues: jsonb("new_values"),
+  performedBy: varchar("performed_by").references(() => users.id),
+  performedAt: timestamp("performed_at").defaultNow(),
+  ipAddress: varchar("ip_address"),
+  notes: text("notes"),
+}, (table) => [
+  index("idx_staff_audit_record").on(table.timeRecordId),
+  index("idx_staff_audit_performed_by").on(table.performedBy),
+  index("idx_staff_audit_action").on(table.action),
+]);
+
+export const staffTimeAuditLogsRelations = relations(staffTimeAuditLogs, ({ one }) => ({
+  timeRecord: one(staffTimeRecords, { fields: [staffTimeAuditLogs.timeRecordId], references: [staffTimeRecords.id] }),
+  performer: one(users, { fields: [staffTimeAuditLogs.performedBy], references: [users.id] }),
+}));
+
+export type StaffTimeAuditLog = typeof staffTimeAuditLogs.$inferSelect;
+export type InsertStaffTimeAuditLog = typeof staffTimeAuditLogs.$inferInsert;

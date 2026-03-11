@@ -66,6 +66,7 @@ import {
   clients,
   users,
   staffTimeRecords,
+  staffTimeAuditLogs,
   insertCoordinatorSchema,
   insertOfficeLicenseSchema,
   insertOfficeStaffSchema,
@@ -15385,14 +15386,49 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Staff Time Tracking - Clock In/Out
+  // ─── Staff Time Tracking ─────────────────────────────────────────────────────
+
+  // Helper to insert audit log
+  async function insertStaffAuditLog(data: {
+    timeRecordId: string | null; action: string; oldValues?: any; newValues?: any;
+    performedBy: string; ipAddress?: string; notes?: string;
+  }) {
+    await db.insert(staffTimeAuditLogs).values({
+      timeRecordId: data.timeRecordId,
+      action: data.action,
+      oldValues: data.oldValues || null,
+      newValues: data.newValues || null,
+      performedBy: data.performedBy,
+      ipAddress: data.ipAddress || null,
+      notes: data.notes || null,
+    });
+  }
+
+  function getClientIp(req: any): string {
+    return (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.socket?.remoteAddress || 'unknown';
+  }
+
+  function isManagerRole(role: string): boolean {
+    return ['super_admin', 'admin', 'office_admin', 'supervisor', 'manager'].includes(role);
+  }
+
+  // GET all time records (own for staff, all for managers)
   app.get("/api/staff/time-records", isAuthenticated, async (req: any, res) => {
     try {
       const sessionUser = req.session.user;
       const startDate = req.query.startDate as string;
       const endDate = req.query.endDate as string;
 
-      let query = db.select({
+      const conditions: any[] = [];
+      if (!isManagerRole(sessionUser.role)) {
+        conditions.push(eq(staffTimeRecords.userId, sessionUser.id));
+      } else if (req.query.userId) {
+        conditions.push(eq(staffTimeRecords.userId, req.query.userId as string));
+      }
+      if (startDate) conditions.push(gte(staffTimeRecords.clockInTime, new Date(startDate + "T00:00:00.000Z")));
+      if (endDate) conditions.push(lte(staffTimeRecords.clockInTime, new Date(endDate + "T23:59:59.999Z")));
+
+      const records = await db.select({
         id: staffTimeRecords.id,
         userId: staffTimeRecords.userId,
         officeId: staffTimeRecords.officeId,
@@ -15401,6 +15437,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
         breakMinutes: staffTimeRecords.breakMinutes,
         notes: staffTimeRecords.notes,
         status: staffTimeRecords.status,
+        clockInLatitude: staffTimeRecords.clockInLatitude,
+        clockInLongitude: staffTimeRecords.clockInLongitude,
+        clockOutLatitude: staffTimeRecords.clockOutLatitude,
+        clockOutLongitude: staffTimeRecords.clockOutLongitude,
+        clockInIpAddress: staffTimeRecords.clockInIpAddress,
+        isEdited: staffTimeRecords.isEdited,
+        editReason: staffTimeRecords.editReason,
+        isFlagged: staffTimeRecords.isFlagged,
+        flagReason: staffTimeRecords.flagReason,
+        payrollLocked: staffTimeRecords.payrollLocked,
+        approvedBy: staffTimeRecords.approvedBy,
+        approvedAt: staffTimeRecords.approvedAt,
         createdAt: staffTimeRecords.createdAt,
         userName: users.firstName,
         userLastName: users.lastName,
@@ -15408,24 +15456,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       })
       .from(staffTimeRecords)
       .leftJoin(users, eq(staffTimeRecords.userId, users.id))
+      .where(conditions.length > 0 ? and(...conditions) : undefined)
       .orderBy(desc(staffTimeRecords.clockInTime));
-
-      const conditions = [];
-      const isAdmin = sessionUser.role === 'super_admin' || sessionUser.role === 'admin';
-      if (!isAdmin) {
-        conditions.push(eq(staffTimeRecords.userId, sessionUser.id));
-      } else if (req.query.userId) {
-        conditions.push(eq(staffTimeRecords.userId, req.query.userId as string));
-      }
-      if (startDate) conditions.push(gte(staffTimeRecords.clockInTime, new Date(startDate + "T00:00:00.000Z")));
-      if (endDate) {
-        const endOfDay = new Date(endDate + "T23:59:59.999Z");
-        conditions.push(lte(staffTimeRecords.clockInTime, endOfDay));
-      }
-
-      const records = conditions.length > 0
-        ? await query.where(and(...conditions))
-        : await query;
 
       res.json(records);
     } catch (error: any) {
@@ -15433,46 +15465,95 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // GET active clock-in for current user
   app.get("/api/staff/time-records/active", isAuthenticated, async (req: any, res) => {
     try {
       const sessionUser = req.session.user;
       const record = await db.select()
         .from(staffTimeRecords)
-        .where(and(
-          eq(staffTimeRecords.userId, sessionUser.id),
-          isNull(staffTimeRecords.clockOutTime)
-        ))
+        .where(and(eq(staffTimeRecords.userId, sessionUser.id), isNull(staffTimeRecords.clockOutTime)))
         .orderBy(desc(staffTimeRecords.clockInTime))
         .limit(1);
-
       res.json(record[0] || null);
     } catch (error: any) {
       res.status(500).json({ message: error.message || "Failed to fetch active record" });
     }
   });
 
+  // GET live dashboard - who's currently clocked in (managers only)
+  app.get("/api/staff/live-dashboard", isAuthenticated, async (req: any, res) => {
+    try {
+      const sessionUser = req.session.user;
+      const active = await db.select({
+        id: staffTimeRecords.id,
+        userId: staffTimeRecords.userId,
+        clockInTime: staffTimeRecords.clockInTime,
+        clockInLatitude: staffTimeRecords.clockInLatitude,
+        clockInLongitude: staffTimeRecords.clockInLongitude,
+        isFlagged: staffTimeRecords.isFlagged,
+        flagReason: staffTimeRecords.flagReason,
+        userName: users.firstName,
+        userLastName: users.lastName,
+        userEmail: users.email,
+        userRole: users.role,
+      })
+      .from(staffTimeRecords)
+      .leftJoin(users, eq(staffTimeRecords.userId, users.id))
+      .where(isNull(staffTimeRecords.clockOutTime))
+      .orderBy(staffTimeRecords.clockInTime);
+
+      // Auto-flag sessions over 12 hours
+      const now = new Date();
+      const flagged = active.map(r => ({
+        ...r,
+        elapsedMinutes: Math.floor((now.getTime() - new Date(r.clockInTime).getTime()) / 60000),
+        autoFlagged: (now.getTime() - new Date(r.clockInTime).getTime()) > 12 * 60 * 60 * 1000,
+      }));
+
+      res.json(flagged);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to fetch live dashboard" });
+    }
+  });
+
+  // POST clock in
   app.post("/api/staff/clock-in", isAuthenticated, async (req: any, res) => {
     try {
       const sessionUser = req.session.user;
+      const ip = getClientIp(req);
+      const deviceInfo = req.headers['user-agent'] || null;
+
       const existing = await db.select()
         .from(staffTimeRecords)
-        .where(and(
-          eq(staffTimeRecords.userId, sessionUser.id),
-          isNull(staffTimeRecords.clockOutTime)
-        ))
+        .where(and(eq(staffTimeRecords.userId, sessionUser.id), isNull(staffTimeRecords.clockOutTime)))
         .limit(1);
 
       if (existing.length > 0) {
         return res.status(400).json({ message: "You are already clocked in. Please clock out first." });
       }
 
+      const { latitude, longitude, notes } = req.body;
+
       const [record] = await db.insert(staffTimeRecords).values({
         userId: sessionUser.id,
         officeId: sessionUser.primaryOfficeId || null,
         clockInTime: new Date(),
-        notes: req.body.notes || null,
+        notes: notes || null,
         status: 'active',
+        clockInLatitude: latitude ? String(latitude) : null,
+        clockInLongitude: longitude ? String(longitude) : null,
+        clockInIpAddress: ip,
+        deviceInfo: deviceInfo,
       }).returning();
+
+      await insertStaffAuditLog({
+        timeRecordId: record.id,
+        action: 'clock_in',
+        newValues: { clockInTime: record.clockInTime, latitude, longitude },
+        performedBy: sessionUser.id,
+        ipAddress: ip,
+        notes: notes || undefined,
+      });
 
       res.json(record);
     } catch (error: any) {
@@ -15480,15 +15561,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // POST clock out
   app.post("/api/staff/clock-out", isAuthenticated, async (req: any, res) => {
     try {
       const sessionUser = req.session.user;
+      const ip = getClientIp(req);
+      const { latitude, longitude, breakMinutes, notes } = req.body;
+
       const [existing] = await db.select()
         .from(staffTimeRecords)
-        .where(and(
-          eq(staffTimeRecords.userId, sessionUser.id),
-          isNull(staffTimeRecords.clockOutTime)
-        ))
+        .where(and(eq(staffTimeRecords.userId, sessionUser.id), isNull(staffTimeRecords.clockOutTime)))
         .orderBy(desc(staffTimeRecords.clockInTime))
         .limit(1);
 
@@ -15496,16 +15578,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "No active clock-in found." });
       }
 
+      const clockOutTime = new Date();
+      const hoursWorked = (clockOutTime.getTime() - new Date(existing.clockInTime).getTime()) / 3600000;
+
+      // Auto-flag if over 16 hours (likely forgotten)
+      const isFlagged = hoursWorked > 16;
+
       const [updated] = await db.update(staffTimeRecords)
         .set({
-          clockOutTime: new Date(),
-          breakMinutes: req.body.breakMinutes || 0,
-          notes: req.body.notes || existing.notes,
+          clockOutTime,
+          breakMinutes: parseInt(breakMinutes) || 0,
+          notes: notes || existing.notes,
           status: 'completed',
+          clockOutLatitude: latitude ? String(latitude) : null,
+          clockOutLongitude: longitude ? String(longitude) : null,
+          clockOutIpAddress: ip,
+          isFlagged,
+          flagReason: isFlagged ? 'Auto-flagged: session exceeded 16 hours' : null,
           updatedAt: new Date(),
         })
         .where(eq(staffTimeRecords.id, existing.id))
         .returning();
+
+      await insertStaffAuditLog({
+        timeRecordId: existing.id,
+        action: 'clock_out',
+        newValues: { clockOutTime, breakMinutes, latitude, longitude },
+        performedBy: sessionUser.id,
+        ipAddress: ip,
+        notes: notes || undefined,
+      });
 
       res.json(updated);
     } catch (error: any) {
@@ -15513,6 +15615,162 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // PATCH edit time record (managers only)
+  app.patch("/api/staff/time-records/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const sessionUser = req.session.user;
+      if (!isManagerRole(sessionUser.role)) {
+        return res.status(403).json({ message: "Only managers can edit time records." });
+      }
+
+      const [existing] = await db.select().from(staffTimeRecords)
+        .where(eq(staffTimeRecords.id, req.params.id)).limit(1);
+
+      if (!existing) return res.status(404).json({ message: "Record not found" });
+      if (existing.payrollLocked) return res.status(400).json({ message: "Record is locked for payroll. Cannot edit." });
+      if (!req.body.editReason) return res.status(400).json({ message: "Edit reason is required." });
+
+      const { clockInTime, clockOutTime, breakMinutes, notes, editReason } = req.body;
+      const [updated] = await db.update(staffTimeRecords)
+        .set({
+          clockInTime: clockInTime ? new Date(clockInTime) : existing.clockInTime,
+          clockOutTime: clockOutTime ? new Date(clockOutTime) : existing.clockOutTime,
+          breakMinutes: breakMinutes !== undefined ? parseInt(breakMinutes) : existing.breakMinutes,
+          notes: notes !== undefined ? notes : existing.notes,
+          isEdited: true,
+          editedBy: sessionUser.id,
+          editedAt: new Date(),
+          editReason,
+          updatedAt: new Date(),
+        })
+        .where(eq(staffTimeRecords.id, req.params.id))
+        .returning();
+
+      await insertStaffAuditLog({
+        timeRecordId: req.params.id,
+        action: 'edit',
+        oldValues: { clockInTime: existing.clockInTime, clockOutTime: existing.clockOutTime, breakMinutes: existing.breakMinutes },
+        newValues: { clockInTime: updated.clockInTime, clockOutTime: updated.clockOutTime, breakMinutes: updated.breakMinutes },
+        performedBy: sessionUser.id,
+        ipAddress: getClientIp(req),
+        notes: editReason,
+      });
+
+      res.json(updated);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to edit record" });
+    }
+  });
+
+  // POST approve time record (managers only)
+  app.post("/api/staff/time-records/:id/approve", isAuthenticated, async (req: any, res) => {
+    try {
+      const sessionUser = req.session.user;
+      if (!isManagerRole(sessionUser.role)) {
+        return res.status(403).json({ message: "Only managers can approve records." });
+      }
+      const [updated] = await db.update(staffTimeRecords)
+        .set({ approvedBy: sessionUser.id, approvedAt: new Date(), isFlagged: false, flagReason: null, updatedAt: new Date() })
+        .where(eq(staffTimeRecords.id, req.params.id))
+        .returning();
+      await insertStaffAuditLog({
+        timeRecordId: req.params.id, action: 'approve',
+        performedBy: sessionUser.id, ipAddress: getClientIp(req),
+      });
+      res.json(updated);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to approve" });
+    }
+  });
+
+  // POST flag record (managers only)
+  app.post("/api/staff/time-records/:id/flag", isAuthenticated, async (req: any, res) => {
+    try {
+      const sessionUser = req.session.user;
+      if (!isManagerRole(sessionUser.role)) return res.status(403).json({ message: "Managers only." });
+      const { reason } = req.body;
+      const [updated] = await db.update(staffTimeRecords)
+        .set({ isFlagged: true, flagReason: reason || 'Flagged for review', updatedAt: new Date() })
+        .where(eq(staffTimeRecords.id, req.params.id))
+        .returning();
+      await insertStaffAuditLog({
+        timeRecordId: req.params.id, action: 'flag',
+        newValues: { reason }, performedBy: sessionUser.id, ipAddress: getClientIp(req),
+      });
+      res.json(updated);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to flag" });
+    }
+  });
+
+  // POST lock records for payroll (managers only)
+  app.post("/api/staff/time-records/lock-payroll", isAuthenticated, async (req: any, res) => {
+    try {
+      const sessionUser = req.session.user;
+      if (!isManagerRole(sessionUser.role)) return res.status(403).json({ message: "Managers only." });
+      const { startDate, endDate, userIds } = req.body;
+      if (!startDate || !endDate) return res.status(400).json({ message: "Date range required." });
+
+      const conditions: any[] = [
+        gte(staffTimeRecords.clockInTime, new Date(startDate + "T00:00:00.000Z")),
+        lte(staffTimeRecords.clockInTime, new Date(endDate + "T23:59:59.999Z")),
+      ];
+      if (userIds?.length) conditions.push(eq(staffTimeRecords.userId, userIds[0]));
+
+      const updated = await db.update(staffTimeRecords)
+        .set({ payrollLocked: true, payrollLockedAt: new Date(), payrollLockedBy: sessionUser.id, updatedAt: new Date() })
+        .where(and(...conditions))
+        .returning();
+
+      for (const r of updated) {
+        await insertStaffAuditLog({
+          timeRecordId: r.id, action: 'payroll_lock',
+          performedBy: sessionUser.id, ipAddress: getClientIp(req),
+          notes: `Locked for payroll period ${startDate} - ${endDate}`,
+        });
+      }
+
+      res.json({ locked: updated.length, message: `${updated.length} records locked for payroll.` });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to lock records" });
+    }
+  });
+
+  // GET audit logs for a specific record or all (managers)
+  app.get("/api/staff/audit-logs", isAuthenticated, async (req: any, res) => {
+    try {
+      const sessionUser = req.session.user;
+      if (!isManagerRole(sessionUser.role)) return res.status(403).json({ message: "Managers only." });
+
+      const conditions: any[] = [];
+      if (req.query.timeRecordId) conditions.push(eq(staffTimeAuditLogs.timeRecordId, req.query.timeRecordId as string));
+      if (req.query.performedBy) conditions.push(eq(staffTimeAuditLogs.performedBy, req.query.performedBy as string));
+
+      const logs = await db.select({
+        id: staffTimeAuditLogs.id,
+        timeRecordId: staffTimeAuditLogs.timeRecordId,
+        action: staffTimeAuditLogs.action,
+        oldValues: staffTimeAuditLogs.oldValues,
+        newValues: staffTimeAuditLogs.newValues,
+        performedAt: staffTimeAuditLogs.performedAt,
+        ipAddress: staffTimeAuditLogs.ipAddress,
+        notes: staffTimeAuditLogs.notes,
+        performerName: users.firstName,
+        performerLastName: users.lastName,
+      })
+      .from(staffTimeAuditLogs)
+      .leftJoin(users, eq(staffTimeAuditLogs.performedBy, users.id))
+      .where(conditions.length > 0 ? and(...conditions) : undefined)
+      .orderBy(desc(staffTimeAuditLogs.performedAt))
+      .limit(500);
+
+      res.json(logs);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to fetch audit logs" });
+    }
+  });
+
+  // GET OT report
   app.get("/api/staff/ot-report", isAuthenticated, async (req: any, res) => {
     try {
       const sessionUser = req.session.user;
@@ -15520,12 +15778,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const endDate = req.query.endDate ? new Date((req.query.endDate as string) + "T23:59:59.999Z") : new Date();
 
       const targetUserId = req.query.userId as string;
-      const conditions = [
+      const conditions: any[] = [
         gte(staffTimeRecords.clockInTime, startDate),
         lte(staffTimeRecords.clockInTime, endDate),
       ];
-      const isAdmin = sessionUser.role === 'super_admin' || sessionUser.role === 'admin' || sessionUser.role === 'office_admin';
-      if (!isAdmin) {
+      if (!isManagerRole(sessionUser.role)) {
         conditions.push(eq(staffTimeRecords.userId, sessionUser.id));
       } else if (targetUserId) {
         conditions.push(eq(staffTimeRecords.userId, targetUserId));
@@ -15537,6 +15794,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         clockInTime: staffTimeRecords.clockInTime,
         clockOutTime: staffTimeRecords.clockOutTime,
         breakMinutes: staffTimeRecords.breakMinutes,
+        isFlagged: staffTimeRecords.isFlagged,
         userName: users.firstName,
         userLastName: users.lastName,
       })
@@ -15545,44 +15803,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
       .where(and(...conditions))
       .orderBy(staffTimeRecords.userId, staffTimeRecords.clockInTime);
 
-      // Group by user and week, calculate regular and OT hours
-      const weeklyData: Record<string, Record<string, {
-        userId: string; userName: string; weekStart: string;
-        regularHours: number; otHours: number; totalHours: number; days: string[];
-      }>> = {};
-
+      const weeklyData: Record<string, Record<string, any>> = {};
       for (const record of records) {
         if (!record.clockOutTime) continue;
         const clockIn = new Date(record.clockInTime);
         const clockOut = new Date(record.clockOutTime);
         const workedMs = clockOut.getTime() - clockIn.getTime() - (record.breakMinutes || 0) * 60000;
         const workedHours = workedMs / 3600000;
-        
         const weekStart = new Date(clockIn);
         weekStart.setDate(weekStart.getDate() - weekStart.getDay());
         weekStart.setHours(0, 0, 0, 0);
         const weekKey = weekStart.toISOString().split('T')[0];
         const userKey = record.userId;
-
         if (!weeklyData[userKey]) weeklyData[userKey] = {};
         if (!weeklyData[userKey][weekKey]) {
           weeklyData[userKey][weekKey] = {
             userId: record.userId,
             userName: `${record.userName || ''} ${record.userLastName || ''}`.trim(),
-            weekStart: weekKey,
-            regularHours: 0, otHours: 0, totalHours: 0, days: [],
+            weekStart: weekKey, regularHours: 0, otHours: 0, totalHours: 0, days: [], hasFlagged: false,
           };
         }
         weeklyData[userKey][weekKey].totalHours += workedHours;
+        if (record.isFlagged) weeklyData[userKey][weekKey].hasFlagged = true;
         const dayStr = clockIn.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
-        if (!weeklyData[userKey][weekKey].days.includes(dayStr)) {
-          weeklyData[userKey][weekKey].days.push(dayStr);
-        }
+        if (!weeklyData[userKey][weekKey].days.includes(dayStr)) weeklyData[userKey][weekKey].days.push(dayStr);
       }
-
-      // Apply OT threshold (40h/week)
       const OT_THRESHOLD = 40;
-      const result = [];
+      const result: any[] = [];
       for (const userWeeks of Object.values(weeklyData)) {
         for (const week of Object.values(userWeeks)) {
           week.regularHours = Math.min(week.totalHours, OT_THRESHOLD);
@@ -15591,7 +15838,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
       result.sort((a, b) => b.weekStart.localeCompare(a.weekStart));
-
       res.json(result);
     } catch (error: any) {
       res.status(500).json({ message: error.message || "Failed to generate OT report" });
