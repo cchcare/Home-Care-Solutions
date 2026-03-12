@@ -1,4 +1,5 @@
 import { useState } from "react";
+import DOMPurify from "dompurify";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
@@ -711,7 +712,7 @@ export default function LetterTemplates() {
           <div className="border rounded-lg p-4 bg-white">
             <div 
               className="prose max-w-none"
-              dangerouslySetInnerHTML={{ __html: selectedTemplate?.htmlContent || "" }}
+              dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(selectedTemplate?.htmlContent || "") }}
             />
           </div>
           <DialogFooter>

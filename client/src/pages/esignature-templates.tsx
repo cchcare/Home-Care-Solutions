@@ -1,4 +1,5 @@
 import { useState } from "react";
+import DOMPurify from "dompurify";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -453,7 +454,7 @@ export default function ESignatureTemplates() {
           </DialogHeader>
           <div 
             className="prose max-w-none dark:prose-invert border rounded-lg p-6 bg-white dark:bg-gray-800"
-            dangerouslySetInnerHTML={{ __html: selectedTemplate?.content || "" }}
+            dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(selectedTemplate?.content || "") }}
             data-testid="preview-content"
           />
           <DialogFooter>

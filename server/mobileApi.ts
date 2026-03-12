@@ -1,6 +1,7 @@
 import { Express, Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcrypt";
+import crypto from "crypto";
 import { storage } from "./storage";
 
 const JWT_SECRET = process.env.JWT_SECRET || process.env.SESSION_SECRET || "mobile-app-secret-key";
@@ -25,7 +26,7 @@ interface AuthenticatedRequest extends Request {
 }
 
 function generateToken(payload: JwtPayload): string {
-  const jti = `${Date.now()}-${Math.random().toString(36).substring(2, 15)}`;
+  const jti = crypto.randomBytes(16).toString("hex");
   return jwt.sign({ ...payload, jti }, JWT_SECRET, { expiresIn: JWT_EXPIRY });
 }
 

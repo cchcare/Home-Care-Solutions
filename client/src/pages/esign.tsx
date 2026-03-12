@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import DOMPurify from "dompurify";
 import { useParams } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
@@ -294,7 +295,7 @@ export default function ESign() {
           <CardContent className="pt-6">
             <div 
               className="prose max-w-none bg-white border rounded-lg p-6 mb-6"
-              dangerouslySetInnerHTML={{ __html: document?.documentContent || "" }}
+              dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(document?.documentContent || "") }}
               data-testid="document-content"
             />
             

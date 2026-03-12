@@ -37,7 +37,7 @@ const SMS_LOCKOUT_DURATION = 15 * 60 * 1000; // 15 minutes
 const SMS_CODE_EXPIRY = 5 * 60 * 1000; // 5 minutes
 
 function generateSmsCode(): string {
-  return Math.floor(100000 + Math.random() * 900000).toString();
+  return crypto.randomInt(100000, 1000000).toString();
 }
 
 function isSmsLockedOut(identifier: string): boolean {
@@ -343,7 +343,7 @@ export async function setupAuth(app: Express) {
       recordSmsAttempt(formattedPhone);
 
       // Generate and send SMS code
-      const code = Math.floor(100000 + Math.random() * 900000).toString();
+      const code = generateSmsCode();
       const expiry = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
       await storage.setUserSmsCode(user.id, code, expiry);
       
