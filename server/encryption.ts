@@ -84,7 +84,7 @@ export function decryptNote(ciphertext: string | null | undefined): string | nul
     const authTag = Buffer.from(parts[2], 'base64');
     const encrypted = parts[3];
     
-    const decipher = crypto.createDecipheriv(ALGORITHM, key, iv);
+    const decipher = crypto.createDecipheriv(ALGORITHM, key, iv, { authTagLength: AUTH_TAG_LENGTH });
     decipher.setAuthTag(authTag);
     
     let decrypted = decipher.update(encrypted, 'base64', 'utf8');
