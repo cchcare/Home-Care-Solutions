@@ -1,152 +1,16 @@
 import { Link } from "wouter";
-import { Check, X, Building2, Users, Shield, Clock, HeadphonesIcon } from "lucide-react";
+import { Check, Building2, Users, Shield, Clock, HeadphonesIcon, Loader2 } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-
-const FEATURE_DISPLAY_NAMES: Record<string, string> = {
-  client_management: "Client Management",
-  caregiver_management: "Caregiver Management",
-  basic_scheduling: "Basic Scheduling",
-  document_management: "Document Management",
-  email_support: "Email Support",
-  evv_tracking: "EVV Tracking",
-  compliance_monitoring: "Compliance Monitoring",
-  advanced_scheduling: "Advanced Scheduling",
-  priority_support: "Priority Support",
-  billing_payroll: "Billing & Payroll",
-  analytics_dashboard: "Analytics Dashboard",
-  api_access: "API Access",
-  dedicated_support: "Dedicated Support",
-  custom_integrations: "Custom Integrations",
-  white_glove_onboarding: "White Glove Onboarding",
-  sla_guarantee: "SLA Guarantee",
-  phone_support_24_7: "24/7 Phone Support",
-};
-
-const ALL_FEATURES = [
-  "client_management",
-  "caregiver_management",
-  "basic_scheduling",
-  "document_management",
-  "email_support",
-  "evv_tracking",
-  "compliance_monitoring",
-  "advanced_scheduling",
-  "priority_support",
-  "billing_payroll",
-  "analytics_dashboard",
-  "api_access",
-  "dedicated_support",
-  "custom_integrations",
-  "white_glove_onboarding",
-  "sla_guarantee",
-  "phone_support_24_7",
-];
-
-interface PlanTier {
-  id: string;
-  name: string;
-  description: string;
-  priceMonthly: number;
-  clientLimitMin: number;
-  clientLimitMax: number;
-  features: string[];
-  isPopular: boolean;
-}
-
-const PLANS: PlanTier[] = [
-  {
-    id: "starter",
-    name: "Starter",
-    description: "Perfect for small agencies just getting started",
-    priceMonthly: 4900,
-    clientLimitMin: 1,
-    clientLimitMax: 25,
-    features: [
-      "client_management",
-      "caregiver_management",
-      "basic_scheduling",
-      "document_management",
-      "email_support",
-    ],
-    isPopular: false,
-  },
-  {
-    id: "growth",
-    name: "Growth",
-    description: "For growing agencies with expanding needs",
-    priceMonthly: 9900,
-    clientLimitMin: 26,
-    clientLimitMax: 75,
-    features: [
-      "client_management",
-      "caregiver_management",
-      "basic_scheduling",
-      "document_management",
-      "email_support",
-      "evv_tracking",
-      "compliance_monitoring",
-      "advanced_scheduling",
-      "priority_support",
-    ],
-    isPopular: true,
-  },
-  {
-    id: "professional",
-    name: "Professional",
-    description: "Advanced features for established agencies",
-    priceMonthly: 19900,
-    clientLimitMin: 76,
-    clientLimitMax: 200,
-    features: [
-      "client_management",
-      "caregiver_management",
-      "basic_scheduling",
-      "document_management",
-      "email_support",
-      "evv_tracking",
-      "compliance_monitoring",
-      "advanced_scheduling",
-      "priority_support",
-      "billing_payroll",
-      "analytics_dashboard",
-      "api_access",
-      "dedicated_support",
-    ],
-    isPopular: false,
-  },
-  {
-    id: "enterprise",
-    name: "Enterprise",
-    description: "Full-featured solution for large agencies",
-    priceMonthly: 39900,
-    clientLimitMin: 201,
-    clientLimitMax: 500,
-    features: [
-      "client_management",
-      "caregiver_management",
-      "basic_scheduling",
-      "document_management",
-      "email_support",
-      "evv_tracking",
-      "compliance_monitoring",
-      "advanced_scheduling",
-      "priority_support",
-      "billing_payroll",
-      "analytics_dashboard",
-      "api_access",
-      "dedicated_support",
-      "custom_integrations",
-      "white_glove_onboarding",
-      "sla_guarantee",
-      "phone_support_24_7",
-    ],
-    isPopular: false,
-  },
-];
+import type { SubscriptionPlan } from "@shared/schema";
 
 export default function Pricing() {
+  const { data: plans = [], isLoading } = useQuery<SubscriptionPlan[]>({
+    queryKey: ["/api/public/plans"],
+  });
+
   const formatPrice = (cents: number) => {
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
@@ -158,10 +22,6 @@ export default function Pricing() {
   const formatClientRange = (min: number, max: number) => {
     if (max >= 1000) return `${min}+ clients`;
     return `${min}-${max} clients`;
-  };
-
-  const hasFeature = (plan: PlanTier, feature: string) => {
-    return plan.features.includes(feature);
   };
 
   return (
@@ -200,7 +60,11 @@ export default function Pricing() {
         </div>
 
         <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6 max-w-7xl mx-auto mb-16">
-          {PLANS.map((plan) => (
+          {isLoading ? (
+            <div className="col-span-full flex justify-center py-16">
+              <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            </div>
+          ) : plans.map((plan) => (
             <Card 
               key={plan.id} 
               className={`relative flex flex-col ${plan.isPopular ? 'border-primary shadow-lg ring-2 ring-primary' : ''}`}
@@ -231,25 +95,16 @@ export default function Pricing() {
                 </div>
 
                 <ul className="space-y-2">
-                  {ALL_FEATURES.map((feature) => {
-                    const included = hasFeature(plan, feature);
-                    return (
-                      <li 
-                        key={feature} 
-                        className={`flex items-start gap-2 text-sm ${!included ? 'text-muted-foreground' : ''}`}
-                        data-testid={`feature-${plan.id}-${feature}`}
-                      >
-                        {included ? (
-                          <Check className="h-4 w-4 text-green-500 mt-0.5 flex-shrink-0" />
-                        ) : (
-                          <X className="h-4 w-4 text-slate-300 mt-0.5 flex-shrink-0" />
-                        )}
-                        <span className={!included ? 'line-through' : ''}>
-                          {FEATURE_DISPLAY_NAMES[feature] || feature}
-                        </span>
-                      </li>
-                    );
-                  })}
+                  {(plan.features ?? []).map((feature) => (
+                    <li 
+                      key={feature} 
+                      className="flex items-start gap-2 text-sm"
+                      data-testid={`feature-${plan.id}-${feature}`}
+                    >
+                      <Check className="h-4 w-4 text-green-500 mt-0.5 flex-shrink-0" />
+                      <span>{feature}</span>
+                    </li>
+                  ))}
                 </ul>
               </CardContent>
               <CardFooter>
