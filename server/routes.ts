@@ -15984,6 +15984,190 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ==================== KIOSK ROUTES ====================
+
+  // Shared helper: look up user by username or email and verify kiosk PIN
+  async function verifyKioskCredentials(staffId: string, pin: string) {
+    const [user] = await db.select().from(users).where(
+      or(eq(users.username, staffId), eq(users.email, staffId))
+    ).limit(1);
+    if (!user) return { error: "Staff ID not found" };
+    if (!user.kioskEnabled) return { error: "Kiosk access not enabled for this account" };
+    if (!user.kioskPin) return { error: "No kiosk PIN configured for this account" };
+    const { verifyPassword } = await import("./localAuth");
+    const valid = await verifyPassword(pin, user.kioskPin);
+    if (!valid) return { error: "Incorrect PIN" };
+    return { user };
+  }
+
+  // POST /api/kiosk/verify  (public - no session)
+  app.post("/api/kiosk/verify", async (req: any, res) => {
+    try {
+      const { staffId, pin } = req.body;
+      if (!staffId || !pin) return res.status(400).json({ message: "Staff ID and PIN are required" });
+      const result = await verifyKioskCredentials(staffId.trim(), pin.trim());
+      if (result.error) return res.status(401).json({ message: result.error });
+      const { user } = result;
+      // Check if currently clocked in
+      const [active] = await db.select().from(staffTimeRecords)
+        .where(and(eq(staffTimeRecords.userId, user.id), isNull(staffTimeRecords.clockOutTime)))
+        .orderBy(desc(staffTimeRecords.clockInTime)).limit(1);
+      res.json({
+        user: { id: user.id, firstName: user.firstName, lastName: user.lastName, role: user.role, username: user.username },
+        activeRecord: active || null,
+      });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Verification failed" });
+    }
+  });
+
+  // POST /api/kiosk/clock-in  (public)
+  app.post("/api/kiosk/clock-in", async (req: any, res) => {
+    try {
+      const { staffId, pin, photo } = req.body;
+      if (!staffId || !pin) return res.status(400).json({ message: "Staff ID and PIN are required" });
+      const result = await verifyKioskCredentials(staffId.trim(), pin.trim());
+      if (result.error) return res.status(401).json({ message: result.error });
+      const { user } = result;
+      const ip = getClientIp(req);
+
+      const existing = await db.select().from(staffTimeRecords)
+        .where(and(eq(staffTimeRecords.userId, user.id), isNull(staffTimeRecords.clockOutTime)))
+        .limit(1);
+      if (existing.length > 0) return res.status(400).json({ message: "Already clocked in. Please clock out first." });
+
+      const [record] = await db.insert(staffTimeRecords).values({
+        userId: user.id,
+        officeId: user.primaryOfficeId || null,
+        clockInTime: new Date(),
+        status: 'active',
+        clockInIpAddress: ip,
+        clockInPhoto: photo || null,
+        deviceInfo: req.headers['user-agent'] || null,
+      }).returning();
+
+      await insertStaffAuditLog({
+        timeRecordId: record.id, action: 'clock_in',
+        newValues: { clockInTime: record.clockInTime, method: 'kiosk' },
+        performedBy: user.id, ipAddress: ip,
+      });
+
+      res.json({ success: true, record, user: { firstName: user.firstName, lastName: user.lastName } });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Clock-in failed" });
+    }
+  });
+
+  // POST /api/kiosk/clock-out  (public)
+  app.post("/api/kiosk/clock-out", async (req: any, res) => {
+    try {
+      const { staffId, pin, photo, breakMinutes } = req.body;
+      if (!staffId || !pin) return res.status(400).json({ message: "Staff ID and PIN are required" });
+      const result = await verifyKioskCredentials(staffId.trim(), pin.trim());
+      if (result.error) return res.status(401).json({ message: result.error });
+      const { user } = result;
+      const ip = getClientIp(req);
+
+      const [existing] = await db.select().from(staffTimeRecords)
+        .where(and(eq(staffTimeRecords.userId, user.id), isNull(staffTimeRecords.clockOutTime)))
+        .orderBy(desc(staffTimeRecords.clockInTime)).limit(1);
+      if (!existing) return res.status(400).json({ message: "No active clock-in found." });
+
+      const clockOutTime = new Date();
+      const hoursWorked = (clockOutTime.getTime() - new Date(existing.clockInTime).getTime()) / 3600000;
+      const isFlagged = hoursWorked > 16;
+
+      const [updated] = await db.update(staffTimeRecords).set({
+        clockOutTime,
+        breakMinutes: parseInt(breakMinutes) || 0,
+        status: 'completed',
+        clockOutIpAddress: ip,
+        clockOutPhoto: photo || null,
+        isFlagged,
+        flagReason: isFlagged ? 'Auto-flagged: session exceeded 16 hours' : null,
+        updatedAt: new Date(),
+      }).where(eq(staffTimeRecords.id, existing.id)).returning();
+
+      await insertStaffAuditLog({
+        timeRecordId: existing.id, action: 'clock_out',
+        newValues: { clockOutTime, method: 'kiosk' },
+        performedBy: user.id, ipAddress: ip,
+      });
+
+      res.json({ success: true, record: updated, user: { firstName: user.firstName, lastName: user.lastName } });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Clock-out failed" });
+    }
+  });
+
+  // GET /api/kiosk/setup  (admin)
+  app.get("/api/kiosk/setup", isAuthenticated, async (req: any, res) => {
+    try {
+      const sessionUser = req.session.user;
+      if (!isManagerRole(sessionUser.role)) return res.status(403).json({ message: "Insufficient permissions" });
+      const staff = await db.select({
+        id: users.id,
+        firstName: users.firstName,
+        lastName: users.lastName,
+        email: users.email,
+        username: users.username,
+        role: users.role,
+        kioskEnabled: users.kioskEnabled,
+        isActive: users.isActive,
+      }).from(users)
+        .where(and(
+          eq(users.organizationId, sessionUser.organizationId),
+          or(
+            eq(users.role, 'admin'),
+            eq(users.role, 'office_admin'),
+            eq(users.role, 'supervisor'),
+            eq(users.role, 'manager'),
+            eq(users.role, 'super_admin')
+          )
+        ))
+        .orderBy(users.lastName, users.firstName);
+      res.json(staff);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to fetch kiosk setup" });
+    }
+  });
+
+  // POST /api/kiosk/setup/:userId/pin  (admin - set or update PIN)
+  app.post("/api/kiosk/setup/:userId/pin", isAuthenticated, async (req: any, res) => {
+    try {
+      const sessionUser = req.session.user;
+      if (!isManagerRole(sessionUser.role)) return res.status(403).json({ message: "Insufficient permissions" });
+      const { pin } = req.body;
+      if (!pin || !/^\d{4,8}$/.test(pin)) return res.status(400).json({ message: "PIN must be 4-8 digits" });
+      const { hashPassword } = await import("./localAuth");
+      const hashed = await hashPassword(pin);
+      await db.update(users).set({
+        kioskPin: hashed,
+        kioskEnabled: true,
+        updatedAt: new Date(),
+      }).where(eq(users.id, req.params.userId));
+      res.json({ success: true, message: "Kiosk PIN set successfully" });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to set PIN" });
+    }
+  });
+
+  // DELETE /api/kiosk/setup/:userId/pin  (admin - disable kiosk access)
+  app.delete("/api/kiosk/setup/:userId/pin", isAuthenticated, async (req: any, res) => {
+    try {
+      const sessionUser = req.session.user;
+      if (!isManagerRole(sessionUser.role)) return res.status(403).json({ message: "Insufficient permissions" });
+      await db.update(users).set({
+        kioskPin: null,
+        kioskEnabled: false,
+        updatedAt: new Date(),
+      }).where(eq(users.id, req.params.userId));
+      res.json({ success: true, message: "Kiosk access disabled" });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to disable kiosk" });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }

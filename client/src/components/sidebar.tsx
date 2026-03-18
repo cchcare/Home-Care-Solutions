@@ -43,7 +43,8 @@ import {
   Bell,
   TrendingUp,
   FileBarChart,
-  UserPlus
+  UserPlus,
+  Monitor
 } from "lucide-react";
 
 interface NavItem {
@@ -107,6 +108,7 @@ export function Sidebar() {
         icon: UserCog,
         children: [
           { name: "Staff Time Tracking", href: "/staff-time-tracking", icon: Clock },
+          { name: "Kiosk Setup", href: "/kiosk-setup", icon: Monitor },
         ]
       },
       { name: "Training & Resources", href: "/training", icon: GraduationCap },

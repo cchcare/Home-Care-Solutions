@@ -103,6 +103,9 @@ export const users = pgTable("users", {
   // Google OAuth linking
   googleId: varchar("google_id"),
   googleLinkedAt: timestamp("google_linked_at"),
+  // Kiosk clock-in
+  kioskPin: varchar("kiosk_pin"),
+  kioskEnabled: boolean("kiosk_enabled").default(false),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => [
@@ -3788,9 +3791,11 @@ export const staffTimeRecords = pgTable("staff_time_records", {
   clockInLatitude: numeric("clock_in_latitude", { precision: 10, scale: 7 }),
   clockInLongitude: numeric("clock_in_longitude", { precision: 10, scale: 7 }),
   clockInAddress: text("clock_in_address"),
+  clockInPhoto: text("clock_in_photo"),
   clockOutLatitude: numeric("clock_out_latitude", { precision: 10, scale: 7 }),
   clockOutLongitude: numeric("clock_out_longitude", { precision: 10, scale: 7 }),
   clockOutAddress: text("clock_out_address"),
+  clockOutPhoto: text("clock_out_photo"),
   // Security/device tracking
   clockInIpAddress: varchar("clock_in_ip_address"),
   clockOutIpAddress: varchar("clock_out_ip_address"),

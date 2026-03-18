@@ -54,6 +54,8 @@ import ExpirationAlerts from "@/pages/expiration-alerts";
 import ClientIntake from "@/pages/client-intake";
 import ShiftSwapRequests from "@/pages/shift-swap-requests";
 import StaffTimeTracking from "@/pages/staff-time-tracking";
+import Kiosk from "@/pages/kiosk";
+import KioskSetup from "@/pages/kiosk-setup";
 import CareQualityScorecard from "@/pages/care-quality-scorecard";
 import FinancialReports from "@/pages/financial-reports";
 import ESignatureTemplates from "@/pages/esignature-templates";
@@ -121,6 +123,7 @@ function Router() {
       <Route path="/signup" component={Signup} />
       <Route path="/signup/success" component={SignupSuccess} />
       <Route path="/caregiver-login" component={CaregiverLogin} />
+      <Route path="/kiosk" component={Kiosk} />
       <Route path="/support-center" component={SupportCenter} />
       <Route path="/support" component={SupportCenter} />
       <Route path="/api-docs" component={ApiDocumentation} />
@@ -166,6 +169,7 @@ function Router() {
           <Route path="/api-keys" component={ApiKeys} />
           <Route path="/shift-swap-requests" component={ShiftSwapRequests} />
           <Route path="/staff-time-tracking" component={StaffTimeTracking} />
+          <Route path="/kiosk-setup" component={KioskSetup} />
           <Route path="/care-quality-scorecard" component={CareQualityScorecard} />
           <Route path="/financial-reports" component={FinancialReports} />
           <Route path="/esignature-templates" component={ESignatureTemplates} />
