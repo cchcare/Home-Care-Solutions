@@ -2,6 +2,7 @@ import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import { startScheduledJobs } from "./scheduler";
+import { runProductionInit } from "./initDb";
 
 const app = express();
 app.use(express.json());
@@ -38,6 +39,10 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  if (process.env.INIT_PRODUCTION_DB === "true") {
+    await runProductionInit();
+  }
+
   const server = await registerRoutes(app);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
