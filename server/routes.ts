@@ -16118,11 +16118,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .where(and(
           eq(users.organizationId, sessionUser.organizationId),
           or(
+            eq(users.role, 'super_admin'),
             eq(users.role, 'admin'),
             eq(users.role, 'office_admin'),
             eq(users.role, 'supervisor'),
-            eq(users.role, 'manager'),
-            eq(users.role, 'super_admin')
+            eq(users.role, 'custom')
           )
         ))
         .orderBy(users.lastName, users.firstName);
