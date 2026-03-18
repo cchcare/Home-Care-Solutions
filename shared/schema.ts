@@ -3787,8 +3787,10 @@ export const staffTimeRecords = pgTable("staff_time_records", {
   // GPS tracking
   clockInLatitude: numeric("clock_in_latitude", { precision: 10, scale: 7 }),
   clockInLongitude: numeric("clock_in_longitude", { precision: 10, scale: 7 }),
+  clockInAddress: text("clock_in_address"),
   clockOutLatitude: numeric("clock_out_latitude", { precision: 10, scale: 7 }),
   clockOutLongitude: numeric("clock_out_longitude", { precision: 10, scale: 7 }),
+  clockOutAddress: text("clock_out_address"),
   // Security/device tracking
   clockInIpAddress: varchar("clock_in_ip_address"),
   clockOutIpAddress: varchar("clock_out_ip_address"),

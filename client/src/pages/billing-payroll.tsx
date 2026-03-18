@@ -702,6 +702,34 @@ export default function BillingPayroll() {
     }
   };
 
+  const handleExportHoursPdf = async (runId: string) => {
+    try {
+      const response = await fetch(`/api/payroll/${runId}/export-hours/pdf`, {
+        credentials: "include",
+      });
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || "Failed to export PDF");
+      }
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `payroll-hours-${runId}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+      toast({ title: "PDF exported successfully" });
+    } catch (error: any) {
+      toast({
+        title: "PDF export failed",
+        description: error.message || "Failed to export PDF",
+        variant: "destructive",
+      });
+    }
+  };
+
   const handleCalculateOvertime = async (runId: string) => {
     setIsCalculatingOvertime(runId);
     
@@ -1597,9 +1625,19 @@ export default function BillingPayroll() {
                                       onClick={() => handleExportHours(run.id)}
                                       disabled={!canMutate}
                                       data-testid={`button-export-hours-${run.id}`}
-                                      title={!canMutate ? viewOnlyMessage : "Export hours"}
+                                      title={!canMutate ? viewOnlyMessage : "Export hours (Excel)"}
                                     >
                                       <Download className="w-3 h-3" />
+                                    </Button>
+                                    <Button 
+                                      size="sm" 
+                                      variant="outline"
+                                      onClick={() => handleExportHoursPdf(run.id)}
+                                      disabled={!canMutate}
+                                      data-testid={`button-export-hours-pdf-${run.id}`}
+                                      title={!canMutate ? viewOnlyMessage : "Export hours (PDF)"}
+                                    >
+                                      <FileText className="w-3 h-3" />
                                     </Button>
                                     <Button 
                                       size="sm" 

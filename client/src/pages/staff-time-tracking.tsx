@@ -78,14 +78,16 @@ function useGPS() {
 // ─── Export Helpers ───────────────────────────────────────────────────────────
 
 function exportToCSV(records: any[], filename: string) {
-  const headers = ["Employee", "Date", "Clock In", "Clock Out", "Break (min)", "Hours Worked", "Status", "Flagged", "GPS In", "IP Address", "Edited", "Edit Reason"];
+  const headers = ["Employee", "Date", "Clock In", "Clock In Address", "Clock Out", "Clock Out Address", "Break (min)", "Hours Worked", "Status", "Flagged", "GPS In", "IP Address", "Edited", "Edit Reason"];
   const rows = records.map((r: any) => {
     const mins = workedMins(r.clockInTime, r.clockOutTime, r.breakMinutes || 0);
     return [
       `${r.userName || ""} ${r.userLastName || ""}`.trim(),
       format(new Date(r.clockInTime), "MM/dd/yyyy"),
       format(new Date(r.clockInTime), "h:mm a"),
+      r.clockInAddress || "",
       r.clockOutTime ? format(new Date(r.clockOutTime), "h:mm a") : "Active",
+      r.clockOutAddress || "",
       r.breakMinutes || 0,
       workedHrs(mins).toFixed(2),
       r.status,
@@ -538,9 +540,10 @@ export default function StaffTimeTracking() {
                             <p className="text-xs text-muted-foreground">
                               Clocked in at {format(new Date(r.clockInTime), "h:mm a")} &bull; {fmt(r.elapsedMinutes)} elapsed
                             </p>
-                            {r.clockInLatitude && (
-                              <p className="text-xs text-muted-foreground flex items-center gap-1">
-                                <MapPin className="w-3 h-3" /> {Number(r.clockInLatitude).toFixed(4)}, {Number(r.clockInLongitude).toFixed(4)}
+                            {(r.clockInAddress || r.clockInLatitude) && (
+                              <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
+                                <MapPin className="w-3 h-3 shrink-0" />
+                                {r.clockInAddress || `${Number(r.clockInLatitude).toFixed(4)}, ${Number(r.clockInLongitude).toFixed(4)}`}
                               </p>
                             )}
                           </div>
@@ -599,7 +602,7 @@ export default function StaffTimeTracking() {
                         <TableHead>Clock Out</TableHead>
                         <TableHead>Break</TableHead>
                         <TableHead>Hours</TableHead>
-                        <TableHead>GPS</TableHead>
+                        <TableHead>Location</TableHead>
                         <TableHead>Status</TableHead>
                         {managerView && <TableHead>Actions</TableHead>}
                       </TableRow>
@@ -621,11 +624,28 @@ export default function StaffTimeTracking() {
                             <TableCell>
                               <span className={`font-semibold ${hrs > 8 ? "text-orange-600" : ""}`}>{hrs.toFixed(2)}h</span>
                             </TableCell>
-                            <TableCell>
-                              {r.clockInLatitude ? (
+                            <TableCell className="max-w-[180px]">
+                              {r.clockInAddress ? (
                                 <Tooltip>
-                                  <TooltipTrigger>
-                                    <MapPin className="w-4 h-4 text-green-600" />
+                                  <TooltipTrigger asChild>
+                                    <div className="flex items-start gap-1 cursor-default">
+                                      <MapPin className="w-3.5 h-3.5 text-green-600 mt-0.5 shrink-0" />
+                                      <span className="text-xs leading-tight line-clamp-2">{r.clockInAddress}</span>
+                                    </div>
+                                  </TooltipTrigger>
+                                  <TooltipContent side="left" className="max-w-xs">
+                                    <p className="font-semibold mb-1">Clock-in: {r.clockInAddress}</p>
+                                    {r.clockInLatitude && <p className="text-xs">GPS: {Number(r.clockInLatitude).toFixed(5)}, {Number(r.clockInLongitude).toFixed(5)}</p>}
+                                    {r.clockOutAddress && <p className="mt-1 font-semibold">Clock-out: {r.clockOutAddress}</p>}
+                                  </TooltipContent>
+                                </Tooltip>
+                              ) : r.clockInLatitude ? (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <div className="flex items-center gap-1 cursor-default">
+                                      <MapPin className="w-3.5 h-3.5 text-blue-500" />
+                                      <span className="text-xs text-muted-foreground">GPS only</span>
+                                    </div>
                                   </TooltipTrigger>
                                   <TooltipContent>{Number(r.clockInLatitude).toFixed(5)}, {Number(r.clockInLongitude).toFixed(5)}</TooltipContent>
                                 </Tooltip>

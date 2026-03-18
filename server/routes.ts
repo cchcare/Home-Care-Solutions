@@ -7375,6 +7375,115 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // GET export payroll hours as PDF
+  app.get("/api/payroll/:runId/export-hours/pdf", isAuthenticated, requireFeature('billing_payroll'), async (req: any, res) => {
+    try {
+      const { runId } = req.params;
+
+      const payrollRun = await storage.getPayrollRun(runId);
+      if (!payrollRun) {
+        return res.status(404).json({ message: "Payroll run not found" });
+      }
+
+      const lineItems = await storage.getPayrollLineItems(runId);
+      const caregivers = await storage.getAllCaregivers();
+
+      const exportData: any[] = [];
+      for (const item of lineItems) {
+        const caregiver = caregivers.find(c => c.id === item.caregiverId);
+        if (!caregiver) continue;
+        exportData.push({
+          adpCode: caregiver.adpCode || "—",
+          caregiverName: `${caregiver.firstName || ""} ${caregiver.lastName || ""}`.trim(),
+          week1Reg: parseFloat(item.week1RegularHours || "0").toFixed(2),
+          week1OT: parseFloat(item.week1OvertimeHours || "0").toFixed(2),
+          week2Reg: parseFloat(item.week2RegularHours || "0").toFixed(2),
+          week2OT: parseFloat(item.week2OvertimeHours || "0").toFixed(2),
+          totalReg: parseFloat(item.regularHours || "0").toFixed(2),
+          totalOT: parseFloat(item.overtimeHours || "0").toFixed(2),
+          totalHours: parseFloat(item.hoursWorked || "0").toFixed(2),
+        });
+      }
+
+      const doc = new PDFDocument({ margin: 40, size: 'LETTER', layout: 'landscape' });
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", `attachment; filename=payroll_hours_${runId}.pdf`);
+      doc.pipe(res);
+
+      // Header
+      doc.fontSize(18).font('Helvetica-Bold').text('Care Crafter Home Care', { align: 'center' });
+      doc.fontSize(13).font('Helvetica').text('Payroll Hours Report', { align: 'center' });
+      doc.moveDown(0.3);
+      const periodStart = payrollRun.payPeriodStart ? new Date(payrollRun.payPeriodStart).toLocaleDateString() : '—';
+      const periodEnd = payrollRun.payPeriodEnd ? new Date(payrollRun.payPeriodEnd).toLocaleDateString() : '—';
+      doc.fontSize(10).text(`Pay Period: ${periodStart} – ${periodEnd}`, { align: 'center' });
+      doc.text(`Generated: ${new Date().toLocaleDateString()}`, { align: 'center' });
+      doc.moveDown(0.8);
+
+      // Table setup
+      const cols = [
+        { label: 'ADP Code', width: 60 },
+        { label: 'Caregiver Name', width: 150 },
+        { label: 'Wk1 Reg', width: 55 },
+        { label: 'Wk1 OT', width: 50 },
+        { label: 'Wk2 Reg', width: 55 },
+        { label: 'Wk2 OT', width: 50 },
+        { label: 'Tot Reg', width: 55 },
+        { label: 'Tot OT', width: 50 },
+        { label: 'Total Hrs', width: 60 },
+      ];
+      const rowHeight = 18;
+      const startX = doc.page.margins.left;
+      let y = doc.y;
+
+      // Header row background
+      doc.rect(startX, y, cols.reduce((s, c) => s + c.width, 0), rowHeight).fill('#1a56a4');
+      doc.font('Helvetica-Bold').fontSize(8).fillColor('white');
+      let x = startX;
+      cols.forEach(col => {
+        doc.text(col.label, x + 3, y + 5, { width: col.width - 6, align: 'left' });
+        x += col.width;
+      });
+      y += rowHeight;
+
+      // Data rows
+      exportData.forEach((row, idx) => {
+        const values = [row.adpCode, row.caregiverName, row.week1Reg, row.week1OT, row.week2Reg, row.week2OT, row.totalReg, row.totalOT, row.totalHours];
+        const bg = idx % 2 === 0 ? '#f0f4fb' : '#ffffff';
+        doc.rect(startX, y, cols.reduce((s, c) => s + c.width, 0), rowHeight).fill(bg);
+        doc.font('Helvetica').fontSize(8).fillColor('#111111');
+        x = startX;
+        cols.forEach((col, ci) => {
+          doc.text(String(values[ci] ?? ''), x + 3, y + 5, { width: col.width - 6, align: ci >= 2 ? 'right' : 'left' });
+          x += col.width;
+        });
+        y += rowHeight;
+        if (y > doc.page.height - doc.page.margins.bottom - 20) {
+          doc.addPage();
+          y = doc.page.margins.top;
+        }
+      });
+
+      // Totals row
+      const totalHoursSum = exportData.reduce((s, r) => s + parseFloat(r.totalHours), 0);
+      const totalOTSum = exportData.reduce((s, r) => s + parseFloat(r.totalOT), 0);
+      const totalRegSum = exportData.reduce((s, r) => s + parseFloat(r.totalReg), 0);
+      doc.rect(startX, y, cols.reduce((s, c) => s + c.width, 0), rowHeight).fill('#d0dff5');
+      doc.font('Helvetica-Bold').fontSize(8).fillColor('#111111');
+      x = startX;
+      const totals = ['', `TOTALS (${exportData.length})`, '', '', '', '', totalRegSum.toFixed(2), totalOTSum.toFixed(2), totalHoursSum.toFixed(2)];
+      cols.forEach((col, ci) => {
+        doc.text(totals[ci] || '', x + 3, y + 5, { width: col.width - 6, align: ci >= 2 ? 'right' : 'left' });
+        x += col.width;
+      });
+
+      doc.end();
+    } catch (error) {
+      console.error("Error exporting payroll PDF:", error);
+      if (!res.headersSent) res.status(500).json({ message: "Failed to export payroll PDF" });
+    }
+  });
+
   // Get time entries for a payroll run
   app.get("/api/payroll/:runId/time-entries", isAuthenticated, requireFeature('billing_payroll'), async (req, res) => {
     try {
@@ -15412,6 +15521,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
     return ['super_admin', 'admin', 'office_admin', 'supervisor', 'manager'].includes(role);
   }
 
+  async function reverseGeocode(lat: number, lng: number): Promise<string | null> {
+    try {
+      const url = `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`;
+      const response = await fetch(url, {
+        headers: { 'User-Agent': 'CareCrafterHomeCare/1.0 (contact@carecrafter.io)' },
+        signal: AbortSignal.timeout(5000),
+      });
+      if (!response.ok) return null;
+      const data: any = await response.json();
+      const addr = data.address || {};
+      const parts = [
+        addr.house_number ? `${addr.house_number} ${addr.road || ''}`.trim() : addr.road || '',
+        addr.city || addr.town || addr.village || '',
+        addr.state || '',
+        addr.postcode || '',
+      ].filter(Boolean);
+      return parts.length > 0 ? parts.join(', ') : (data.display_name?.split(',').slice(0, 4).join(',').trim() || null);
+    } catch {
+      return null;
+    }
+  }
+
   // GET all time records (own for staff, all for managers)
   app.get("/api/staff/time-records", isAuthenticated, async (req: any, res) => {
     try {
@@ -15439,8 +15570,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         status: staffTimeRecords.status,
         clockInLatitude: staffTimeRecords.clockInLatitude,
         clockInLongitude: staffTimeRecords.clockInLongitude,
+        clockInAddress: staffTimeRecords.clockInAddress,
         clockOutLatitude: staffTimeRecords.clockOutLatitude,
         clockOutLongitude: staffTimeRecords.clockOutLongitude,
+        clockOutAddress: staffTimeRecords.clockOutAddress,
         clockInIpAddress: staffTimeRecords.clockInIpAddress,
         isEdited: staffTimeRecords.isEdited,
         editReason: staffTimeRecords.editReason,
@@ -15490,6 +15623,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         clockInTime: staffTimeRecords.clockInTime,
         clockInLatitude: staffTimeRecords.clockInLatitude,
         clockInLongitude: staffTimeRecords.clockInLongitude,
+        clockInAddress: staffTimeRecords.clockInAddress,
         isFlagged: staffTimeRecords.isFlagged,
         flagReason: staffTimeRecords.flagReason,
         userName: users.firstName,
@@ -15534,6 +15668,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const { latitude, longitude, notes } = req.body;
 
+      const clockInAddress = (latitude && longitude) ? await reverseGeocode(Number(latitude), Number(longitude)) : null;
+
       const [record] = await db.insert(staffTimeRecords).values({
         userId: sessionUser.id,
         officeId: sessionUser.primaryOfficeId || null,
@@ -15542,6 +15678,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         status: 'active',
         clockInLatitude: latitude ? String(latitude) : null,
         clockInLongitude: longitude ? String(longitude) : null,
+        clockInAddress,
         clockInIpAddress: ip,
         deviceInfo: deviceInfo,
       }).returning();
@@ -15584,6 +15721,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Auto-flag if over 16 hours (likely forgotten)
       const isFlagged = hoursWorked > 16;
 
+      const clockOutAddress = (latitude && longitude) ? await reverseGeocode(Number(latitude), Number(longitude)) : null;
+
       const [updated] = await db.update(staffTimeRecords)
         .set({
           clockOutTime,
@@ -15592,6 +15731,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           status: 'completed',
           clockOutLatitude: latitude ? String(latitude) : null,
           clockOutLongitude: longitude ? String(longitude) : null,
+          clockOutAddress,
           clockOutIpAddress: ip,
           isFlagged,
           flagReason: isFlagged ? 'Auto-flagged: session exceeded 16 hours' : null,
