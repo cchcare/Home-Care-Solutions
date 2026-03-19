@@ -16147,7 +16147,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
             eq(users.role, 'admin'),
             eq(users.role, 'office_admin'),
             eq(users.role, 'supervisor'),
-            eq(users.role, 'caregiver'),
             eq(users.role, 'custom')
           )
         ))

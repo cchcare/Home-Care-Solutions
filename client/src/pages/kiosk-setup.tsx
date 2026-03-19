@@ -166,7 +166,7 @@ export default function KioskSetup() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2"><Key className="w-5 h-5" /> Staff Kiosk PINs</CardTitle>
               <CardDescription>
-                Set or reset kiosk PINs for caregivers and staff. Only accounts with a PIN set can clock in/out at the kiosk.
+                Set or reset kiosk PINs for staff members (admins, supervisors, office staff). Only accounts with a PIN set can use the kiosk terminal.
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -184,7 +184,7 @@ export default function KioskSetup() {
                 <div className="text-center py-8 text-muted-foreground">
                   <Key className="w-10 h-10 mx-auto mb-2 opacity-30" />
                   <p>No active staff accounts found in your organization</p>
-                  <p className="text-sm mt-1">Create caregiver and staff accounts first, then set their kiosk PINs here.</p>
+                  <p className="text-sm mt-1">Create admin, supervisor, or office staff accounts first, then set their kiosk PINs here.</p>
                 </div>
               ) : (
                 <div className="overflow-x-auto">
