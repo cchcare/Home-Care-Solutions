@@ -214,41 +214,48 @@ export default function BillingPayroll() {
     queryKey: ["/api/mcos"],
   });
 
+  // Helper: throw on non-2xx so TanStack Query keeps data=undefined and defaults apply
+  const safeFetch = (url: string, opts?: RequestInit) =>
+    fetch(url, { credentials: "include", ...opts }).then(r => {
+      if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+      return r.json();
+    });
+
   const { data: clients = [] } = useQuery<Client[]>({
     queryKey: ["/api/clients", actualOfficeId],
-    queryFn: () => fetch(`/api/clients${actualOfficeId ? `?officeId=${actualOfficeId}` : ""}`).then(r => r.json()),
+    queryFn: () => safeFetch(`/api/clients${actualOfficeId ? `?officeId=${actualOfficeId}` : ""}`),
   });
 
   const { data: caregivers = [] } = useQuery<Caregiver[]>({
     queryKey: ["/api/caregivers", actualOfficeId],
-    queryFn: () => fetch(`/api/caregivers${actualOfficeId ? `?officeId=${actualOfficeId}` : ""}`).then(r => r.json()),
+    queryFn: () => safeFetch(`/api/caregivers${actualOfficeId ? `?officeId=${actualOfficeId}` : ""}`),
   });
 
   const { data: billingRecords = [] } = useQuery<BillingRecord[]>({
     queryKey: ["/api/billing", actualOfficeId],
-    queryFn: () => fetch(`/api/billing${actualOfficeId ? `?officeId=${actualOfficeId}` : ""}`, { credentials: "include" }).then(r => r.json()),
+    queryFn: () => safeFetch(`/api/billing${actualOfficeId ? `?officeId=${actualOfficeId}` : ""}`),
   });
 
   const { data: payrollRuns = [] } = useQuery<PayrollRun[]>({
     queryKey: ["/api/payroll", actualOfficeId],
-    queryFn: () => fetch(`/api/payroll${actualOfficeId ? `?officeId=${actualOfficeId}` : ""}`).then(r => r.json()),
+    queryFn: () => safeFetch(`/api/payroll${actualOfficeId ? `?officeId=${actualOfficeId}` : ""}`),
   });
 
   const { data: payrollConfig } = useQuery<OfficePayrollConfig | null>({
     queryKey: ["/api/offices", actualOfficeId, "payroll-config"],
-    queryFn: () => actualOfficeId ? fetch(`/api/offices/${actualOfficeId}/payroll-config`).then(r => r.json()) : null,
+    queryFn: () => actualOfficeId ? safeFetch(`/api/offices/${actualOfficeId}/payroll-config`) : null,
     enabled: !!actualOfficeId,
   });
 
   const { data: mcoRates = [] } = useQuery<OfficeMcoBillingRate[]>({
     queryKey: ["/api/offices", actualOfficeId, "mco-rates"],
-    queryFn: () => actualOfficeId ? fetch(`/api/offices/${actualOfficeId}/mco-rates`).then(r => r.json()) : [],
+    queryFn: () => actualOfficeId ? safeFetch(`/api/offices/${actualOfficeId}/mco-rates`) : [],
     enabled: !!actualOfficeId,
   });
 
   const { data: holidays = [] } = useQuery<PayrollHoliday[]>({
     queryKey: ["/api/payroll-holidays", actualOfficeId, selectedYear],
-    queryFn: () => actualOfficeId ? fetch(`/api/payroll-holidays?officeId=${actualOfficeId}&year=${selectedYear}`).then(r => r.json()) : [],
+    queryFn: () => actualOfficeId ? safeFetch(`/api/payroll-holidays?officeId=${actualOfficeId}&year=${selectedYear}`) : [],
     enabled: !!actualOfficeId,
   });
 
