@@ -1482,7 +1482,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Convert date strings to Date objects
       const processedBody = {
         ...req.body,
-        dateOfBirth: req.body.dateOfBirth && typeof req.body.dateOfBirth === 'string' ? new Date(req.body.dateOfBirth) : req.body.dateOfBirth,
+        dateOfBirth: coerceDate(req.body.dateOfBirth),
+        serviceStartDate: coerceDate(req.body.serviceStartDate),
+        serviceEndDate: coerceDate(req.body.serviceEndDate),
       };
       const validatedData = insertClientSchema.parse(processedBody);
       const client = await storage.createClient(validatedData);
@@ -5916,6 +5918,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ...req.body,
         officeId: req.params.officeId,
         createdBy: req.session?.user?.id,
+        issuedDate: coerceDate(req.body.issuedDate),
+        expirationDate: coerceDate(req.body.expirationDate),
       };
       const validatedData = insertOfficeLicenseSchema.parse(requestData);
       const license = await storage.createOfficeLicense(validatedData);
@@ -5940,7 +5944,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put("/api/offices/:officeId/licenses/:id", isAuthenticated, async (req: any, res) => {
     try {
       const oldLicense = await storage.getOfficeLicense(req.params.id);
-      const validatedData = insertOfficeLicenseSchema.partial().parse(req.body);
+      const coercedBody = {
+        ...req.body,
+        issuedDate: req.body.issuedDate ? coerceDate(req.body.issuedDate) : undefined,
+        expirationDate: req.body.expirationDate ? coerceDate(req.body.expirationDate) : undefined,
+      };
+      const validatedData = insertOfficeLicenseSchema.partial().parse(coercedBody);
       const license = await storage.updateOfficeLicense(req.params.id, validatedData);
       
       await storage.createAuditLog({
@@ -13694,7 +13703,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get templates by scope (caregiver, client, staff, general)
   app.get("/api/letter-templates/scope/:scope", isAuthenticated, async (req: any, res) => {
     try {
-      const user = req.user;
+      const user = req.session?.user;
       if (!user) {
         return res.status(401).json({ message: "Unauthorized" });
       }
