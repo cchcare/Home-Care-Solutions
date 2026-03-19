@@ -211,6 +211,7 @@ export default function Kiosk() {
   const [pin, setPin] = useState("");
   const [showPin, setShowPin] = useState(false);
   const [verifiedUser, setVerifiedUser] = useState<VerifiedUser | null>(null);
+  const [faceMatchToken, setFaceMatchToken] = useState<string | null>(null);
   const [activeRecord, setActiveRecord] = useState<any | null>(null);
   const [capturedPhoto, setCapturedPhoto] = useState<string | null>(null);
   const [capturedVideo, setCapturedVideo] = useState<string | null>(null);
@@ -250,7 +251,7 @@ export default function Kiosk() {
     if (countdownRef.current) { clearInterval(countdownRef.current); countdownRef.current = null; }
     webcam.stop();
     setStep("login");
-    setStaffId(""); setPin(""); setVerifiedUser(null); setActiveRecord(null);
+    setStaffId(""); setPin(""); setVerifiedUser(null); setFaceMatchToken(null); setActiveRecord(null);
     setCapturedPhoto(null); setCapturedVideo(null); setCountdown(null);
     setErrorMsg(""); setSuccessMsg(""); setBreakMinutes("0");
     setLocalFaceDetected(null);
@@ -269,6 +270,7 @@ export default function Kiosk() {
       const data = await res.json();
       if (!res.ok) { setErrorMsg(data.message || "Verification failed"); setLoading(false); return; }
       setVerifiedUser(data.user);
+      setFaceMatchToken(data.faceMatchToken || null);
       setActiveRecord(data.activeRecord);
       setPendingAction(data.activeRecord ? "clock-out" : "clock-in");
       setStep("action");
@@ -277,21 +279,25 @@ export default function Kiosk() {
   }
 
   async function runFaceMatch(selfieBase64: string): Promise<boolean | null> {
-    if (!verifiedUser?.profileImageUrl) { setFaceMatchStatus("skipped"); return null; }
+    if (!verifiedUser?.profileImageUrl || !faceMatchToken) { setFaceMatchStatus("skipped"); return null; }
     setFaceMatchStatus("checking");
     try {
       const res = await fetch("/api/kiosk/face-match", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ selfieBase64, profileImageUrl: verifiedUser.profileImageUrl }),
+        body: JSON.stringify({
+          selfieBase64,
+          profileImageUrl: verifiedUser.profileImageUrl,
+          faceMatchToken,
+        }),
       });
       const data = await res.json();
-      if (data.match === null) { setFaceMatchStatus("error"); return null; }
+      if (data.match === null || !res.ok) { setFaceMatchStatus("skipped"); return null; }
       setFaceMatchConfidence(data.confidence || 0);
       setFaceMatchStatus(data.match ? "match" : "mismatch");
       return data.match ? true : false;
     } catch {
-      setFaceMatchStatus("error");
+      setFaceMatchStatus("skipped");
       return null;
     }
   }

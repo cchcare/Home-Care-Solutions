@@ -15589,6 +15589,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         clockOutLongitude: staffTimeRecords.clockOutLongitude,
         clockOutAddress: staffTimeRecords.clockOutAddress,
         clockInIpAddress: staffTimeRecords.clockInIpAddress,
+        clockInPhoto: staffTimeRecords.clockInPhoto,
+        clockOutPhoto: staffTimeRecords.clockOutPhoto,
         isEdited: staffTimeRecords.isEdited,
         editReason: staffTimeRecords.editReason,
         isFlagged: staffTimeRecords.isFlagged,
@@ -16014,6 +16016,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
     return { user };
   }
 
+  // Short-lived token store for face-match abuse prevention
+  // Token is issued by /verify and consumed by /face-match (one-time, 10-min TTL)
+  const kioskFaceMatchTokens = new Map<string, number>(); // token → expiry timestamp
+  const FACE_MATCH_TTL_MS = 10 * 60 * 1000;
+
+  function issueFaceMatchToken(): string {
+    // Clean expired tokens (simple housekeeping)
+    const now = Date.now();
+    for (const [t, exp] of kioskFaceMatchTokens) { if (now > exp) kioskFaceMatchTokens.delete(t); }
+    const { randomUUID } = require("crypto");
+    const token = randomUUID();
+    kioskFaceMatchTokens.set(token, now + FACE_MATCH_TTL_MS);
+    return token;
+  }
+
+  function consumeFaceMatchToken(token: string): boolean {
+    const exp = kioskFaceMatchTokens.get(token);
+    if (!exp || Date.now() > exp) return false;
+    kioskFaceMatchTokens.delete(token); // One-time use
+    return true;
+  }
+
   // POST /api/kiosk/verify  (public - no session)
   app.post("/api/kiosk/verify", async (req: any, res) => {
     try {
@@ -16036,18 +16060,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
           profileImageUrl: user.profileImageUrl || null,
         },
         activeRecord: active || null,
+        faceMatchToken: user.profileImageUrl ? issueFaceMatchToken() : null,
       });
     } catch (error: any) {
       res.status(500).json({ message: error.message || "Verification failed" });
     }
   });
 
-  // POST /api/kiosk/face-match  (public — compares selfie to profile photo via OpenAI Vision)
+  // POST /api/kiosk/face-match  (token-protected — token issued by /verify, one-time use)
   app.post("/api/kiosk/face-match", async (req: any, res) => {
     try {
-      const { selfieBase64, profileImageUrl } = req.body;
+      const { selfieBase64, profileImageUrl, faceMatchToken } = req.body;
       if (!selfieBase64 || !profileImageUrl) {
         return res.status(400).json({ match: false, confidence: 0, message: "Missing selfie or profile image" });
+      }
+      // Validate one-time token to prevent unauthenticated abuse
+      if (!faceMatchToken || !consumeFaceMatchToken(faceMatchToken)) {
+        return res.status(401).json({ match: null, confidence: 0, message: "Invalid or expired verification token" });
       }
 
       // Load profile image from filesystem

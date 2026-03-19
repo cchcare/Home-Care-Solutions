@@ -125,6 +125,8 @@ export default function StaffTimeTracking() {
   const [flagOpen, setFlagOpen] = useState(false);
   const [flagRecord, setFlagRecord] = useState<any | null>(null);
   const [flagReason, setFlagReason] = useState("");
+  const [photoReviewRecord, setPhotoReviewRecord] = useState<any | null>(null);
+  const [photoReviewOpen, setPhotoReviewOpen] = useState(false);
   const [lockOpen, setLockOpen] = useState(false);
   const [lockRange, setLockRange] = useState({ start: format(subWeeks(new Date(), 2), "yyyy-MM-dd"), end: format(new Date(), "yyyy-MM-dd") });
   const [historyStart, setHistoryStart] = useState(format(subWeeks(new Date(), 4), "yyyy-MM-dd"));
@@ -656,7 +658,18 @@ export default function StaffTimeTracking() {
                                 <Badge variant={active ? "default" : "secondary"} className={`text-xs ${active ? "bg-green-500 text-white" : ""}`}>
                                   {active ? "Active" : "Done"}
                                 </Badge>
-                                {r.isFlagged && <Badge variant="outline" className="text-red-600 border-red-400 text-xs"><Flag className="w-3 h-3 mr-1" />Flagged</Badge>}
+                                {r.isFlagged && (
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <button
+                                        onClick={() => { setPhotoReviewRecord(r); setPhotoReviewOpen(true); }}
+                                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-xs text-red-600 border-red-400 hover:bg-red-50 transition-colors">
+                                        <Flag className="w-3 h-3" />Flagged
+                                      </button>
+                                    </TooltipTrigger>
+                                    <TooltipContent>{r.flagReason || "Flagged for review"}</TooltipContent>
+                                  </Tooltip>
+                                )}
                                 {r.isEdited && <Badge variant="outline" className="text-amber-600 border-amber-400 text-xs"><Edit className="w-3 h-3 mr-1" />Edited</Badge>}
                                 {r.payrollLocked && <Badge variant="outline" className="text-gray-500 text-xs"><Lock className="w-3 h-3 mr-1" />Locked</Badge>}
                                 {r.approvedBy && <Badge variant="outline" className="text-green-600 border-green-400 text-xs"><CheckCircle2 className="w-3 h-3 mr-1" />Approved</Badge>}
@@ -997,6 +1010,86 @@ export default function StaffTimeTracking() {
               </Button>
             </div>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Kiosk Photo Review Dialog */}
+      <Dialog open={photoReviewOpen} onOpenChange={setPhotoReviewOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-700">
+              <Flag className="w-5 h-5" /> Flagged Record Review
+            </DialogTitle>
+          </DialogHeader>
+          {photoReviewRecord && (
+            <div className="space-y-4">
+              {/* Employee + time info */}
+              <div className="bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 rounded-lg p-3 text-sm">
+                <p className="font-semibold text-red-800 dark:text-red-200">
+                  {photoReviewRecord.userName} {photoReviewRecord.userLastName}
+                </p>
+                <p className="text-red-700 dark:text-red-300 mt-0.5">
+                  {format(new Date(photoReviewRecord.clockInTime), "EEE, MMM d, yyyy")} &bull;{" "}
+                  {format(new Date(photoReviewRecord.clockInTime), "h:mm a")}
+                  {photoReviewRecord.clockOutTime && ` — ${format(new Date(photoReviewRecord.clockOutTime), "h:mm a")}`}
+                </p>
+              </div>
+
+              {/* Flag reason */}
+              <div>
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">Flag Reason</p>
+                <p className="text-sm text-slate-700 dark:text-slate-300 bg-slate-50 dark:bg-slate-800 rounded-lg p-3 border">
+                  {photoReviewRecord.flagReason || "No reason provided"}
+                </p>
+              </div>
+
+              {/* Captured photos */}
+              {(photoReviewRecord.clockInPhoto || photoReviewRecord.clockOutPhoto) ? (
+                <div>
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Captured Photos</p>
+                  <div className="grid grid-cols-2 gap-3">
+                    {photoReviewRecord.clockInPhoto && (
+                      <div>
+                        <p className="text-xs text-muted-foreground mb-1 text-center">Clock-In</p>
+                        <img
+                          src={photoReviewRecord.clockInPhoto}
+                          className="w-full rounded-lg border object-cover aspect-square scale-x-[-1]"
+                          alt="Clock-in selfie"
+                        />
+                      </div>
+                    )}
+                    {photoReviewRecord.clockOutPhoto && (
+                      <div>
+                        <p className="text-xs text-muted-foreground mb-1 text-center">Clock-Out</p>
+                        <img
+                          src={photoReviewRecord.clockOutPhoto}
+                          className="w-full rounded-lg border object-cover aspect-square scale-x-[-1]"
+                          alt="Clock-out selfie"
+                        />
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground text-center py-2">No photos captured for this record.</p>
+              )}
+
+              <div className="flex gap-2 justify-end pt-2">
+                <Button variant="outline" onClick={() => setPhotoReviewOpen(false)}>Close</Button>
+                {!photoReviewRecord.approvedBy && photoReviewRecord.clockOutTime && (
+                  <Button
+                    className="bg-green-600 hover:bg-green-700 text-white"
+                    onClick={() => {
+                      approveMutation.mutate(photoReviewRecord.id);
+                      setPhotoReviewOpen(false);
+                    }}
+                    disabled={approveMutation.isPending}>
+                    <CheckCircle2 className="w-4 h-4 mr-2" /> Approve Anyway
+                  </Button>
+                )}
+              </div>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </div>
