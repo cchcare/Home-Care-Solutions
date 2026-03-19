@@ -16186,7 +16186,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         performedBy: user.id, ipAddress: ip,
       });
 
-      res.json({ success: true, record, flagged: isFlagged, user: { firstName: user.firstName, lastName: user.lastName } });
+      const faceMismatchDetected = isFlagged && !!flagReason?.includes("face verification");
+      res.json({ success: true, record, flagged: isFlagged, faceMismatchDetected, user: { firstName: user.firstName, lastName: user.lastName } });
     } catch (error: any) {
       res.status(500).json({ message: error.message || "Clock-in failed" });
     }
@@ -16252,7 +16253,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         performedBy: user.id, ipAddress: ip,
       });
 
-      res.json({ success: true, record: updated, flagged: isFlagged, user: { firstName: user.firstName, lastName: user.lastName } });
+      const faceMismatchDetected = isFlagged && !!flagReason?.includes("face verification");
+      res.json({ success: true, record: updated, flagged: isFlagged, faceMismatchDetected, user: { firstName: user.firstName, lastName: user.lastName } });
     } catch (error: any) {
       res.status(500).json({ message: error.message || "Clock-out failed" });
     }
