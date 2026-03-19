@@ -287,9 +287,7 @@ export default function Kiosk() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           selfieBase64,
-          profileImageUrl: verifiedUser.profileImageUrl,
           faceMatchToken,
-          userId: verifiedUser.id,
         }),
       });
       const data = await res.json();

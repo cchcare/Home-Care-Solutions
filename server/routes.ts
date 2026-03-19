@@ -16017,26 +16017,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
   }
 
   // Session token store for kiosk face-match UX preview (time-limited, multi-use, user-bound)
-  // Token is issued by /verify and expires after TTL — allows multiple retakes within session
-  const kioskSessionTokens = new Map<string, { expiry: number; userId: string }>(); // token → { expiry, userId }
+  // Stores userId + profileImageUrl so server can derive profile image without trusting client
+  const kioskSessionTokens = new Map<string, { expiry: number; userId: string; profileImageUrl: string | null }>();
   const KIOSK_SESSION_TTL_MS = 15 * 60 * 1000; // 15 minutes
 
-  function issueKioskSessionToken(userId: string): string {
+  function issueKioskSessionToken(userId: string, profileImageUrl: string | null): string {
     const now = Date.now();
     // Housekeeping: remove expired tokens
     for (const [t, v] of kioskSessionTokens) { if (now > v.expiry) kioskSessionTokens.delete(t); }
-    const { randomUUID } = require("crypto");
-    const token = randomUUID();
-    kioskSessionTokens.set(token, { expiry: now + KIOSK_SESSION_TTL_MS, userId });
+    const token = crypto.randomUUID();
+    kioskSessionTokens.set(token, { expiry: now + KIOSK_SESSION_TTL_MS, userId, profileImageUrl });
     return token;
   }
 
-  // Validate token and optionally verify it belongs to the expected user
-  function validateKioskSessionToken(token: string, userId?: string): boolean {
+  // Validate token — returns the stored context if valid, null if invalid/expired
+  function validateKioskSessionToken(token: string): { userId: string; profileImageUrl: string | null } | null {
     const entry = kioskSessionTokens.get(token);
-    if (!entry || Date.now() > entry.expiry) return false;
-    if (userId && entry.userId !== userId) return false; // User-binding check
-    return true; // Multi-use: just check expiry + user, do not delete
+    if (!entry || Date.now() > entry.expiry) return null;
+    return { userId: entry.userId, profileImageUrl: entry.profileImageUrl };
   }
 
   // Shared helper: compare two images with OpenAI Vision
@@ -16118,7 +16116,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           profileImageUrl: user.profileImageUrl || null,
         },
         activeRecord: active || null,
-        faceMatchToken: user.profileImageUrl ? issueKioskSessionToken(user.id) : null,
+        faceMatchToken: user.profileImageUrl ? issueKioskSessionToken(user.id, user.profileImageUrl) : null,
       });
     } catch (error: any) {
       res.status(500).json({ message: error.message || "Verification failed" });
@@ -16147,20 +16145,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // The authoritative face check happens server-side in /clock-in and /clock-out.
   app.post("/api/kiosk/face-match", async (req: any, res) => {
     try {
-      const { selfieBase64, profileImageUrl, faceMatchToken, userId } = req.body;
-      if (!selfieBase64 || !profileImageUrl) {
-        return res.status(400).json({ match: null, confidence: 0, message: "Missing selfie or profile image" });
+      const { selfieBase64, faceMatchToken } = req.body;
+      if (!selfieBase64) {
+        return res.status(400).json({ match: null, confidence: 0, message: "Missing selfie" });
       }
-      // Validate session token (multi-use, time-limited, user-bound)
-      if (!faceMatchToken || !validateKioskSessionToken(faceMatchToken, userId)) {
+      // Validate session token — derives profile image URL from server-stored token context (not client-supplied)
+      const tokenCtx = faceMatchToken ? validateKioskSessionToken(faceMatchToken) : null;
+      if (!tokenCtx) {
         return res.status(401).json({ match: null, confidence: 0, message: "Invalid or expired session token" });
+      }
+      if (!tokenCtx.profileImageUrl) {
+        // User has no profile photo — skip silently
+        return res.json({ match: null, confidence: 0, message: "" });
       }
       // Rate-limit AI calls per token to control OpenAI cost/abuse
       if (!checkFaceMatchRateLimit(faceMatchToken)) {
         return res.status(429).json({ match: null, confidence: 0, message: "Too many verification attempts. Please wait before retrying." });
       }
 
-      const result = await compareFacesWithAI(selfieBase64, profileImageUrl);
+      const result = await compareFacesWithAI(selfieBase64, tokenCtx.profileImageUrl);
       return res.json({ match: result.match, confidence: result.confidence, message: "" });
     } catch (error: any) {
       res.json({ match: null, confidence: 0, message: error.message || "Face comparison unavailable" });
