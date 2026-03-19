@@ -40,9 +40,10 @@ import {
   Phone,
   Calendar,
   Scan,
-  CheckSquare
+  CheckSquare,
+  ClipboardList
 } from "lucide-react";
-import { useLocation } from "wouter";
+import { Link, useLocation } from "wouter";
 import type { Client, Office, Coordinator, Mco } from "@shared/schema";
 import { ExcelImport } from "@/components/excel-import";
 import { ExcelExport } from "@/components/excel-export";
@@ -503,6 +504,12 @@ export default function Clients() {
               <Scan className="w-4 h-4 mr-2" />
               Scan Document
             </Button>
+            <Link href="/client-intake">
+              <Button variant="outline" data-testid="button-client-intake">
+                <ClipboardList className="w-4 h-4 mr-2" />
+                Client Intake
+              </Button>
+            </Link>
             <Button onClick={() => setShowAddModal(true)} data-testid="button-add-client">
               <Plus className="w-4 h-4 mr-2" />
               Add Client
