@@ -7260,7 +7260,7 @@ export interface ApiErrorLog {
 
 class ErrorLogStorage {
   private errors: ApiErrorLog[] = [];
-  private maxErrors = 100;
+  private maxErrors = 500;
 
   logError(error: Omit<ApiErrorLog, 'id' | 'timestamp'>): ApiErrorLog {
     const logEntry: ApiErrorLog = {
@@ -7283,6 +7283,11 @@ class ErrorLogStorage {
 
   getErrorById(id: string): ApiErrorLog | undefined {
     return this.errors.find(e => e.id === id);
+  }
+
+  deleteErrors(ids: string[]): void {
+    const idSet = new Set(ids);
+    this.errors = this.errors.filter(e => !idSet.has(e.id));
   }
 
   clearErrors(): void {

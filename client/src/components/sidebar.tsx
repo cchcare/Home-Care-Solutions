@@ -45,7 +45,8 @@ import {
   FileBarChart,
   UserPlus,
   Monitor,
-  MonitorCheck
+  MonitorCheck,
+  ScrollText
 } from "lucide-react";
 
 interface NavItem {
@@ -164,6 +165,7 @@ export function Sidebar() {
       
       if ((user as any)?.role === "super_admin") {
         adminChildren.push({ name: "Email Templates", href: "/email-templates", icon: Mail });
+        adminChildren.push({ name: "Error Log", href: "/error-log", icon: ScrollText });
       }
       
       baseNavigation.push({

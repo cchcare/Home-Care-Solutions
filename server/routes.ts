@@ -5443,12 +5443,77 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/ai-issues/error-logs", isAuthenticated, async (req: any, res) => {
     try {
       const { errorLogStorage } = await import("./storage");
-      const limit = parseInt(req.query.limit as string) || 10;
+      const limit = parseInt(req.query.limit as string) || 500;
       const errors = errorLogStorage.getRecentErrors(limit);
       res.json(errors);
     } catch (error) {
       console.error("Error fetching error logs:", error);
       res.status(500).json({ message: "Failed to fetch error logs" });
+    }
+  });
+
+  // Delete selected error logs
+  app.delete("/api/ai-issues/error-logs", isAuthenticated, async (req: any, res) => {
+    try {
+      const { errorLogStorage } = await import("./storage");
+      const { ids } = req.body;
+      if (!Array.isArray(ids) || ids.length === 0) {
+        errorLogStorage.clearErrors();
+        return res.json({ message: "All error logs cleared" });
+      }
+      errorLogStorage.deleteErrors(ids);
+      res.json({ message: `Deleted ${ids.length} error log(s)` });
+    } catch (error) {
+      console.error("Error deleting error logs:", error);
+      res.status(500).json({ message: "Failed to delete error logs" });
+    }
+  });
+
+  // Upload and parse a log file
+  app.post("/api/ai-issues/error-logs/upload", isAuthenticated, async (req: any, res) => {
+    try {
+      const { errorLogStorage } = await import("./storage");
+      const { content, filename } = req.body;
+      if (!content || typeof content !== "string") {
+        return res.status(400).json({ message: "content is required" });
+      }
+      const lines = content.split(/\r?\n/).filter((l: string) => l.trim().length > 0);
+      const parsed: any[] = [];
+      for (const line of lines) {
+        // Try to detect JSON log lines
+        if (line.trim().startsWith("{")) {
+          try {
+            const obj = JSON.parse(line.trim());
+            const entry = errorLogStorage.logError({
+              endpoint: obj.endpoint || obj.path || obj.url || "unknown",
+              method: obj.method || "UNKNOWN",
+              errorMessage: obj.message || obj.error || obj.msg || line,
+              statusCode: obj.status || obj.statusCode || obj.code,
+              userId: obj.userId || obj.user_id,
+            });
+            parsed.push(entry);
+            continue;
+          } catch {}
+        }
+        // Detect common log patterns: [ERROR] or ERROR: or status codes
+        const statusMatch = line.match(/\b([45]\d{2})\b/);
+        const methodMatch = line.match(/\b(GET|POST|PUT|PATCH|DELETE|OPTIONS|HEAD)\b/i);
+        const pathMatch = line.match(/(\/[^\s"']+)/);
+        const isError = /error|exception|fail|warn/i.test(line);
+        if (isError || statusMatch) {
+          const entry = errorLogStorage.logError({
+            endpoint: pathMatch ? pathMatch[1] : "unknown",
+            method: methodMatch ? methodMatch[1].toUpperCase() : "UNKNOWN",
+            errorMessage: line.substring(0, 300),
+            statusCode: statusMatch ? parseInt(statusMatch[1]) : undefined,
+          });
+          parsed.push(entry);
+        }
+      }
+      res.json({ parsed: parsed.length, entries: parsed });
+    } catch (error) {
+      console.error("Error uploading log file:", error);
+      res.status(500).json({ message: "Failed to process log file" });
     }
   });
 
