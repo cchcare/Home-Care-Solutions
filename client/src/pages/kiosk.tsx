@@ -365,6 +365,7 @@ export default function Kiosk() {
       const body: any = {
         staffId: staffId.trim(), pin: pin.trim(),
         photo: capturedPhoto, video: capturedVideo,
+        faceMismatch: faceMatchStatus === "mismatch",
       };
       if (pendingAction === "clock-out") body.breakMinutes = parseInt(breakMinutes) || 0;
 

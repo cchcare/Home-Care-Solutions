@@ -16138,7 +16138,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // POST /api/kiosk/clock-in  (public)
   app.post("/api/kiosk/clock-in", async (req: any, res) => {
     try {
-      const { staffId, pin, photo, video } = req.body;
+      const { staffId, pin, photo, video, faceMismatch } = req.body;
       if (!staffId || !pin) return res.status(400).json({ message: "Staff ID and PIN are required" });
       const result = await verifyKioskCredentials(staffId.trim(), pin.trim());
       if (result.error) return res.status(401).json({ message: result.error });
@@ -16150,16 +16150,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .limit(1);
       if (existing.length > 0) return res.status(400).json({ message: "Already clocked in. Please clock out first." });
 
-      // Server-authoritative face match (not client-driven — prevents tampering)
-      let isFlagged = false;
-      let flagReason: string | null = null;
-      if (photo && user.profileImageUrl) {
+      // Client flag is authoritative (set from UX face-match flow)
+      // Server-side AI re-check acts as defense-in-depth: overrides to true if server detects mismatch
+      let isFlagged = !!faceMismatch;
+      let flagReason: string | null = isFlagged
+        ? "Kiosk face verification failed — photo does not match profile. Manager review required."
+        : null;
+      if (!isFlagged && photo && user.profileImageUrl) {
         const faceResult = await compareFacesWithAI(photo, user.profileImageUrl);
         if (faceResult.match === false) {
           isFlagged = true;
           flagReason = "Kiosk face verification failed — photo does not match profile. Manager review required.";
         }
-        // null match = AI unavailable → skip flagging
+        // null match = AI unavailable → skip (don't flag)
       }
 
       const [record] = await db.insert(staffTimeRecords).values({
@@ -16190,7 +16193,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // POST /api/kiosk/clock-out  (public)
   app.post("/api/kiosk/clock-out", async (req: any, res) => {
     try {
-      const { staffId, pin, photo, video, breakMinutes } = req.body;
+      const { staffId, pin, photo, video, faceMismatch, breakMinutes } = req.body;
       if (!staffId || !pin) return res.status(400).json({ message: "Staff ID and PIN are required" });
       const result = await verifyKioskCredentials(staffId.trim(), pin.trim());
       if (result.error) return res.status(401).json({ message: result.error });
@@ -16206,12 +16209,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const hoursWorked = (clockOutTime.getTime() - new Date(existing.clockInTime).getTime()) / 3600000;
       const longShift = hoursWorked > 16;
 
-      // Server-authoritative face match at clock-out (prevents client-side tampering)
-      let clockOutFaceMismatch = false;
-      if (photo && user.profileImageUrl) {
+      // Client faceMismatch flag is authoritative; server-side AI acts as defense-in-depth
+      let clockOutFaceMismatch = !!faceMismatch;
+      if (!clockOutFaceMismatch && photo && user.profileImageUrl) {
         const faceResult = await compareFacesWithAI(photo, user.profileImageUrl);
         if (faceResult.match === false) clockOutFaceMismatch = true;
-        // null = AI unavailable → skip
+        // null = AI unavailable → skip, no false positives
       }
 
       // Preserve existing flag from clock-in — never downgrade
