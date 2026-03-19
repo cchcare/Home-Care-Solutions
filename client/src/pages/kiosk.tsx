@@ -6,7 +6,7 @@ import { Sidebar } from "@/components/sidebar";
 import { format } from "date-fns";
 import {
   Camera, LogIn, LogOut, CheckCircle, XCircle, RotateCcw, Eye, EyeOff,
-  Delete, AlertTriangle, Video, RefreshCw, ShieldCheck, ShieldAlert,
+  Delete, AlertTriangle, Video, RefreshCw, ShieldCheck, ShieldAlert, MapPin,
 } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -228,6 +228,10 @@ export default function Kiosk() {
   const [faceMatchConfidence, setFaceMatchConfidence] = useState<number>(0);
   const [geoLatitude, setGeoLatitude] = useState<number | null>(null);
   const [geoLongitude, setGeoLongitude] = useState<number | null>(null);
+  const [officeInfo, setOfficeInfo] = useState<{ name: string; address: string | null; city: string | null; state: string | null; zipCode: string | null } | null>(null);
+  const [outsideBoundary, setOutsideBoundary] = useState(false);
+  const [distanceFeet, setDistanceFeet] = useState<number | null>(null);
+  const [clockInOfficeAddress, setClockInOfficeAddress] = useState<string | null>(null);
 
   // Live clock
   useEffect(() => {
@@ -259,6 +263,7 @@ export default function Kiosk() {
     setLocalFaceDetected(null);
     setFaceMatchStatus("idle"); setFaceMatchConfidence(0);
     setGeoLatitude(null); setGeoLongitude(null);
+    setOfficeInfo(null); setOutsideBoundary(false); setDistanceFeet(null); setClockInOfficeAddress(null);
   }
 
   async function handleVerify() {
@@ -275,6 +280,7 @@ export default function Kiosk() {
       setVerifiedUser(data.user);
       setFaceMatchToken(data.faceMatchToken || null);
       setActiveRecord(data.activeRecord);
+      setOfficeInfo(data.officeInfo || null);
       setPendingAction(data.activeRecord ? "clock-out" : "clock-in");
       setStep("action");
     } catch { setErrorMsg("Network error. Please try again."); }
@@ -394,6 +400,12 @@ export default function Kiosk() {
       const name = `${data.user?.firstName || ""} ${data.user?.lastName || ""}`.trim();
       const time = format(new Date(), "h:mm a");
       setSuccessMsg(pendingAction === "clock-in" ? `${name} clocked in at ${time}` : `${name} clocked out at ${time}`);
+      // Store boundary check result
+      if (pendingAction === "clock-in") {
+        setOutsideBoundary(!!data.outsideBoundary);
+        setDistanceFeet(data.distanceFeet ?? null);
+        setClockInOfficeAddress(data.officeAddress ?? null);
+      }
       // Sync face-match status with server's authoritative face-mismatch result (not generic flags like long shift)
       if (data.faceMismatchDetected && faceMatchStatus !== "mismatch") setFaceMatchStatus("mismatch");
       webcam.stop();
@@ -570,9 +582,22 @@ export default function Kiosk() {
                 </div>
               )}
 
+              {/* Office address */}
+              {officeInfo && (
+                <div className="bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg p-3 mb-4 text-xs text-slate-600 dark:text-slate-300 text-left">
+                  <p className="font-semibold text-slate-700 dark:text-slate-200 mb-1">Office Location</p>
+                  <p>{officeInfo.name}</p>
+                  {officeInfo.address && <p>{officeInfo.address}</p>}
+                  {(officeInfo.city || officeInfo.state || officeInfo.zipCode) && (
+                    <p>{[officeInfo.city, officeInfo.state, officeInfo.zipCode].filter(Boolean).join(", ")}</p>
+                  )}
+                </div>
+              )}
+
               <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-lg p-3 mb-4 text-xs text-blue-700 dark:text-blue-300 text-left">
                 <strong>Photo &amp; identity verification required.</strong> Your camera will capture a selfie
                 {verifiedUser.profileImageUrl ? " and compare it against your profile photo." : "."}
+                {" "}Your GPS location will be verified against the office address (500ft limit).
               </div>
 
               <div className="flex flex-col gap-3">
@@ -707,16 +732,33 @@ export default function Kiosk() {
           {/* ── Step: Success ── */}
           {step === "success" && (
             <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-sm p-8 text-center">
-              <div className={`w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-4 ${faceMatchStatus === "mismatch" ? "bg-amber-100" : "bg-green-100"}`}>
-                {faceMatchStatus === "mismatch"
+              <div className={`w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-4 ${outsideBoundary || faceMatchStatus === "mismatch" ? "bg-amber-100" : "bg-green-100"}`}>
+                {outsideBoundary || faceMatchStatus === "mismatch"
                   ? <ShieldAlert className="w-12 h-12 text-amber-600" />
                   : <CheckCircle className="w-12 h-12 text-green-600" />
                 }
               </div>
-              <h2 className={`text-2xl font-bold mb-2 ${faceMatchStatus === "mismatch" ? "text-amber-700" : "text-green-700"}`}>
+              <h2 className={`text-2xl font-bold mb-2 ${outsideBoundary || faceMatchStatus === "mismatch" ? "text-amber-700" : "text-green-700"}`}>
                 {pendingAction === "clock-in" ? "Clocked In!" : "Clocked Out!"}
               </h2>
               <p className="text-slate-600 dark:text-slate-300 text-lg">{successMsg}</p>
+
+              {/* Office address */}
+              {(clockInOfficeAddress || officeInfo) && (
+                <div className="mt-3 text-xs text-slate-500 dark:text-slate-400">
+                  <p className="font-medium">Office:</p>
+                  <p>{clockInOfficeAddress || [officeInfo?.address, officeInfo?.city, officeInfo?.state, officeInfo?.zipCode].filter(Boolean).join(", ")}</p>
+                </div>
+              )}
+
+              {/* Outside boundary warning */}
+              {outsideBoundary && (
+                <div className="mt-3 bg-amber-50 border border-amber-300 rounded-lg p-3 text-sm text-amber-800 text-left">
+                  <AlertTriangle className="w-4 h-4 inline mr-1" />
+                  <strong>Outside 500ft boundary</strong>
+                  {distanceFeet !== null && ` — ${distanceFeet.toLocaleString()} ft from office`}. Your manager will review this punch.
+                </div>
+              )}
 
               {/* Identity verification result */}
               {faceMatchStatus === "match" && (
@@ -727,7 +769,7 @@ export default function Kiosk() {
               {faceMatchStatus === "mismatch" && (
                 <div className="mt-3 bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-700">
                   <ShieldAlert className="w-4 h-4 inline mr-1" />
-                  Submitted for manager review.
+                  Face verification failed — submitted for manager review.
                 </div>
               )}
 

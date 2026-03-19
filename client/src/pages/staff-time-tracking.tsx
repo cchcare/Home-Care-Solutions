@@ -3,6 +3,8 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
+import { Sidebar } from "@/components/sidebar";
+import { TopBar } from "@/components/topbar";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -183,8 +185,12 @@ export default function StaffTimeTracking() {
       latitude: inGps.coords?.lat,
       longitude: inGps.coords?.lng,
     }),
-    onSuccess: () => {
-      toast({ title: "Clocked In", description: "You are now clocked in." });
+    onSuccess: (record: any) => {
+      if (record?.isFlagged) {
+        toast({ title: "Clocked In — Location Warning", description: record.flagReason || "You are outside the 500ft office boundary. Your manager will review this punch.", variant: "destructive" });
+      } else {
+        toast({ title: "Clocked In", description: "You are now clocked in." });
+      }
       setClockInNotes("");
       queryClient.invalidateQueries({ queryKey: ["/api/staff/time-records/active"] });
       queryClient.invalidateQueries({ queryKey: ["/api/staff/time-records"] });
@@ -280,6 +286,11 @@ export default function StaffTimeTracking() {
   // ── Render ───────────────────────────────────────────────────────────────────
 
   return (
+    <div className="flex min-h-screen bg-background">
+      <Sidebar />
+      <div className="flex-1 flex flex-col">
+        <TopBar />
+        <main className="flex-1 p-4 md:p-6 overflow-auto">
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
@@ -1092,6 +1103,9 @@ export default function StaffTimeTracking() {
           )}
         </DialogContent>
       </Dialog>
+    </div>
+        </main>
+      </div>
     </div>
   );
 }

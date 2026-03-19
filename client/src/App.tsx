@@ -127,6 +127,7 @@ function Router() {
       <Route path="/support" component={SupportCenter} />
       <Route path="/api-docs" component={ApiDocumentation} />
       <Route path="/esign/:token" component={ESign} />
+      <Route path="/kiosk" component={Kiosk} />
       {!isAuthenticated ? (
         <Route path="/" component={Landing} />
       ) : (
@@ -168,7 +169,6 @@ function Router() {
           <Route path="/api-keys" component={ApiKeys} />
           <Route path="/shift-swap-requests" component={ShiftSwapRequests} />
           <Route path="/staff-time-tracking" component={StaffTimeTracking} />
-          <Route path="/kiosk" component={Kiosk} />
           <Route path="/kiosk-setup" component={KioskSetup} />
           <Route path="/care-quality-scorecard" component={CareQualityScorecard} />
           <Route path="/financial-reports" component={FinancialReports} />

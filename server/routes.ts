@@ -15688,6 +15688,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const clockInAddress = (latitude && longitude) ? await reverseGeocode(Number(latitude), Number(longitude)) : null;
 
+      // ── 500-foot office boundary check ─────────────────────────────────────
+      let isFlagged = false;
+      let flagReason: string | null = null;
+      if (latitude && longitude && sessionUser.primaryOfficeId) {
+        try {
+          const office = await storage.getOffice(sessionUser.primaryOfficeId);
+          if (office && office.address && office.city && office.state) {
+            const geo = await geocodeAddress(office.address, office.city, office.state, office.zipCode || "");
+            if (geo) {
+              const distMeters = haversineMeters(Number(latitude), Number(longitude), geo.lat, geo.lng);
+              const distFeet = Math.round(distMeters * 3.28084);
+              if (distMeters > 152.4) {
+                isFlagged = true;
+                const officeAddr = [office.address, office.city, office.state, office.zipCode].filter(Boolean).join(", ");
+                flagReason = `Clock-in outside 500ft office boundary — ${distFeet} ft from ${officeAddr}. Manager approval required.`;
+              }
+            }
+          }
+        } catch { /* silently skip boundary check on error */ }
+      }
+
       const [record] = await db.insert(staffTimeRecords).values({
         userId: sessionUser.id,
         officeId: sessionUser.primaryOfficeId || null,
@@ -15699,12 +15720,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         clockInAddress,
         clockInIpAddress: ip,
         deviceInfo: deviceInfo,
+        isFlagged,
+        flagReason,
       }).returning();
 
       await insertStaffAuditLog({
         timeRecordId: record.id,
         action: 'clock_in',
-        newValues: { clockInTime: record.clockInTime, latitude, longitude },
+        newValues: { clockInTime: record.clockInTime, latitude, longitude, outsideBoundary: isFlagged },
         performedBy: sessionUser.id,
         ipAddress: ip,
         notes: notes || undefined,
@@ -16005,6 +16028,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ==================== KIOSK ROUTES ====================
 
   // Shared helper: look up user by username or email and verify kiosk PIN
+  // ── Geo helpers for kiosk boundary check ────────────────────────────────────
+
+  /** Haversine distance in meters between two GPS coordinates */
+  function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
+    const R = 6371000;
+    const toRad = (d: number) => d * Math.PI / 180;
+    const dLat = toRad(lat2 - lat1);
+    const dLon = toRad(lon2 - lon1);
+    const a = Math.sin(dLat / 2) ** 2 +
+      Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  }
+
+  /** Geocode a street address using Nominatim (OpenStreetMap free API, no key needed) */
+  async function geocodeAddress(address: string, city: string, state: string, zip: string): Promise<{ lat: number; lng: number } | null> {
+    try {
+      const q = encodeURIComponent(`${address}, ${city}, ${state} ${zip}`);
+      const url = `https://nominatim.openstreetmap.org/search?q=${q}&format=json&limit=1`;
+      const resp = await fetch(url, { headers: { "User-Agent": "CareCrafterHomeCare/1.0 (homecare-saas)" } });
+      if (!resp.ok) return null;
+      const data = await resp.json() as { lat: string; lon: string }[];
+      if (!data.length) return null;
+      return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
+    } catch {
+      return null;
+    }
+  }
+
+  const OFFICE_BOUNDARY_METERS = 152.4; // 500 feet in meters
+
   async function verifyKioskCredentials(staffId: string, pin: string) {
     const [user] = await db.select().from(users).where(
       or(eq(users.username, staffId), eq(users.email, staffId))
@@ -16108,6 +16161,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const [active] = await db.select().from(staffTimeRecords)
         .where(and(eq(staffTimeRecords.userId, user.id), isNull(staffTimeRecords.clockOutTime)))
         .orderBy(desc(staffTimeRecords.clockInTime)).limit(1);
+      // Include office address so kiosk can display it
+      let officeInfo: { name: string; address: string | null; city: string | null; state: string | null; zipCode: string | null } | null = null;
+      if (user.primaryOfficeId) {
+        const office = await storage.getOffice(user.primaryOfficeId);
+        if (office) {
+          officeInfo = {
+            name: office.name,
+            address: office.address || null,
+            city: office.city || null,
+            state: office.state || null,
+            zipCode: office.zipCode || null,
+          };
+        }
+      }
       res.json({
         user: {
           id: user.id,
@@ -16119,6 +16186,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         },
         activeRecord: active || null,
         faceMatchToken: user.profileImageUrl ? issueKioskSessionToken(user.id, user.profileImageUrl) : null,
+        officeInfo,
       });
     } catch (error: any) {
       res.status(500).json({ message: error.message || "Verification failed" });
@@ -16202,6 +16270,45 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // null match = AI unavailable → skip (don't flag)
       }
 
+      // ── 500-foot office boundary check ─────────────────────────────────────
+      let outsideBoundary = false;
+      let distanceFeet: number | null = null;
+      let officeAddressForDisplay: string | null = null;
+      if (latitude && longitude && user.primaryOfficeId) {
+        try {
+          const office = await storage.getOffice(user.primaryOfficeId);
+          if (office) {
+            officeAddressForDisplay = [
+              office.address,
+              office.city,
+              office.state,
+              office.zipCode,
+            ].filter(Boolean).join(", ");
+            if (office.address && office.city && office.state) {
+              const geo = await geocodeAddress(
+                office.address,
+                office.city,
+                office.state,
+                office.zipCode || ""
+              );
+              if (geo) {
+                const distMeters = haversineMeters(
+                  Number(latitude), Number(longitude),
+                  geo.lat, geo.lng
+                );
+                distanceFeet = Math.round(distMeters * 3.28084);
+                if (distMeters > OFFICE_BOUNDARY_METERS) {
+                  outsideBoundary = true;
+                  isFlagged = true;
+                  const boundaryNote = `Clock-in outside 500ft office boundary — ${distanceFeet} ft from ${officeAddressForDisplay}. Manager approval required.`;
+                  flagReason = flagReason ? `${flagReason} | ${boundaryNote}` : boundaryNote;
+                }
+              }
+            }
+          }
+        } catch { /* silently skip boundary check on error */ }
+      }
+
       const [record] = await db.insert(staffTimeRecords).values({
         userId: user.id,
         officeId: user.primaryOfficeId || null,
@@ -16224,7 +16331,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
 
       const faceMismatchDetected = isFlagged && !!flagReason?.includes("face verification");
-      res.json({ success: true, record, flagged: isFlagged, faceMismatchDetected, user: { firstName: user.firstName, lastName: user.lastName } });
+      res.json({
+        success: true, record, flagged: isFlagged, faceMismatchDetected,
+        user: { firstName: user.firstName, lastName: user.lastName },
+        outsideBoundary,
+        distanceFeet,
+        officeAddress: officeAddressForDisplay,
+      });
     } catch (error: any) {
       res.status(500).json({ message: error.message || "Clock-in failed" });
     }
