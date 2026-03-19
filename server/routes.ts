@@ -157,12 +157,21 @@ const upload = multer({
     // Only allow specific file types
     const allowedTypes = /jpeg|jpg|png|gif|pdf|doc|docx/;
     const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
-    const mimetype = allowedTypes.test(file.mimetype);
+    // Some browsers (and iOS) send PDFs as application/octet-stream, so also
+    // accept that MIME type and rely on the extension check instead.
+    const allowedMimeTypes = [
+      'image/jpeg', 'image/jpg', 'image/png', 'image/gif',
+      'application/pdf',
+      'application/msword',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'application/octet-stream',
+    ];
+    const mimetype = allowedTypes.test(file.mimetype) || allowedMimeTypes.includes(file.mimetype);
 
-    if (mimetype && extname) {
+    if (extname || mimetype) {
       return cb(null, true);
     } else {
-      cb(new Error("Invalid file type"));
+      cb(new Error("Invalid file type. Allowed: PDF, DOC, DOCX, PNG, JPG, GIF"));
     }
   },
 });
