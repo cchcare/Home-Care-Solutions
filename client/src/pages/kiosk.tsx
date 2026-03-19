@@ -361,12 +361,10 @@ export default function Kiosk() {
     if (!capturedPhoto) { setErrorMsg("Photo is required."); return; }
     setLoading(true); setErrorMsg("");
     try {
-      const faceMismatch = faceMatchStatus === "mismatch";
       const endpoint = pendingAction === "clock-in" ? "/api/kiosk/clock-in" : "/api/kiosk/clock-out";
       const body: any = {
         staffId: staffId.trim(), pin: pin.trim(),
         photo: capturedPhoto, video: capturedVideo,
-        faceMismatch,
       };
       if (pendingAction === "clock-out") body.breakMinutes = parseInt(breakMinutes) || 0;
 
@@ -712,7 +710,7 @@ export default function Kiosk() {
               {faceMatchStatus === "mismatch" && (
                 <div className="mt-3 bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-700">
                   <ShieldAlert className="w-4 h-4 inline mr-1" />
-                  Your manager has been notified to review this clock-in.
+                  Submitted for manager review.
                 </div>
               )}
 
