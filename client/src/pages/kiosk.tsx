@@ -413,12 +413,7 @@ export default function Kiosk() {
         Face does not match profile photo. Clock-in will be flagged for manager review.
       </div>
     );
-    if (faceMatchStatus === "skipped") return (
-      <div className="flex items-center gap-2 text-slate-500 bg-slate-50 border border-slate-200 rounded-lg p-2.5 text-sm mb-3">
-        <Camera className="w-4 h-4 shrink-0" />
-        No profile photo on file — skipping identity check.
-      </div>
-    );
+    if (faceMatchStatus === "skipped") return null; // Silent skip — no banner shown
     if (localFaceDetected === false) return (
       <div className="flex items-center gap-2 text-amber-700 bg-amber-50 border border-amber-300 rounded-lg p-2.5 text-sm mb-3">
         <AlertTriangle className="w-4 h-4 shrink-0" />

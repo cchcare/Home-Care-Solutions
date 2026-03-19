@@ -16203,14 +16203,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const clockOutTime = new Date();
       const hoursWorked = (clockOutTime.getTime() - new Date(existing.clockInTime).getTime()) / 3600000;
       const longShift = hoursWorked > 16;
-      const isFlagged = longShift || !!faceMismatch;
-      const flagReason = longShift && faceMismatch
-        ? "Auto-flagged: session exceeded 16 hours; face verification failed — photo does not match profile."
-        : longShift
-          ? "Auto-flagged: session exceeded 16 hours"
-          : faceMismatch
-            ? "Kiosk face verification failed — photo does not match profile. Manager review required."
-            : null;
+      // Preserve existing flag (e.g. set at clock-in due to face mismatch) — never clear it
+      const wasAlreadyFlagged = !!existing.isFlagged;
+      const isFlagged = wasAlreadyFlagged || longShift || !!faceMismatch;
+
+      // Build flag reason: preserve prior reason + append new reasons
+      const newReasons: string[] = [];
+      if (existing.flagReason) newReasons.push(existing.flagReason);
+      if (longShift && !existing.flagReason?.includes("16 hours")) newReasons.push("Auto-flagged: session exceeded 16 hours");
+      if (faceMismatch && !existing.flagReason?.includes("face verification")) {
+        newReasons.push("Clock-out face verification failed — photo does not match profile. Manager review required.");
+      }
+      const flagReason = newReasons.length > 0 ? newReasons.join(" | ") : null;
 
       const [updated] = await db.update(staffTimeRecords).set({
         clockOutTime,
