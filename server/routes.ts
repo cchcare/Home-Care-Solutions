@@ -5531,6 +5531,95 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ============================================
+  // Help Center Article Routes
+  // ============================================
+
+  // List articles (public-accessible for authenticated users; super_admin can see drafts)
+  app.get("/api/help-articles", async (req: any, res) => {
+    try {
+      const { category, all } = req.query;
+      const isSuperAdmin = req.session?.user?.role === "super_admin";
+      const filters: { category?: string; published?: boolean } = {};
+      if (category) filters.category = String(category);
+      if (!isSuperAdmin || all !== "true") filters.published = true;
+      const articles = await storage.getHelpArticles(filters);
+      res.json(articles);
+    } catch (error) {
+      console.error("Error fetching help articles:", error);
+      res.status(500).json({ message: "Failed to fetch help articles" });
+    }
+  });
+
+  app.get("/api/help-articles/:slug", isAuthenticated, async (req: any, res) => {
+    try {
+      const article = await storage.getHelpArticleBySlug(req.params.slug);
+      if (!article) return res.status(404).json({ message: "Article not found" });
+      // increment view count asynchronously
+      storage.incrementHelpArticleViewCount(article.id).catch(() => {});
+      res.json(article);
+    } catch (error) {
+      console.error("Error fetching help article:", error);
+      res.status(500).json({ message: "Failed to fetch help article" });
+    }
+  });
+
+  app.post("/api/help-articles", isAuthenticated, async (req: any, res) => {
+    try {
+      if (req.session?.user?.role !== "super_admin") {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+      const { insertHelpArticleSchema } = await import("@shared/schema");
+      const data = insertHelpArticleSchema.parse(req.body);
+      const article = await storage.createHelpArticle(data);
+      res.status(201).json(article);
+    } catch (error: any) {
+      console.error("Error creating help article:", error);
+      res.status(400).json({ message: error.message || "Failed to create help article" });
+    }
+  });
+
+  app.put("/api/help-articles/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      if (req.session?.user?.role !== "super_admin") {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+      const article = await storage.updateHelpArticle(req.params.id, req.body);
+      res.json(article);
+    } catch (error: any) {
+      console.error("Error updating help article:", error);
+      res.status(400).json({ message: error.message || "Failed to update help article" });
+    }
+  });
+
+  app.delete("/api/help-articles/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      if (req.session?.user?.role !== "super_admin") {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+      await storage.deleteHelpArticle(req.params.id);
+      res.json({ message: "Article deleted" });
+    } catch (error) {
+      console.error("Error deleting help article:", error);
+      res.status(500).json({ message: "Failed to delete help article" });
+    }
+  });
+
+  // Upload image for a help article (stored in uploads/)
+  app.post("/api/help-articles/upload-image", isAuthenticated, upload.single("image"), async (req: any, res) => {
+    try {
+      if (req.session?.user?.role !== "super_admin") {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+      if (!req.file) return res.status(400).json({ message: "No image uploaded" });
+      const imageUrl = `/uploads/${req.file.filename}`;
+      res.json({ url: imageUrl, filename: req.file.filename, originalName: req.file.originalname });
+    } catch (error) {
+      console.error("Error uploading article image:", error);
+      res.status(500).json({ message: "Failed to upload image" });
+    }
+  });
+
   // AI Assistant route
   app.post("/api/ai-assistant/chat", isAuthenticated, async (req: any, res) => {
     try {

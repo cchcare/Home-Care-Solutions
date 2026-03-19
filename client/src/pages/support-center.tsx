@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation } from "wouter";
 import { 
   Search, 
@@ -454,7 +455,45 @@ function KioskArticleDetail({ articleId, onClose }: { articleId: string; onClose
   );
 }
 
+// ─── Dynamic Article Detail ────────────────────────────────────────────────────
+
+function DynamicArticleDetail({ article, onClose }: { article: any; onClose: () => void }) {
+  return (
+    <div className="mt-4 border border-indigo-200 rounded-xl bg-indigo-50/50 overflow-hidden">
+      <div className="bg-gradient-to-r from-indigo-600 to-blue-600 px-6 py-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <BookOpen className="h-5 w-5 text-indigo-200" />
+            <h3 className="text-white font-semibold text-lg">{article.title}</h3>
+          </div>
+          <button onClick={onClose} className="text-indigo-200 hover:text-white transition-colors text-sm flex items-center gap-1">
+            <ChevronDown className="h-4 w-4" /> Collapse
+          </button>
+        </div>
+      </div>
+      <div className="p-6">
+        <div
+          className="prose prose-sm max-w-none prose-headings:text-slate-800 prose-a:text-indigo-600 prose-strong:text-slate-800"
+          dangerouslySetInnerHTML={{ __html: article.content }}
+        />
+      </div>
+    </div>
+  );
+}
+
 // ─── Main Component ───────────────────────────────────────────────────────────
+
+interface DbArticle {
+  id: string;
+  slug: string;
+  title: string;
+  content: string;
+  category: string;
+  subcategory?: string | null;
+  isPublished: boolean;
+  viewCount: number;
+  tags?: string[] | null;
+}
 
 export default function SupportCenter() {
   const [selectedCategory, setSelectedCategory] = useState("getting-started");
@@ -462,10 +501,36 @@ export default function SupportCenter() {
   const [expandedArticle, setExpandedArticle] = useState<string | null>(null);
   const [, navigate] = useLocation();
 
-  const filteredArticles = articles[selectedCategory]?.filter(article =>
-    article.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    article.description.toLowerCase().includes(searchQuery.toLowerCase())
-  ) || [];
+  const { data: dbArticles = [] } = useQuery<DbArticle[]>({
+    queryKey: ["/api/help-articles"],
+  });
+
+  // Merge static + DB articles for the current category
+  const dbForCategory = dbArticles
+    .filter(a => a.isPublished && a.category === selectedCategory)
+    .map(a => ({
+      id: `db-${a.id}`,
+      title: a.title,
+      description: a.subcategory || "",
+      isNew: false,
+      isPopular: (a.viewCount ?? 0) > 50,
+      _dbArticle: a,
+    }));
+
+  const staticArticles = articles[selectedCategory] || [];
+
+  const allArticles = [
+    ...staticArticles.filter(a =>
+      a.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      a.description.toLowerCase().includes(searchQuery.toLowerCase())
+    ),
+    ...dbForCategory.filter(a =>
+      a.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      a.description.toLowerCase().includes(searchQuery.toLowerCase())
+    ),
+  ];
+
+  const filteredArticles = allArticles;
 
   const currentCategory = categories.find(c => c.id === selectedCategory);
 
@@ -474,7 +539,7 @@ export default function SupportCenter() {
       navigate("/api-docs");
       return;
     }
-    if (selectedCategory === "kiosk") {
+    if (selectedCategory === "kiosk" || articleId.startsWith("db-")) {
       setExpandedArticle(expandedArticle === articleId ? null : articleId);
       return;
     }
@@ -642,7 +707,7 @@ export default function SupportCenter() {
                                 <Badge variant="secondary" className="bg-amber-100 text-amber-700 hover:bg-amber-100">Popular</Badge>
                               )}
                             </div>
-                            {isKiosk ? (
+                            {(isKiosk || article.id.startsWith("db-")) ? (
                               isExpanded
                                 ? <ChevronDown className="h-5 w-5 text-indigo-500 shrink-0" />
                                 : <ChevronRight className="h-5 w-5 text-slate-300 group-hover:text-indigo-500 group-hover:translate-x-1 transition-all shrink-0" />
@@ -659,9 +724,16 @@ export default function SupportCenter() {
                       </Card>
 
                       {/* Inline expanded content for kiosk articles */}
-                      {isKiosk && isExpanded && (
+                      {isKiosk && isExpanded && !article.id.startsWith("db-") && (
                         <KioskArticleDetail
                           articleId={article.id}
+                          onClose={() => setExpandedArticle(null)}
+                        />
+                      )}
+                      {/* Inline expanded content for dynamic DB articles */}
+                      {isExpanded && article.id.startsWith("db-") && (article as any)._dbArticle && (
+                        <DynamicArticleDetail
+                          article={(article as any)._dbArticle}
                           onClose={() => setExpandedArticle(null)}
                         />
                       )}

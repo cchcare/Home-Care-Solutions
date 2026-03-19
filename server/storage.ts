@@ -344,6 +344,9 @@ import {
   eSignatureRequests,
   type ESignatureRequest,
   type InsertESignatureRequest,
+  helpArticles,
+  type HelpArticle,
+  type InsertHelpArticle,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, asc, and, or, count, sql, like, gte, lte, inArray } from "drizzle-orm";
@@ -1167,6 +1170,15 @@ export interface IStorage {
   getESignatureRequestByToken(token: string): Promise<ESignatureRequest | undefined>;
   createESignatureRequest(request: InsertESignatureRequest): Promise<ESignatureRequest>;
   updateESignatureRequest(id: string, request: Partial<InsertESignatureRequest>): Promise<ESignatureRequest>;
+
+  // Help Article operations
+  getHelpArticles(filters?: { category?: string; published?: boolean }): Promise<HelpArticle[]>;
+  getHelpArticle(id: string): Promise<HelpArticle | undefined>;
+  getHelpArticleBySlug(slug: string): Promise<HelpArticle | undefined>;
+  createHelpArticle(article: InsertHelpArticle): Promise<HelpArticle>;
+  updateHelpArticle(id: string, article: Partial<InsertHelpArticle>): Promise<HelpArticle>;
+  deleteHelpArticle(id: string): Promise<void>;
+  incrementHelpArticleViewCount(id: string): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -7241,6 +7253,51 @@ export class DatabaseStorage implements IStorage {
       .where(eq(eSignatureRequests.id, id))
       .returning();
     return updated;
+  }
+
+  // Help Article operations
+  async getHelpArticles(filters?: { category?: string; published?: boolean }): Promise<HelpArticle[]> {
+    const conditions = [];
+    if (filters?.category) conditions.push(eq(helpArticles.category, filters.category));
+    if (filters?.published !== undefined) conditions.push(eq(helpArticles.isPublished, filters.published));
+    const query = db.select().from(helpArticles);
+    if (conditions.length > 0) {
+      return await query.where(and(...conditions)).orderBy(asc(helpArticles.order), desc(helpArticles.createdAt));
+    }
+    return await query.orderBy(asc(helpArticles.order), desc(helpArticles.createdAt));
+  }
+
+  async getHelpArticle(id: string): Promise<HelpArticle | undefined> {
+    const [article] = await db.select().from(helpArticles).where(eq(helpArticles.id, id));
+    return article;
+  }
+
+  async getHelpArticleBySlug(slug: string): Promise<HelpArticle | undefined> {
+    const [article] = await db.select().from(helpArticles).where(eq(helpArticles.slug, slug));
+    return article;
+  }
+
+  async createHelpArticle(article: InsertHelpArticle): Promise<HelpArticle> {
+    const [created] = await db.insert(helpArticles).values(article).returning();
+    return created;
+  }
+
+  async updateHelpArticle(id: string, article: Partial<InsertHelpArticle>): Promise<HelpArticle> {
+    const [updated] = await db.update(helpArticles)
+      .set({ ...article, updatedAt: new Date() })
+      .where(eq(helpArticles.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteHelpArticle(id: string): Promise<void> {
+    await db.delete(helpArticles).where(eq(helpArticles.id, id));
+  }
+
+  async incrementHelpArticleViewCount(id: string): Promise<void> {
+    await db.update(helpArticles)
+      .set({ viewCount: sql`${helpArticles.viewCount} + 1` })
+      .where(eq(helpArticles.id, id));
   }
 }
 
