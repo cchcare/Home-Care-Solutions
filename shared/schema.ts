@@ -1826,6 +1826,8 @@ export const caregiverSchedules = pgTable("caregiver_schedules", {
   clockOutLongitude: numeric("clock_out_longitude", { precision: 10, scale: 7 }),
   clockInDistance: numeric("clock_in_distance"),
   clockOutDistance: numeric("clock_out_distance"),
+  clockInPhoto: text("clock_in_photo"),
+  clockOutPhoto: text("clock_out_photo"),
   evvStatus: varchar("evv_status").default("pending"), // pending, compliant, non_compliant
   evvNotes: text("evv_notes"),
   notes: text("notes"),

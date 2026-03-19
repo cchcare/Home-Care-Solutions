@@ -8359,7 +8359,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/schedules/:id/clock-in", isAuthenticated, async (req: any, res) => {
     try {
       const { id } = req.params;
-      const { latitude, longitude, distance } = req.body;
+      const { latitude, longitude, distance, photo } = req.body;
       
       if (latitude === undefined || longitude === undefined) {
         return res.status(400).json({ message: "Latitude and longitude are required" });
@@ -8380,7 +8380,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         id,
         String(latitude),
         String(longitude),
-        distance ? String(distance) : undefined
+        distance ? String(distance) : undefined,
+        photo || undefined
       );
       
       await storage.createAuditLog({
@@ -8404,7 +8405,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/schedules/:id/clock-out", isAuthenticated, async (req: any, res) => {
     try {
       const { id } = req.params;
-      const { latitude, longitude, distance } = req.body;
+      const { latitude, longitude, distance, photo } = req.body;
       
       if (latitude === undefined || longitude === undefined) {
         return res.status(400).json({ message: "Latitude and longitude are required" });
@@ -8430,7 +8431,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         id,
         String(latitude),
         String(longitude),
-        distance ? String(distance) : undefined
+        distance ? String(distance) : undefined,
+        photo || undefined
       );
       
       await storage.createAuditLog({
@@ -16173,7 +16175,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // POST /api/kiosk/clock-in  (public)
   app.post("/api/kiosk/clock-in", async (req: any, res) => {
     try {
-      const { staffId, pin, photo, video, faceMismatch } = req.body;
+      const { staffId, pin, photo, video, faceMismatch, latitude, longitude } = req.body;
       if (!staffId || !pin) return res.status(400).json({ message: "Staff ID and PIN are required" });
       const result = await verifyKioskCredentials(staffId.trim(), pin.trim());
       if (result.error) return res.status(401).json({ message: result.error });
@@ -16208,6 +16210,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         clockInIpAddress: ip,
         clockInPhoto: photo || null,
         clockInVideo: video || null,
+        clockInLatitude: latitude ? String(latitude) : null,
+        clockInLongitude: longitude ? String(longitude) : null,
         deviceInfo: req.headers['user-agent'] || null,
         isFlagged,
         flagReason,
@@ -16229,7 +16233,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // POST /api/kiosk/clock-out  (public)
   app.post("/api/kiosk/clock-out", async (req: any, res) => {
     try {
-      const { staffId, pin, photo, video, faceMismatch, breakMinutes } = req.body;
+      const { staffId, pin, photo, video, faceMismatch, breakMinutes, latitude, longitude } = req.body;
       if (!staffId || !pin) return res.status(400).json({ message: "Staff ID and PIN are required" });
       const result = await verifyKioskCredentials(staffId.trim(), pin.trim());
       if (result.error) return res.status(401).json({ message: result.error });
@@ -16275,6 +16279,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         clockOutIpAddress: ip,
         clockOutPhoto: photo || null,
         clockOutVideo: video || null,
+        clockOutLatitude: latitude ? String(latitude) : null,
+        clockOutLongitude: longitude ? String(longitude) : null,
         isFlagged,
         flagReason,
         updatedAt: new Date(),

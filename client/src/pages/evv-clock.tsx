@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Sidebar } from "@/components/sidebar";
 import { TopBar } from "@/components/topbar";
@@ -6,6 +6,12 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/useAuth";
@@ -22,6 +28,8 @@ import {
   Navigation,
   LogIn,
   LogOut,
+  Camera,
+  RotateCcw,
 } from "lucide-react";
 import type { CaregiverSchedule, Client, Caregiver } from "@shared/schema";
 
@@ -71,15 +79,295 @@ function getStatusBadge(schedule: ScheduleWithClient) {
   );
 }
 
+// ─── Head Silhouette Overlay ──────────────────────────────────────────────────
+
+function HeadSilhouette() {
+  return (
+    <svg
+      className="absolute inset-0 w-full h-full pointer-events-none"
+      viewBox="0 0 640 480"
+      preserveAspectRatio="xMidYMid meet"
+    >
+      <defs>
+        <mask id="evvOvalMask">
+          <rect width="640" height="480" fill="white" />
+          <ellipse cx="320" cy="200" rx="120" ry="145" fill="black" />
+          <rect x="283" y="335" width="74" height="40" rx="10" fill="black" />
+        </mask>
+      </defs>
+      <rect width="640" height="480" fill="rgba(0,0,0,0.45)" mask="url(#evvOvalMask)" />
+      <ellipse cx="320" cy="200" rx="120" ry="145" fill="none" stroke="white" strokeWidth="2.5" opacity="0.9" />
+      <rect x="283" y="335" width="74" height="40" rx="10" fill="none" stroke="white" strokeWidth="2.5" opacity="0.9" />
+      <text x="320" y="445" textAnchor="middle" fill="white" fontSize="14" fontFamily="sans-serif" opacity="0.85">
+        Align your face inside the outline
+      </text>
+    </svg>
+  );
+}
+
+// ─── Camera Modal ─────────────────────────────────────────────────────────────
+
+interface CameraModalProps {
+  open: boolean;
+  action: "clockIn" | "clockOut";
+  location: LocationState;
+  onClose: () => void;
+  onConfirm: (photo: string) => void;
+}
+
+function CameraModal({ open, action, location, onClose, onConfirm }: CameraModalProps) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const [webcamReady, setWebcamReady] = useState(false);
+  const [webcamError, setWebcamError] = useState<string | null>(null);
+  const [capturedPhoto, setCapturedPhoto] = useState<string | null>(null);
+  const [countdown, setCountdown] = useState<number | null>(null);
+
+  const stopCamera = useCallback(() => {
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
+    setWebcamReady(false);
+  }, []);
+
+  const startCamera = useCallback(async () => {
+    setWebcamError(null);
+    setCapturedPhoto(null);
+    setCountdown(null);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { width: 640, height: 480, facingMode: "user" },
+        audio: false,
+      });
+      streamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        videoRef.current.muted = true;
+        await videoRef.current.play();
+        setWebcamReady(true);
+      }
+      // Auto-capture countdown
+      let count = 3;
+      setCountdown(count);
+      if (countdownRef.current) clearInterval(countdownRef.current);
+      countdownRef.current = setInterval(() => {
+        count--;
+        setCountdown(count);
+        if (count <= 0) {
+          clearInterval(countdownRef.current!);
+          countdownRef.current = null;
+          setCountdown(null);
+          doCapture();
+        }
+      }, 1000);
+    } catch (e: any) {
+      setWebcamError(e.message || "Camera unavailable. Please allow camera access.");
+    }
+  }, []);
+
+  const doCapture = useCallback(() => {
+    if (!videoRef.current) return;
+    const canvas = document.createElement("canvas");
+    canvas.width = 480;
+    canvas.height = 360;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.drawImage(videoRef.current, 0, 0, 480, 360);
+    const photo = canvas.toDataURL("image/jpeg", 0.75);
+    setCapturedPhoto(photo);
+    stopCamera();
+  }, [stopCamera]);
+
+  const handleManualCapture = useCallback(() => {
+    if (countdownRef.current) { clearInterval(countdownRef.current); countdownRef.current = null; }
+    setCountdown(null);
+    doCapture();
+  }, [doCapture]);
+
+  const retake = useCallback(async () => {
+    setCapturedPhoto(null);
+    await startCamera();
+  }, [startCamera]);
+
+  const handleClose = useCallback(() => {
+    if (countdownRef.current) { clearInterval(countdownRef.current); countdownRef.current = null; }
+    stopCamera();
+    setCapturedPhoto(null);
+    setWebcamError(null);
+    setCountdown(null);
+    onClose();
+  }, [stopCamera, onClose]);
+
+  useEffect(() => {
+    if (open) {
+      startCamera();
+    } else {
+      if (countdownRef.current) { clearInterval(countdownRef.current); countdownRef.current = null; }
+      stopCamera();
+      setCapturedPhoto(null);
+      setWebcamError(null);
+      setCountdown(null);
+    }
+    return () => {
+      if (countdownRef.current) { clearInterval(countdownRef.current); countdownRef.current = null; }
+      stopCamera();
+    };
+  }, [open]);
+
+  const locationReady = location.latitude !== null && location.longitude !== null;
+  const canConfirm = !!capturedPhoto && locationReady;
+  const actionLabel = action === "clockIn" ? "Clock In" : "Clock Out";
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => !v && handleClose()}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Camera className="w-5 h-5" />
+            {actionLabel} — Photo &amp; Location Required
+          </DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-4">
+          {/* Location status */}
+          <div className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm ${
+            location.loading
+              ? "bg-blue-50 text-blue-700 dark:bg-blue-900/20 dark:text-blue-300"
+              : locationReady
+              ? "bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-300"
+              : "bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-300"
+          }`}>
+            {location.loading ? (
+              <><Loader2 className="w-4 h-4 animate-spin shrink-0" /> Getting your location...</>
+            ) : locationReady ? (
+              <><MapPin className="w-4 h-4 shrink-0" /> Location acquired</>
+            ) : (
+              <><AlertTriangle className="w-4 h-4 shrink-0" /> {location.error || "Location required"}</>
+            )}
+          </div>
+
+          {/* Camera / photo area */}
+          {webcamError ? (
+            <div className="rounded-xl bg-red-50 dark:bg-red-950/20 p-6 text-center text-red-700">
+              <XCircle className="w-8 h-8 mx-auto mb-2" />
+              <p className="text-sm">{webcamError}</p>
+              <Button variant="outline" size="sm" className="mt-3" onClick={() => startCamera()}>
+                Retry Camera
+              </Button>
+            </div>
+          ) : (
+            <div className="relative bg-black rounded-xl overflow-hidden" style={{ aspectRatio: "4/3" }}>
+              {!capturedPhoto ? (
+                <>
+                  <video
+                    ref={videoRef}
+                    className="w-full h-full object-cover scale-x-[-1]"
+                    playsInline
+                    muted
+                  />
+                  {webcamReady && <HeadSilhouette />}
+                  {countdown !== null && (
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <span className="text-white text-9xl font-bold drop-shadow-2xl"
+                        style={{ textShadow: "0 0 30px rgba(0,0,0,0.8)" }}>
+                        {countdown}
+                      </span>
+                    </div>
+                  )}
+                  {!webcamReady && !webcamError && (
+                    <div className="absolute inset-0 flex items-center justify-center text-white bg-black/60">
+                      <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white" />
+                    </div>
+                  )}
+                  {webcamReady && countdown === null && (
+                    <div className="absolute bottom-3 left-0 right-0 text-center text-white text-sm bg-black/30 py-1">
+                      Camera ready — position your face in the outline
+                    </div>
+                  )}
+                </>
+              ) : (
+                <img
+                  src={capturedPhoto}
+                  className="w-full h-full object-cover scale-x-[-1]"
+                  alt="Captured photo"
+                />
+              )}
+            </div>
+          )}
+
+          {/* Requirement checklist */}
+          <div className="flex gap-4 text-sm">
+            <div className={`flex items-center gap-1.5 ${capturedPhoto ? "text-green-600" : "text-muted-foreground"}`}>
+              <Camera className="w-3.5 h-3.5" />
+              {capturedPhoto ? "Photo captured" : "Photo required"}
+            </div>
+            <div className={`flex items-center gap-1.5 ${locationReady ? "text-green-600" : "text-muted-foreground"}`}>
+              <MapPin className="w-3.5 h-3.5" />
+              {locationReady ? "Location acquired" : "Location required"}
+            </div>
+          </div>
+
+          {/* Action buttons */}
+          {!capturedPhoto ? (
+            <div className="flex gap-3">
+              <Button variant="outline" className="flex-1" onClick={handleClose}>
+                Cancel
+              </Button>
+              {webcamReady && (
+                <Button
+                  className="flex-1 bg-blue-600 hover:bg-blue-700 text-white"
+                  onClick={handleManualCapture}
+                >
+                  <Camera className="w-4 h-4 mr-2" />
+                  {countdown !== null ? "Take Now" : "Take Photo"}
+                </Button>
+              )}
+            </div>
+          ) : (
+            <div className="flex gap-3">
+              <Button variant="outline" className="flex-1" onClick={retake}>
+                <RotateCcw className="w-4 h-4 mr-2" /> Retake
+              </Button>
+              <Button
+                className={`flex-1 text-white ${
+                  action === "clockIn"
+                    ? "bg-blue-600 hover:bg-blue-700"
+                    : "bg-green-600 hover:bg-green-700"
+                }`}
+                disabled={!canConfirm}
+                onClick={() => capturedPhoto && onConfirm(capturedPhoto)}
+              >
+                {!locationReady ? (
+                  <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Waiting for location...</>
+                ) : action === "clockIn" ? (
+                  <><LogIn className="w-4 h-4 mr-2" /> Confirm Clock In</>
+                ) : (
+                  <><LogOut className="w-4 h-4 mr-2" /> Confirm Clock Out</>
+                )}
+              </Button>
+            </div>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ─── Main Page ─────────────────────────────────────────────────────────────────
+
 function EvvClock() {
   const { user } = useAuth();
   const { toast } = useToast();
+
   const [location, setLocation] = useState<LocationState>({
     latitude: null,
     longitude: null,
     error: null,
     loading: false,
   });
+
+  const [cameraOpen, setCameraOpen] = useState(false);
   const [pendingScheduleId, setPendingScheduleId] = useState<string | null>(null);
   const [pendingAction, setPendingAction] = useState<"clockIn" | "clockOut" | null>(null);
 
@@ -113,12 +401,11 @@ function EvvClock() {
   });
 
   const requestLocation = useCallback(() => {
-    setLocation((prev) => ({ ...prev, loading: true, error: null }));
+    setLocation({ latitude: null, longitude: null, error: null, loading: true });
 
     if (!navigator.geolocation) {
       setLocation({
-        latitude: null,
-        longitude: null,
+        latitude: null, longitude: null,
         error: "Geolocation is not supported by your browser",
         loading: false,
       });
@@ -147,18 +434,9 @@ function EvvClock() {
             errorMessage = "Location request timed out.";
             break;
         }
-        setLocation({
-          latitude: null,
-          longitude: null,
-          error: errorMessage,
-          loading: false,
-        });
+        setLocation({ latitude: null, longitude: null, error: errorMessage, loading: false });
       },
-      {
-        enableHighAccuracy: true,
-        timeout: 10000,
-        maximumAge: 60000,
-      }
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
     );
   }, []);
 
@@ -167,14 +445,17 @@ function EvvClock() {
       scheduleId,
       latitude,
       longitude,
+      photo,
     }: {
       scheduleId: string;
       latitude: number;
       longitude: number;
+      photo: string;
     }) => {
       const response = await apiRequest("POST", `/api/schedules/${scheduleId}/clock-in`, {
         latitude,
         longitude,
+        photo,
       });
       return response.json();
     },
@@ -186,6 +467,7 @@ function EvvClock() {
       queryClient.invalidateQueries({
         queryKey: ["/api/caregivers", caregiver?.id, "schedules"],
       });
+      setCameraOpen(false);
       setPendingScheduleId(null);
       setPendingAction(null);
     },
@@ -195,6 +477,7 @@ function EvvClock() {
         description: error.message || "Failed to clock in. Please try again.",
         variant: "destructive",
       });
+      setCameraOpen(false);
       setPendingScheduleId(null);
       setPendingAction(null);
     },
@@ -205,14 +488,17 @@ function EvvClock() {
       scheduleId,
       latitude,
       longitude,
+      photo,
     }: {
       scheduleId: string;
       latitude: number;
       longitude: number;
+      photo: string;
     }) => {
       const response = await apiRequest("POST", `/api/schedules/${scheduleId}/clock-out`, {
         latitude,
         longitude,
+        photo,
       });
       return response.json();
     },
@@ -224,6 +510,7 @@ function EvvClock() {
       queryClient.invalidateQueries({
         queryKey: ["/api/caregivers", caregiver?.id, "schedules"],
       });
+      setCameraOpen(false);
       setPendingScheduleId(null);
       setPendingAction(null);
     },
@@ -233,50 +520,58 @@ function EvvClock() {
         description: error.message || "Failed to clock out. Please try again.",
         variant: "destructive",
       });
+      setCameraOpen(false);
       setPendingScheduleId(null);
       setPendingAction(null);
     },
   });
 
-  useEffect(() => {
-    if (
-      pendingScheduleId &&
-      pendingAction &&
-      location.latitude !== null &&
-      location.longitude !== null &&
-      !location.loading
-    ) {
-      if (pendingAction === "clockIn") {
-        clockInMutation.mutate({
-          scheduleId: pendingScheduleId,
-          latitude: location.latitude,
-          longitude: location.longitude,
-        });
-      } else if (pendingAction === "clockOut") {
-        clockOutMutation.mutate({
-          scheduleId: pendingScheduleId,
-          latitude: location.latitude,
-          longitude: location.longitude,
-        });
-      }
-    }
-  }, [location.latitude, location.longitude, location.loading, pendingScheduleId, pendingAction]);
-
   const handleClockIn = (scheduleId: string) => {
     setPendingScheduleId(scheduleId);
     setPendingAction("clockIn");
+    setLocation({ latitude: null, longitude: null, error: null, loading: true });
+    setCameraOpen(true);
     requestLocation();
   };
 
   const handleClockOut = (scheduleId: string) => {
     setPendingScheduleId(scheduleId);
     setPendingAction("clockOut");
+    setLocation({ latitude: null, longitude: null, error: null, loading: true });
+    setCameraOpen(true);
     requestLocation();
   };
 
+  const handleCameraConfirm = (photo: string) => {
+    if (!pendingScheduleId || !pendingAction) return;
+    if (location.latitude === null || location.longitude === null) return;
+
+    if (pendingAction === "clockIn") {
+      clockInMutation.mutate({
+        scheduleId: pendingScheduleId,
+        latitude: location.latitude,
+        longitude: location.longitude,
+        photo,
+      });
+    } else {
+      clockOutMutation.mutate({
+        scheduleId: pendingScheduleId,
+        latitude: location.latitude,
+        longitude: location.longitude,
+        photo,
+      });
+    }
+  };
+
+  const handleCameraClose = () => {
+    setCameraOpen(false);
+    setPendingScheduleId(null);
+    setPendingAction(null);
+    setLocation({ latitude: null, longitude: null, error: null, loading: false });
+  };
+
   const isLoading = caregiverLoading || schedulesLoading;
-  const isPending =
-    clockInMutation.isPending || clockOutMutation.isPending || location.loading;
+  const isMutating = clockInMutation.isPending || clockOutMutation.isPending;
 
   return (
     <div className="flex min-h-screen bg-background">
@@ -294,50 +589,18 @@ function EvvClock() {
               </p>
             </div>
 
-            {location.error && (
-              <Card className="border-destructive bg-destructive/10">
-                <CardContent className="p-4">
-                  <div className="flex items-center gap-3">
-                    <AlertTriangle className="w-5 h-5 text-destructive" />
-                    <div>
-                      <p className="font-medium text-destructive" data-testid="text-location-error">
-                        Location Error
-                      </p>
-                      <p className="text-sm text-muted-foreground">{location.error}</p>
-                    </div>
-                  </div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="mt-3"
-                    onClick={requestLocation}
-                    disabled={location.loading}
-                    data-testid="button-retry-location"
-                  >
-                    <Navigation className="w-4 h-4 mr-2" />
-                    Retry Location
-                  </Button>
-                </CardContent>
-              </Card>
-            )}
-
-            {location.latitude && location.longitude && (
-              <Card className="border-green-500/50 bg-green-50 dark:bg-green-950/20">
-                <CardContent className="p-4">
-                  <div className="flex items-center gap-3">
-                    <MapPin className="w-5 h-5 text-green-600" />
-                    <div>
-                      <p className="font-medium text-green-700 dark:text-green-400" data-testid="text-location-acquired">
-                        Location Acquired
-                      </p>
-                      <p className="text-sm text-muted-foreground">
-                        {location.latitude.toFixed(6)}, {location.longitude.toFixed(6)}
-                      </p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
+            {/* Info banner */}
+            <Card className="border-blue-200 bg-blue-50 dark:bg-blue-950/20 dark:border-blue-800">
+              <CardContent className="p-4 flex items-start gap-3">
+                <div className="flex gap-3 text-blue-700 dark:text-blue-300 text-sm">
+                  <Camera className="w-4 h-4 mt-0.5 shrink-0" />
+                  <span>
+                    <strong>Photo &amp; location required</strong> — both your camera and GPS location
+                    are needed for every clock-in and clock-out.
+                  </span>
+                </div>
+              </CardContent>
+            </Card>
 
             {isLoading ? (
               <div className="space-y-4">
@@ -378,10 +641,10 @@ function EvvClock() {
             ) : (
               <div className="space-y-4">
                 {schedules?.map((schedule) => {
-                  const isCurrentPending = pendingScheduleId === schedule.id && isPending;
                   const canClockIn = !schedule.clockInTime;
                   const canClockOut = schedule.clockInTime && !schedule.clockOutTime;
                   const isCompleted = schedule.clockInTime && schedule.clockOutTime;
+                  const isThisPending = pendingScheduleId === schedule.id && isMutating;
 
                   return (
                     <Card
@@ -447,6 +710,11 @@ function EvvClock() {
                                 </span>
                               </div>
                             )}
+                            {(schedule as any).clockInPhoto && (
+                              <div className="flex items-center gap-1.5 text-xs text-green-600">
+                                <Camera className="w-3 h-3" /> Photo captured
+                              </div>
+                            )}
                           </div>
                         )}
 
@@ -466,6 +734,11 @@ function EvvClock() {
                                 </span>
                               </div>
                             )}
+                            {(schedule as any).clockOutPhoto && (
+                              <div className="flex items-center gap-1.5 text-xs text-green-600">
+                                <Camera className="w-3 h-3" /> Photo captured
+                              </div>
+                            )}
                           </div>
                         )}
 
@@ -476,17 +749,17 @@ function EvvClock() {
                                 size="lg"
                                 className="w-full h-14 text-lg font-semibold bg-blue-600 hover:bg-blue-700"
                                 onClick={() => handleClockIn(schedule.id)}
-                                disabled={isPending}
+                                disabled={isMutating}
                                 data-testid={`button-clock-in-${schedule.id}`}
                               >
-                                {isCurrentPending && pendingAction === "clockIn" ? (
+                                {isThisPending ? (
                                   <>
                                     <Loader2 className="w-5 h-5 mr-2 animate-spin" />
-                                    Getting Location...
+                                    Processing...
                                   </>
                                 ) : (
                                   <>
-                                    <LogIn className="w-5 h-5 mr-2" />
+                                    <Camera className="w-5 h-5 mr-2" />
                                     Clock In
                                   </>
                                 )}
@@ -498,17 +771,17 @@ function EvvClock() {
                                 size="lg"
                                 className="w-full h-14 text-lg font-semibold bg-green-600 hover:bg-green-700"
                                 onClick={() => handleClockOut(schedule.id)}
-                                disabled={isPending}
+                                disabled={isMutating}
                                 data-testid={`button-clock-out-${schedule.id}`}
                               >
-                                {isCurrentPending && pendingAction === "clockOut" ? (
+                                {isThisPending ? (
                                   <>
                                     <Loader2 className="w-5 h-5 mr-2 animate-spin" />
-                                    Getting Location...
+                                    Processing...
                                   </>
                                 ) : (
                                   <>
-                                    <LogOut className="w-5 h-5 mr-2" />
+                                    <Camera className="w-5 h-5 mr-2" />
                                     Clock Out
                                   </>
                                 )}
@@ -543,6 +816,17 @@ function EvvClock() {
           </div>
         </main>
       </div>
+
+      {/* Camera + Location Modal */}
+      {pendingAction && (
+        <CameraModal
+          open={cameraOpen}
+          action={pendingAction}
+          location={location}
+          onClose={handleCameraClose}
+          onConfirm={handleCameraConfirm}
+        />
+      )}
     </div>
   );
 }

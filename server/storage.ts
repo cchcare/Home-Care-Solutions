@@ -758,8 +758,8 @@ export interface IStorage {
   deleteCaregiverSchedule(id: string): Promise<void>;
   
   // EVV (Electronic Visit Verification) operations
-  clockInWithLocation(scheduleId: string, latitude: string, longitude: string, distance?: string): Promise<CaregiverSchedule>;
-  clockOutWithLocation(scheduleId: string, latitude: string, longitude: string, distance?: string): Promise<CaregiverSchedule>;
+  clockInWithLocation(scheduleId: string, latitude: string, longitude: string, distance?: string, photo?: string): Promise<CaregiverSchedule>;
+  clockOutWithLocation(scheduleId: string, latitude: string, longitude: string, distance?: string, photo?: string): Promise<CaregiverSchedule>;
   getEvvComplianceStats(officeId?: string, startDate?: Date, endDate?: Date): Promise<{
     totalSchedules: number;
     compliant: number;
@@ -4104,13 +4104,14 @@ export class DatabaseStorage implements IStorage {
   }
 
   // EVV (Electronic Visit Verification) operations
-  async clockInWithLocation(scheduleId: string, latitude: string, longitude: string, distance?: string): Promise<CaregiverSchedule> {
+  async clockInWithLocation(scheduleId: string, latitude: string, longitude: string, distance?: string, photo?: string): Promise<CaregiverSchedule> {
     const [updated] = await db.update(caregiverSchedules)
       .set({
         clockInTime: new Date(),
         clockInLatitude: latitude,
         clockInLongitude: longitude,
         clockInDistance: distance || null,
+        clockInPhoto: photo || null,
         status: 'in_progress',
         updatedAt: new Date(),
       })
@@ -4119,7 +4120,7 @@ export class DatabaseStorage implements IStorage {
     return updated;
   }
 
-  async clockOutWithLocation(scheduleId: string, latitude: string, longitude: string, distance?: string): Promise<CaregiverSchedule> {
+  async clockOutWithLocation(scheduleId: string, latitude: string, longitude: string, distance?: string, photo?: string): Promise<CaregiverSchedule> {
     const schedule = await this.getCaregiverSchedule(scheduleId);
     
     // Determine EVV status based on distances (compliant if both distances are within threshold)
@@ -4143,6 +4144,7 @@ export class DatabaseStorage implements IStorage {
         clockOutLatitude: latitude,
         clockOutLongitude: longitude,
         clockOutDistance: distance || null,
+        clockOutPhoto: photo || null,
         evvStatus,
         status: 'completed',
         updatedAt: new Date(),

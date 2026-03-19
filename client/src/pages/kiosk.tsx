@@ -226,6 +226,8 @@ export default function Kiosk() {
   const [localFaceDetected, setLocalFaceDetected] = useState<boolean | null>(null);
   const [faceMatchStatus, setFaceMatchStatus] = useState<FaceMatchStatus>("idle");
   const [faceMatchConfidence, setFaceMatchConfidence] = useState<number>(0);
+  const [geoLatitude, setGeoLatitude] = useState<number | null>(null);
+  const [geoLongitude, setGeoLongitude] = useState<number | null>(null);
 
   // Live clock
   useEffect(() => {
@@ -256,6 +258,7 @@ export default function Kiosk() {
     setErrorMsg(""); setSuccessMsg(""); setBreakMinutes("0");
     setLocalFaceDetected(null);
     setFaceMatchStatus("idle"); setFaceMatchConfidence(0);
+    setGeoLatitude(null); setGeoLongitude(null);
   }
 
   async function handleVerify() {
@@ -324,7 +327,17 @@ export default function Kiosk() {
   async function startCamera() {
     setCapturedPhoto(null); setCapturedVideo(null);
     setLocalFaceDetected(null); setFaceMatchStatus("idle"); setFaceMatchConfidence(0);
+    setGeoLatitude(null); setGeoLongitude(null);
     setStep("camera");
+
+    // Request geolocation in parallel with camera startup
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => { setGeoLatitude(pos.coords.latitude); setGeoLongitude(pos.coords.longitude); },
+        () => { /* silently skip — location optional for kiosk */ },
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
+      );
+    }
 
     const stream = await webcam.start();
     if (stream) recorder.startRecording(stream);
@@ -365,6 +378,8 @@ export default function Kiosk() {
         staffId: staffId.trim(), pin: pin.trim(),
         photo: capturedPhoto,
         faceMismatch: faceMatchStatus === "mismatch",
+        latitude: geoLatitude ?? undefined,
+        longitude: geoLongitude ?? undefined,
       };
       if (pendingAction === "clock-out") body.breakMinutes = parseInt(breakMinutes) || 0;
 
