@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Sidebar } from "@/components/sidebar";
 import { format } from "date-fns";
 import { Camera, LogIn, LogOut, CheckCircle, XCircle, RotateCcw, Eye, EyeOff, Delete } from "lucide-react";
 
@@ -227,7 +228,9 @@ export default function Kiosk() {
   const isClockedIn = !!activeRecord;
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-900 via-blue-800 to-indigo-900 flex flex-col select-none">
+    <div className="flex h-screen overflow-hidden">
+      <Sidebar />
+      <div className="flex-1 overflow-auto bg-gradient-to-br from-blue-900 via-blue-800 to-indigo-900 flex flex-col select-none">
 
       {/* Header bar */}
       <div className="flex items-center justify-between px-8 py-4 bg-black/20">
@@ -483,6 +486,8 @@ export default function Kiosk() {
       {/* Footer */}
       <div className="text-center pb-4">
         <p className="text-blue-300 text-xs">Care Crafter Home Care &bull; Staff Kiosk Terminal</p>
+      </div>
+
       </div>
     </div>
   );

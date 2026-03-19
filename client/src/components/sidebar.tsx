@@ -44,7 +44,8 @@ import {
   TrendingUp,
   FileBarChart,
   UserPlus,
-  Monitor
+  Monitor,
+  MonitorCheck
 } from "lucide-react";
 
 interface NavItem {
@@ -108,6 +109,7 @@ export function Sidebar() {
         icon: UserCog,
         children: [
           { name: "Staff Time Tracking", href: "/staff-time-tracking", icon: Clock },
+          { name: "Kiosk Terminal", href: "/kiosk", icon: MonitorCheck },
           { name: "Kiosk Setup", href: "/kiosk-setup", icon: Monitor },
         ]
       },

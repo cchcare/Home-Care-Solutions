@@ -123,7 +123,6 @@ function Router() {
       <Route path="/signup" component={Signup} />
       <Route path="/signup/success" component={SignupSuccess} />
       <Route path="/caregiver-login" component={CaregiverLogin} />
-      <Route path="/kiosk" component={Kiosk} />
       <Route path="/support-center" component={SupportCenter} />
       <Route path="/support" component={SupportCenter} />
       <Route path="/api-docs" component={ApiDocumentation} />
@@ -169,6 +168,7 @@ function Router() {
           <Route path="/api-keys" component={ApiKeys} />
           <Route path="/shift-swap-requests" component={ShiftSwapRequests} />
           <Route path="/staff-time-tracking" component={StaffTimeTracking} />
+          <Route path="/kiosk" component={Kiosk} />
           <Route path="/kiosk-setup" component={KioskSetup} />
           <Route path="/care-quality-scorecard" component={CareQualityScorecard} />
           <Route path="/financial-reports" component={FinancialReports} />
