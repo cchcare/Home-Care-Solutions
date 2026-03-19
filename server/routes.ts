@@ -16119,6 +16119,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const sessionUser = req.session.user;
       if (!isManagerRole(sessionUser.role)) return res.status(403).json({ message: "Insufficient permissions" });
+
+      // Determine which org to show — fall back to the user's own org from DB if session is stale
+      let orgId = sessionUser.organizationId;
+      if (!orgId) {
+        const [freshUser] = await db.select({ organizationId: users.organizationId })
+          .from(users).where(eq(users.id, sessionUser.id));
+        orgId = freshUser?.organizationId;
+      }
+      if (!orgId) return res.status(400).json({ message: "Your account is not associated with an organization. Please contact a super admin." });
+
       const staff = await db.select({
         id: users.id,
         firstName: users.firstName,
@@ -16130,12 +16140,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         isActive: users.isActive,
       }).from(users)
         .where(and(
-          eq(users.organizationId, sessionUser.organizationId),
+          eq(users.organizationId, orgId),
+          eq(users.isActive, true),
           or(
             eq(users.role, 'super_admin'),
             eq(users.role, 'admin'),
             eq(users.role, 'office_admin'),
             eq(users.role, 'supervisor'),
+            eq(users.role, 'caregiver'),
             eq(users.role, 'custom')
           )
         ))
