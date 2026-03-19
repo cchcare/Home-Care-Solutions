@@ -947,7 +947,7 @@ export default function Communication() {
                   )}
                 />
 
-                <div className="flex justify-end space-x-2 pt-4">
+                <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end sm:space-x-2 pt-4">
                   <Button
                     type="button"
                     variant="outline"

@@ -303,7 +303,7 @@ export default function OfficeProfile() {
           )}
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
             <div className="space-y-4">
               <div>
                 <Label className="text-muted-foreground">Office Name</Label>
@@ -372,7 +372,7 @@ export default function OfficeProfile() {
         </CardHeader>
         <CardContent>
           {activeLicense ? (
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               <div>
                 <Label className="text-muted-foreground">License Number</Label>
                 <p className="font-medium" data-testid="text-license-number">{activeLicense.licenseNumber}</p>
@@ -407,7 +407,7 @@ export default function OfficeProfile() {
         </CardContent>
       </Card>
 
-      <div className="grid grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -791,7 +791,7 @@ function LicenseForm({ onSubmit, onClose, isLoading }: { onSubmit: (data: any) =
             </SelectContent>
           </Select>
         </div>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <Label>Issue Date *</Label>
             <Input
@@ -939,7 +939,7 @@ function ExpenseForm({ onSubmit, onClose, isLoading }: { onSubmit: (data: any) =
         <DialogDescription>Record a new office expense.</DialogDescription>
       </DialogHeader>
       <div className="space-y-4 py-4">
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <Label>Date *</Label>
             <Input
@@ -974,7 +974,7 @@ function ExpenseForm({ onSubmit, onClose, isLoading }: { onSubmit: (data: any) =
             data-testid="input-expense-description"
           />
         </div>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <Label>Vendor</Label>
             <Input

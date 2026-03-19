@@ -202,7 +202,7 @@ export function OfficeDetailsSidebar({
               <CardTitle className="text-lg">Quick Stats</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="text-center p-3 bg-muted rounded-lg">
                   <div className="text-2xl font-bold text-primary" data-testid={`text-office-sidebar-clients-${office.id}`}>
                     {clientCount}

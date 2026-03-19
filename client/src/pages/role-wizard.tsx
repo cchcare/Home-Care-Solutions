@@ -528,7 +528,7 @@ export default function RoleWizard() {
                             </SelectContent>
                           </Select>
                         </div>
-                        <div className="flex justify-end space-x-2">
+                        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end sm:space-x-2">
                           <Button 
                             variant="outline" 
                             onClick={() => setIsCreateDialogOpen(false)}

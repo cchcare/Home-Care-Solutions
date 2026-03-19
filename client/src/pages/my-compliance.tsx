@@ -90,7 +90,7 @@ export default function MyCompliancePage() {
           <main className="flex-1 overflow-y-auto p-6 bg-background">
             <div className="animate-pulse space-y-4">
               <div className="h-8 bg-muted rounded w-1/4"></div>
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 <div className="h-24 bg-muted rounded"></div>
                 <div className="h-24 bg-muted rounded"></div>
                 <div className="h-24 bg-muted rounded"></div>

@@ -311,7 +311,7 @@ export default function StaffTimeTracking() {
                 <DialogHeader><DialogTitle>Lock Records for Payroll</DialogTitle></DialogHeader>
                 <div className="space-y-4">
                   <p className="text-sm text-muted-foreground">Records in this date range will be marked as locked and cannot be edited after export.</p>
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                       <Label>From</Label>
                       <Input type="date" value={lockRange.start} onChange={e => setLockRange(p => ({ ...p, start: e.target.value }))} className="mt-1" />
@@ -852,7 +852,7 @@ export default function StaffTimeTracking() {
                       ))}
                     </TableBody>
                   </Table>
-                  <div className="mt-4 grid grid-cols-3 gap-4">
+                  <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                     {[
                       { label: "Total Regular", value: (otReport as any[]).reduce((s: number, r: any) => s + r.regularHours, 0).toFixed(1) + "h" },
                       { label: "Total OT", value: (otReport as any[]).reduce((s: number, r: any) => s + r.otHours, 0).toFixed(1) + "h", ot: (otReport as any[]).some((r: any) => r.otHours > 0) },
@@ -939,7 +939,7 @@ export default function StaffTimeTracking() {
             <div className="p-3 bg-amber-50 dark:bg-amber-950 border border-amber-200 rounded-lg text-sm text-amber-800 dark:text-amber-200">
               <strong>Manager Edit:</strong> All changes are audit logged and cannot be undone.
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <Label className="text-xs">Clock In Time</Label>
                 <Input type="datetime-local" value={editForm.clockInTime}

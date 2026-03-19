@@ -220,7 +220,7 @@ export default function Offices() {
             
             <Form {...createForm}>
               <form onSubmit={createForm.handleSubmit(handleCreateOffice)} className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <FormField
                     control={createForm.control}
                     name="name"
@@ -300,7 +300,7 @@ export default function Offices() {
                   />
                 </div>
                 
-                <div className="flex justify-end space-x-2">
+                <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end sm:space-x-2">
                   <Button
                     type="button"
                     variant="outline"
@@ -422,7 +422,7 @@ export default function Offices() {
           
           <Form {...editForm}>
             <form onSubmit={editForm.handleSubmit(handleUpdateOffice)} className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <FormField
                   control={editForm.control}
                   name="name"
@@ -502,7 +502,7 @@ export default function Offices() {
                 />
               </div>
               
-              <div className="flex justify-end space-x-2">
+              <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end sm:space-x-2">
                 <Button
                   type="button"
                   variant="outline"

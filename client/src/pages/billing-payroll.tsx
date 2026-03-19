@@ -1074,7 +1074,7 @@ export default function BillingPayroll() {
                                   </FormItem>
                                 )}
                               />
-                              <div className="grid grid-cols-2 gap-4">
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                 <FormField
                                   control={billingForm.control}
                                   name="serviceStartDate"
@@ -1102,7 +1102,7 @@ export default function BillingPayroll() {
                                   )}
                                 />
                               </div>
-                              <div className="grid grid-cols-3 gap-4">
+                              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                                 <FormField
                                   control={billingForm.control}
                                   name="serviceCode"
@@ -1143,7 +1143,7 @@ export default function BillingPayroll() {
                                   )}
                                 />
                               </div>
-                              <div className="grid grid-cols-2 gap-4">
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                 <FormField
                                   control={billingForm.control}
                                   name="totalAmount"
@@ -1495,7 +1495,7 @@ export default function BillingPayroll() {
                           </DialogHeader>
                           <Form {...payrollForm}>
                             <form onSubmit={payrollForm.handleSubmit((data) => savePayrollMutation.mutate(data))} className="space-y-4">
-                              <div className="grid grid-cols-2 gap-4">
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                 <FormField
                                   control={payrollForm.control}
                                   name="payPeriodStart"
@@ -2024,7 +2024,7 @@ export default function BillingPayroll() {
                                   </FormItem>
                                 )}
                               />
-                              <div className="grid grid-cols-2 gap-4">
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                 <FormField
                                   control={mcoRateForm.control}
                                   name="serviceCode"
@@ -2052,7 +2052,7 @@ export default function BillingPayroll() {
                                   )}
                                 />
                               </div>
-                              <div className="grid grid-cols-2 gap-4">
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                 <FormField
                                   control={mcoRateForm.control}
                                   name="rate"
@@ -2089,7 +2089,7 @@ export default function BillingPayroll() {
                                   )}
                                 />
                               </div>
-                              <div className="grid grid-cols-2 gap-4">
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                 <FormField
                                   control={mcoRateForm.control}
                                   name="effectiveFrom"

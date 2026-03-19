@@ -1976,7 +1976,7 @@ export default function ClientProfile() {
                       Select the date range for which you want to generate schedules. 
                       This will create calendar entries for each day based on the master week template.
                     </p>
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div className="space-y-2">
                         <Label>From Date</Label>
                         <Input
@@ -2650,7 +2650,7 @@ export default function ClientProfile() {
               </Select>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Start Date</Label>
                 <Input
@@ -2706,7 +2706,7 @@ export default function ClientProfile() {
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Status</Label>
                 <Select
@@ -2785,7 +2785,7 @@ export default function ClientProfile() {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Check Date *</Label>
                 <Input
@@ -2823,7 +2823,7 @@ export default function ClientProfile() {
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Verification Status</Label>
                 <Select
@@ -2860,7 +2860,7 @@ export default function ClientProfile() {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Coverage Start Date</Label>
                 <Input

@@ -763,7 +763,7 @@ export default function ExclusionVerification() {
           </DialogHeader>
           {selectedCheck && (
             <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4 text-sm">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
                 <div>
                   <Label className="text-muted-foreground">Caregiver Name</Label>
                   <p className="font-medium">{selectedCheck.caregiverName}</p>

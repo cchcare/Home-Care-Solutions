@@ -112,7 +112,7 @@ export function QuickBooksExport({ variant = "card", selectedOfficeId }: QuickBo
 
   const ExportForm = () => (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div className="space-y-2">
           <Label htmlFor="export-type">Export Type</Label>
           <Select
@@ -165,7 +165,7 @@ export function QuickBooksExport({ variant = "card", selectedOfficeId }: QuickBo
         </Select>
       </div>
 
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div className="space-y-2">
           <Label>{exportType === "billing" ? "Start Date" : "Pay Period Start"}</Label>
           <Popover>

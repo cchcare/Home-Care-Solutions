@@ -215,7 +215,7 @@ function ApiKeysContent() {
                               <FormDescription>
                                 Select the permissions for this API key
                               </FormDescription>
-                              <div className="grid grid-cols-2 gap-2 mt-2">
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
                                 {AVAILABLE_SCOPES.map((scope) => (
                                   <FormField
                                     key={scope.value}

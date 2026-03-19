@@ -2463,7 +2463,7 @@ export default function CaregiverProfile() {
                     </SelectContent>
                   </Select>
                 </div>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="startDate">Start Date *</Label>
                     <Input
@@ -2495,7 +2495,7 @@ export default function CaregiverProfile() {
                   <Label htmlFor="isAllDay">All Day</Label>
                 </div>
                 {!absenceForm.isAllDay && (
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label htmlFor="startTime">Start Time (HH:MM)</Label>
                       <Input
@@ -2727,7 +2727,7 @@ export default function CaregiverProfile() {
 
             {complianceCategory === "background_check" && (
               <>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label>Performed Date</Label>
                     <Input 
@@ -2764,7 +2764,7 @@ export default function CaregiverProfile() {
             )}
 
             {complianceCategory === "medical" && (
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>Performed Date</Label>
                   <Input 

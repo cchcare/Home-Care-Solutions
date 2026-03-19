@@ -509,7 +509,7 @@ export default function SuperAdminPage() {
             </DialogHeader>
             <Form {...officeForm}>
               <form onSubmit={officeForm.handleSubmit(onSubmitOffice)} className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <FormField
                     control={officeForm.control}
                     name="name"
@@ -562,7 +562,7 @@ export default function SuperAdminPage() {
                   )}
                 />
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <FormField
                     control={officeForm.control}
                     name="phone"
@@ -591,7 +591,7 @@ export default function SuperAdminPage() {
                   />
                 </div>
 
-                <div className="flex justify-end space-x-2 pt-4">
+                <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end sm:space-x-2 pt-4">
                   <Button
                     type="button"
                     variant="outline"
@@ -641,7 +641,7 @@ export default function SuperAdminPage() {
                   )}
                 />
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <FormField
                     control={userForm.control}
                     name="firstName"
@@ -693,7 +693,7 @@ export default function SuperAdminPage() {
                   )}
                 />
 
-                <div className="flex justify-end space-x-2 pt-4">
+                <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end sm:space-x-2 pt-4">
                   <Button
                     type="button"
                     variant="outline"

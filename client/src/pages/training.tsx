@@ -469,7 +469,7 @@ export default function Training() {
                     )}
                   />
 
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <FormField
                       control={form.control}
                       name="trainingType"
@@ -574,7 +574,7 @@ export default function Training() {
                     )}
                   </div>
                   
-                  <div className="flex justify-end space-x-2 pt-4">
+                  <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end sm:space-x-2 pt-4">
                     <Button
                       type="button"
                       variant="outline"
@@ -627,7 +627,7 @@ export default function Training() {
                   <p className="text-base mt-1">{selectedTraining.description || "No description"}</p>
                 </div>
                 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="text-sm font-medium text-muted-foreground">Training Type</label>
                     <p className="text-base mt-1">{trainingTypeLabels[selectedTraining.trainingType as keyof typeof trainingTypeLabels]}</p>
@@ -639,7 +639,7 @@ export default function Training() {
                   </div>
                 </div>
                 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="text-sm font-medium text-muted-foreground">Expires After</label>
                     <p className="text-base mt-1">{selectedTraining.expirationMonths} months</p>
@@ -658,7 +658,7 @@ export default function Training() {
                   </div>
                 )}
                 
-                <div className="flex justify-end space-x-2 pt-4">
+                <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end sm:space-x-2 pt-4">
                   <Button
                     variant="outline"
                     onClick={() => setShowViewModal(false)}
@@ -726,7 +726,7 @@ export default function Training() {
                   )}
                 />
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <FormField
                     control={editForm.control}
                     name="trainingType"
@@ -831,7 +831,7 @@ export default function Training() {
                   )}
                 </div>
                 
-                <div className="flex justify-end space-x-2 pt-4">
+                <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end sm:space-x-2 pt-4">
                   <Button
                     type="button"
                     variant="outline"
@@ -923,7 +923,7 @@ export default function Training() {
               </div>
               
               {/* Action Buttons */}
-              <div className="flex justify-end space-x-2 pt-4">
+              <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end sm:space-x-2 pt-4">
                 <Button
                   variant="outline"
                   onClick={() => {
@@ -1021,7 +1021,7 @@ export default function Training() {
                     )}
                   </div>
                   
-                  <div className="flex justify-end space-x-2 mt-4">
+                  <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end sm:space-x-2 mt-4">
                     <Button
                       size="sm"
                       variant="outline"
@@ -1104,7 +1104,7 @@ export default function Training() {
                       )}
                     </div>
                     
-                    <div className="flex justify-end space-x-2 mt-4">
+                    <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end sm:space-x-2 mt-4">
                       <Button
                         size="sm"
                         variant="outline"

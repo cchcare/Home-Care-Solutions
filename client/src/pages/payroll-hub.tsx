@@ -491,7 +491,7 @@ export default function PayrollHub() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <Label>Pay Period Start</Label>
                 <Input 
@@ -619,7 +619,7 @@ export default function PayrollHub() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <Label>Check Number</Label>
                 <Input placeholder="Enter check number" data-testid="input-check-number" />
@@ -700,7 +700,7 @@ export default function PayrollHub() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <Label>Start Date</Label>
                 <Input type="date" data-testid="input-sick-start" />

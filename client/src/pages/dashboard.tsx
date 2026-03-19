@@ -587,7 +587,7 @@ export default function Dashboard() {
                 <CardHeader className="border-b border-border">
                   <CardTitle>Quick Actions</CardTitle>
                 </CardHeader>
-                <CardContent className="p-6 grid grid-cols-2 gap-4">
+                <CardContent className="p-6 grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <Link href="/clients">
                     <Button 
                       className="flex flex-col items-center p-6 h-auto bg-muted hover:bg-secondary text-foreground w-full"

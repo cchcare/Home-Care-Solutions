@@ -526,7 +526,7 @@ export default function Compliance() {
                       )}
                     />
 
-                    <div className="flex justify-end space-x-2">
+                    <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end sm:space-x-2">
                       <Button type="button" variant="outline" onClick={() => setOpen(false)}>
                         Cancel
                       </Button>
@@ -764,7 +764,7 @@ export default function Compliance() {
                       </DialogHeader>
                       <Form {...evvForm}>
                         <form onSubmit={evvForm.handleSubmit(onEvvSubmit)} className="space-y-4">
-                          <div className="grid grid-cols-2 gap-4">
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             <FormField
                               control={evvForm.control}
                               name="month"
@@ -858,7 +858,7 @@ export default function Compliance() {
                             )}
                           />
 
-                          <div className="grid grid-cols-2 gap-4">
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             <FormField
                               control={evvForm.control}
                               name="totalVisits"
@@ -919,7 +919,7 @@ export default function Compliance() {
                             )}
                           />
 
-                          <div className="flex justify-end space-x-2">
+                          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end sm:space-x-2">
                             <Button type="button" variant="outline" onClick={() => setEvvDialogOpen(false)}>
                               Cancel
                             </Button>
