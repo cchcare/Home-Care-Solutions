@@ -3521,10 +3521,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { password, ...userData } = req.body;
       const currentUser = req.session?.user;
-      
-      if (!password || password.length < 8) {
+
+      if (!password || typeof password !== "string" || password.trim().length < 8) {
         return res.status(400).json({ message: "Password must be at least 8 characters" });
       }
+
+      // Always attach the organization of the creating user
+      userData.organizationId = currentUser.organizationId;
 
       // Office admins can only create users in their office
       if (currentUser.role === "office_admin") {
@@ -3539,28 +3542,39 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
-      // Check if username already exists (email duplicates are allowed)
+      // Check if username already exists
       if (userData.username) {
         const existingUser = await storage.getUserByUsernameOrEmail(userData.username);
         if (existingUser) {
-          return res.status(400).json({ message: "Username already exists" });
+          return res.status(400).json({ message: "Username already taken. Please choose a different username." });
         }
       }
 
-      const passwordHash = await hashPassword(password);
+      // Check if email already exists within this organization
+      if (userData.email) {
+        const existingByEmail = await storage.getUserByUsernameOrEmail(userData.email);
+        if (existingByEmail && existingByEmail.organizationId === currentUser.organizationId) {
+          return res.status(400).json({ message: "An account with this email already exists." });
+        }
+      }
+
+      const passwordHash = await hashPassword(password.trim());
       const validatedData = insertUserSchema.omit({ id: true, createdAt: true, updatedAt: true }).parse({
         ...userData,
         passwordHash,
-        mustResetPassword: true, // Force password change on first login
+        mustResetPassword: true,
       });
       const user = await storage.createUser(validatedData);
-      
-      // Return user without password hash
+
       const { passwordHash: _, ...safeUser } = user as any;
       res.status(201).json(safeUser);
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error creating user:", error);
-      res.status(400).json({ message: "Failed to create user" });
+      const msg = error?.message || "";
+      if (msg.includes("unique") || msg.includes("duplicate") || msg.includes("username")) {
+        return res.status(400).json({ message: "Username already taken. Please choose a different username." });
+      }
+      res.status(400).json({ message: "Failed to create user. Please check all fields and try again." });
     }
   });
 

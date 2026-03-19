@@ -15,7 +15,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { insertUserSchema, type User } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
-import { Users, Plus, Edit, Trash2, Search, UserCheck, Shield, Eye, User as UserIcon, Download, Upload, KeyRound, Loader2 } from "lucide-react";
+import { Users, Plus, Edit, Trash2, Search, UserCheck, Shield, Eye, EyeOff, User as UserIcon, Download, Upload, KeyRound, Loader2, RefreshCw } from "lucide-react";
 import { ExcelImport } from "@/components/excel-import";
 import { ExcelExport } from "@/components/excel-export";
 import { format } from "date-fns";
@@ -78,6 +78,8 @@ export default function UserManagementPage() {
   const [resetPasswordOpen, setResetPasswordOpen] = useState(false);
   const [userToReset, setUserToReset] = useState<User | null>(null);
   const [newPassword, setNewPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [showPasswordConfirm, setShowPasswordConfirm] = useState(false);
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -117,14 +119,21 @@ export default function UserManagementPage() {
       queryClient.invalidateQueries({ queryKey: ["/api/users"] });
       handleClose();
       toast({
-        title: "Success",
-        description: "User created successfully",
+        title: "User Created",
+        description: "The new user has been added. They will be prompted to set a new password on first login.",
       });
     },
-    onError: (error) => {
+    onError: (error: any) => {
+      let message = "Failed to create user. Please try again.";
+      try {
+        const raw = error?.message || "";
+        const jsonPart = raw.includes(": ") ? raw.substring(raw.indexOf(": ") + 2) : raw;
+        const parsed = JSON.parse(jsonPart);
+        if (parsed?.message) message = parsed.message;
+      } catch {}
       toast({
-        title: "Error",
-        description: "Failed to create user",
+        title: "Could Not Create User",
+        description: message,
         variant: "destructive",
       });
     },
@@ -138,14 +147,21 @@ export default function UserManagementPage() {
       queryClient.invalidateQueries({ queryKey: ["/api/users"] });
       handleClose();
       toast({
-        title: "Success",
-        description: "User updated successfully",
+        title: "User Updated",
+        description: "User information has been saved.",
       });
     },
-    onError: (error) => {
+    onError: (error: any) => {
+      let message = "Failed to update user. Please try again.";
+      try {
+        const raw = error?.message || "";
+        const jsonPart = raw.includes(": ") ? raw.substring(raw.indexOf(": ") + 2) : raw;
+        const parsed = JSON.parse(jsonPart);
+        if (parsed?.message) message = parsed.message;
+      } catch {}
       toast({
-        title: "Error",
-        description: "Failed to update user",
+        title: "Could Not Update User",
+        description: message,
         variant: "destructive",
       });
     },
@@ -294,15 +310,36 @@ export default function UserManagementPage() {
     deleteUserMutation.mutate(id);
   };
 
+  const generatePassword = () => {
+    const chars = "ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789!@#$";
+    let pwd = "";
+    for (let i = 0; i < 12; i++) pwd += chars[Math.floor(Math.random() * chars.length)];
+    form.setValue("password", pwd);
+    form.setValue("passwordConfirm", pwd);
+    setShowPassword(true);
+    setShowPasswordConfirm(true);
+  };
+
   const onSubmit = (data: UserFormData) => {
-    // Strip internal fields before sending to API
     const { isEditing, passwordConfirm, ...apiData } = data;
-    
-    // Remove password from update if empty (user doesn't want to change it)
+
+    // Explicit pre-flight guard for new users
+    if (!editingUser) {
+      if (!apiData.password || apiData.password.trim().length < 8) {
+        form.setError("password", { message: "Password must be at least 8 characters" });
+        return;
+      }
+      if (!passwordConfirm || passwordConfirm !== apiData.password) {
+        form.setError("passwordConfirm", { message: "Passwords do not match" });
+        return;
+      }
+    }
+
+    // Remove password from update payload if left blank (no change intended)
     const cleanedData = editingUser && (!apiData.password || apiData.password === "")
       ? { ...apiData, password: undefined }
       : apiData;
-    
+
     if (editingUser) {
       updateUserMutation.mutate({ id: editingUser.id, data: cleanedData });
     } else {
@@ -448,46 +485,77 @@ export default function UserManagementPage() {
                 </div>
 
                 {!editingUser && (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <FormField
-                      control={form.control}
-                      name="password"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Password</FormLabel>
-                          <FormControl>
-                            <Input 
-                              type="password"
-                              placeholder="Min 8 characters"
-                              {...field} 
-                              value={field.value || ""}
-                              data-testid="input-user-password"
-                            />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm font-medium text-slate-700">Set Initial Password</p>
+                      <Button type="button" variant="outline" size="sm" onClick={generatePassword} className="h-7 text-xs gap-1.5">
+                        <RefreshCw className="h-3 w-3" /> Generate
+                      </Button>
+                    </div>
+                    <p className="text-xs text-muted-foreground -mt-1">
+                      The user will be required to change this password on first login.
+                    </p>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <FormField
+                        control={form.control}
+                        name="password"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Password <span className="text-red-500">*</span></FormLabel>
+                            <FormControl>
+                              <div className="relative">
+                                <Input
+                                  type={showPassword ? "text" : "password"}
+                                  placeholder="Min. 8 characters"
+                                  {...field}
+                                  value={field.value || ""}
+                                  data-testid="input-user-password"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => setShowPassword(v => !v)}
+                                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                                  tabIndex={-1}
+                                >
+                                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                                </button>
+                              </div>
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
 
-                    <FormField
-                      control={form.control}
-                      name="passwordConfirm"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Confirm Password</FormLabel>
-                          <FormControl>
-                            <Input 
-                              type="password"
-                              placeholder="Confirm password"
-                              {...field} 
-                              value={field.value || ""}
-                              data-testid="input-user-password-confirm"
-                            />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
+                      <FormField
+                        control={form.control}
+                        name="passwordConfirm"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Confirm Password <span className="text-red-500">*</span></FormLabel>
+                            <FormControl>
+                              <div className="relative">
+                                <Input
+                                  type={showPasswordConfirm ? "text" : "password"}
+                                  placeholder="Re-enter password"
+                                  {...field}
+                                  value={field.value || ""}
+                                  data-testid="input-user-password-confirm"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => setShowPasswordConfirm(v => !v)}
+                                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                                  tabIndex={-1}
+                                >
+                                  {showPasswordConfirm ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                                </button>
+                              </div>
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    </div>
                   </div>
                 )}
 
