@@ -4,7 +4,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Sidebar } from "@/components/sidebar";
 import { format } from "date-fns";
-import { Camera, LogIn, LogOut, CheckCircle, XCircle, RotateCcw, Eye, EyeOff, Delete } from "lucide-react";
+import {
+  Camera, LogIn, LogOut, CheckCircle, XCircle, RotateCcw, Eye, EyeOff,
+  Delete, AlertTriangle, Video, VideoOff, UserCheck, RefreshCw
+} from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -18,7 +21,7 @@ interface VerifiedUser {
   username: string | null;
 }
 
-// ─── Webcam Hook ──────────────────────────────────────────────────────────────
+// ─── Webcam + Audio Hook ────────────────────────────────────────────────────
 
 function useWebcam() {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -29,15 +32,38 @@ function useWebcam() {
   const start = useCallback(async () => {
     setError(null);
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480, facingMode: "user" }, audio: false });
+      // Request both video and audio for liveness verification
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { width: 640, height: 480, facingMode: "user" },
+        audio: true,
+      });
       streamRef.current = stream;
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
+        videoRef.current.muted = true; // Mute local playback to avoid feedback
         await videoRef.current.play();
         setReady(true);
       }
+      return stream;
     } catch (e: any) {
-      setError(e.message || "Camera unavailable");
+      // Try fallback without audio if permission denied for audio
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { width: 640, height: 480, facingMode: "user" },
+          audio: false,
+        });
+        streamRef.current = stream;
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          videoRef.current.muted = true;
+          await videoRef.current.play();
+          setReady(true);
+        }
+        return stream;
+      } catch {
+        setError(e.message || "Camera unavailable");
+        return null;
+      }
     }
   }, []);
 
@@ -55,13 +81,82 @@ function useWebcam() {
     const ctx = canvas.getContext("2d");
     if (!ctx) return null;
     ctx.drawImage(videoRef.current, 0, 0, 480, 360);
-    return canvas.toDataURL("image/jpeg", 0.72);
+    return canvas.toDataURL("image/jpeg", 0.75);
   }, [ready]);
 
-  return { videoRef, ready, error, start, stop, capture };
+  return { videoRef, ready, error, start, stop, capture, streamRef };
 }
 
-// ─── PIN Pad ──────────────────────────────────────────────────────────────────
+// ─── Video Recorder Hook ────────────────────────────────────────────────────
+
+function useVideoRecorder() {
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+  const [isRecording, setIsRecording] = useState(false);
+
+  const startRecording = useCallback((stream: MediaStream) => {
+    chunksRef.current = [];
+    const mimeType = MediaRecorder.isTypeSupported("video/webm;codecs=vp9,opus")
+      ? "video/webm;codecs=vp9,opus"
+      : MediaRecorder.isTypeSupported("video/webm")
+        ? "video/webm"
+        : "video/mp4";
+    try {
+      const recorder = new MediaRecorder(stream, {
+        mimeType,
+        videoBitsPerSecond: 300000, // Low bitrate ~300kbps to keep file small
+      });
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) chunksRef.current.push(e.data);
+      };
+      recorder.start(500); // Collect in 0.5s chunks
+      recorderRef.current = recorder;
+      setIsRecording(true);
+    } catch {
+      // MediaRecorder not supported — fail silently
+    }
+  }, []);
+
+  const stopRecording = useCallback((): Promise<string | null> => {
+    return new Promise((resolve) => {
+      const recorder = recorderRef.current;
+      if (!recorder || recorder.state === "inactive") {
+        resolve(null);
+        return;
+      }
+      recorder.onstop = () => {
+        const blob = new Blob(chunksRef.current, { type: recorder.mimeType || "video/webm" });
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result as string);
+        reader.readAsDataURL(blob);
+        setIsRecording(false);
+      };
+      recorder.stop();
+      recorderRef.current = null;
+    });
+  }, []);
+
+  return { startRecording, stopRecording, isRecording };
+}
+
+// ─── Face Detection ─────────────────────────────────────────────────────────
+
+async function detectFace(photoDataUrl: string): Promise<boolean | null> {
+  // FaceDetector API is available in Chrome 91+ with Experimental Web Platform Features
+  if (!("FaceDetector" in window)) return null; // Not supported — skip check
+  try {
+    const detector = new (window as any).FaceDetector({ fastMode: true, maxDetectedFaces: 1 });
+    const img = new Image();
+    img.src = photoDataUrl;
+    await new Promise<void>((res, rej) => { img.onload = () => res(); img.onerror = rej; });
+    const faces = await detector.detect(img);
+    return faces.length > 0;
+  } catch {
+    return null; // Detection error — don't block
+  }
+}
+
+// ─── PIN Pad ─────────────────────────────────────────────────────────────────
 
 function PinPad({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   const digits = ["1","2","3","4","5","6","7","8","9","","0","⌫"];
@@ -89,6 +184,7 @@ function PinPad({ value, onChange }: { value: string; onChange: (v: string) => v
 
 export default function Kiosk() {
   const webcam = useWebcam();
+  const recorder = useVideoRecorder();
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const [step, setStep] = useState<Step>("login");
@@ -98,6 +194,7 @@ export default function Kiosk() {
   const [verifiedUser, setVerifiedUser] = useState<VerifiedUser | null>(null);
   const [activeRecord, setActiveRecord] = useState<any | null>(null);
   const [capturedPhoto, setCapturedPhoto] = useState<string | null>(null);
+  const [capturedVideo, setCapturedVideo] = useState<string | null>(null);
   const [countdown, setCountdown] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
@@ -106,6 +203,9 @@ export default function Kiosk() {
   const [now, setNow] = useState(new Date());
   const [breakMinutes, setBreakMinutes] = useState("0");
   const [inputMode, setInputMode] = useState<"keyboard" | "pad">("pad");
+  const [faceDetected, setFaceDetected] = useState<boolean | null>(null);
+  const [detectingFace, setDetectingFace] = useState(false);
+  const [autoCaptureDone, setAutoCaptureDone] = useState(false);
 
   // Live clock
   useEffect(() => {
@@ -121,7 +221,7 @@ export default function Kiosk() {
     }
   }, [step]);
 
-  // Cleanup webcam and countdown on unmount
+  // Cleanup on unmount
   useEffect(() => () => {
     webcam.stop();
     if (countdownRef.current) clearInterval(countdownRef.current);
@@ -136,10 +236,14 @@ export default function Kiosk() {
     setVerifiedUser(null);
     setActiveRecord(null);
     setCapturedPhoto(null);
+    setCapturedVideo(null);
     setCountdown(null);
     setErrorMsg("");
     setSuccessMsg("");
     setBreakMinutes("0");
+    setFaceDetected(null);
+    setDetectingFace(false);
+    setAutoCaptureDone(false);
   }
 
   async function handleVerify() {
@@ -167,32 +271,87 @@ export default function Kiosk() {
     setLoading(false);
   }
 
+  async function doCapture() {
+    const photo = webcam.capture();
+    if (!photo) return;
+    setCapturedPhoto(photo);
+    setAutoCaptureDone(true);
+
+    // Stop countdown
+    if (countdownRef.current) { clearInterval(countdownRef.current); countdownRef.current = null; }
+    setCountdown(null);
+
+    // Stop recording and save video
+    const video = await recorder.stopRecording();
+    setCapturedVideo(video);
+
+    // Face detection
+    setDetectingFace(true);
+    const hasFace = await detectFace(photo);
+    setFaceDetected(hasFace);
+    setDetectingFace(false);
+  }
+
   async function startCamera() {
     setCapturedPhoto(null);
+    setCapturedVideo(null);
+    setFaceDetected(null);
+    setAutoCaptureDone(false);
     setStep("camera");
-    await webcam.start();
+
+    const stream = await webcam.start();
+
+    // Start video recording as soon as camera opens
+    if (stream) {
+      recorder.startRecording(stream);
+    }
+
     // 3-second countdown then auto-capture
     let count = 3;
     setCountdown(count);
     if (countdownRef.current) clearInterval(countdownRef.current);
-    countdownRef.current = setInterval(() => {
+    countdownRef.current = setInterval(async () => {
       count--;
       setCountdown(count);
       if (count <= 0) {
         clearInterval(countdownRef.current!);
         countdownRef.current = null;
         setCountdown(null);
-        setCapturedPhoto(prev => prev ?? webcam.capture());
+        await doCapture();
       }
     }, 1000);
   }
 
+  async function handleManualCapture() {
+    // User clicks "Take Photo Now" — stop countdown first
+    if (countdownRef.current) { clearInterval(countdownRef.current); countdownRef.current = null; }
+    setCountdown(null);
+    await doCapture();
+  }
+
+  async function retakePhoto() {
+    setCapturedPhoto(null);
+    setCapturedVideo(null);
+    setFaceDetected(null);
+    setAutoCaptureDone(false);
+    await startCamera();
+  }
+
   async function handleSubmit() {
+    if (!capturedPhoto) {
+      setErrorMsg("Photo is required. Please take a photo before proceeding.");
+      return;
+    }
     setLoading(true);
     setErrorMsg("");
     try {
       const endpoint = pendingAction === "clock-in" ? "/api/kiosk/clock-in" : "/api/kiosk/clock-out";
-      const body: any = { staffId: staffId.trim(), pin: pin.trim(), photo: capturedPhoto };
+      const body: any = {
+        staffId: staffId.trim(),
+        pin: pin.trim(),
+        photo: capturedPhoto,
+        video: capturedVideo,
+      };
       if (pendingAction === "clock-out") body.breakMinutes = parseInt(breakMinutes) || 0;
 
       const res = await fetch(endpoint, {
@@ -205,11 +364,10 @@ export default function Kiosk() {
 
       const name = `${data.user?.firstName || ""} ${data.user?.lastName || ""}`.trim();
       const time = format(new Date(), "h:mm a");
-      if (pendingAction === "clock-in") {
-        setSuccessMsg(`${name} clocked in at ${time}`);
-      } else {
-        setSuccessMsg(`${name} clocked out at ${time}`);
-      }
+      setSuccessMsg(pendingAction === "clock-in"
+        ? `${name} clocked in at ${time}`
+        : `${name} clocked out at ${time}`
+      );
       webcam.stop();
       setStep("success");
     } catch {
@@ -219,13 +377,31 @@ export default function Kiosk() {
     setLoading(false);
   }
 
-  function retakePhoto() {
-    setCapturedPhoto(null);
-    startCamera();
-  }
-
   const fullName = verifiedUser ? `${verifiedUser.firstName || ""} ${verifiedUser.lastName || ""}`.trim() : "";
   const isClockedIn = !!activeRecord;
+
+  // Face detection status banner
+  const faceStatusBanner = () => {
+    if (detectingFace) return (
+      <div className="flex items-center gap-2 text-blue-600 bg-blue-50 border border-blue-200 rounded-lg p-2 text-sm mb-3">
+        <RefreshCw className="w-4 h-4 animate-spin shrink-0" />
+        Checking for face...
+      </div>
+    );
+    if (faceDetected === false) return (
+      <div className="flex items-center gap-2 text-amber-700 bg-amber-50 border border-amber-300 rounded-lg p-2 text-sm mb-3">
+        <AlertTriangle className="w-4 h-4 shrink-0" />
+        No face detected. Please retake or ensure your face is clearly visible.
+      </div>
+    );
+    if (faceDetected === true) return (
+      <div className="flex items-center gap-2 text-green-700 bg-green-50 border border-green-200 rounded-lg p-2 text-sm mb-3">
+        <UserCheck className="w-4 h-4 shrink-0" />
+        Face verified ✓
+      </div>
+    );
+    return null;
+  };
 
   return (
     <div className="flex h-screen overflow-hidden">
@@ -365,6 +541,11 @@ export default function Kiosk() {
               </div>
             )}
 
+            {/* Notice about photo + video requirement */}
+            <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-lg p-3 mb-4 text-xs text-blue-700 dark:text-blue-300 text-left">
+              <strong>Photo & video verification required.</strong> Your camera and microphone will be used to take a selfie and record a short liveness clip for security.
+            </div>
+
             <div className="flex flex-col gap-3">
               <Button
                 className={`w-full h-14 text-lg font-bold ${isClockedIn ? "bg-red-600 hover:bg-red-700" : "bg-green-600 hover:bg-green-700"}`}
@@ -383,65 +564,115 @@ export default function Kiosk() {
         {/* ── Step: Camera ── */}
         {step === "camera" && (
           <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-lg p-6">
-            <h2 className="text-xl font-bold text-center text-slate-800 dark:text-white mb-4">
-              {capturedPhoto ? "Photo Captured" : "Take Your Selfie"}
-            </h2>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-bold text-slate-800 dark:text-white">
+                {capturedPhoto ? "Review Your Photo" : "Take Your Selfie"}
+              </h2>
+              {/* Recording indicator */}
+              {recorder.isRecording && !capturedPhoto && (
+                <div className="flex items-center gap-1.5 text-red-600 text-sm font-medium">
+                  <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+                  <Video className="w-4 h-4" />
+                  Recording
+                </div>
+              )}
+              {capturedVideo && capturedPhoto && (
+                <div className="flex items-center gap-1.5 text-green-600 text-sm font-medium">
+                  <Video className="w-4 h-4" />
+                  Video saved
+                </div>
+              )}
+            </div>
 
             {webcam.error && (
               <div className="text-red-600 text-center p-4 bg-red-50 rounded-xl mb-4">
                 <XCircle className="w-8 h-8 mx-auto mb-2" />
-                Camera error: {webcam.error}
-                <br />
-                <Button variant="outline" size="sm" className="mt-2" onClick={handleSubmit}>
-                  Continue without photo
+                <p>Camera error: {webcam.error}</p>
+                <p className="text-sm text-red-500 mt-1">Photo is required to clock in/out. Please allow camera access and try again.</p>
+                <Button variant="outline" size="sm" className="mt-3" onClick={reset}>
+                  Go Back
                 </Button>
               </div>
             )}
 
-            <div className="relative bg-black rounded-xl overflow-hidden aspect-video mb-4">
-              {!capturedPhoto ? (
-                <>
-                  <video ref={webcam.videoRef} className="w-full h-full object-cover scale-x-[-1]" playsInline muted />
-                  {countdown !== null && (
-                    <div className="absolute inset-0 flex items-center justify-center bg-black/40">
-                      <span className="text-white text-8xl font-bold drop-shadow-lg animate-pulse">{countdown}</span>
-                    </div>
-                  )}
-                  {!webcam.ready && !webcam.error && (
-                    <div className="absolute inset-0 flex items-center justify-center text-white">
-                      <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white" />
-                    </div>
-                  )}
-                  <div className="absolute bottom-3 left-0 right-0 text-center text-white text-sm">
-                    {countdown !== null ? `Auto-capturing in ${countdown}...` : webcam.ready ? "Look at the camera" : "Starting camera..."}
-                  </div>
-                </>
-              ) : (
-                <img src={capturedPhoto} className="w-full h-full object-cover scale-x-[-1]" alt="Captured selfie" />
-              )}
-            </div>
-
-            {capturedPhoto && (
-              <div className="flex gap-3">
-                <Button variant="outline" className="flex-1" onClick={retakePhoto}>
-                  <RotateCcw className="w-4 h-4 mr-2" /> Retake
-                </Button>
-                <Button
-                  className={`flex-1 text-white ${pendingAction === "clock-in" ? "bg-green-600 hover:bg-green-700" : "bg-red-600 hover:bg-red-700"}`}
-                  onClick={handleSubmit}
-                  disabled={loading}
-                >
-                  {loading ? "Processing..." : pendingAction === "clock-in" ? (
-                    <><LogIn className="w-4 h-4 mr-2" /> Confirm Clock In</>
+            {!webcam.error && (
+              <>
+                {/* Video / Photo preview */}
+                <div className="relative bg-black rounded-xl overflow-hidden aspect-video mb-4">
+                  {!capturedPhoto ? (
+                    <>
+                      <video ref={webcam.videoRef} className="w-full h-full object-cover scale-x-[-1]" playsInline muted />
+                      {countdown !== null && (
+                        <div className="absolute inset-0 flex items-center justify-center bg-black/40">
+                          <span className="text-white text-8xl font-bold drop-shadow-lg animate-pulse">{countdown}</span>
+                        </div>
+                      )}
+                      {!webcam.ready && (
+                        <div className="absolute inset-0 flex items-center justify-center text-white">
+                          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white" />
+                        </div>
+                      )}
+                      <div className="absolute bottom-3 left-0 right-0 text-center text-white text-sm">
+                        {countdown !== null
+                          ? `Auto-capturing in ${countdown}...`
+                          : webcam.ready
+                            ? "Camera ready — position your face in frame"
+                            : "Starting camera..."}
+                      </div>
+                    </>
                   ) : (
-                    <><LogOut className="w-4 h-4 mr-2" /> Confirm Clock Out</>
+                    <img src={capturedPhoto} className="w-full h-full object-cover scale-x-[-1]" alt="Captured selfie" />
                   )}
-                </Button>
-              </div>
-            )}
+                </div>
 
-            {!capturedPhoto && !webcam.error && (
-              <Button variant="outline" className="w-full mt-2" onClick={reset}>Cancel</Button>
+                {/* Face detection banner (shown after capture) */}
+                {capturedPhoto && faceStatusBanner()}
+
+                {/* Action buttons */}
+                {!capturedPhoto ? (
+                  /* Live camera controls */
+                  <div className="flex gap-3">
+                    <Button variant="outline" className="flex-1" onClick={reset}>
+                      <RotateCcw className="w-4 h-4 mr-2" /> Cancel
+                    </Button>
+                    {webcam.ready && (
+                      <Button
+                        className="flex-1 bg-blue-600 hover:bg-blue-700 text-white"
+                        onClick={handleManualCapture}
+                        disabled={!webcam.ready}
+                      >
+                        <Camera className="w-4 h-4 mr-2" />
+                        {countdown !== null ? `Take Now (skip countdown)` : "Take Photo"}
+                      </Button>
+                    )}
+                  </div>
+                ) : (
+                  /* Post-capture controls */
+                  <div className="flex flex-col gap-3">
+                    {faceDetected === false && (
+                      <p className="text-center text-sm text-amber-700">
+                        We couldn't detect a face clearly. Retake for better accuracy, or proceed if the photo shows your face.
+                      </p>
+                    )}
+                    <div className="flex gap-3">
+                      <Button variant="outline" className="flex-1" onClick={retakePhoto} disabled={loading}>
+                        <RotateCcw className="w-4 h-4 mr-2" /> Retake
+                      </Button>
+                      <Button
+                        className={`flex-1 text-white ${pendingAction === "clock-in" ? "bg-green-600 hover:bg-green-700" : "bg-red-600 hover:bg-red-700"}`}
+                        onClick={handleSubmit}
+                        disabled={loading || detectingFace}
+                      >
+                        {loading ? "Processing..." : detectingFace ? "Verifying..." : pendingAction === "clock-in" ? (
+                          <><LogIn className="w-4 h-4 mr-2" /> Confirm Clock In</>
+                        ) : (
+                          <><LogOut className="w-4 h-4 mr-2" /> Confirm Clock Out</>
+                        )}
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </>
             )}
           </div>
         )}
@@ -459,6 +690,11 @@ export default function Kiosk() {
 
             {capturedPhoto && (
               <img src={capturedPhoto} className="mt-4 mx-auto w-24 h-24 object-cover rounded-full border-4 border-green-400 scale-x-[-1]" alt="selfie" />
+            )}
+            {capturedVideo && (
+              <p className="text-xs text-green-600 mt-2 flex items-center justify-center gap-1">
+                <Video className="w-3.5 h-3.5" /> Liveness video recorded
+              </p>
             )}
 
             <p className="text-slate-400 text-sm mt-6">This screen will reset in a few seconds...</p>
@@ -485,7 +721,7 @@ export default function Kiosk() {
 
       {/* Footer */}
       <div className="text-center pb-4">
-        <p className="text-blue-300 text-xs">Care Crafter Home Care &bull; Staff Kiosk Terminal</p>
+        <p className="text-blue-300 text-xs">Care Crafter Home Care &bull; Staff Kiosk Terminal &bull; Secured by photo &amp; video verification</p>
       </div>
 
       </div>

@@ -16038,7 +16038,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // POST /api/kiosk/clock-in  (public)
   app.post("/api/kiosk/clock-in", async (req: any, res) => {
     try {
-      const { staffId, pin, photo } = req.body;
+      const { staffId, pin, photo, video } = req.body;
       if (!staffId || !pin) return res.status(400).json({ message: "Staff ID and PIN are required" });
       const result = await verifyKioskCredentials(staffId.trim(), pin.trim());
       if (result.error) return res.status(401).json({ message: result.error });
@@ -16057,6 +16057,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         status: 'active',
         clockInIpAddress: ip,
         clockInPhoto: photo || null,
+        clockInVideo: video || null,
         deviceInfo: req.headers['user-agent'] || null,
       }).returning();
 
@@ -16075,7 +16076,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // POST /api/kiosk/clock-out  (public)
   app.post("/api/kiosk/clock-out", async (req: any, res) => {
     try {
-      const { staffId, pin, photo, breakMinutes } = req.body;
+      const { staffId, pin, photo, video, breakMinutes } = req.body;
       if (!staffId || !pin) return res.status(400).json({ message: "Staff ID and PIN are required" });
       const result = await verifyKioskCredentials(staffId.trim(), pin.trim());
       if (result.error) return res.status(401).json({ message: result.error });
@@ -16097,6 +16098,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         status: 'completed',
         clockOutIpAddress: ip,
         clockOutPhoto: photo || null,
+        clockOutVideo: video || null,
         isFlagged,
         flagReason: isFlagged ? 'Auto-flagged: session exceeded 16 hours' : null,
         updatedAt: new Date(),
