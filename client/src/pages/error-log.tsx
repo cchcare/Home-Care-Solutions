@@ -44,7 +44,7 @@ import {
   Square,
 } from "lucide-react";
 import { Sidebar } from "@/components/sidebar";
-import { TopBar } from "@/components/top-bar";
+import { TopBar } from "@/components/topbar";
 
 interface ApiErrorLog {
   id: string;
