@@ -314,6 +314,7 @@ export default function Documents() {
                 <CardContent>
                   <FileUpload
                     documentType="general"
+                    officeId={selectedOfficeId !== "all" ? selectedOfficeId : undefined}
                     onUploadComplete={() => {
                       setShowUploadModal(false);
                       queryClient.invalidateQueries({ queryKey: ["/api/documents", selectedOfficeId] });

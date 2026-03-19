@@ -12,6 +12,7 @@ import { Upload, X, FileText, CheckCircle, AlertCircle } from "lucide-react";
 interface FileUploadProps {
   clientId?: string;
   caregiverId?: string;
+  officeId?: string;
   documentType?: string;
   onUploadComplete?: (document: any) => void;
   maxFiles?: number;
@@ -29,6 +30,7 @@ interface UploadFile {
 export function FileUpload({
   clientId,
   caregiverId,
+  officeId,
   documentType = "general",
   onUploadComplete,
   maxFiles = 5,
@@ -44,16 +46,18 @@ export function FileUpload({
   const queryClient = useQueryClient();
 
   const uploadMutation = useMutation({
-    mutationFn: async ({ file, clientId, caregiverId, documentType }: {
+    mutationFn: async ({ file, clientId, caregiverId, officeId, documentType }: {
       file: File;
       clientId?: string;
       caregiverId?: string;
+      officeId?: string;
       documentType: string;
     }) => {
       const formData = new FormData();
       formData.append('file', file);
       if (clientId) formData.append('clientId', clientId);
       if (caregiverId) formData.append('caregiverId', caregiverId);
+      if (officeId) formData.append('officeId', officeId);
       formData.append('documentType', documentType);
 
       const response = await apiRequest("POST", "/api/documents/upload", formData);
@@ -129,6 +133,7 @@ export function FileUpload({
         file: uploadFile.file,
         clientId,
         caregiverId,
+        officeId,
         documentType,
       });
     });

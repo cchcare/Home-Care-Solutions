@@ -2549,9 +2549,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Generate encryption key for HIPAA compliance
       const encryptionKey = crypto.randomBytes(32).toString("hex");
       
+      // Derive officeId: use explicitly passed value, or fall back to the
+      // uploading user's office so the document appears in the correct list.
+      const officeId = req.body.officeId || (req.session?.user as any)?.officeId || null;
+
       const document = await storage.createDocument({
         clientId: req.body.clientId || null,
         caregiverId: req.body.caregiverId || null,
+        officeId,
         uploadedBy: req.session?.user?.id,
         fileName: req.file.filename,
         originalName: req.file.originalname,
