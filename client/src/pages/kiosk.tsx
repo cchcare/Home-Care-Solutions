@@ -380,6 +380,8 @@ export default function Kiosk() {
       const name = `${data.user?.firstName || ""} ${data.user?.lastName || ""}`.trim();
       const time = format(new Date(), "h:mm a");
       setSuccessMsg(pendingAction === "clock-in" ? `${name} clocked in at ${time}` : `${name} clocked out at ${time}`);
+      // Sync face-match status with server's authoritative flagged result
+      if (data.flagged && faceMatchStatus !== "mismatch") setFaceMatchStatus("mismatch");
       webcam.stop();
       setStep("success");
     } catch { setErrorMsg("Network error. Please try again."); setStep("error"); }

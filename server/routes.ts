@@ -16079,7 +16079,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const jsonMatch = raw.match(/\{[\s\S]*\}/);
       if (!jsonMatch) return { match: null, confidence: 0 };
       const parsed = JSON.parse(jsonMatch[0]);
-      return { match: !!parsed.match, confidence: Number(parsed.confidence) || 0 };
+      // Validate match is a strict boolean — reject truthy string/number edge cases
+      const matchVal = typeof parsed.match === "boolean" ? parsed.match : null;
+      return { match: matchVal, confidence: Number(parsed.confidence) || 0 };
     } catch {
       return { match: null, confidence: 0 }; // AI error — skip, don't block
     }
@@ -16179,12 +16181,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }).returning();
 
       await insertStaffAuditLog({
-        timeRecordId: record.id, action: 'clock_in',
-        newValues: { clockInTime: record.clockInTime, method: 'kiosk' },
+        timeRecordId: record.id, action: "clock_in",
+        newValues: { clockInTime: record.clockInTime, method: "kiosk" },
         performedBy: user.id, ipAddress: ip,
       });
 
-      res.json({ success: true, record, user: { firstName: user.firstName, lastName: user.lastName } });
+      res.json({ success: true, record, flagged: isFlagged, user: { firstName: user.firstName, lastName: user.lastName } });
     } catch (error: any) {
       res.status(500).json({ message: error.message || "Clock-in failed" });
     }
@@ -16250,7 +16252,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         performedBy: user.id, ipAddress: ip,
       });
 
-      res.json({ success: true, record: updated, user: { firstName: user.firstName, lastName: user.lastName } });
+      res.json({ success: true, record: updated, flagged: isFlagged, user: { firstName: user.firstName, lastName: user.lastName } });
     } catch (error: any) {
       res.status(500).json({ message: error.message || "Clock-out failed" });
     }
