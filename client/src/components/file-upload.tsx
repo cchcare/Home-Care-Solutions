@@ -18,8 +18,9 @@ interface FileUploadProps {
   accept?: Record<string, string[]>;
 }
 
-interface UploadFile extends File {
+interface UploadFile {
   id: string;
+  file: File;
   progress: number;
   status: 'pending' | 'uploading' | 'completed' | 'error';
   error?: string;
@@ -59,15 +60,15 @@ export function FileUpload({
       return response.json();
     },
     onSuccess: (data, variables) => {
-      setFiles(prev => prev.map(f => 
-        f.name === variables.file.name 
+      setFiles(prev => prev.map(f =>
+        f.file.name === variables.file.name
           ? { ...f, status: 'completed', progress: 100 }
           : f
       ));
-      
+
       queryClient.invalidateQueries({ queryKey: ["/api/documents"] });
       onUploadComplete?.(data);
-      
+
       toast({
         title: "Success",
         description: "Document uploaded successfully",
@@ -86,12 +87,12 @@ export function FileUpload({
         return;
       }
 
-      setFiles(prev => prev.map(f => 
-        f.name === variables.file.name 
+      setFiles(prev => prev.map(f =>
+        f.file.name === variables.file.name
           ? { ...f, status: 'error', error: (error as Error).message }
           : f
       ));
-      
+
       toast({
         title: "Upload Failed",
         description: `Failed to upload ${variables.file.name}`,
@@ -111,22 +112,21 @@ export function FileUpload({
     }
 
     const newFiles: UploadFile[] = acceptedFiles.map(file => ({
-      ...file,
       id: Math.random().toString(36).substr(2, 9),
+      file,
       progress: 0,
       status: 'pending',
     }));
 
     setFiles(prev => [...prev, ...newFiles]);
 
-    // Start uploading each file
-    newFiles.forEach(file => {
-      setFiles(prev => prev.map(f => 
-        f.id === file.id ? { ...f, status: 'uploading' } : f
+    newFiles.forEach(uploadFile => {
+      setFiles(prev => prev.map(f =>
+        f.id === uploadFile.id ? { ...f, status: 'uploading' } : f
       ));
-      
+
       uploadMutation.mutate({
-        file,
+        file: uploadFile.file,
         clientId,
         caregiverId,
         documentType,
@@ -138,7 +138,7 @@ export function FileUpload({
     onDrop,
     accept,
     maxFiles,
-    maxSize: 10 * 1024 * 1024, // 10MB
+    maxSize: 10 * 1024 * 1024,
   });
 
   const removeFile = (fileId: string) => {
@@ -171,13 +171,12 @@ export function FileUpload({
 
   return (
     <div className="space-y-4" data-testid="file-upload-component">
-      {/* Drop Zone */}
       <div
         {...getRootProps()}
         className={`
           border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors
-          ${isDragActive 
-            ? 'border-primary bg-primary/5' 
+          ${isDragActive
+            ? 'border-primary bg-primary/5'
             : 'border-border hover:border-primary/50 hover:bg-muted/25'
           }
         `}
@@ -198,44 +197,43 @@ export function FileUpload({
         </div>
       </div>
 
-      {/* File List */}
       {files.length > 0 && (
         <div className="space-y-3">
           <h4 className="font-medium text-foreground">Files</h4>
-          {files.map((file) => (
+          {files.map((uploadFile) => (
             <div
-              key={file.id}
+              key={uploadFile.id}
               className="flex items-center space-x-3 p-3 border border-border rounded-lg"
-              data-testid={`file-item-${file.id}`}
+              data-testid={`file-item-${uploadFile.id}`}
             >
-              {getStatusIcon(file.status)}
-              
+              {getStatusIcon(uploadFile.status)}
+
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium text-foreground truncate">
-                  {file.name}
+                  {uploadFile.file.name}
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  {(file.size / 1024 / 1024).toFixed(2)} MB
+                  {(uploadFile.file.size / 1024 / 1024).toFixed(2)} MB
                 </p>
-                
-                {file.status === 'uploading' && (
-                  <Progress value={file.progress} className="mt-2 h-1" />
+
+                {uploadFile.status === 'uploading' && (
+                  <Progress value={uploadFile.progress} className="mt-2 h-1" />
                 )}
-                
-                {file.error && (
-                  <p className="text-xs text-destructive mt-1">{file.error}</p>
+
+                {uploadFile.error && (
+                  <p className="text-xs text-destructive mt-1">{uploadFile.error}</p>
                 )}
               </div>
-              
+
               <div className="flex items-center space-x-2">
-                {getStatusBadge(file)}
-                
+                {getStatusBadge(uploadFile)}
+
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={() => removeFile(file.id)}
-                  disabled={file.status === 'uploading'}
-                  data-testid={`button-remove-file-${file.id}`}
+                  onClick={() => removeFile(uploadFile.id)}
+                  disabled={uploadFile.status === 'uploading'}
+                  data-testid={`button-remove-file-${uploadFile.id}`}
                 >
                   <X className="w-4 h-4" />
                 </Button>
@@ -245,7 +243,6 @@ export function FileUpload({
         </div>
       )}
 
-      {/* Upload Status */}
       {files.length > 0 && (
         <div className="flex items-center justify-between text-sm text-muted-foreground">
           <span>
