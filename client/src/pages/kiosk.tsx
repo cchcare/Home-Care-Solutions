@@ -289,6 +289,7 @@ export default function Kiosk() {
           selfieBase64,
           profileImageUrl: verifiedUser.profileImageUrl,
           faceMatchToken,
+          userId: verifiedUser.id,
         }),
       });
       const data = await res.json();
