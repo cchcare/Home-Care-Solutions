@@ -1179,7 +1179,8 @@ export default function ClientProfile() {
                               <SelectValue placeholder="Select MCO" />
                             </SelectTrigger>
                             <SelectContent>
-                              {officeMcos.map((m) => (
+                              <SelectItem value="">None</SelectItem>
+                              {allMcos.map((m) => (
                                 <SelectItem key={m.id} value={m.id}>
                                   {m.name}
                                 </SelectItem>
@@ -2183,18 +2184,271 @@ export default function ClientProfile() {
               {/* Profile Section */}
               {activeSection === "profile" && (
                 <div className="space-y-6">
+                  {/* Personal Information */}
                   <Card>
                     <CardHeader>
                       <CardTitle className="flex items-center gap-2">
                         <User className="w-5 h-5" />
-                        Client Profile
+                        Personal Information
                       </CardTitle>
-                      <CardDescription>View and edit client profile details</CardDescription>
+                      <CardDescription>Full client identity and contact details</CardDescription>
                     </CardHeader>
-                    <CardContent>
-                      <p className="text-muted-foreground text-center py-8">Full profile details coming soon</p>
+                    <CardContent className="space-y-6">
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                        <div className="space-y-1">
+                          <Label className="text-muted-foreground text-sm">First Name</Label>
+                          {isEditing ? (
+                            <Input value={editFormData.firstName || ""} onChange={(e) => setEditFormData({ ...editFormData, firstName: e.target.value })} />
+                          ) : (
+                            <p className="font-medium">{client?.firstName || "N/A"}</p>
+                          )}
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-muted-foreground text-sm">Last Name</Label>
+                          {isEditing ? (
+                            <Input value={editFormData.lastName || ""} onChange={(e) => setEditFormData({ ...editFormData, lastName: e.target.value })} />
+                          ) : (
+                            <p className="font-medium">{client?.lastName || "N/A"}</p>
+                          )}
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-muted-foreground text-sm">Date of Birth</Label>
+                          {isEditing ? (
+                            <Input type="date" value={editFormData.dateOfBirth ? new Date(editFormData.dateOfBirth).toISOString().split('T')[0] : ""} onChange={(e) => setEditFormData({ ...editFormData, dateOfBirth: e.target.value ? new Date(e.target.value) : undefined })} />
+                          ) : (
+                            <p className="font-medium">{client?.dateOfBirth ? format(new Date(client.dateOfBirth), "MMM d, yyyy") : "N/A"}</p>
+                          )}
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-muted-foreground text-sm flex items-center gap-1"><Phone className="w-3 h-3" /> Phone Number</Label>
+                          {isEditing ? (
+                            <Input value={editFormData.phone || ""} onChange={(e) => setEditFormData({ ...editFormData, phone: e.target.value })} placeholder="(555) 000-0000" />
+                          ) : (
+                            <p className="font-medium">{client?.phone || "N/A"}</p>
+                          )}
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-muted-foreground text-sm flex items-center gap-1"><Mail className="w-3 h-3" /> Email</Label>
+                          {isEditing ? (
+                            <Input type="email" value={editFormData.email || ""} onChange={(e) => setEditFormData({ ...editFormData, email: e.target.value })} />
+                          ) : (
+                            <p className="font-medium">{(client as any)?.email || "N/A"}</p>
+                          )}
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-muted-foreground text-sm">Status</Label>
+                          {isEditing ? (
+                            <Select value={editFormData.status || "active"} onValueChange={(v) => setEditFormData({ ...editFormData, status: v })}>
+                              <SelectTrigger><SelectValue /></SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="active">Active</SelectItem>
+                                <SelectItem value="inactive">Inactive</SelectItem>
+                                <SelectItem value="pending">Pending</SelectItem>
+                                <SelectItem value="discharged">Discharged</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          ) : (
+                            <Badge variant={client?.status === "active" ? "default" : client?.status === "discharged" ? "destructive" : "secondary"}>
+                              {client?.status ? client.status.charAt(0).toUpperCase() + client.status.slice(1) : "N/A"}
+                            </Badge>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Address */}
+                      <div className="space-y-1">
+                        <Label className="text-muted-foreground text-sm flex items-center gap-1"><MapPin className="w-3 h-3" /> Home Address</Label>
+                        {isEditing ? (
+                          <AddressInput
+                            streetAddress={editFormData.address || ""}
+                            streetAddress2={editFormData.address2 || ""}
+                            city={editFormData.city || ""}
+                            state={editFormData.state || ""}
+                            zipCode={editFormData.zipCode || ""}
+                            onChange={(field, value) => setEditFormData({ ...editFormData, [field]: value })}
+                          />
+                        ) : (
+                          <div>
+                            <p className="font-medium">{client?.address || "N/A"}</p>
+                            {client?.address2 && <p className="font-medium">{client.address2}</p>}
+                            <p className="font-medium text-muted-foreground">{[client?.city, client?.state, client?.zipCode].filter(Boolean).join(", ")}</p>
+                          </div>
+                        )}
+                      </div>
                     </CardContent>
                   </Card>
+
+                  {/* ID & Service Dates */}
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2">
+                        <ClipboardList className="w-5 h-5" />
+                        IDs & Service Dates
+                      </CardTitle>
+                      <CardDescription>Identifiers and care service timeline</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                        <div className="space-y-1">
+                          <Label className="text-muted-foreground text-sm">Member ID</Label>
+                          {isEditing ? (
+                            <Input value={editFormData.memberId || ""} onChange={(e) => setEditFormData({ ...editFormData, memberId: e.target.value })} />
+                          ) : (
+                            <p className="font-medium">{client?.memberId || "N/A"}</p>
+                          )}
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-muted-foreground text-sm">HHAX Admission ID</Label>
+                          {isEditing ? (
+                            <Input value={editFormData.hhaxAdmissionId || ""} onChange={(e) => setEditFormData({ ...editFormData, hhaxAdmissionId: e.target.value })} />
+                          ) : (
+                            <p className="font-medium">{client?.hhaxAdmissionId || "N/A"}</p>
+                          )}
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-muted-foreground text-sm">Service Start Date</Label>
+                          {isEditing ? (
+                            <Input type="date" value={editFormData.serviceStartDate ? new Date(editFormData.serviceStartDate).toISOString().split('T')[0] : ""} onChange={(e) => setEditFormData({ ...editFormData, serviceStartDate: e.target.value ? new Date(e.target.value) : undefined })} />
+                          ) : (
+                            <p className="font-medium">{client?.serviceStartDate ? format(new Date(client.serviceStartDate), "MMM d, yyyy") : "N/A"}</p>
+                          )}
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-muted-foreground text-sm">Last Service Date</Label>
+                          {isEditing ? (
+                            <Input type="date" value={editFormData.lastServiceDate ? new Date(editFormData.lastServiceDate).toISOString().split('T')[0] : ""} onChange={(e) => setEditFormData({ ...editFormData, lastServiceDate: e.target.value ? new Date(e.target.value) : undefined })} />
+                          ) : (
+                            <p className="font-medium">{(client as any)?.lastServiceDate ? format(new Date((client as any).lastServiceDate), "MMM d, yyyy") : "N/A"}</p>
+                          )}
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-muted-foreground text-sm">MCO / Insurance</Label>
+                          {isEditing ? (
+                            <Select value={editFormData.mcoId || ""} onValueChange={(v) => setEditFormData({ ...editFormData, mcoId: v })}>
+                              <SelectTrigger><SelectValue placeholder="Select MCO" /></SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="">None</SelectItem>
+                                {allMcos.map((m) => <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>)}
+                              </SelectContent>
+                            </Select>
+                          ) : (
+                            <p className="font-medium">{mco?.name || "N/A"}</p>
+                          )}
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-muted-foreground text-sm">Coordinator</Label>
+                          {isEditing ? (
+                            <Select value={editFormData.coordinatorId || "__none__"} onValueChange={(v) => setEditFormData({ ...editFormData, coordinatorId: v === "__none__" ? null : v })}>
+                              <SelectTrigger><SelectValue placeholder="Select Coordinator" /></SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="__none__">None</SelectItem>
+                                {allCoordinators.filter(c => c.isActive).map((c) => (
+                                  <SelectItem key={c.id} value={c.id}>{c.firstName} {c.lastName}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          ) : (
+                            <p className="font-medium">{coordinator ? `${coordinator.firstName} ${coordinator.lastName}` : "N/A"}</p>
+                          )}
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  {/* Medical Information */}
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2">
+                        <Heart className="w-5 h-5 text-red-500" />
+                        Medical Information
+                      </CardTitle>
+                      <CardDescription>Diagnosis, allergies, medications, and physician</CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-6">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div className="space-y-1">
+                          <Label className="text-muted-foreground text-sm">Primary Diagnosis</Label>
+                          {isEditing ? (
+                            <Textarea rows={3} value={editFormData.primaryDiagnosis || ""} onChange={(e) => setEditFormData({ ...editFormData, primaryDiagnosis: e.target.value })} placeholder="Enter primary diagnosis" />
+                          ) : (
+                            <p className="font-medium whitespace-pre-line">{client?.primaryDiagnosis || "N/A"}</p>
+                          )}
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-muted-foreground text-sm">Primary Physician</Label>
+                          {isEditing ? (
+                            <Input value={editFormData.primaryPhysician || ""} onChange={(e) => setEditFormData({ ...editFormData, primaryPhysician: e.target.value })} placeholder="Dr. Name" />
+                          ) : (
+                            <p className="font-medium">{client?.primaryPhysician || "N/A"}</p>
+                          )}
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-muted-foreground text-sm">Allergies</Label>
+                          {isEditing ? (
+                            <Textarea rows={3} value={editFormData.allergies || ""} onChange={(e) => setEditFormData({ ...editFormData, allergies: e.target.value })} placeholder="List known allergies" />
+                          ) : (
+                            <p className="font-medium whitespace-pre-line">{client?.allergies || "N/A"}</p>
+                          )}
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-muted-foreground text-sm">Current Medications</Label>
+                          {isEditing ? (
+                            <Textarea rows={3} value={editFormData.medications || ""} onChange={(e) => setEditFormData({ ...editFormData, medications: e.target.value })} placeholder="List current medications" />
+                          ) : (
+                            <p className="font-medium whitespace-pre-line">{client?.medications || "N/A"}</p>
+                          )}
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  {/* Emergency Contact */}
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2">
+                        <Phone className="w-5 h-5 text-orange-500" />
+                        Emergency Contact
+                      </CardTitle>
+                      <CardDescription>Who to contact in an emergency</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                        <div className="space-y-1">
+                          <Label className="text-muted-foreground text-sm">Contact Name</Label>
+                          {isEditing ? (
+                            <Input value={editFormData.emergencyContactName || ""} onChange={(e) => setEditFormData({ ...editFormData, emergencyContactName: e.target.value })} placeholder="Full name" />
+                          ) : (
+                            <p className="font-medium">{client?.emergencyContactName || "N/A"}</p>
+                          )}
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-muted-foreground text-sm">Relationship</Label>
+                          {isEditing ? (
+                            <Input value={editFormData.emergencyContactRelation || ""} onChange={(e) => setEditFormData({ ...editFormData, emergencyContactRelation: e.target.value })} placeholder="e.g. Daughter, Son" />
+                          ) : (
+                            <p className="font-medium">{client?.emergencyContactRelation || "N/A"}</p>
+                          )}
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-muted-foreground text-sm">Contact Phone</Label>
+                          {isEditing ? (
+                            <Input value={editFormData.emergencyContactPhone || ""} onChange={(e) => setEditFormData({ ...editFormData, emergencyContactPhone: e.target.value })} placeholder="(555) 000-0000" />
+                          ) : (
+                            <p className="font-medium">{client?.emergencyContactPhone || "N/A"}</p>
+                          )}
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  {isEditing && (
+                    <div className="flex gap-3 justify-end">
+                      <Button variant="outline" onClick={handleCancelEditing}>Cancel</Button>
+                      <Button onClick={handleSaveEdits} disabled={updateClientMutation.isPending}>
+                        {updateClientMutation.isPending ? "Saving..." : "Save Profile"}
+                      </Button>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -2637,13 +2891,13 @@ export default function ClientProfile() {
                   <SelectValue placeholder="Select MCO" />
                 </SelectTrigger>
                 <SelectContent>
-                  {officeMcos.length > 0 ? (
-                    officeMcos.map((m) => (
+                  {allMcos.length > 0 ? (
+                    allMcos.map((m) => (
                       <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>
                     ))
                   ) : (
                     <div className="p-2 text-sm text-muted-foreground">
-                      No MCOs configured for this office. Please set up MCOs in the office settings first.
+                      No MCOs found. Please add MCOs under Office Settings.
                     </div>
                   )}
                 </SelectContent>

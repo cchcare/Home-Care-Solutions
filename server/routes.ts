@@ -1510,15 +1510,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put("/api/clients/:id", isAuthenticated, async (req: any, res) => {
     try {
       const oldClient = await storage.getClient(req.params.id);
-      // Convert date strings to Date objects
+      // Convert date strings to Date objects; null-safe coordinator
       const processedBody = {
         ...req.body,
         dateOfBirth: coerceDate(req.body.dateOfBirth),
         serviceStartDate: coerceDate(req.body.serviceStartDate),
+        serviceEndDate: coerceDate(req.body.serviceEndDate),
         snapRenewalDate: coerceDate(req.body.snapRenewalDate),
         snapExpiryDate: coerceDate(req.body.snapExpiryDate),
         medicaidRenewalDate: coerceDate(req.body.medicaidRenewalDate),
         medicaidExpiryDate: coerceDate(req.body.medicaidExpiryDate),
+        // Treat empty string coordinator as null to avoid FK violation
+        coordinatorId: req.body.coordinatorId || null,
       };
       const validatedData = insertClientSchema.partial().parse(processedBody);
       const client = await storage.updateClient(req.params.id, validatedData);
