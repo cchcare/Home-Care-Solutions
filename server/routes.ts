@@ -16027,7 +16027,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .where(and(eq(staffTimeRecords.userId, user.id), isNull(staffTimeRecords.clockOutTime)))
         .orderBy(desc(staffTimeRecords.clockInTime)).limit(1);
       res.json({
-        user: { id: user.id, firstName: user.firstName, lastName: user.lastName, role: user.role, username: user.username },
+        user: {
+          id: user.id,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          role: user.role,
+          username: user.username,
+          profileImageUrl: user.profileImageUrl || null,
+        },
         activeRecord: active || null,
       });
     } catch (error: any) {
@@ -16035,10 +16042,84 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // POST /api/kiosk/face-match  (public — compares selfie to profile photo via OpenAI Vision)
+  app.post("/api/kiosk/face-match", async (req: any, res) => {
+    try {
+      const { selfieBase64, profileImageUrl } = req.body;
+      if (!selfieBase64 || !profileImageUrl) {
+        return res.status(400).json({ match: false, confidence: 0, message: "Missing selfie or profile image" });
+      }
+
+      // Load profile image from filesystem
+      const path = await import("path");
+      const fsPromises = await import("fs/promises");
+      // profileImageUrl is like /api/profile-images/filename.jpeg
+      const filename = profileImageUrl.split("/").pop();
+      if (!filename) return res.json({ match: false, confidence: 0, message: "Invalid profile image URL" });
+
+      const profilePath = path.join(process.cwd(), "uploads", "profiles", filename);
+      let profileBase64: string;
+      try {
+        const buf = await fsPromises.readFile(profilePath);
+        const ext = filename.split(".").pop()?.toLowerCase() || "jpeg";
+        const mimeType = ext === "png" ? "image/png" : ext === "webp" ? "image/webp" : "image/jpeg";
+        profileBase64 = `data:${mimeType};base64,${buf.toString("base64")}`;
+      } catch {
+        return res.json({ match: null, confidence: 0, message: "Profile image not found on server" });
+      }
+
+      // OpenAI Vision comparison
+      const OpenAI = (await import("openai")).default;
+      const openai = new OpenAI({
+        baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
+        apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
+      });
+
+      const response = await openai.chat.completions.create({
+        model: "gpt-4o",
+        max_tokens: 100,
+        messages: [
+          {
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: "Compare these two photos. Are they the same person? Reply in this exact JSON format only: {\"match\": true/false, \"confidence\": 0-100, \"reason\": \"one sentence\"}. Be strict — only return true if you are confident it is the same person.",
+              },
+              {
+                type: "image_url",
+                image_url: { url: profileBase64, detail: "low" },
+              },
+              {
+                type: "image_url",
+                image_url: { url: selfieBase64, detail: "low" },
+              },
+            ],
+          },
+        ],
+      });
+
+      const raw = response.choices[0]?.message?.content?.trim() || "{}";
+      // Extract JSON even if wrapped in markdown code blocks
+      const jsonMatch = raw.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) return res.json({ match: false, confidence: 0, message: "AI response unparseable" });
+
+      const parsed = JSON.parse(jsonMatch[0]);
+      return res.json({
+        match: !!parsed.match,
+        confidence: Number(parsed.confidence) || 0,
+        message: parsed.reason || "",
+      });
+    } catch (error: any) {
+      // Return null match (skip flagging) on any AI error
+      res.json({ match: null, confidence: 0, message: error.message || "Face comparison unavailable" });
+    }
+  });
+
   // POST /api/kiosk/clock-in  (public)
   app.post("/api/kiosk/clock-in", async (req: any, res) => {
     try {
-      const { staffId, pin, photo, video } = req.body;
+      const { staffId, pin, photo, video, faceMismatch } = req.body;
       if (!staffId || !pin) return res.status(400).json({ message: "Staff ID and PIN are required" });
       const result = await verifyKioskCredentials(staffId.trim(), pin.trim());
       if (result.error) return res.status(401).json({ message: result.error });
@@ -16059,6 +16140,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         clockInPhoto: photo || null,
         clockInVideo: video || null,
         deviceInfo: req.headers['user-agent'] || null,
+        isFlagged: !!faceMismatch,
+        flagReason: faceMismatch ? "Kiosk face verification failed — photo does not match profile. Manager review required." : null,
       }).returning();
 
       await insertStaffAuditLog({
@@ -16076,7 +16159,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // POST /api/kiosk/clock-out  (public)
   app.post("/api/kiosk/clock-out", async (req: any, res) => {
     try {
-      const { staffId, pin, photo, video, breakMinutes } = req.body;
+      const { staffId, pin, photo, video, faceMismatch, breakMinutes } = req.body;
       if (!staffId || !pin) return res.status(400).json({ message: "Staff ID and PIN are required" });
       const result = await verifyKioskCredentials(staffId.trim(), pin.trim());
       if (result.error) return res.status(401).json({ message: result.error });
@@ -16090,7 +16173,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const clockOutTime = new Date();
       const hoursWorked = (clockOutTime.getTime() - new Date(existing.clockInTime).getTime()) / 3600000;
-      const isFlagged = hoursWorked > 16;
+      const longShift = hoursWorked > 16;
+      const isFlagged = longShift || !!faceMismatch;
+      const flagReason = longShift && faceMismatch
+        ? "Auto-flagged: session exceeded 16 hours; face verification failed — photo does not match profile."
+        : longShift
+          ? "Auto-flagged: session exceeded 16 hours"
+          : faceMismatch
+            ? "Kiosk face verification failed — photo does not match profile. Manager review required."
+            : null;
 
       const [updated] = await db.update(staffTimeRecords).set({
         clockOutTime,
@@ -16100,7 +16191,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         clockOutPhoto: photo || null,
         clockOutVideo: video || null,
         isFlagged,
-        flagReason: isFlagged ? 'Auto-flagged: session exceeded 16 hours' : null,
+        flagReason,
         updatedAt: new Date(),
       }).where(eq(staffTimeRecords.id, existing.id)).returning();
 
