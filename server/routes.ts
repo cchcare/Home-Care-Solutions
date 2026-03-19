@@ -16116,6 +16116,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Simple per-token rate limiter for /api/kiosk/face-match (max 10 calls per token per window)
+  const faceMatchRateLimiter = new Map<string, { count: number; windowStart: number }>();
+  const FACE_MATCH_RATE_WINDOW_MS = 5 * 60 * 1000; // 5-minute window
+  const FACE_MATCH_RATE_MAX = 10; // max AI calls per token per window
+
+  function checkFaceMatchRateLimit(token: string): boolean {
+    const now = Date.now();
+    const entry = faceMatchRateLimiter.get(token);
+    if (!entry || now - entry.windowStart > FACE_MATCH_RATE_WINDOW_MS) {
+      faceMatchRateLimiter.set(token, { count: 1, windowStart: now });
+      return true;
+    }
+    if (entry.count >= FACE_MATCH_RATE_MAX) return false;
+    entry.count++;
+    return true;
+  }
+
   // POST /api/kiosk/face-match  (UX preview endpoint — session-token protected, multi-use for retakes)
   // This is for real-time feedback to the user before submit.
   // The authoritative face check happens server-side in /clock-in and /clock-out.
@@ -16128,6 +16145,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Validate session token (multi-use, time-limited) to prevent open abuse
       if (!faceMatchToken || !validateKioskSessionToken(faceMatchToken)) {
         return res.status(401).json({ match: null, confidence: 0, message: "Invalid or expired session token" });
+      }
+      // Rate-limit AI calls per token to control OpenAI cost/abuse
+      if (!checkFaceMatchRateLimit(faceMatchToken)) {
+        return res.status(429).json({ match: null, confidence: 0, message: "Too many verification attempts. Please wait before retrying." });
       }
 
       const result = await compareFacesWithAI(selfieBase64, profileImageUrl);
