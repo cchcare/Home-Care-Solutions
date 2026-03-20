@@ -1,6 +1,7 @@
 import { sql } from 'drizzle-orm';
 import {
   index,
+  uniqueIndex,
   jsonb,
   pgTable,
   timestamp,
@@ -3667,6 +3668,7 @@ export const emailTemplates = pgTable("email_templates", {
 }, (table) => [
   index("idx_email_templates_type").on(table.type),
   index("idx_email_templates_active").on(table.isActive),
+  uniqueIndex("email_templates_type_name_unique").on(table.type, table.name),
 ]);
 
 export const emailTemplatesRelations = relations(emailTemplates, ({ one }) => ({

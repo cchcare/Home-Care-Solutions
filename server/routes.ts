@@ -2855,17 +2855,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Client Schedule routes
-  app.get("/api/clients/:clientId/schedules", isAuthenticated, async (req, res) => {
-    try {
-      const schedules = await storage.getClientSchedules(req.params.clientId);
-      res.json(schedules);
-    } catch (error) {
-      console.error("Error fetching client schedules:", error);
-      res.status(500).json({ message: "Failed to fetch schedules" });
-    }
-  });
-
   app.post("/api/clients/:clientId/schedules/rollover", isAuthenticated, async (req, res) => {
     try {
       const days = req.body.days || 30;
@@ -2958,6 +2947,45 @@ export async function registerRoutes(app: Express): Promise<Server> {
       };
       const validatedData = insertIncidentReportSchema.parse(coercedData);
       const report = await storage.createIncidentReport(validatedData);
+
+      // Notify admins about new incident via branded email (non-fatal)
+      try {
+        const { sendTemplatedEmail } = await import('./agentmail');
+        const { format } = await import('date-fns');
+        const { db } = await import('./db');
+        const { users } = await import('@shared/schema');
+        const { sql: drizzleSql } = await import('drizzle-orm');
+        const adminUsers = await db
+          .select()
+          .from(users)
+          .where(drizzleSql`${users.role} IN ('admin', 'super_admin', 'office_admin') AND ${users.organizationId} = ${req.session?.user?.organizationId}`);
+        const incidentDate = report.incidentDate ? format(new Date(report.incidentDate), 'MMMM d, yyyy') : 'today';
+        for (const admin of adminUsers) {
+          if (admin.email) {
+            const baseUrl = process.env.BASE_URL || process.env.REPLIT_DEPLOYMENT_URL || 'https://app.carechc.com';
+            await sendTemplatedEmail(
+              admin.email,
+              'incident_report_notification',
+              {
+                firstName: admin.firstName || admin.username || 'Administrator',
+                reportId: report.id,
+                incidentDate,
+                incidentType: report.incidentType || 'Incident',
+                severity: report.severity || 'unknown',
+                reportedBy: req.session?.user?.firstName
+                  ? `${req.session.user.firstName} ${req.session.user.lastName || ''}`.trim()
+                  : req.session?.user?.username || 'Staff',
+                reportUrl: `${baseUrl}/incident-reports/${report.id}`,
+              },
+              `Incident Report Submitted: ${report.incidentType} (${report.severity})`,
+              `<p>A new incident report has been filed. Type: ${report.incidentType}, Severity: ${report.severity}, Date: ${incidentDate}.</p>`,
+            );
+          }
+        }
+      } catch (emailErr) {
+        console.error('[Incidents] Failed to send incident notification email (non-fatal):', emailErr);
+      }
+
       res.status(201).json(report);
     } catch (error) {
       console.error("Error creating incident report:", error);
@@ -3221,7 +3249,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Compliance routes
   app.get("/api/caregivers/:caregiverId/compliance", isAuthenticated, async (req, res) => {
     try {
-      const complianceItems = await storage.getComplianceItemsByCaregiver(req.params.caregiverId);
+      const complianceItems = await storage.getCaregiverComplianceByCaregiver(req.params.caregiverId);
       res.json(complianceItems);
     } catch (error) {
       console.error("Error fetching compliance items:", error);
@@ -3841,16 +3869,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Reports API endpoints
-  app.get("/api/training-records", isAuthenticated, async (req, res) => {
-    try {
-      const records = await storage.getAllTrainingRecords();
-      res.json(records);
-    } catch (error) {
-      console.error("Error fetching training records:", error);
-      res.status(500).json({ message: "Failed to fetch training records" });
-    }
-  });
-
   app.get("/api/certifications", isAuthenticated, async (req, res) => {
     try {
       const certifications = await storage.getAllCertifications();
@@ -3858,72 +3876,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error fetching certifications:", error);
       res.status(500).json({ message: "Failed to fetch certifications" });
-    }
-  });
-
-  // Incident reports routes
-  app.get("/api/incident-reports", isAuthenticated, async (req, res) => {
-    try {
-      const { officeId } = req.query;
-      const officeFilter = officeId && officeId !== 'all' ? String(officeId) : undefined;
-      const incidents = await storage.getAllIncidentReports(officeFilter);
-      res.json(incidents);
-    } catch (error) {
-      console.error("Error fetching incident reports:", error);
-      res.status(500).json({ message: "Failed to fetch incident reports" });
-    }
-  });
-
-  app.post("/api/incident-reports", isAuthenticated, async (req: any, res) => {
-    try {
-      const validatedData = insertIncidentReportSchema.parse({
-        ...req.body,
-        reportedBy: req.session?.user?.id,
-      });
-      const incident = await storage.createIncidentReport(validatedData);
-
-      // Notify admins about new incident via branded email (non-fatal)
-      try {
-        const { sendTemplatedEmail } = await import('./agentmail');
-        const { format } = await import('date-fns');
-        const { db } = await import('./db');
-        const { users } = await import('@shared/schema');
-        const { sql: drizzleSql } = await import('drizzle-orm');
-        const adminUsers = await db
-          .select()
-          .from(users)
-          .where(drizzleSql`${users.role} IN ('admin', 'super_admin', 'office_admin') AND ${users.organizationId} = ${req.session?.user?.organizationId}`);
-        const incidentDate = incident.incidentDate ? format(new Date(incident.incidentDate), 'MMMM d, yyyy') : 'today';
-        for (const admin of adminUsers) {
-          if (admin.email) {
-            const baseUrl = process.env.BASE_URL || process.env.REPLIT_DEPLOYMENT_URL || 'https://app.carechc.com';
-            await sendTemplatedEmail(
-              admin.email,
-              'incident_report_notification',
-              {
-                firstName: admin.firstName || admin.username || 'Administrator',
-                reportId: incident.id,
-                incidentDate,
-                incidentType: incident.incidentType || 'Incident',
-                severity: incident.severity || 'unknown',
-                reportedBy: req.session?.user?.firstName
-                  ? `${req.session.user.firstName} ${req.session.user.lastName || ''}`.trim()
-                  : req.session?.user?.username || 'Staff',
-                reportUrl: `${baseUrl}/incident-reports/${incident.id}`,
-              },
-              `Incident Report Submitted: ${incident.incidentType} (${incident.severity})`,
-              `<p>A new incident report has been filed. Type: ${incident.incidentType}, Severity: ${incident.severity}, Date: ${incidentDate}.</p>`,
-            );
-          }
-        }
-      } catch (emailErr) {
-        console.error('[Incidents] Failed to send incident notification email (non-fatal):', emailErr);
-      }
-
-      res.status(201).json(incident);
-    } catch (error) {
-      console.error("Error creating incident report:", error);
-      res.status(400).json({ message: "Failed to create incident report" });
     }
   });
 
@@ -4679,18 +4631,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/caregivers/:caregiverId/schedules", isAuthenticated, async (req, res) => {
-    try {
-      const startDate = req.query.startDate ? new Date(req.query.startDate as string) : undefined;
-      const endDate = req.query.endDate ? new Date(req.query.endDate as string) : undefined;
-      const schedules = await storage.getSchedulesByCaregiver(req.params.caregiverId, startDate, endDate);
-      res.json(schedules);
-    } catch (error) {
-      console.error("Error fetching caregiver schedules:", error);
-      res.status(500).json({ message: "Failed to fetch caregiver schedules" });
-    }
-  });
-
   app.post("/api/client-schedules", isAuthenticated, async (req: any, res) => {
     try {
       const validatedData = insertClientScheduleSchema.parse({
@@ -5321,16 +5261,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Caregiver Compliance Routes
-  app.get("/api/caregivers/:caregiverId/compliance", isAuthenticated, async (req, res) => {
-    try {
-      const items = await storage.getCaregiverComplianceByCaregiver(req.params.caregiverId);
-      res.json(items);
-    } catch (error) {
-      console.error("Error fetching caregiver compliance:", error);
-      res.status(500).json({ message: "Failed to fetch caregiver compliance" });
-    }
-  });
-
   app.get("/api/caregiver-compliance/:id", isAuthenticated, requireFeature('compliance_monitoring'), async (req, res) => {
     try {
       const item = await storage.getCaregiverCompliance(req.params.id);
