@@ -49,3 +49,7 @@ defaultBucketID = "replit-objstore-15f8bc44-5637-4fe7-ad4b-4fe77283eb79"
 
 [userenv.production]
 INIT_PRODUCTION_DB = "true"
+
+[postMerge]
+path = "scripts/post-merge.sh"
+timeoutMs = 90000
