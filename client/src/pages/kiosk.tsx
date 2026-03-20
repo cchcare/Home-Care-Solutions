@@ -63,38 +63,44 @@ function useWebcam() {
 
   const start = useCallback(async () => {
     setError(null);
+    setReady(false);
+    let stream: MediaStream | null = null;
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
+      stream = await navigator.mediaDevices.getUserMedia({
         video: { width: 640, height: 480, facingMode: "user" },
         audio: true,
       });
-      streamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        videoRef.current.muted = true;
-        await videoRef.current.play();
-        setReady(true);
-      }
-      return stream;
     } catch {
       // Fallback: no audio
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({
+        stream = await navigator.mediaDevices.getUserMedia({
           video: { width: 640, height: 480, facingMode: "user" },
           audio: false,
         });
-        streamRef.current = stream;
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          videoRef.current.muted = true;
-          await videoRef.current.play();
-          setReady(true);
-        }
-        return stream;
       } catch (e: any) {
         setError(e.message || "Camera unavailable");
         return null;
       }
+    }
+    streamRef.current = stream;
+    // Wait for the video element to mount in the DOM (step change may still be rendering)
+    let attempts = 0;
+    while (!videoRef.current && attempts < 20) {
+      await new Promise(r => setTimeout(r, 50));
+      attempts++;
+    }
+    if (videoRef.current) {
+      videoRef.current.srcObject = stream;
+      videoRef.current.muted = true;
+      await videoRef.current.play();
+      setReady(true);
+      return stream;
+    } else {
+      // Timed out — stop stream and signal error
+      stream.getTracks().forEach(t => t.stop());
+      streamRef.current = null;
+      setError("Camera failed to initialize — please try again");
+      return null;
     }
   }, []);
 
@@ -415,8 +421,10 @@ export default function Kiosk() {
     }
 
     const stream = await webcam.start();
-    if (stream) recorder.startRecording(stream);
+    if (!stream) return; // Camera failed to connect — error state set by useWebcam
+    recorder.startRecording(stream);
 
+    // Only start countdown after camera is confirmed connected
     let count = 3;
     setCountdown(count);
     if (countdownRef.current) clearInterval(countdownRef.current);

@@ -380,25 +380,36 @@ export default function StaffTimeTracking() {
         }
       }
       selfieStreamRef.current = stream;
+      // Wait for the video element to mount in the DOM (Dialog may still be animating in)
+      let attempts = 0;
+      while (!selfieVideoRef.current && attempts < 20) {
+        await new Promise(r => setTimeout(r, 50));
+        attempts++;
+      }
       if (selfieVideoRef.current) {
         selfieVideoRef.current.srcObject = stream;
         selfieVideoRef.current.muted = true;
         await selfieVideoRef.current.play();
         setSelfieWebcamReady(true);
+        // Start countdown only after camera is successfully connected
+        let count = 3; setSelfieCountdown(count);
+        if (selfieCountdownRef.current) clearInterval(selfieCountdownRef.current);
+        selfieCountdownRef.current = setInterval(() => {
+          count--;
+          setSelfieCountdown(count);
+          if (count <= 0) {
+            clearInterval(selfieCountdownRef.current!);
+            selfieCountdownRef.current = null;
+            setSelfieCountdown(null);
+            captureSelfiePhoto();
+          }
+        }, 1000);
+      } else {
+        // Timed out waiting for the video element — clean up stream
+        stream.getTracks().forEach(t => t.stop());
+        selfieStreamRef.current = null;
+        setSelfieWebcamError("Camera failed to initialize — please close and try again");
       }
-      // Start countdown
-      let count = 3; setSelfieCountdown(count);
-      if (selfieCountdownRef.current) clearInterval(selfieCountdownRef.current);
-      selfieCountdownRef.current = setInterval(() => {
-        count--;
-        setSelfieCountdown(count);
-        if (count <= 0) {
-          clearInterval(selfieCountdownRef.current!);
-          selfieCountdownRef.current = null;
-          setSelfieCountdown(null);
-          captureSelfiePhoto();
-        }
-      }, 1000);
     } catch (e: any) {
       setSelfieWebcamError(e.message || "Camera unavailable");
     }
