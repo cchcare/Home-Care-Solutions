@@ -2,7 +2,7 @@ import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import { startScheduledJobs } from "./scheduler";
-import { runProductionInit } from "./initDb";
+import { runProductionInit, seedEmailTemplates } from "./initDb";
 
 import nodePath from "path";
 const app = express();
@@ -43,6 +43,13 @@ app.use((req, res, next) => {
 (async () => {
   if (process.env.INIT_PRODUCTION_DB === "true") {
     await runProductionInit();
+  } else {
+    // Seed default email templates on every startup (upserts, so safe to run repeatedly)
+    try {
+      await seedEmailTemplates();
+    } catch (err) {
+      console.error("[Init] Email template seeding failed (non-fatal):", err);
+    }
   }
 
   const server = await registerRoutes(app);

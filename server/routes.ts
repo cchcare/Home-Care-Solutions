@@ -3585,6 +3585,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
       const user = await storage.createUser(validatedData);
 
+      // Send welcome email if user has an email address
+      if (user.email) {
+        try {
+          const { sendTemplatedEmail } = await import('./agentmail');
+          const isCaregiver = user.role === 'caregiver';
+          const baseUrl = process.env.BASE_URL || process.env.REPLIT_DEPLOYMENT_URL || 'https://app.carechc.com';
+          if (isCaregiver) {
+            await sendTemplatedEmail(
+              user.email,
+              'welcome_caregiver',
+              {
+                firstName: user.firstName || user.username || 'Caregiver',
+                portalUrl: `${baseUrl}/caregiver-login`,
+              },
+              'Welcome to CCHC Solutions — Caregiver Portal',
+              `<p>Hi ${user.firstName || user.username || 'Caregiver'},</p><p>Your caregiver account has been created. Please visit <a href="${baseUrl}/caregiver-login">the caregiver portal</a> to log in.</p>`,
+            );
+          } else {
+            await sendTemplatedEmail(
+              user.email,
+              'welcome',
+              {
+                firstName: user.firstName || user.username || 'Team Member',
+                lastName: user.lastName || '',
+                loginUrl: `${baseUrl}/login`,
+              },
+              'Welcome to CCHC Solutions',
+              `<p>Hi ${user.firstName || user.username || 'Team Member'},</p><p>Your account has been created. Please visit <a href="${baseUrl}/login">the portal</a> to log in.</p>`,
+            );
+          }
+        } catch (emailErr) {
+          console.error('[Users] Failed to send welcome email (non-fatal):', emailErr);
+        }
+      }
+
       const { passwordHash: _, ...safeUser } = user as any;
       res.status(201).json(safeUser);
     } catch (error: any) {
@@ -3846,6 +3881,45 @@ export async function registerRoutes(app: Express): Promise<Server> {
         reportedBy: req.session?.user?.id,
       });
       const incident = await storage.createIncidentReport(validatedData);
+
+      // Notify admins about new incident via branded email (non-fatal)
+      try {
+        const { sendTemplatedEmail } = await import('./agentmail');
+        const { format } = await import('date-fns');
+        const { db } = await import('./db');
+        const { users } = await import('@shared/schema');
+        const { sql: drizzleSql } = await import('drizzle-orm');
+        const adminUsers = await db
+          .select()
+          .from(users)
+          .where(drizzleSql`${users.role} IN ('admin', 'super_admin', 'office_admin') AND ${users.organizationId} = ${req.session?.user?.organizationId}`);
+        const incidentDate = incident.incidentDate ? format(new Date(incident.incidentDate), 'MMMM d, yyyy') : 'today';
+        for (const admin of adminUsers) {
+          if (admin.email) {
+            const baseUrl = process.env.BASE_URL || process.env.REPLIT_DEPLOYMENT_URL || 'https://app.carechc.com';
+            await sendTemplatedEmail(
+              admin.email,
+              'incident_report_notification',
+              {
+                firstName: admin.firstName || admin.username || 'Administrator',
+                reportId: incident.id,
+                incidentDate,
+                incidentType: incident.incidentType || 'Incident',
+                severity: incident.severity || 'unknown',
+                reportedBy: req.session?.user?.firstName
+                  ? `${req.session.user.firstName} ${req.session.user.lastName || ''}`.trim()
+                  : req.session?.user?.username || 'Staff',
+                reportUrl: `${baseUrl}/incident-reports/${incident.id}`,
+              },
+              `Incident Report Submitted: ${incident.incidentType} (${incident.severity})`,
+              `<p>A new incident report has been filed. Type: ${incident.incidentType}, Severity: ${incident.severity}, Date: ${incidentDate}.</p>`,
+            );
+          }
+        }
+      } catch (emailErr) {
+        console.error('[Incidents] Failed to send incident notification email (non-fatal):', emailErr);
+      }
+
       res.status(201).json(incident);
     } catch (error) {
       console.error("Error creating incident report:", error);
@@ -8624,6 +8698,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ipAddress: req.ip,
         userAgent: req.get("User-Agent"),
       });
+
+      // Send EVV confirmation email to caregiver (non-fatal)
+      try {
+        const caregiver = await storage.getCaregiver(schedule.caregiverId);
+        if (caregiver?.email) {
+          const { sendTemplatedEmail } = await import('./agentmail');
+          const { format } = await import('date-fns');
+          const client = schedule.clientId ? await storage.getClient(schedule.clientId) : null;
+          const visitDate = schedule.scheduledDate ? format(new Date(schedule.scheduledDate), 'MMMM d, yyyy') : 'today';
+          const clockIn = schedule.clockInTime ? format(new Date(schedule.clockInTime), 'h:mm a') : 'N/A';
+          const clockOut = schedule.clockOutTime ? format(new Date(schedule.clockOutTime), 'h:mm a') : 'N/A';
+          await sendTemplatedEmail(
+            caregiver.email,
+            'evv_confirmation',
+            {
+              firstName: caregiver.firstName || 'Caregiver',
+              eventType: 'Clock-Out',
+              clientName: client ? `${client.firstName} ${client.lastName}`.trim() : 'your client',
+              eventDateTime: `${visitDate} at ${clockOut}`,
+              location: client?.address ? `${client.address}${client.city ? ', ' + client.city : ''}${client.state ? ', ' + client.state : ''}` : 'Client location',
+            },
+            'Visit Verification Confirmed',
+            `<p>Your visit on ${visitDate} has been recorded. Clock-in: ${clockIn}, Clock-out: ${clockOut}.</p>`,
+          );
+        }
+      } catch (emailErr) {
+        console.error('[EVV] Failed to send EVV confirmation email (non-fatal):', emailErr);
+      }
       
       res.json(schedule);
     } catch (error) {
@@ -14531,39 +14633,102 @@ export async function registerRoutes(app: Express): Promise<Server> {
         { key: "currentYear", label: "Current Year", example: new Date().getFullYear().toString() },
       );
       
-      if (type === "password_reset") {
+      if (type === "signup_confirmation") {
+        placeholders.push(
+          { key: "firstName", label: "First Name", example: "Maria" },
+          { key: "loginUrl", label: "Login URL", example: "https://app.carechc.com/login" },
+        );
+      } else if (type === "password_reset") {
         placeholders.push(
           { key: "firstName", label: "First Name", example: "John" },
-          { key: "resetUrl", label: "Reset Password URL", example: "https://app.example.com/reset?token=..." },
+          { key: "resetUrl", label: "Reset Password URL", example: "https://app.carechc.com/reset-password?token=..." },
           { key: "expiryTime", label: "Link Expiry Time", example: "1 hour" },
+        );
+      } else if (type === "password_reset_caregiver") {
+        placeholders.push(
+          { key: "firstName", label: "First Name", example: "Sarah" },
+          { key: "resetUrl", label: "Reset Password URL", example: "https://app.carechc.com/reset-password?token=..." },
+          { key: "expiryTime", label: "Link Expiry Time", example: "1 hour" },
+        );
+      } else if (type === "user_invitation") {
+        placeholders.push(
+          { key: "firstName", label: "First Name", example: "Alex" },
+          { key: "inviteUrl", label: "Invitation URL", example: "https://app.carechc.com/accept-invite?token=..." },
+          { key: "expiryTime", label: "Link Expiry Time", example: "48 hours" },
         );
       } else if (type === "welcome") {
         placeholders.push(
-          { key: "firstName", label: "First Name", example: "John" },
-          { key: "lastName", label: "Last Name", example: "Doe" },
-          { key: "email", label: "Email", example: "john@example.com" },
-          { key: "loginUrl", label: "Login URL", example: "https://app.example.com/login" },
+          { key: "firstName", label: "First Name", example: "Jordan" },
+          { key: "lastName", label: "Last Name", example: "Smith" },
+          { key: "loginUrl", label: "Login URL", example: "https://app.carechc.com/login" },
+        );
+      } else if (type === "welcome_caregiver") {
+        placeholders.push(
+          { key: "firstName", label: "First Name", example: "Maria" },
+          { key: "portalUrl", label: "Caregiver Portal URL", example: "https://app.carechc.com/caregiver-login" },
+        );
+      } else if (type === "family_portal_invitation") {
+        placeholders.push(
+          { key: "firstName", label: "Recipient First Name", example: "David" },
+          { key: "clientFirstName", label: "Client First Name", example: "Margaret" },
+          { key: "clientLastName", label: "Client Last Name", example: "Johnson" },
+          { key: "portalUrl", label: "Family Portal URL", example: "https://app.carechc.com/family-portal?token=..." },
         );
       } else if (type === "birthday_client" || type === "birthday_caregiver") {
         placeholders.push(
-          { key: "firstName", label: "First Name", example: "John" },
-          { key: "lastName", label: "Last Name", example: "Doe" },
-          { key: "age", label: "Age (if available)", example: "65" },
+          { key: "firstName", label: "First Name", example: "Margaret" },
         );
-      } else if (type === "schedule_change" || type === "schedule_reminder") {
+      } else if (type === "schedule_change") {
         placeholders.push(
-          { key: "clientName", label: "Client Name", example: "Jane Smith" },
-          { key: "caregiverName", label: "Caregiver Name", example: "John Doe" },
-          { key: "scheduleDate", label: "Schedule Date", example: "January 15, 2026" },
-          { key: "scheduleTime", label: "Schedule Time", example: "9:00 AM - 5:00 PM" },
+          { key: "firstName", label: "First Name", example: "Maria" },
           { key: "changeType", label: "Change Type", example: "Updated" },
+          { key: "clientName", label: "Client Name", example: "Margaret Johnson" },
+          { key: "scheduleDate", label: "Schedule Date", example: "March 22, 2026" },
+          { key: "scheduleTime", label: "Schedule Time", example: "9:00 AM – 5:00 PM" },
+          { key: "caregiverName", label: "Caregiver Name", example: "Maria Santos" },
+          { key: "portalUrl", label: "Portal URL", example: "https://app.carechc.com/caregiver-login" },
+        );
+      } else if (type === "schedule_reminder") {
+        placeholders.push(
+          { key: "firstName", label: "First Name", example: "Maria" },
+          { key: "clientName", label: "Client Name", example: "Margaret Johnson" },
+          { key: "scheduleDate", label: "Schedule Date", example: "March 22, 2026" },
+          { key: "scheduleTime", label: "Start Time", example: "9:00 AM" },
+          { key: "clientAddress", label: "Client Address", example: "123 Oak Street, Pittsburgh, PA" },
+          { key: "portalUrl", label: "Portal URL", example: "https://app.carechc.com/caregiver-login" },
+        );
+      } else if (type === "evv_confirmation") {
+        placeholders.push(
+          { key: "firstName", label: "First Name", example: "Maria" },
+          { key: "eventType", label: "Event Type", example: "Clock-In" },
+          { key: "clientName", label: "Client Name", example: "Margaret Johnson" },
+          { key: "eventDateTime", label: "Event Date & Time", example: "March 22, 2026 at 9:02 AM" },
+          { key: "location", label: "Location", example: "123 Oak Street, Pittsburgh, PA" },
         );
       } else if (type === "compliance_alert") {
         placeholders.push(
-          { key: "caregiverName", label: "Caregiver Name", example: "John Doe" },
+          { key: "firstName", label: "First Name", example: "Maria" },
           { key: "itemName", label: "Compliance Item", example: "TB Test" },
-          { key: "expiryDate", label: "Expiry Date", example: "January 31, 2026" },
+          { key: "expiryDate", label: "Expiry Date", example: "March 31, 2026" },
           { key: "daysUntilExpiry", label: "Days Until Expiry", example: "7" },
+        );
+      } else if (type === "incident_report_notification") {
+        placeholders.push(
+          { key: "firstName", label: "First Name", example: "Admin" },
+          { key: "reportId", label: "Report ID", example: "IR-2026-0042" },
+          { key: "incidentDate", label: "Incident Date", example: "March 22, 2026" },
+          { key: "incidentType", label: "Incident Type", example: "Fall" },
+          { key: "severity", label: "Severity", example: "Medium" },
+          { key: "reportedBy", label: "Reported By", example: "Maria Santos" },
+          { key: "reportUrl", label: "Report URL", example: "https://app.carechc.com/incident-reports/42" },
+        );
+      } else if (type === "esignature_request") {
+        placeholders.push(
+          { key: "firstName", label: "First Name", example: "Maria" },
+          { key: "documentName", label: "Document Name", example: "Employment Agreement 2026" },
+          { key: "senderName", label: "Sender Name", example: "Office Administrator" },
+          { key: "deadline", label: "Signing Deadline", example: "March 28, 2026" },
+          { key: "signUrl", label: "Signing URL", example: "https://app.carechc.com/esign/abc123" },
         );
       }
       
@@ -15555,30 +15720,40 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Send email with signing link
       const { sendTemplatedEmail } = await import('./agentmail');
       const signingLink = `${process.env.REPLIT_DEPLOYMENT_URL || 'http://localhost:5000'}/esign/${accessToken}`;
-      
+      let documentName = 'Document';
+      if (data.templateId) {
+        const esigTemplate = await storage.getESignatureTemplate(data.templateId);
+        if (esigTemplate?.name) documentName = esigTemplate.name;
+      }
+      const senderName = (user.firstName && user.lastName) ? `${user.firstName} ${user.lastName}` : user.username || 'Administrator';
+      const deadline = expiresAt.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+
       await sendTemplatedEmail(
         data.recipientEmail,
-        'general',
+        'esignature_request',
         {
-          recipientName: data.recipientName,
-          signingLink,
+          firstName: data.recipientName.split(' ')[0] || data.recipientName,
+          documentName,
+          senderName,
+          deadline,
+          signUrl: signingLink,
         },
-        'Document Ready for Signature',
+        'Action Required: Document Ready for Your Signature',
         `
           <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
             <h2>Document Ready for Your Signature</h2>
             <p>Hello ${data.recipientName},</p>
-            <p>You have a document waiting for your electronic signature.</p>
+            <p>You have a document waiting for your electronic signature: <strong>${documentName}</strong>.</p>
             <p>
-              <a href="${signingLink}" style="background-color: #3b82f6; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">
+              <a href="${signingLink}" style="background-color:#1a6faf;color:white;padding:12px 24px;text-decoration:none;border-radius:6px;display:inline-block;">
                 Review and Sign Document
               </a>
             </p>
-            <p style="color: #666; font-size: 14px;">This link will expire in 30 days.</p>
-            <p style="color: #666; font-size: 12px;">If you have questions, please contact the sender.</p>
+            <p style="color:#666;font-size:14px;">This link will expire on ${deadline}.</p>
+            <p style="color:#666;font-size:12px;">If you have questions, please contact ${senderName}.</p>
           </div>
         `,
-        `Hello ${data.recipientName}, you have a document waiting for your signature. Please visit: ${signingLink}`
+        `Hello ${data.recipientName}, you have a document waiting for your signature: "${documentName}". Please visit: ${signingLink} (expires ${deadline}).`
       );
       
       res.status(201).json(request);

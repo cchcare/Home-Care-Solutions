@@ -463,25 +463,30 @@ export async function setupAuth(app: Express) {
         // Send email using existing email service
         const baseUrl = process.env.BASE_URL || 'https://homecare.replit.app';
         const resetUrl = `${baseUrl}/reset-password?token=${resetToken}`;
-        
-        // Use AgentMail if configured
+
+        const fallbackHtml = `
+          <h2>Password Reset Request</h2>
+          <p>Hi ${user.firstName || "Caregiver"},</p>
+          <p>You requested to reset your Caregiver Portal password. Click the link below:</p>
+          <p><a href="${resetUrl}" style="background-color:#1a6faf;color:white;padding:10px 20px;text-decoration:none;border-radius:5px;">Reset Password</a></p>
+          <p>This link expires in 1 hour. If you did not request this, you can safely ignore this email.</p>
+          <p>&mdash; CCHC Solutions Team</p>
+        `;
+        const fallbackText = `Password Reset\n\nHi ${user.firstName || "Caregiver"},\n\nVisit this link to reset your Caregiver Portal password:\n${resetUrl}\n\nThis link expires in 1 hour.\n\n- CCHC Solutions Team`;
+
         try {
-          const AgentMail = require('agentmail').default;
-          const agentmail = new AgentMail(process.env.AGENTMAIL_API_KEY);
-          
-          await agentmail.sendEmail({
-            from: process.env.AGENTMAIL_FROM_ADDRESS,
-            to: user.email,
-            subject: 'Reset Your CCHC Caregiver Portal Password',
-            html: `
-              <h2>Password Reset Request</h2>
-              <p>Hi ${user.firstName},</p>
-              <p>You requested to reset your password for the CCHC Caregiver Portal.</p>
-              <p><a href="${resetUrl}" style="background-color: #0066cc; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">Reset Password</a></p>
-              <p>This link expires in 1 hour.</p>
-              <p>If you didn't request this, please ignore this email.</p>
-            `
-          });
+          await sendTemplatedEmail(
+            user.email!,
+            "password_reset_caregiver",
+            {
+              firstName: user.firstName || user.username || "Caregiver",
+              resetUrl,
+              expiryTime: "1 hour",
+            },
+            "Reset Your CCHC Caregiver Portal Password",
+            fallbackHtml,
+            fallbackText,
+          );
         } catch (emailError) {
           console.error("Failed to send caregiver password reset email:", emailError);
         }

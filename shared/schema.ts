@@ -3632,12 +3632,20 @@ export const insertCoordinatorPayRecordSchema = createInsertSchema(coordinatorPa
 // System Email Templates - Customizable email designs for system notifications
 export const emailTemplateTypeEnum = pgEnum("email_template_type", [
   "password_reset",
+  "password_reset_caregiver",
+  "signup_confirmation",
+  "user_invitation",
   "welcome",
+  "welcome_caregiver",
+  "family_portal_invitation",
   "birthday_client",
   "birthday_caregiver",
   "schedule_change",
   "schedule_reminder",
+  "evv_confirmation",
   "compliance_alert",
+  "incident_report_notification",
+  "esignature_request",
   "general"
 ]);
 

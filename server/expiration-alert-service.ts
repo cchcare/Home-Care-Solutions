@@ -368,6 +368,40 @@ export async function sendExpirationAlerts(): Promise<ExpirationAlertResult> {
     }
   }
 
+  // Send per-caregiver branded compliance_alert emails for caregiver_compliance items
+  if (settings.sendEmail) {
+    const { sendTemplatedEmail } = await import('./agentmail');
+    const caregiverItems = uniqueItems.filter(item => item.type === 'caregiver_compliance' && item.entityEmail && isValidEmail(item.entityEmail));
+    for (const item of caregiverItems) {
+      try {
+        const firstName = item.entityName.split(' ')[0] || item.entityName;
+        const expiresLabel = item.daysUntilExpiration === 0
+          ? 'TODAY'
+          : item.daysUntilExpiration === 1
+            ? 'tomorrow'
+            : `in ${item.daysUntilExpiration} days`;
+        await sendTemplatedEmail(
+          item.entityEmail!,
+          'compliance_alert',
+          {
+            firstName,
+            itemName: item.itemDescription,
+            expiryDate: format(item.expirationDate, 'MMMM d, yyyy'),
+            daysUntilExpiry: String(item.daysUntilExpiration),
+          },
+          `Action Required: ${item.itemDescription} Expiring ${expiresLabel}`,
+          `<p>Hi ${firstName},</p><p>Your ${item.itemDescription} expires ${expiresLabel} on ${format(item.expirationDate, 'MMMM d, yyyy')}. Please take action to renew it.</p>`,
+        );
+        result.emailsSent++;
+        console.log(`[Expiration Alerts] Sent compliance_alert email to caregiver ${item.entityName}`);
+      } catch (error) {
+        const errorMsg = `Failed to send compliance alert email to ${item.entityName}: ${error}`;
+        result.errors.push(errorMsg);
+        console.error(`[Expiration Alerts] ${errorMsg}`);
+      }
+    }
+  }
+
   console.log(`[Expiration Alerts] Completed: ${result.emailsSent} emails, ${result.smsSent} SMS sent`);
   return result;
 }

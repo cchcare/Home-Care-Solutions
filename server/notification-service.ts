@@ -1,5 +1,6 @@
 import { storage } from './storage';
 import { sendEmail, sendSMS, formatPhoneNumber, isValidPhone, isValidEmail } from './communication-services';
+import { sendTemplatedEmail } from './agentmail';
 import type { 
   NotificationTemplate, 
   NotificationQueueItem, 
@@ -291,6 +292,10 @@ export async function sendScheduleChangeNotification(
   const body = `${changeTypeText}: ${variables.clientName} on ${scheduleDate} at ${scheduleTime}. Caregiver: ${variables.caregiverName}`;
 
   if (caregiver) {
+    const caregiverFirstName = caregiver.firstName || caregiver.lastName || 'Caregiver';
+    const hasCaregiverEmail = caregiver.email && isValidEmail(caregiver.email);
+
+    // Queue all notifications (SMS + email) for audit
     const notifications = await queueNotification({
       recipientType: 'caregiver',
       recipientId: caregiver.id,
@@ -298,16 +303,50 @@ export async function sendScheduleChangeNotification(
       subject: `Schedule ${changeType.charAt(0).toUpperCase() + changeType.slice(1)}`,
       variables,
     });
-    
+
     for (const notif of notifications) {
-      const result = await sendNotification(notif);
-      results.push(result);
-      await storage.updateNotificationQueueItem(notif.id, {
-        status: result.success ? 'sent' : 'failed',
-        sentAt: result.success ? new Date() : undefined,
-        errorMessage: result.error,
-        externalId: result.externalId,
-      });
+      if (notif.channel === 'email' && hasCaregiverEmail) {
+        // Send via branded template system; update queue record to reflect outcome
+        const fallbackSubject = `Schedule ${changeType.charAt(0).toUpperCase() + changeType.slice(1)} — ${variables.clientName}`;
+        const fallbackHtml = `<p>Hi ${caregiverFirstName},</p><p>${body}</p>`;
+        let emailSuccess = false;
+        let emailError: string | undefined;
+        try {
+          await sendTemplatedEmail(
+            caregiver.email!,
+            'schedule_change',
+            {
+              firstName: caregiverFirstName,
+              changeType: changeTypeText,
+              clientName: variables.clientName,
+              scheduleDate,
+              scheduleTime,
+              caregiverName: variables.caregiverName,
+            },
+            fallbackSubject,
+            fallbackHtml,
+          );
+          emailSuccess = true;
+        } catch (err) {
+          console.error('[Notification] Failed to send schedule_change email:', err);
+          emailError = String(err);
+        }
+        results.push({ success: emailSuccess, channel: 'email', error: emailError });
+        await storage.updateNotificationQueueItem(notif.id, {
+          status: emailSuccess ? 'sent' : 'failed',
+          sentAt: emailSuccess ? new Date() : undefined,
+          errorMessage: emailError,
+        });
+      } else {
+        const result = await sendNotification(notif);
+        results.push(result);
+        await storage.updateNotificationQueueItem(notif.id, {
+          status: result.success ? 'sent' : 'failed',
+          sentAt: result.success ? new Date() : undefined,
+          errorMessage: result.error,
+          externalId: result.externalId,
+        });
+      }
     }
   }
 
@@ -330,26 +369,64 @@ export async function sendReminderNotification(scheduleId: string): Promise<Noti
 
   const scheduleDate = schedule.scheduledDate ? new Date(schedule.scheduledDate).toLocaleDateString() : 'TBD';
   const scheduleTime = schedule.startTime || 'TBD';
+  const clientAddress = client?.address || '';
+  const clientName = client ? `${client.firstName} ${client.lastName}` : 'a client';
 
-  const body = `Reminder: You have a scheduled visit with ${client ? `${client.firstName} ${client.lastName}` : 'a client'} today at ${scheduleTime}.`;
+  const body = `Reminder: You have a scheduled visit with ${clientName} today at ${scheduleTime}.`;
 
   if (caregiver) {
+    const caregiverFirstName = caregiver.firstName || caregiver.lastName || 'Caregiver';
+    const hasCaregiverEmail = caregiver.email && isValidEmail(caregiver.email);
+
+    // Queue all notifications (SMS + email) for audit
     const notifications = await queueNotification({
       recipientType: 'caregiver',
       recipientId: caregiver.id,
       body,
       subject: 'Schedule Reminder',
     });
-    
+
     for (const notif of notifications) {
-      const result = await sendNotification(notif);
-      results.push(result);
-      await storage.updateNotificationQueueItem(notif.id, {
-        status: result.success ? 'sent' : 'failed',
-        sentAt: result.success ? new Date() : undefined,
-        errorMessage: result.error,
-        externalId: result.externalId,
-      });
+      if (notif.channel === 'email' && hasCaregiverEmail) {
+        // Send via branded template system; update queue record to reflect outcome
+        const fallbackHtml = `<p>Hi ${caregiverFirstName},</p><p>${body}</p>`;
+        let emailSuccess = false;
+        let emailError: string | undefined;
+        try {
+          await sendTemplatedEmail(
+            caregiver.email!,
+            'schedule_reminder',
+            {
+              firstName: caregiverFirstName,
+              clientName,
+              scheduleDate,
+              scheduleTime,
+              clientAddress,
+            },
+            'Schedule Reminder',
+            fallbackHtml,
+          );
+          emailSuccess = true;
+        } catch (err) {
+          console.error('[Notification] Failed to send schedule_reminder email:', err);
+          emailError = String(err);
+        }
+        results.push({ success: emailSuccess, channel: 'email', error: emailError });
+        await storage.updateNotificationQueueItem(notif.id, {
+          status: emailSuccess ? 'sent' : 'failed',
+          sentAt: emailSuccess ? new Date() : undefined,
+          errorMessage: emailError,
+        });
+      } else {
+        const result = await sendNotification(notif);
+        results.push(result);
+        await storage.updateNotificationQueueItem(notif.id, {
+          status: result.success ? 'sent' : 'failed',
+          sentAt: result.success ? new Date() : undefined,
+          errorMessage: result.error,
+          externalId: result.externalId,
+        });
+      }
     }
   }
 

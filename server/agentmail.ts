@@ -9,7 +9,7 @@ const CUSTOM_EMAIL = 'donotreply@app.carechc.com';
 const CUSTOM_USERNAME = 'donotreply';
 const CUSTOM_DOMAIN = 'app.carechc.com';
 
-export type EmailTemplateTypeValue = 'password_reset' | 'welcome' | 'birthday_client' | 'birthday_caregiver' | 'schedule_change' | 'schedule_reminder' | 'compliance_alert' | 'general';
+export type EmailTemplateTypeValue = 'password_reset' | 'password_reset_caregiver' | 'signup_confirmation' | 'user_invitation' | 'welcome' | 'welcome_caregiver' | 'family_portal_invitation' | 'birthday_client' | 'birthday_caregiver' | 'schedule_change' | 'schedule_reminder' | 'evv_confirmation' | 'compliance_alert' | 'incident_report_notification' | 'esignature_request' | 'general';
 
 export interface TemplatePlaceholders {
   [key: string]: string;
@@ -61,6 +61,16 @@ function removeUnresolvedPlaceholders(content: string): string {
   return content.replace(/\{\{[a-zA-Z_][a-zA-Z0-9_]*\}\}/g, '');
 }
 
+function buildGlobalDefaults(): TemplatePlaceholders {
+  const baseUrl = process.env.BASE_URL || process.env.REPLIT_DEPLOYMENT_URL || 'https://app.carechc.com';
+  return {
+    companyName: process.env.COMPANY_NAME || 'CCHC Solutions',
+    currentYear: new Date().getFullYear().toString(),
+    portalUrl: `${baseUrl}/caregiver-login`,
+    loginUrl: `${baseUrl}/login`,
+  };
+}
+
 export async function sendTemplatedEmail(
   to: string,
   templateType: EmailTemplateTypeValue,
@@ -70,15 +80,21 @@ export async function sendTemplatedEmail(
   fallbackText?: string
 ) {
   const template = await getDefaultTemplate(templateType);
+
+  // Merge global defaults first so callsite-provided values always win
+  const enrichedPlaceholders: TemplatePlaceholders = {
+    ...buildGlobalDefaults(),
+    ...placeholders,
+  };
   
   let subject: string;
   let html: string;
   let text: string | undefined;
   
   if (template && template.isActive) {
-    let processedSubject = replacePlaceholders(template.subject, placeholders);
-    let processedHtml = replacePlaceholders(template.htmlContent, placeholders);
-    let processedText = template.textContent ? replacePlaceholders(template.textContent, placeholders) : undefined;
+    let processedSubject = replacePlaceholders(template.subject, enrichedPlaceholders);
+    let processedHtml = replacePlaceholders(template.htmlContent, enrichedPlaceholders);
+    let processedText = template.textContent ? replacePlaceholders(template.textContent, enrichedPlaceholders) : undefined;
     
     const unresolvedInSubject = getUnresolvedPlaceholders(processedSubject);
     const unresolvedInHtml = getUnresolvedPlaceholders(processedHtml);

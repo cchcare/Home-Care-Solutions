@@ -1,4 +1,5 @@
 import { pool } from "./db";
+import { getEmailTemplateSeeds } from "./email-template-seeds";
 
 const TABLES_TO_TRUNCATE = [
   "ai_detected_issues", "api_keys", "api_usage_logs",
@@ -17,7 +18,7 @@ const TABLES_TO_TRUNCATE = [
   "client_referrals", "client_schedules", "clients",
   "compliance_items", "coordinator_pay_records", "coordinators",
   "custom_integrations", "custom_roles", "documents",
-  "eligibility_checks", "eligibility_schedule", "email_templates",
+  "eligibility_checks", "eligibility_schedule",
   "entity_field_configs", "esignature_requests", "esignature_templates",
   "evv_data", "exclusion_records", "exclusion_reports", "exclusion_sources",
   "family_members", "family_updates", "files", "generated_letters",
@@ -39,6 +40,57 @@ const TABLES_TO_TRUNCATE = [
   "system_settings", "tasks", "ticket_messages", "time_off_requests",
   "training_records", "trainings", "user_custom_roles", "users", "vital_signs",
 ];
+
+export async function seedEmailTemplates() {
+  const client = await pool.connect();
+  try {
+    const templates = getEmailTemplateSeeds();
+    console.log(`[Init] Seeding ${templates.length} email templates...`);
+
+    for (const tpl of templates) {
+      await client.query(
+        `INSERT INTO email_templates (
+          id, type, name, subject, html_content, text_content,
+          placeholders, theme_settings, is_active, is_default,
+          created_at, updated_at
+        ) VALUES (
+          gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, true, $8, NOW(), NOW()
+        )
+        ON CONFLICT (type, name) DO UPDATE SET
+          subject       = EXCLUDED.subject,
+          html_content  = EXCLUDED.html_content,
+          text_content  = EXCLUDED.text_content,
+          placeholders  = EXCLUDED.placeholders,
+          theme_settings = EXCLUDED.theme_settings,
+          is_active     = EXCLUDED.is_active,
+          is_default    = EXCLUDED.is_default,
+          updated_at    = NOW()
+        WHERE email_templates.updated_by IS NULL`,
+        [
+          tpl.type,
+          tpl.name,
+          tpl.subject,
+          tpl.htmlContent,
+          tpl.textContent,
+          JSON.stringify(tpl.placeholders),
+          JSON.stringify({
+            primaryColor: "#1a6faf",
+            backgroundColor: "#f5f7fa",
+            fontFamily: "'Segoe UI', Arial, Helvetica, sans-serif",
+          }),
+          tpl.isDefault,
+        ]
+      );
+    }
+
+    console.log(`[Init] Email templates seeded successfully.`);
+  } catch (err) {
+    console.error("[Init] Failed to seed email templates:", err);
+    throw err;
+  } finally {
+    client.release();
+  }
+}
 
 export async function runProductionInit() {
   const client = await pool.connect();
@@ -97,4 +149,7 @@ export async function runProductionInit() {
   } finally {
     client.release();
   }
+
+  // Seed email templates after reset (outside the transaction so they survive)
+  await seedEmailTemplates();
 }

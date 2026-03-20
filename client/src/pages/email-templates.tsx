@@ -92,13 +92,21 @@ interface Placeholder {
 }
 
 const EMAIL_TEMPLATE_TYPES = [
-  { value: "password_reset", label: "Password Reset" },
-  { value: "welcome", label: "Welcome Email" },
+  { value: "signup_confirmation", label: "Account Created Confirmation" },
+  { value: "password_reset", label: "Password Reset (Staff)" },
+  { value: "password_reset_caregiver", label: "Password Reset (Caregiver)" },
+  { value: "user_invitation", label: "Staff Invitation" },
+  { value: "welcome", label: "Welcome (Staff)" },
+  { value: "welcome_caregiver", label: "Welcome (Caregiver)" },
+  { value: "family_portal_invitation", label: "Family Portal Invitation" },
   { value: "birthday_client", label: "Birthday - Client" },
   { value: "birthday_caregiver", label: "Birthday - Caregiver" },
   { value: "schedule_change", label: "Schedule Change" },
   { value: "schedule_reminder", label: "Schedule Reminder" },
+  { value: "evv_confirmation", label: "EVV Clock-In/Out Confirmation" },
   { value: "compliance_alert", label: "Compliance Alert" },
+  { value: "incident_report_notification", label: "Incident Report Filed" },
+  { value: "esignature_request", label: "E-Signature Request" },
   { value: "general", label: "General" },
 ];
 
