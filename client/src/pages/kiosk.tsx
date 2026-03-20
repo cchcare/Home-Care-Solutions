@@ -6,7 +6,7 @@ import { Sidebar } from "@/components/sidebar";
 import { format } from "date-fns";
 import {
   Camera, LogIn, LogOut, CheckCircle, XCircle, RotateCcw, Eye, EyeOff,
-  Delete, AlertTriangle, Video, RefreshCw, ShieldCheck, ShieldAlert, MapPin,
+  Delete, AlertTriangle, Video, RefreshCw, ShieldCheck, ShieldAlert, MapPin, Info, Shield,
 } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -228,10 +228,18 @@ export default function Kiosk() {
   const [faceMatchConfidence, setFaceMatchConfidence] = useState<number>(0);
   const [geoLatitude, setGeoLatitude] = useState<number | null>(null);
   const [geoLongitude, setGeoLongitude] = useState<number | null>(null);
+  const [gpsLoading, setGpsLoading] = useState(false);
+  const [gpsError, setGpsError] = useState<string | null>(null);
   const [officeInfo, setOfficeInfo] = useState<{ name: string; address: string | null; city: string | null; state: string | null; zipCode: string | null } | null>(null);
   const [outsideBoundary, setOutsideBoundary] = useState(false);
   const [distanceFeet, setDistanceFeet] = useState<number | null>(null);
   const [clockInOfficeAddress, setClockInOfficeAddress] = useState<string | null>(null);
+  // Supervisor bypass (when camera fails)
+  const [supervisorMode, setSupervisorMode] = useState(false);
+  const [supervisorStaffId, setSupervisorStaffId] = useState("");
+  const [supervisorPin, setSupervisorPin] = useState("");
+  const [supervisorVerified, setSupervisorVerified] = useState<{ name: string; role: string } | null>(null);
+  const [supervisorBypassUsed, setSupervisorBypassUsed] = useState(false);
 
   // Live clock
   useEffect(() => {
@@ -262,8 +270,9 @@ export default function Kiosk() {
     setErrorMsg(""); setSuccessMsg(""); setBreakMinutes("0");
     setLocalFaceDetected(null);
     setFaceMatchStatus("idle"); setFaceMatchConfidence(0);
-    setGeoLatitude(null); setGeoLongitude(null);
+    setGeoLatitude(null); setGeoLongitude(null); setGpsLoading(false); setGpsError(null);
     setOfficeInfo(null); setOutsideBoundary(false); setDistanceFeet(null); setClockInOfficeAddress(null);
+    setSupervisorMode(false); setSupervisorStaffId(""); setSupervisorPin(""); setSupervisorVerified(null); setSupervisorBypassUsed(false);
   }
 
   async function handleVerify() {
@@ -330,19 +339,80 @@ export default function Kiosk() {
     setLocalFaceDetected(localFace);
   }
 
+  async function retryGps() {
+    setGpsError(null); setGpsLoading(true);
+    if (!navigator.geolocation) { setGpsError("Location not supported by this device"); setGpsLoading(false); return; }
+    navigator.geolocation.getCurrentPosition(
+      (pos) => { setGeoLatitude(pos.coords.latitude); setGeoLongitude(pos.coords.longitude); setGpsLoading(false); },
+      (err) => { setGpsError(err.message || "Location access denied — please allow location in your browser"); setGpsLoading(false); },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+    );
+  }
+
+  async function handleSupervisorVerify() {
+    if (!supervisorStaffId.trim() || !supervisorPin.trim()) { setErrorMsg("Enter supervisor Staff ID and PIN"); return; }
+    setLoading(true); setErrorMsg("");
+    try {
+      const res = await fetch("/api/kiosk/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ staffId: supervisorStaffId.trim(), pin: supervisorPin.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setErrorMsg(data.message || "Invalid supervisor credentials"); setLoading(false); return; }
+      const supervisorRoles = ["supervisor", "admin", "office_admin", "super_admin"];
+      if (!supervisorRoles.includes(data.user?.role)) {
+        setErrorMsg("This user does not have supervisor privileges to authorize a bypass.");
+        setLoading(false); return;
+      }
+      setSupervisorVerified({ name: `${data.user.firstName || ""} ${data.user.lastName || ""}`.trim() || data.user.username, role: data.user.role });
+    } catch { setErrorMsg("Network error. Please try again."); }
+    setLoading(false);
+  }
+
+  async function handleSupervisorBypassSubmit() {
+    if (!supervisorVerified) return;
+    if (!geoLatitude || !geoLongitude) { setErrorMsg("GPS location is still required. Please retry location first."); return; }
+    setLoading(true); setErrorMsg("");
+    try {
+      const endpoint = pendingAction === "clock-in" ? "/api/kiosk/clock-in" : "/api/kiosk/clock-out";
+      const body: any = {
+        staffId: staffId.trim(), pin: pin.trim(),
+        supervisorBypass: true, supervisorName: supervisorVerified.name,
+        latitude: geoLatitude, longitude: geoLongitude,
+      };
+      if (pendingAction === "clock-out") body.breakMinutes = parseInt(breakMinutes) || 0;
+      const res = await fetch(endpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const data = await res.json();
+      if (!res.ok) { setErrorMsg(data.message || "Action failed"); setStep("error"); setLoading(false); return; }
+      const name = `${data.user?.firstName || ""} ${data.user?.lastName || ""}`.trim();
+      const time = format(new Date(), "h:mm a");
+      setSuccessMsg(pendingAction === "clock-in" ? `${name} clocked in at ${time}` : `${name} clocked out at ${time}`);
+      setSupervisorBypassUsed(true);
+      if (pendingAction === "clock-in") { setOutsideBoundary(!!data.outsideBoundary); setDistanceFeet(data.distanceFeet ?? null); setClockInOfficeAddress(data.officeAddress ?? null); }
+      webcam.stop();
+      setStep("success");
+    } catch { setErrorMsg("Network error. Please try again."); setStep("error"); }
+    setLoading(false);
+  }
+
   async function startCamera() {
     setCapturedPhoto(null); setCapturedVideo(null);
     setLocalFaceDetected(null); setFaceMatchStatus("idle"); setFaceMatchConfidence(0);
-    setGeoLatitude(null); setGeoLongitude(null);
+    setGeoLatitude(null); setGeoLongitude(null); setGpsLoading(true); setGpsError(null);
+    setSupervisorMode(false); setSupervisorStaffId(""); setSupervisorPin(""); setSupervisorVerified(null);
     setStep("camera");
 
-    // Request geolocation in parallel with camera startup
+    // GPS is now REQUIRED — request location and track result
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
-        (pos) => { setGeoLatitude(pos.coords.latitude); setGeoLongitude(pos.coords.longitude); },
-        () => { /* silently skip — location optional for kiosk */ },
-        { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
+        (pos) => { setGeoLatitude(pos.coords.latitude); setGeoLongitude(pos.coords.longitude); setGpsLoading(false); },
+        (err) => { setGpsError(err.message || "Location access denied — please allow location in your browser"); setGpsLoading(false); },
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
       );
+    } else {
+      setGpsError("Location is not supported by this device");
+      setGpsLoading(false);
     }
 
     const stream = await webcam.start();
@@ -377,6 +447,10 @@ export default function Kiosk() {
 
   async function handleSubmit() {
     if (!capturedPhoto) { setErrorMsg("Photo is required."); return; }
+    if (!geoLatitude || !geoLongitude) {
+      setErrorMsg("GPS location is required. Please wait for location to be acquired or allow location access in your browser.");
+      return;
+    }
     setLoading(true); setErrorMsg("");
     try {
       const endpoint = pendingAction === "clock-in" ? "/api/kiosk/clock-in" : "/api/kiosk/clock-out";
@@ -440,7 +514,12 @@ export default function Kiosk() {
         Face does not match profile photo. Clock-in will be flagged for manager review.
       </div>
     );
-    if (faceMatchStatus === "skipped") return null; // Silent skip — no banner shown
+    if (faceMatchStatus === "skipped") return (
+      <div className="flex items-center gap-2 text-slate-600 bg-slate-50 border border-slate-200 rounded-lg p-2.5 text-sm mb-3">
+        <Info className="w-4 h-4 shrink-0" />
+        No profile photo on file — face identity verification skipped. Contact your manager to add one.
+      </div>
+    );
     if (localFaceDetected === false) return (
       <div className="flex items-center gap-2 text-amber-700 bg-amber-50 border border-amber-300 rounded-lg p-2.5 text-sm mb-3">
         <AlertTriangle className="w-4 h-4 shrink-0" />
@@ -634,12 +713,93 @@ export default function Kiosk() {
                 )}
               </div>
 
+              {/* GPS Status Banner — always shown in camera step */}
+              {gpsLoading && (
+                <div className="flex items-center gap-2 text-blue-700 bg-blue-50 border border-blue-200 rounded-lg p-2.5 text-sm mb-3">
+                  <RefreshCw className="w-4 h-4 animate-spin shrink-0" />
+                  Acquiring your GPS location (required)...
+                </div>
+              )}
+              {!gpsLoading && geoLatitude && geoLongitude && (
+                <div className="flex items-center gap-2 text-green-700 bg-green-50 border border-green-200 rounded-lg p-2.5 text-sm mb-3">
+                  <MapPin className="w-4 h-4 shrink-0" />
+                  GPS location acquired
+                </div>
+              )}
+              {!gpsLoading && gpsError && (
+                <div className="flex items-center gap-2 justify-between text-red-700 bg-red-50 border border-red-200 rounded-lg p-2.5 text-sm mb-3">
+                  <div className="flex items-center gap-2">
+                    <MapPin className="w-4 h-4 shrink-0" />
+                    <span>Location required: {gpsError}</span>
+                  </div>
+                  <button onClick={retryGps} className="underline text-blue-700 whitespace-nowrap">Retry</button>
+                </div>
+              )}
+
               {webcam.error ? (
-                <div className="text-red-600 text-center p-4 bg-red-50 rounded-xl mb-4">
-                  <XCircle className="w-8 h-8 mx-auto mb-2" />
-                  <p>Camera error: {webcam.error}</p>
-                  <p className="text-sm text-red-500 mt-1">Please allow camera access and try again.</p>
-                  <Button variant="outline" size="sm" className="mt-3" onClick={reset}>Go Back</Button>
+                <div className="bg-red-50 border border-red-200 rounded-xl p-4 mb-4">
+                  <div className="flex items-center gap-2 text-red-700 mb-3">
+                    <XCircle className="w-5 h-5" />
+                    <span className="font-semibold">Camera unavailable</span>
+                  </div>
+                  <p className="text-sm text-red-600 mb-4">{webcam.error} — please allow camera access in your browser settings.</p>
+
+                  {!supervisorMode ? (
+                    <div className="flex flex-col gap-2">
+                      <p className="text-sm text-slate-600 font-medium">A supervisor can authorize clock-in without a photo:</p>
+                      <Button className="w-full bg-amber-600 hover:bg-amber-700 text-white" onClick={() => setSupervisorMode(true)}>
+                        <Shield className="w-4 h-4 mr-2" /> Supervisor Override
+                      </Button>
+                      <Button variant="outline" className="w-full" onClick={reset}>
+                        <RotateCcw className="w-4 h-4 mr-2" /> Cancel
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      <p className="text-sm font-semibold text-slate-700">Supervisor Authorization</p>
+                      {!supervisorVerified ? (
+                        <>
+                          <div>
+                            <Label className="text-xs text-slate-600">Supervisor Staff ID</Label>
+                            <Input value={supervisorStaffId} onChange={e => setSupervisorStaffId(e.target.value)} placeholder="Username or email" className="mt-1" autoComplete="off" />
+                          </div>
+                          <div>
+                            <Label className="text-xs text-slate-600">Supervisor PIN</Label>
+                            <Input value={supervisorPin} onChange={e => setSupervisorPin(e.target.value.replace(/\D/g, "").slice(0, 8))} type="password" placeholder="••••" className="mt-1" inputMode="numeric" />
+                          </div>
+                          {errorMsg && <p className="text-xs text-red-600">{errorMsg}</p>}
+                          {gpsError && <p className="text-xs text-amber-700">GPS still required. <button onClick={retryGps} className="underline">Retry location</button></p>}
+                          <Button className="w-full bg-amber-600 hover:bg-amber-700 text-white" onClick={handleSupervisorVerify} disabled={loading}>
+                            {loading ? "Verifying..." : "Verify Supervisor"}
+                          </Button>
+                          <Button variant="outline" className="w-full" onClick={() => setSupervisorMode(false)}>Back</Button>
+                        </>
+                      ) : (
+                        <>
+                          <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-sm text-green-700">
+                            <ShieldCheck className="w-4 h-4 inline mr-1" />
+                            <strong>{supervisorVerified.name}</strong> ({supervisorVerified.role.replace(/_/g, " ")}) authorized this bypass.
+                            <br /><span className="text-xs">This clock-in will be flagged for manager review.</span>
+                          </div>
+                          {gpsError ? (
+                            <div className="bg-red-50 border border-red-200 rounded-lg p-2.5 text-sm text-red-700">
+                              GPS required even with bypass. <button onClick={retryGps} className="underline">Retry location</button>
+                            </div>
+                          ) : null}
+                          {errorMsg && <p className="text-xs text-red-600">{errorMsg}</p>}
+                          <Button
+                            className={`w-full text-white ${pendingAction === "clock-in" ? "bg-green-600 hover:bg-green-700" : "bg-red-600 hover:bg-red-700"}`}
+                            onClick={handleSupervisorBypassSubmit}
+                            disabled={loading || !!gpsError || gpsLoading}>
+                            {loading ? "Processing..." : pendingAction === "clock-in"
+                              ? <><LogIn className="w-4 h-4 mr-2" /> Confirm Clock In (Supervisor Override)</>
+                              : <><LogOut className="w-4 h-4 mr-2" /> Confirm Clock Out (Supervisor Override)</>}
+                          </Button>
+                          <Button variant="outline" className="w-full" onClick={reset}>Cancel</Button>
+                        </>
+                      )}
+                    </div>
+                  )}
                 </div>
               ) : (
                 <>
@@ -687,6 +847,17 @@ export default function Kiosk() {
                   {/* Face match / detection status banner */}
                   {capturedPhoto && faceMatchBanner()}
 
+                  {/* GPS warning on confirm when GPS failed */}
+                  {capturedPhoto && gpsError && (
+                    <div className="flex items-center gap-2 justify-between text-red-700 bg-red-50 border border-red-200 rounded-lg p-2.5 text-sm mb-3">
+                      <div className="flex items-center gap-2">
+                        <MapPin className="w-4 h-4 shrink-0" />
+                        <span>GPS required — cannot confirm without location</span>
+                      </div>
+                      <button onClick={retryGps} className="underline text-blue-700 whitespace-nowrap">Retry</button>
+                    </div>
+                  )}
+
                   {/* Action buttons */}
                   {!capturedPhoto ? (
                     <div className="flex gap-3">
@@ -715,8 +886,8 @@ export default function Kiosk() {
                         <Button
                           className={`flex-1 text-white ${pendingAction === "clock-in" ? "bg-green-600 hover:bg-green-700" : "bg-red-600 hover:bg-red-700"}`}
                           onClick={handleSubmit}
-                          disabled={loading || isChecking}>
-                          {loading ? "Processing..." : isChecking ? "Verifying..." : pendingAction === "clock-in"
+                          disabled={loading || isChecking || gpsLoading || !!gpsError}>
+                          {loading ? "Processing..." : isChecking ? "Verifying..." : gpsLoading ? "Waiting for GPS..." : pendingAction === "clock-in"
                             ? <><LogIn className="w-4 h-4 mr-2" /> Confirm Clock In</>
                             : <><LogOut className="w-4 h-4 mr-2" /> Confirm Clock Out</>
                           }
@@ -770,6 +941,13 @@ export default function Kiosk() {
                 <div className="mt-3 bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-700">
                   <ShieldAlert className="w-4 h-4 inline mr-1" />
                   Face verification failed — submitted for manager review.
+                </div>
+              )}
+
+              {supervisorBypassUsed && (
+                <div className="mt-3 bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-700">
+                  <Shield className="w-4 h-4 inline mr-1" />
+                  Supervisor override used — submitted for manager review.
                 </div>
               )}
 

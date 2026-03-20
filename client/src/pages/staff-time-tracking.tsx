@@ -19,7 +19,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import {
   Clock, LogIn, LogOut, History, AlertTriangle, Calendar, TrendingUp,
   CheckCircle2, FileBarChart, MapPin, Shield, Users, Edit, Lock,
-  Download, Flag, RefreshCw, Activity, Info, Eye,
+  Download, Flag, RefreshCw, Activity, Info, Eye, Camera, XCircle, ShieldCheck, ShieldAlert, RotateCcw,
 } from "lucide-react";
 import {
   format, differenceInMinutes, startOfWeek, subWeeks,
@@ -140,6 +140,31 @@ export default function StaffTimeTracking() {
   const inGps = useGPS();
   const outGps = useGPS();
 
+  // ── Selfie Dialog State ──────────────────────────────────────────────────────
+  const [selfieOpen, setSelfieOpen] = useState(false);
+  const [selfieAction, setSelfieAction] = useState<"clock-in" | "clock-out">("clock-in");
+  const [selfiePhoto, setSelfiePhoto] = useState<string | null>(null);
+  const [selfieWebcamReady, setSelfieWebcamReady] = useState(false);
+  const [selfieWebcamError, setSelfieWebcamError] = useState<string | null>(null);
+  const [selfieCountdown, setSelfieCountdown] = useState<number | null>(null);
+  const [selfieLoading, setSelfieLoading] = useState(false);
+  const [selfieGpsLoading, setSelfieGpsLoading] = useState(false);
+  const [selfieGpsError, setSelfieGpsError] = useState<string | null>(null);
+  const [selfieGeoLat, setSelfieGeoLat] = useState<number | null>(null);
+  const [selfieGeoLng, setSelfieGeoLng] = useState<number | null>(null);
+  // Supervisor bypass
+  const [selfieSupervisorMode, setSelfieSupervisorMode] = useState(false);
+  const [selfieSupervisorStaffId, setSelfieSupervisorStaffId] = useState("");
+  const [selfieSupervisorPin, setSelfieSupervisorPin] = useState("");
+  const [selfieSupervisorVerified, setSelfieSupervisorVerified] = useState<{ name: string; role: string } | null>(null);
+  const [selfieError, setSelfieError] = useState("");
+  // Pending clock-out params (stored when selfie dialog opens for clock-out)
+  const [pendingClockOutParams, setPendingClockOutParams] = useState<{ breakMinutes: number; notes: string; lat?: number; lng?: number } | null>(null);
+  // Refs for webcam
+  const selfieVideoRef = useRef<HTMLVideoElement>(null);
+  const selfieStreamRef = useRef<MediaStream | null>(null);
+  const selfieCountdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
   // Live elapsed timer
   const { data: activeRecord } = useQuery<any>({
     queryKey: ["/api/staff/time-records/active"],
@@ -180,14 +205,16 @@ export default function StaffTimeTracking() {
   // ── Mutations ────────────────────────────────────────────────────────────────
 
   const clockInMutation = useMutation({
-    mutationFn: () => apiRequest("POST", "/api/staff/clock-in", {
+    mutationFn: (params: { photo?: string; supervisorBypassBy?: string }) => apiRequest("POST", "/api/staff/clock-in", {
       notes: clockInNotes,
       latitude: inGps.coords?.lat,
       longitude: inGps.coords?.lng,
+      photo: params.photo,
+      supervisorBypassBy: params.supervisorBypassBy,
     }),
     onSuccess: (record: any) => {
       if (record?.isFlagged) {
-        toast({ title: "Clocked In — Location Warning", description: record.flagReason || "You are outside the 500ft office boundary. Your manager will review this punch.", variant: "destructive" });
+        toast({ title: "Clocked In — Review Required", description: record.flagReason || "Your clock-in has been flagged for manager review.", variant: "destructive" });
       } else {
         toast({ title: "Clocked In", description: "You are now clocked in." });
       }
@@ -200,11 +227,13 @@ export default function StaffTimeTracking() {
   });
 
   const clockOutMutation = useMutation({
-    mutationFn: () => apiRequest("POST", "/api/staff/clock-out", {
-      breakMinutes: parseInt(clockOutBreak) || 0,
-      notes: clockOutNotes,
-      latitude: outGps.coords?.lat,
-      longitude: outGps.coords?.lng,
+    mutationFn: (params: { photo?: string; supervisorBypassBy?: string; breakMinutes?: number; notes?: string; lat?: number; lng?: number }) => apiRequest("POST", "/api/staff/clock-out", {
+      breakMinutes: params.breakMinutes ?? parseInt(clockOutBreak) ?? 0,
+      notes: params.notes ?? clockOutNotes,
+      latitude: params.lat ?? outGps.coords?.lat,
+      longitude: params.lng ?? outGps.coords?.lng,
+      photo: params.photo,
+      supervisorBypassBy: params.supervisorBypassBy,
     }),
     onSuccess: () => {
       toast({ title: "Clocked Out", description: "Session recorded successfully." });
@@ -281,6 +310,165 @@ export default function StaffTimeTracking() {
       editReason: "",
     });
     setEditOpen(true);
+  }
+
+  // ── Selfie Dialog Helpers ─────────────────────────────────────────────────────
+
+  function resetSelfieState() {
+    if (selfieCountdownRef.current) { clearInterval(selfieCountdownRef.current); selfieCountdownRef.current = null; }
+    selfieStreamRef.current?.getTracks().forEach(t => t.stop());
+    selfieStreamRef.current = null;
+    setSelfiePhoto(null); setSelfieWebcamReady(false); setSelfieWebcamError(null);
+    setSelfieCountdown(null); setSelfieLoading(false); setSelfieError("");
+    setSelfieGpsLoading(false); setSelfieGpsError(null); setSelfieGeoLat(null); setSelfieGeoLng(null);
+    setSelfieSupervisorMode(false); setSelfieSupervisorStaffId(""); setSelfieSupervisorPin(""); setSelfieSupervisorVerified(null);
+  }
+
+  // Start camera when selfie dialog opens (after React renders the video element)
+  useEffect(() => {
+    if (selfieOpen && !selfieWebcamError && !selfieWebcamReady && !selfiePhoto) {
+      startSelfieCamera();
+    }
+    if (!selfieOpen) {
+      // Cleanup when dialog closes
+      if (selfieCountdownRef.current) { clearInterval(selfieCountdownRef.current); selfieCountdownRef.current = null; }
+      selfieStreamRef.current?.getTracks().forEach(t => t.stop());
+      selfieStreamRef.current = null;
+    }
+  }, [selfieOpen]);
+
+  function openSelfieForClockIn() {
+    if (!inGps.coords) {
+      toast({ title: "GPS Required", description: "Please capture your GPS location before clocking in.", variant: "destructive" });
+      return;
+    }
+    resetSelfieState();
+    setSelfieAction("clock-in");
+    setSelfieOpen(true);
+  }
+
+  function openSelfieForClockOut() {
+    if (!outGps.coords) {
+      toast({ title: "GPS Required", description: "Please capture your GPS location before clocking out.", variant: "destructive" });
+      return;
+    }
+    // Store clock-out params before closing the clock-out dialog
+    setPendingClockOutParams({
+      breakMinutes: parseInt(clockOutBreak) || 0,
+      notes: clockOutNotes,
+      lat: outGps.coords?.lat,
+      lng: outGps.coords?.lng,
+    });
+    setClockOutOpen(false);
+    resetSelfieState();
+    setSelfieAction("clock-out");
+    setSelfieOpen(true);
+  }
+
+  async function startSelfieCamera() {
+    setSelfieWebcamError(null); setSelfieWebcamReady(false); setSelfiePhoto(null);
+    // GPS is already captured via GPS hooks — just track it for display
+    setSelfieGpsLoading(false); setSelfieGpsError(null);
+    try {
+      let stream: MediaStream | null = null;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480, facingMode: "user" }, audio: false });
+      } catch {
+        try { stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false }); } catch (e: any) {
+          setSelfieWebcamError(e.message || "Camera unavailable");
+          return;
+        }
+      }
+      selfieStreamRef.current = stream;
+      if (selfieVideoRef.current) {
+        selfieVideoRef.current.srcObject = stream;
+        selfieVideoRef.current.muted = true;
+        await selfieVideoRef.current.play();
+        setSelfieWebcamReady(true);
+      }
+      // Start countdown
+      let count = 3; setSelfieCountdown(count);
+      if (selfieCountdownRef.current) clearInterval(selfieCountdownRef.current);
+      selfieCountdownRef.current = setInterval(() => {
+        count--;
+        setSelfieCountdown(count);
+        if (count <= 0) {
+          clearInterval(selfieCountdownRef.current!);
+          selfieCountdownRef.current = null;
+          setSelfieCountdown(null);
+          captureSelfiePhoto();
+        }
+      }, 1000);
+    } catch (e: any) {
+      setSelfieWebcamError(e.message || "Camera unavailable");
+    }
+  }
+
+  function captureSelfiePhoto() {
+    if (!selfieVideoRef.current || !selfieWebcamReady) return;
+    const canvas = document.createElement("canvas");
+    canvas.width = 480; canvas.height = 360;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.drawImage(selfieVideoRef.current, 0, 0, 480, 360);
+    setSelfiePhoto(canvas.toDataURL("image/jpeg", 0.75));
+    selfieStreamRef.current?.getTracks().forEach(t => t.stop());
+    setSelfieWebcamReady(false);
+  }
+
+  async function retakeSelfie() {
+    setSelfiePhoto(null);
+    setSelfieWebcamReady(false);
+    // Small delay to let React re-render the video element before starting camera
+    await new Promise(r => setTimeout(r, 100));
+    await startSelfieCamera();
+  }
+
+  async function confirmSelfieSubmit(photo: string | null, supervisorBypassBy?: string) {
+    setSelfieLoading(true); setSelfieError("");
+    try {
+      if (selfieAction === "clock-in") {
+        await clockInMutation.mutateAsync({ photo: photo || undefined, supervisorBypassBy });
+      } else {
+        const p = pendingClockOutParams;
+        await clockOutMutation.mutateAsync({
+          photo: photo || undefined,
+          supervisorBypassBy,
+          breakMinutes: p?.breakMinutes,
+          notes: p?.notes,
+          lat: p?.lat,
+          lng: p?.lng,
+        });
+        setPendingClockOutParams(null);
+      }
+      setSelfieOpen(false);
+      resetSelfieState();
+    } catch (e: any) {
+      setSelfieError(e.message || "Failed to submit. Please try again.");
+    }
+    setSelfieLoading(false);
+  }
+
+  async function handleSelfieManualCapture() {
+    if (selfieCountdownRef.current) { clearInterval(selfieCountdownRef.current); selfieCountdownRef.current = null; setSelfieCountdown(null); }
+    captureSelfiePhoto();
+  }
+
+  async function verifySelfieSupervisor() {
+    if (!selfieSupervisorStaffId.trim() || !selfieSupervisorPin.trim()) { setSelfieError("Enter supervisor Staff ID and PIN"); return; }
+    setSelfieLoading(true); setSelfieError("");
+    try {
+      const res = await fetch("/api/kiosk/verify", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ staffId: selfieSupervisorStaffId.trim(), pin: selfieSupervisorPin.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setSelfieError(data.message || "Invalid supervisor credentials"); setSelfieLoading(false); return; }
+      const supervisorRoles = ["supervisor", "admin", "office_admin", "super_admin"];
+      if (!supervisorRoles.includes(data.user?.role)) { setSelfieError("This user does not have supervisor privileges."); setSelfieLoading(false); return; }
+      setSelfieSupervisorVerified({ name: `${data.user.firstName || ""} ${data.user.lastName || ""}`.trim() || data.user.username, role: data.user.role });
+    } catch { setSelfieError("Network error. Please try again."); }
+    setSelfieLoading(false);
   }
 
   // ── Render ───────────────────────────────────────────────────────────────────
@@ -393,20 +581,25 @@ export default function StaffTimeTracking() {
                     size="sm"
                     onClick={inGps.getLocation}
                     disabled={inGps.loading}
-                    className={inGps.coords ? "border-green-500 text-green-600" : ""}
+                    className={inGps.coords ? "border-green-500 text-green-600" : "border-amber-400 text-amber-600"}
                   >
                     <MapPin className="w-4 h-4 mr-2" />
-                    {inGps.loading ? "Getting GPS..." : inGps.coords ? "GPS Captured ✓" : "Capture GPS Location"}
+                    {inGps.loading ? "Getting GPS..." : inGps.coords ? "GPS Captured ✓" : "Capture GPS Location (Required)"}
                   </Button>
-                  {inGps.gpsError && <p className="text-xs text-amber-600">{inGps.gpsError}</p>}
+                  {inGps.gpsError && <p className="text-xs text-red-600">{inGps.gpsError}</p>}
+                  {!inGps.coords && !inGps.loading && !inGps.gpsError && (
+                    <p className="text-xs text-amber-600 flex items-center gap-1">
+                      <MapPin className="w-3 h-3" /> GPS location must be captured before clocking in
+                    </p>
+                  )}
                   <Button
-                    onClick={() => clockInMutation.mutate()}
-                    disabled={clockInMutation.isPending}
+                    onClick={openSelfieForClockIn}
+                    disabled={clockInMutation.isPending || !inGps.coords}
                     className="bg-green-600 hover:bg-green-700 text-white"
                     size="lg"
                   >
-                    <LogIn className="w-5 h-5 mr-2" />
-                    {clockInMutation.isPending ? "Clocking In..." : "Clock In"}
+                    <Camera className="w-5 h-5 mr-2" />
+                    {clockInMutation.isPending ? "Clocking In..." : "Clock In with Selfie"}
                   </Button>
                 </>
               ) : (
@@ -424,18 +617,21 @@ export default function StaffTimeTracking() {
                         <p className="text-muted-foreground">In: {format(new Date(activeRecord.clockInTime), "h:mm a")} &bull; Elapsed: {fmt(elapsed)}</p>
                       </div>
                       <div>
-                        <Label>Capture GPS Location (recommended)</Label>
+                        <Label>GPS Location <span className="text-red-500 font-semibold">(Required)</span></Label>
                         <Button
                           variant="outline"
                           size="sm"
-                          className={`mt-1 w-full ${outGps.coords ? "border-green-500 text-green-600" : ""}`}
+                          className={`mt-1 w-full ${outGps.coords ? "border-green-500 text-green-600" : "border-amber-400 text-amber-600"}`}
                           onClick={outGps.getLocation}
                           disabled={outGps.loading}
                         >
                           <MapPin className="w-4 h-4 mr-2" />
-                          {outGps.loading ? "Getting..." : outGps.coords ? "GPS Captured ✓" : "Get Location"}
+                          {outGps.loading ? "Getting..." : outGps.coords ? "GPS Captured ✓" : "Capture GPS Location (Required)"}
                         </Button>
-                        {outGps.gpsError && <p className="text-xs text-amber-600 mt-1">{outGps.gpsError}</p>}
+                        {outGps.gpsError && <p className="text-xs text-red-600 mt-1">{outGps.gpsError}</p>}
+                        {!outGps.coords && !outGps.loading && !outGps.gpsError && (
+                          <p className="text-xs text-amber-600 mt-1">GPS must be captured before clocking out</p>
+                        )}
                       </div>
                       <div>
                         <Label>Break Time</Label>
@@ -461,9 +657,9 @@ export default function StaffTimeTracking() {
                       </div>
                       <div className="flex gap-2 justify-end">
                         <Button variant="outline" onClick={() => setClockOutOpen(false)}>Cancel</Button>
-                        <Button variant="destructive" onClick={() => clockOutMutation.mutate()} disabled={clockOutMutation.isPending}>
-                          <LogOut className="w-4 h-4 mr-2" />
-                          {clockOutMutation.isPending ? "Processing..." : "Confirm Clock Out"}
+                        <Button variant="destructive" onClick={openSelfieForClockOut} disabled={clockOutMutation.isPending || !outGps.coords}>
+                          <Camera className="w-4 h-4 mr-2" />
+                          {clockOutMutation.isPending ? "Processing..." : "Take Selfie & Clock Out"}
                         </Button>
                       </div>
                     </div>
@@ -1100,6 +1296,159 @@ export default function StaffTimeTracking() {
                 )}
               </div>
             </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Selfie Capture Dialog ── */}
+      <Dialog open={selfieOpen} onOpenChange={(open) => { if (!open) { resetSelfieState(); setSelfieOpen(false); } }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Camera className="w-5 h-5" />
+              {selfieAction === "clock-in" ? "Clock In — Identity Verification" : "Clock Out — Identity Verification"}
+            </DialogTitle>
+          </DialogHeader>
+
+          {/* GPS Confirmation Banner */}
+          <div className="flex items-center gap-2 text-green-700 bg-green-50 border border-green-200 rounded-lg p-2.5 text-sm">
+            <MapPin className="w-4 h-4 shrink-0" />
+            GPS location captured — {selfieAction === "clock-in" ? "clock-in" : "clock-out"} will be recorded at your current location.
+          </div>
+
+          {selfieWebcamError ? (
+            // Camera error — offer supervisor bypass
+            <div className="bg-red-50 border border-red-200 rounded-xl p-4">
+              <div className="flex items-center gap-2 text-red-700 mb-3">
+                <XCircle className="w-5 h-5" />
+                <span className="font-semibold">Camera unavailable</span>
+              </div>
+              <p className="text-sm text-red-600 mb-4">{selfieWebcamError}</p>
+
+              {!selfieSupervisorMode ? (
+                <div className="flex flex-col gap-2">
+                  <p className="text-sm text-slate-600">A supervisor can authorize {selfieAction === "clock-in" ? "clock-in" : "clock-out"} without a photo:</p>
+                  <Button className="w-full bg-amber-600 hover:bg-amber-700 text-white" onClick={() => setSelfieSupervisorMode(true)}>
+                    <Shield className="w-4 h-4 mr-2" /> Supervisor Override
+                  </Button>
+                  <Button variant="outline" className="w-full" onClick={() => { resetSelfieState(); setSelfieOpen(false); }}>Cancel</Button>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <p className="text-sm font-semibold text-slate-700">Supervisor Authorization</p>
+                  {!selfieSupervisorVerified ? (
+                    <>
+                      <div>
+                        <Label className="text-xs">Supervisor Staff ID</Label>
+                        <Input value={selfieSupervisorStaffId} onChange={e => setSelfieSupervisorStaffId(e.target.value)} placeholder="Username or email" className="mt-1" autoComplete="off" />
+                      </div>
+                      <div>
+                        <Label className="text-xs">Supervisor PIN</Label>
+                        <Input value={selfieSupervisorPin} onChange={e => setSelfieSupervisorPin(e.target.value.replace(/\D/g, "").slice(0, 8))} type="password" placeholder="••••" className="mt-1" inputMode="numeric" />
+                      </div>
+                      {selfieError && <p className="text-xs text-red-600">{selfieError}</p>}
+                      <Button className="w-full bg-amber-600 hover:bg-amber-700 text-white" onClick={verifySelfieSupervisor} disabled={selfieLoading}>
+                        {selfieLoading ? "Verifying..." : "Verify Supervisor"}
+                      </Button>
+                      <Button variant="outline" className="w-full" onClick={() => setSelfieSupervisorMode(false)}>Back</Button>
+                    </>
+                  ) : (
+                    <>
+                      <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-sm text-green-700">
+                        <ShieldCheck className="w-4 h-4 inline mr-1" />
+                        <strong>{selfieSupervisorVerified.name}</strong> ({selfieSupervisorVerified.role.replace(/_/g, " ")}) authorized.
+                        <br /><span className="text-xs">This {selfieAction} will be flagged for manager review.</span>
+                      </div>
+                      {selfieError && <p className="text-xs text-red-600">{selfieError}</p>}
+                      <Button
+                        className={`w-full text-white ${selfieAction === "clock-in" ? "bg-green-600 hover:bg-green-700" : "bg-red-600 hover:bg-red-700"}`}
+                        onClick={() => confirmSelfieSubmit(null, selfieSupervisorVerified.name)}
+                        disabled={selfieLoading}>
+                        {selfieLoading ? "Processing..." : selfieAction === "clock-in"
+                          ? <><LogIn className="w-4 h-4 mr-2" /> Confirm Clock In (Supervisor Override)</>
+                          : <><LogOut className="w-4 h-4 mr-2" /> Confirm Clock Out (Supervisor Override)</>}
+                      </Button>
+                      <Button variant="outline" className="w-full" onClick={() => { resetSelfieState(); setSelfieOpen(false); }}>Cancel</Button>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+          ) : (
+            <>
+              {/* Webcam + Photo Preview */}
+              <div className="relative bg-black rounded-xl overflow-hidden" style={{ aspectRatio: "4/3" }}>
+                {!selfiePhoto ? (
+                  <>
+                    <video ref={selfieVideoRef} className="w-full h-full object-cover scale-x-[-1]" playsInline muted />
+                    {/* Head silhouette */}
+                    {selfieWebcamReady && (
+                      <svg className="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 640 480" preserveAspectRatio="xMidYMid meet">
+                        <defs><mask id="ovalMask2"><rect width="640" height="480" fill="white" /><ellipse cx="320" cy="200" rx="120" ry="145" fill="black" /><rect x="283" y="335" width="74" height="40" rx="10" fill="black" /></mask></defs>
+                        <rect width="640" height="480" fill="rgba(0,0,0,0.45)" mask="url(#ovalMask2)" />
+                        <ellipse cx="320" cy="200" rx="120" ry="145" fill="none" stroke="white" strokeWidth="2.5" opacity="0.9" />
+                        <text x="320" y="445" textAnchor="middle" fill="white" fontSize="14" fontFamily="sans-serif" opacity="0.85">Align your face inside the outline</text>
+                      </svg>
+                    )}
+                    {selfieCountdown !== null && (
+                      <div className="absolute inset-0 flex items-center justify-center">
+                        <span className="text-white text-9xl font-bold" style={{ textShadow: "0 0 30px rgba(0,0,0,0.8)" }}>{selfieCountdown}</span>
+                      </div>
+                    )}
+                    {!selfieWebcamReady && (
+                      <div className="absolute inset-0 flex items-center justify-center text-white bg-black/60">
+                        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white" />
+                      </div>
+                    )}
+                    {selfieWebcamReady && selfieCountdown === null && (
+                      <div className="absolute bottom-3 left-0 right-0 text-center text-white text-sm bg-black/30 py-1">Camera ready — position your face</div>
+                    )}
+                    {selfieWebcamReady && selfieCountdown !== null && (
+                      <div className="absolute bottom-3 left-0 right-0 text-center text-white text-sm bg-black/30 py-1">Auto-capturing in {selfieCountdown}...</div>
+                    )}
+                  </>
+                ) : (
+                  <img src={selfiePhoto} className="w-full h-full object-cover scale-x-[-1]" alt="Selfie" />
+                )}
+              </div>
+
+              {selfieError && (
+                <div className="flex items-center gap-2 text-red-700 bg-red-50 border border-red-200 rounded-lg p-2.5 text-sm">
+                  <XCircle className="w-4 h-4 shrink-0" /> {selfieError}
+                </div>
+              )}
+
+              {/* Action Buttons */}
+              {!selfiePhoto ? (
+                <div className="flex gap-3">
+                  <Button variant="outline" className="flex-1" onClick={() => { resetSelfieState(); setSelfieOpen(false); }}>
+                    <RotateCcw className="w-4 h-4 mr-2" /> Cancel
+                  </Button>
+                  {selfieWebcamReady && (
+                    <Button className="flex-1 bg-blue-600 hover:bg-blue-700 text-white" onClick={handleSelfieManualCapture}>
+                      <Camera className="w-4 h-4 mr-2" />
+                      {selfieCountdown !== null ? "Take Now" : "Take Photo"}
+                    </Button>
+                  )}
+                </div>
+              ) : (
+                <div className="flex flex-col gap-3">
+                  <div className="flex gap-3">
+                    <Button variant="outline" className="flex-1" onClick={retakeSelfie} disabled={selfieLoading}>
+                      <RotateCcw className="w-4 h-4 mr-2" /> Retake
+                    </Button>
+                    <Button
+                      className={`flex-1 text-white ${selfieAction === "clock-in" ? "bg-green-600 hover:bg-green-700" : "bg-red-600 hover:bg-red-700"}`}
+                      onClick={() => confirmSelfieSubmit(selfiePhoto)}
+                      disabled={selfieLoading}>
+                      {selfieLoading ? "Processing..." : selfieAction === "clock-in"
+                        ? <><LogIn className="w-4 h-4 mr-2" /> Confirm Clock In</>
+                        : <><LogOut className="w-4 h-4 mr-2" /> Confirm Clock Out</>}
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </>
           )}
         </DialogContent>
       </Dialog>

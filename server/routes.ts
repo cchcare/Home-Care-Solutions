@@ -15864,13 +15864,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "You are already clocked in. Please clock out first." });
       }
 
-      const { latitude, longitude, notes } = req.body;
+      const { latitude, longitude, notes, photo, supervisorBypassBy } = req.body;
 
       const clockInAddress = (latitude && longitude) ? await reverseGeocode(Number(latitude), Number(longitude)) : null;
 
       // ── 500-foot office boundary check ─────────────────────────────────────
       let isFlagged = false;
       let flagReason: string | null = null;
+
+      // Flag if supervisor bypass was used (camera unavailable)
+      if (supervisorBypassBy) {
+        isFlagged = true;
+        flagReason = `Camera bypass — supervisor ${supervisorBypassBy} authorized clock-in without selfie photo.`;
+      }
+
       if (latitude && longitude && sessionUser.primaryOfficeId) {
         try {
           const office = await storage.getOffice(sessionUser.primaryOfficeId);
@@ -15898,6 +15905,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         clockInLatitude: latitude ? String(latitude) : null,
         clockInLongitude: longitude ? String(longitude) : null,
         clockInAddress,
+        clockInPhoto: photo || null,
         clockInIpAddress: ip,
         deviceInfo: deviceInfo,
         isFlagged,
@@ -15924,7 +15932,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const sessionUser = req.session.user;
       const ip = getClientIp(req);
-      const { latitude, longitude, breakMinutes, notes } = req.body;
+      const { latitude, longitude, breakMinutes, notes, photo, supervisorBypassBy } = req.body;
 
       const [existing] = await db.select()
         .from(staffTimeRecords)
@@ -15939,8 +15947,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const clockOutTime = new Date();
       const hoursWorked = (clockOutTime.getTime() - new Date(existing.clockInTime).getTime()) / 3600000;
 
-      // Auto-flag if over 16 hours (likely forgotten)
-      const isFlagged = hoursWorked > 16;
+      // Auto-flag if over 16 hours or supervisor bypass used
+      const overTimeFlag = hoursWorked > 16;
+      const isFlagged = overTimeFlag || !!supervisorBypassBy;
+      let clockOutFlagReason: string | null = null;
+      if (overTimeFlag) clockOutFlagReason = 'Auto-flagged: session exceeded 16 hours';
+      if (supervisorBypassBy) clockOutFlagReason = `Camera bypass — supervisor ${supervisorBypassBy} authorized clock-out without selfie photo.${overTimeFlag ? ' Also: session exceeded 16 hours.' : ''}`;
 
       const clockOutAddress = (latitude && longitude) ? await reverseGeocode(Number(latitude), Number(longitude)) : null;
 
@@ -15953,9 +15965,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
           clockOutLatitude: latitude ? String(latitude) : null,
           clockOutLongitude: longitude ? String(longitude) : null,
           clockOutAddress,
+          clockOutPhoto: photo || null,
           clockOutIpAddress: ip,
           isFlagged,
-          flagReason: isFlagged ? 'Auto-flagged: session exceeded 16 hours' : null,
+          flagReason: clockOutFlagReason,
           updatedAt: new Date(),
         })
         .where(eq(staffTimeRecords.id, existing.id))
@@ -16423,8 +16436,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // POST /api/kiosk/clock-in  (public)
   app.post("/api/kiosk/clock-in", async (req: any, res) => {
     try {
-      const { staffId, pin, photo, video, faceMismatch, latitude, longitude } = req.body;
+      const { staffId, pin, photo, video, faceMismatch, latitude, longitude, supervisorBypass, supervisorName } = req.body;
       if (!staffId || !pin) return res.status(400).json({ message: "Staff ID and PIN are required" });
+      if (!latitude || !longitude) return res.status(400).json({ message: "GPS location is required to clock in. Please allow location access and try again." });
       const result = await verifyKioskCredentials(staffId.trim(), pin.trim());
       if (result.error) return res.status(401).json({ message: result.error });
       const { user } = result;
@@ -16437,10 +16451,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Client flag is authoritative (set from UX face-match flow)
       // Server-side AI re-check acts as defense-in-depth: overrides to true if server detects mismatch
-      let isFlagged = !!faceMismatch;
-      let flagReason: string | null = isFlagged
-        ? "Kiosk face verification failed — photo does not match profile. Manager review required."
-        : null;
+      let isFlagged = !!faceMismatch || !!supervisorBypass;
+      let flagReason: string | null = null;
+      if (supervisorBypass) {
+        flagReason = `Camera bypass — supervisor ${supervisorName || "unknown"} authorized clock-in without selfie photo. Manager review required.`;
+      } else if (faceMismatch) {
+        flagReason = "Kiosk face verification failed — photo does not match profile. Manager review required.";
+      }
       if (!isFlagged && photo && user.profileImageUrl) {
         const faceResult = await compareFacesWithAI(photo, user.profileImageUrl);
         if (faceResult.match === false) {
@@ -16526,8 +16543,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // POST /api/kiosk/clock-out  (public)
   app.post("/api/kiosk/clock-out", async (req: any, res) => {
     try {
-      const { staffId, pin, photo, video, faceMismatch, breakMinutes, latitude, longitude } = req.body;
+      const { staffId, pin, photo, video, faceMismatch, breakMinutes, latitude, longitude, supervisorBypass, supervisorName } = req.body;
       if (!staffId || !pin) return res.status(400).json({ message: "Staff ID and PIN are required" });
+      if (!latitude || !longitude) return res.status(400).json({ message: "GPS location is required to clock out. Please allow location access and try again." });
       const result = await verifyKioskCredentials(staffId.trim(), pin.trim());
       if (result.error) return res.status(401).json({ message: result.error });
       const { user } = result;
@@ -16543,8 +16561,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const longShift = hoursWorked > 16;
 
       // Client faceMismatch flag is authoritative; server-side AI acts as defense-in-depth
-      let clockOutFaceMismatch = !!faceMismatch;
-      if (!clockOutFaceMismatch && photo && user.profileImageUrl) {
+      let clockOutFaceMismatch = !supervisorBypass && !!faceMismatch;
+      if (!supervisorBypass && !clockOutFaceMismatch && photo && user.profileImageUrl) {
         const faceResult = await compareFacesWithAI(photo, user.profileImageUrl);
         if (faceResult.match === false) clockOutFaceMismatch = true;
         // null = AI unavailable → skip, no false positives
@@ -16552,7 +16570,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Preserve existing flag from clock-in — never downgrade
       const wasAlreadyFlagged = !!existing.isFlagged;
-      const isFlagged = wasAlreadyFlagged || longShift || clockOutFaceMismatch;
+      const isFlagged = wasAlreadyFlagged || longShift || clockOutFaceMismatch || !!supervisorBypass;
 
       // Build flag reason: preserve prior reason, append new reasons (use canonical text)
       const newReasons: string[] = [];
@@ -16560,7 +16578,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (longShift && !existing.flagReason?.includes("16 hours")) {
         newReasons.push("Auto-flagged: session exceeded 16 hours");
       }
-      if (clockOutFaceMismatch && !existing.flagReason?.includes("face verification")) {
+      if (supervisorBypass) {
+        newReasons.push(`Camera bypass — supervisor ${supervisorName || "unknown"} authorized clock-out without selfie photo. Manager review required.`);
+      } else if (clockOutFaceMismatch && !existing.flagReason?.includes("face verification")) {
         newReasons.push("Kiosk face verification failed — photo does not match profile. Manager review required.");
       }
       const flagReason = newReasons.length > 0 ? newReasons.join(" | ") : null;
