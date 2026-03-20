@@ -2,7 +2,6 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Sidebar } from "@/components/sidebar";
 import { format } from "date-fns";
 import {
   Camera, LogIn, LogOut, CheckCircle, XCircle, RotateCcw, Eye, EyeOff,
@@ -530,9 +529,7 @@ export default function Kiosk() {
   };
 
   return (
-    <div className="flex h-screen overflow-hidden">
-      <Sidebar />
-      <div className="flex-1 overflow-auto bg-gradient-to-br from-blue-900 via-blue-800 to-indigo-900 flex flex-col select-none">
+    <div className="h-screen overflow-auto bg-gradient-to-br from-blue-900 via-blue-800 to-indigo-900 flex flex-col select-none">
 
         {/* Header */}
         <div className="flex items-center justify-between px-8 py-4 bg-black/20">
@@ -989,7 +986,6 @@ export default function Kiosk() {
           </p>
         </div>
 
-      </div>
     </div>
   );
 }
