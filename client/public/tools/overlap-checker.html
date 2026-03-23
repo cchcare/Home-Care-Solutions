@@ -1,0 +1,776 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Visit Overlap Checker</title>
+  <style>
+    :root{
+      --bg:#0b1220;
+      --card:#0f172a;
+      --muted:#94a3b8;
+      --text:#e2e8f0;
+      --accent:#22c55e;
+      --accent2:#60a5fa;
+      --warn:#f59e0b;
+      --danger:#ef4444;
+      --border:rgba(148,163,184,.18);
+      --chip:rgba(148,163,184,.12);
+    }
+    *{ box-sizing:border-box; }
+    body{
+      margin:0;
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, "Apple Color Emoji","Segoe UI Emoji";
+      background: radial-gradient(1200px 800px at 20% 0%, rgba(96,165,250,.18), transparent 60%),
+                  radial-gradient(1200px 800px at 80% 0%, rgba(34,197,94,.14), transparent 60%),
+                  var(--bg);
+      color: var(--text);
+    }
+    .wrap{ max-width:1100px; margin:0 auto; padding:24px; }
+    header{ display:flex; flex-wrap:wrap; gap:12px; align-items:flex-end; justify-content:space-between; margin-bottom:16px;}
+    h1{ font-size:20px; margin:0; letter-spacing:.2px; }
+    .sub{ color:var(--muted); font-size:13px; line-height:1.35; max-width:720px; }
+    .grid{ display:grid; grid-template-columns: 420px 1fr; gap:16px; }
+    @media (max-width: 980px){ .grid{ grid-template-columns: 1fr; } }
+
+    .card{
+      background: linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.02));
+      border:1px solid var(--border);
+      border-radius:16px;
+      box-shadow: 0 10px 30px rgba(0,0,0,.25);
+      overflow:hidden;
+    }
+    .card .hd{
+      padding:14px 16px;
+      border-bottom:1px solid var(--border);
+      display:flex; align-items:center; justify-content:space-between; gap:10px;
+    }
+    .card .hd .title{ font-weight:650; font-size:14px; }
+    .card .bd{ padding:16px; }
+
+    .drop{
+      border:1.5px dashed rgba(148,163,184,.35);
+      background: rgba(2,6,23,.35);
+      border-radius:14px;
+      padding:16px;
+      display:flex; flex-direction:column; gap:10px;
+      transition: .15s ease;
+    }
+    .drop.dragover{ border-color: rgba(96,165,250,.85); background: rgba(96,165,250,.08); }
+    .row{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+    .filebtn{
+      background: rgba(96,165,250,.12);
+      border:1px solid rgba(96,165,250,.35);
+      color: var(--text);
+      padding:10px 12px;
+      border-radius:12px;
+      cursor:pointer;
+      font-weight:600;
+    }
+    .filemeta{ color: var(--muted); font-size:12px; }
+
+    input[type="file"]{ display:none; }
+
+    label{ font-size:12px; color:var(--muted); }
+    .field{ display:flex; flex-direction:column; gap:6px; }
+    .field input, .field select{
+      background: rgba(2,6,23,.45);
+      border:1px solid var(--border);
+      color: var(--text);
+      border-radius:12px;
+      padding:10px 10px;
+      outline:none;
+    }
+    .field input:focus, .field select:focus{ border-color: rgba(96,165,250,.6); }
+
+    .actions{ display:flex; gap:10px; flex-wrap:wrap; margin-top:10px; }
+    button{
+      border:0;
+      border-radius:12px;
+      padding:10px 12px;
+      cursor:pointer;
+      font-weight:700;
+      color:#061019;
+    }
+    .btn-primary{ background: linear-gradient(90deg, var(--accent2), var(--accent)); }
+    .btn-ghost{
+      background: rgba(148,163,184,.10);
+      border:1px solid var(--border);
+      color: var(--text);
+      font-weight:650;
+    }
+    .btn-danger{
+      background: rgba(239,68,68,.14);
+      border:1px solid rgba(239,68,68,.35);
+      color: var(--text);
+      font-weight:650;
+    }
+    button:disabled{ opacity:.55; cursor:not-allowed; }
+
+    .chips{ display:flex; gap:8px; flex-wrap:wrap; margin-top:10px;}
+    .chip{
+      background: var(--chip);
+      border:1px solid var(--border);
+      color: var(--text);
+      padding:6px 10px;
+      border-radius:999px;
+      font-size:12px;
+      display:flex; gap:8px; align-items:center;
+    }
+    .chip b{ font-size:12px; }
+
+    .stats{ display:grid; grid-template-columns: repeat(3, 1fr); gap:10px; }
+    @media (max-width:700px){ .stats{ grid-template-columns: 1fr; } }
+    .stat{
+      background: rgba(2,6,23,.35);
+      border:1px solid var(--border);
+      border-radius:14px;
+      padding:12px;
+    }
+    .stat .k{ color:var(--muted); font-size:12px; }
+    .stat .v{ font-size:18px; font-weight:750; margin-top:4px; }
+    .v.ok{ color: var(--accent); }
+    .v.warn{ color: var(--warn); }
+    .v.bad{ color: var(--danger); }
+
+    .results{
+      display:flex; flex-direction:column; gap:10px;
+    }
+    .notice{
+      border:1px solid var(--border);
+      background: rgba(2,6,23,.35);
+      border-radius:14px;
+      padding:12px;
+      color: var(--muted);
+      font-size:13px;
+      line-height:1.35;
+    }
+
+    table{
+      width:100%;
+      border-collapse:separate;
+      border-spacing:0;
+      overflow:hidden;
+      border-radius:14px;
+      border:1px solid var(--border);
+      background: rgba(2,6,23,.25);
+    }
+    thead th{
+      text-align:left;
+      font-size:12px;
+      color: var(--muted);
+      padding:10px 10px;
+      border-bottom:1px solid var(--border);
+      background: rgba(148,163,184,.06);
+      position:sticky; top:0;
+    }
+    tbody td{
+      padding:10px 10px;
+      border-bottom:1px solid rgba(148,163,184,.10);
+      vertical-align:top;
+      font-size:13px;
+    }
+    tbody tr:hover{ background: rgba(96,165,250,.06); }
+    .small{ font-size:12px; color: var(--muted); }
+    .tag{
+      display:inline-block;
+      padding:2px 8px;
+      border-radius:999px;
+      border:1px solid var(--border);
+      background: rgba(148,163,184,.08);
+      color: var(--text);
+      font-size:12px;
+      margin-left:6px;
+    }
+    .mono{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono","Courier New", monospace; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div>
+        <h1>Visit Overlap Checker</h1>
+        <div class="sub">
+          Upload an Excel file and detect overlapping visits by <b>Caregiver (Code) + Visit Date</b>.
+          Uses time ranges like <span class="mono">0700-1500</span>. Handles overnight ranges like <span class="mono">2200-0006</span>.
+        </div>
+
+<div class="sub">
+         To download the Visit report. Go to HHAeXchange --> Reports --> Visits --> Visit --> Visit Report
+	Select Visit Date From and Visit Date To on new window to download the excel file.
+        </div>
+      </div>
+      <div class="chips">
+        <div class="chip">Rule: <b>Ignore ≤ <span id="chipIgnore">8</span> min</b></div>
+        <div class="chip">Columns: <b>Visit Date</b> <span class="tag">Scheduled</span> <span class="tag">Visit Time</span></div>
+      </div>
+    </header>
+
+    <div class="grid">
+      <!-- LEFT: Controls -->
+      <div class="card">
+        <div class="hd">
+          <div class="title">Upload & Settings</div>
+          <button id="btnReset" class="btn-danger" disabled>Reset</button>
+        </div>
+        <div class="bd">
+          <div id="drop" class="drop">
+            <div class="row" style="justify-content:space-between;">
+              <div>
+                <div style="font-weight:750; margin-bottom:2px;">Excel file</div>
+                <div class="filemeta">Drop .xlsx here or choose a file</div>
+              </div>
+              <label class="filebtn" for="file">Choose file</label>
+              <input id="file" type="file" accept=".xlsx,.xls" />
+            </div>
+            <div class="filemeta" id="fileMeta">No file selected.</div>
+          </div>
+
+          <div style="height:12px;"></div>
+
+          <div class="row">
+            <div class="field" style="flex:1;">
+              <label>Ignore overlaps ≤ (minutes)</label>
+              <input id="ignoreMin" type="number" value="8" min="0" />
+            </div>
+
+            <div class="field" style="flex:1;">
+              <label>Check overlaps using</label>
+              <select id="mode">
+                <option value="both" selected>Both (Visit Time + Scheduled)</option>
+                <option value="visit">Visit Time only</option>
+                <option value="scheduled">Scheduled only</option>
+              </select>
+            </div>
+          </div>
+
+          <div style="height:10px;"></div>
+
+          <div class="field">
+            <label>Sheet selection (auto from workbook)</label>
+            <select id="sheetSelect" disabled>
+              <option value="">Upload file to load sheets…</option>
+            </select>
+          </div>
+
+          <div style="height:10px;"></div>
+
+          <div class="row">
+            <div class="field" style="flex:1;">
+              <label>Or type a custom sheet name (optional)</label>
+              <input id="customSheet" placeholder='Example: "Detail Data"' disabled />
+              <div class="small">If filled, this overrides the dropdown.</div>
+            </div>
+          </div>
+
+          <div class="actions">
+            <button id="btnRun" class="btn-primary" disabled>Run Overlap Check</button>
+            <button id="btnCsv" class="btn-ghost" disabled>Download CSV</button>
+          </div>
+
+          <div style="height:10px;"></div>
+          <div class="notice" id="statusBox">
+            Upload a file to begin. The checker expects headers:
+            <span class="mono">Caregiver (Code)</span>, <span class="mono">Visit Date</span>, <span class="mono">Scheduled</span>, <span class="mono">Visit Time</span>.
+          </div>
+        </div>
+      </div>
+
+      <!-- RIGHT: Results -->
+      <div class="card">
+        <div class="hd">
+          <div class="title">Results</div>
+          <div class="small" id="resultMeta">No run yet.</div>
+        </div>
+        <div class="bd results">
+          <div class="stats">
+            <div class="stat">
+              <div class="k">Rows loaded</div>
+              <div class="v" id="statRows">—</div>
+            </div>
+            <div class="stat">
+              <div class="k">Overlaps (Visit Time)</div>
+              <div class="v" id="statVisit">—</div>
+            </div>
+            <div class="stat">
+              <div class="k">Overlaps (Scheduled)</div>
+              <div class="v" id="statSched">—</div>
+            </div>
+          </div>
+
+          <div class="notice" id="summary">
+            Results will appear here after you run the check.
+          </div>
+
+          <div style="overflow:auto; max-height: 62vh;">
+            <table id="tbl" style="display:none;">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Type</th>
+                  <th>Caregiver</th>
+                  <th>Visit Date</th>
+                  <th>Overlap (min)</th>
+                  <th>A (Row / Sr# / Member / VisitID)</th>
+                  <th>B (Row / Sr# / Member / VisitID)</th>
+                  <th>A Range</th>
+                  <th>B Range</th>
+                </tr>
+              </thead>
+              <tbody id="tbody"></tbody>
+            </table>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SheetJS (XLSX) -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+
+  <script>
+    const els = {
+      drop: document.getElementById("drop"),
+      file: document.getElementById("file"),
+      fileMeta: document.getElementById("fileMeta"),
+      ignoreMin: document.getElementById("ignoreMin"),
+      chipIgnore: document.getElementById("chipIgnore"),
+      mode: document.getElementById("mode"),
+      sheetSelect: document.getElementById("sheetSelect"),
+      customSheet: document.getElementById("customSheet"),
+      btnRun: document.getElementById("btnRun"),
+      btnCsv: document.getElementById("btnCsv"),
+      btnReset: document.getElementById("btnReset"),
+      statusBox: document.getElementById("statusBox"),
+      resultMeta: document.getElementById("resultMeta"),
+      statRows: document.getElementById("statRows"),
+      statVisit: document.getElementById("statVisit"),
+      statSched: document.getElementById("statSched"),
+      summary: document.getElementById("summary"),
+      tbl: document.getElementById("tbl"),
+      tbody: document.getElementById("tbody"),
+    };
+
+    let workbook = null;
+    let lastCsv = "";
+    let lastRunInfo = { sheet: "", rows: 0, vOver: 0, sOver: 0 };
+
+    function setStatus(msg, tone="muted"){
+      const color = tone === "good" ? "var(--accent)" :
+                    tone === "warn" ? "var(--warn)" :
+                    tone === "bad"  ? "var(--danger)" : "var(--muted)";
+      els.statusBox.style.color = color;
+      els.statusBox.textContent = msg;
+    }
+
+    function normalizeHeader(h) {
+      return String(h || "").trim().toLowerCase().replace(/\s+/g, " ");
+    }
+    function findHeaderIndex(headers, exactName) {
+      const norm = headers.map(normalizeHeader);
+      return norm.indexOf(normalizeHeader(exactName));
+    }
+    function toMinutes(ms) { return Math.round(ms / 60000); }
+    function overlapMinutes(aStart, aEnd, bStart, bEnd) {
+      const start = Math.max(aStart.getTime(), bStart.getTime());
+      const end = Math.min(aEnd.getTime(), bEnd.getTime());
+      return Math.max(0, toMinutes(end - start));
+    }
+
+    function parseVisitDate(val) {
+      if (!val) return null;
+      if (val instanceof Date && !Number.isNaN(val.getTime())) return val;
+      if (typeof val === "number") {
+        const d = XLSX.SSF.parse_date_code(val);
+        if (!d) return null;
+        return new Date(d.y, d.m - 1, d.d);
+      }
+      const s = String(val).trim();
+      const d1 = new Date(s);
+      if (!Number.isNaN(d1.getTime())) return d1;
+      const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+      if (m) return new Date(Number(m[3]), Number(m[1]) - 1, Number(m[2]));
+      return null;
+    }
+
+    function parseHHMMRange(val) {
+      if (!val) return null;
+      const s = String(val).trim();
+      const m = s.match(/^(\d{3,4})\s*-\s*(\d{3,4})$/);
+      if (!m) return null;
+      const a = m[1].padStart(4, "0");
+      const b = m[2].padStart(4, "0");
+      if (!/^\d{4}$/.test(a) || !/^\d{4}$/.test(b)) return null;
+      const sh = Number(a.slice(0, 2)), sm = Number(a.slice(2, 4));
+      const eh = Number(b.slice(0, 2)), em = Number(b.slice(2, 4));
+      if (sh > 23 || eh > 23 || sm > 59 || em > 59) return null;
+      return { sh, sm, eh, em, raw: s };
+    }
+
+    function buildStartEnd(visitDateObj, range) {
+      const base = new Date(visitDateObj.getFullYear(), visitDateObj.getMonth(), visitDateObj.getDate(), 0,0,0,0);
+      const start = new Date(base); start.setHours(range.sh, range.sm, 0, 0);
+      const end = new Date(base);   end.setHours(range.eh, range.em, 0, 0);
+      if (end.getTime() <= start.getTime()) end.setDate(end.getDate() + 1); // overnight
+      return { start, end };
+    }
+
+    function computeOverlaps(visits, ignoreMin) {
+      const groups = new Map();
+      for (const v of visits) {
+        if (!groups.has(v.key)) groups.set(v.key, []);
+        groups.get(v.key).push(v);
+      }
+      const overlaps = [];
+      for (const [key, arr] of groups.entries()) {
+        arr.sort((a,b) => a.start - b.start);
+        for (let i=0;i<arr.length;i++){
+          for (let j=i+1;j<arr.length;j++){
+            if (arr[j].start >= arr[i].end) break;
+            const mins = overlapMinutes(arr[i].start, arr[i].end, arr[j].start, arr[j].end);
+            if (mins > ignoreMin) overlaps.push({ key, minutes: mins, a: arr[i], b: arr[j] });
+          }
+        }
+      }
+      return overlaps;
+    }
+
+    function escapeCsv(val) {
+      const s = String(val ?? "");
+      if (/[",\n]/.test(s)) return `"${s.replaceAll('"','""')}"`;
+      return s;
+    }
+
+    function overlapsToCsvRows(overlaps, typeLabel) {
+      const rows = [];
+      for (const o of overlaps) {
+        const a=o.a,b=o.b;
+        rows.push([
+          typeLabel, a.caregiver, a.visitDateText, Math.round(o.minutes),
+          a.rowNumber, b.rowNumber, a.sr, b.sr,
+          a.member, b.member, a.visitId, b.visitId,
+          a.rangeText, b.rangeText
+        ]);
+      }
+      return rows;
+    }
+
+    function downloadText(filename, text, mime="text/plain") {
+      const blob = new Blob([text], {type:mime});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    }
+
+    function resetAll(){
+      workbook = null;
+      lastCsv = "";
+      lastRunInfo = { sheet: "", rows: 0, vOver: 0, sOver: 0 };
+
+      els.file.value = "";
+      els.fileMeta.textContent = "No file selected.";
+      els.sheetSelect.innerHTML = `<option value="">Upload file to load sheets…</option>`;
+      els.sheetSelect.disabled = true;
+      els.customSheet.value = "";
+      els.customSheet.disabled = true;
+
+      els.btnRun.disabled = true;
+      els.btnCsv.disabled = true;
+      els.btnReset.disabled = true;
+
+      els.statRows.textContent = "—";
+      els.statVisit.textContent = "—";
+      els.statSched.textContent = "—";
+      els.statVisit.className = "v";
+      els.statSched.className = "v";
+      els.tbl.style.display = "none";
+      els.tbody.innerHTML = "";
+
+      els.summary.textContent = "Results will appear here after you run the check.";
+      els.resultMeta.textContent = "No run yet.";
+      setStatus("Upload a file to begin. The checker expects headers: Caregiver (Code), Visit Date, Scheduled, Visit Time.");
+    }
+
+    function setWorkbook(wb, filename){
+      workbook = wb;
+      els.fileMeta.textContent = `Loaded: ${filename}  •  Sheets: ${wb.SheetNames.length}`;
+      els.sheetSelect.disabled = false;
+      els.customSheet.disabled = false;
+      els.btnRun.disabled = false;
+      els.btnReset.disabled = false;
+
+      els.sheetSelect.innerHTML = wb.SheetNames.map((n, i) =>
+        `<option value="${n.replaceAll('"','&quot;')}" ${i===0 ? "selected":""}>${n}</option>`
+      ).join("");
+
+      // suggest "Detail Data" if it exists
+      const dd = wb.SheetNames.find(n => normalizeHeader(n) === normalizeHeader("Detail Data"));
+      if (dd) els.sheetSelect.value = dd;
+
+      setStatus("Ready. Choose a sheet (or type a custom name) and run the overlap check.", "good");
+    }
+
+    async function handleFile(file){
+      if (!file) return;
+      if (!file.name.toLowerCase().endsWith(".xlsx") && !file.name.toLowerCase().endsWith(".xls")){
+        setStatus("Please upload an Excel file (.xlsx or .xls).", "bad");
+        return;
+      }
+      setStatus("Reading Excel…", "muted");
+      try{
+        const buf = await file.arrayBuffer();
+        const wb = XLSX.read(buf, { type:"array", cellDates:true });
+        setWorkbook(wb, file.name);
+      }catch(e){
+        setStatus("Error reading Excel: " + (e?.message || String(e)), "bad");
+      }
+    }
+
+    function pickSheetName(){
+      const typed = (els.customSheet.value || "").trim();
+      if (typed) return typed;
+      return els.sheetSelect.value;
+    }
+
+    function buildVisitsFromSheet(sheetName, ignoreMin){
+      const ws = workbook.Sheets[sheetName];
+      if (!ws) {
+        const available = workbook.SheetNames.join(", ");
+        throw new Error(`Sheet "${sheetName}" not found. Available: ${available}`);
+      }
+
+      const rows = XLSX.utils.sheet_to_json(ws, { header:1, raw:true, defval:"" });
+      if (!rows.length) throw new Error(`Sheet "${sheetName}" is empty.`);
+
+      const headers = rows[0];
+      const data = rows.slice(1).filter(r => r.some(v => String(v).trim() !== ""));
+
+      const idxCaregiver = findHeaderIndex(headers, "Caregiver (Code)");
+      const idxVisitDate = findHeaderIndex(headers, "Visit Date");
+      const idxScheduled = findHeaderIndex(headers, "Scheduled");
+      const idxVisitTime = findHeaderIndex(headers, "Visit Time");
+      const idxSr        = findHeaderIndex(headers, "Sr #");
+      const idxMember    = findHeaderIndex(headers, "Member (Admission ID)");
+      const idxVisitId   = findHeaderIndex(headers, "Visit ID");
+
+      const missing = [];
+      if (idxCaregiver < 0) missing.push("Caregiver (Code)");
+      if (idxVisitDate < 0) missing.push("Visit Date");
+      if (idxScheduled < 0) missing.push("Scheduled");
+      if (idxVisitTime < 0) missing.push("Visit Time");
+
+      if (missing.length) {
+        throw new Error(
+          `Missing required columns: ${missing.join(", ")}.\n` +
+          `Headers found: ${headers.map(h => String(h)).join(" | ")}`
+        );
+      }
+
+      function buildVisits(rangeIdx, rangeLabel){
+        const visits = [];
+        for (let i=0;i<data.length;i++){
+          const r = data[i];
+          const caregiver = String(r[idxCaregiver] || "").trim();
+          const visitDateObj = parseVisitDate(r[idxVisitDate]);
+          const range = parseHHMMRange(r[rangeIdx]);
+
+          if (!caregiver || !visitDateObj || !range) continue;
+
+          const { start, end } = buildStartEnd(visitDateObj, range);
+          const dayKey = new Date(visitDateObj.getFullYear(), visitDateObj.getMonth(), visitDateObj.getDate())
+            .toISOString().slice(0,10);
+
+          visits.push({
+            key: `${caregiver}__${dayKey}`,
+            caregiver,
+            visitDateText: visitDateObj.toLocaleDateString(),
+            start, end,
+            rangeText: range.raw,
+            rowNumber: i + 2,
+            sr: idxSr >= 0 ? String(r[idxSr]) : "",
+            member: idxMember >= 0 ? String(r[idxMember]) : "",
+            visitId: idxVisitId >= 0 ? String(r[idxVisitId]) : "",
+            rangeLabel
+          });
+        }
+        return visits;
+      }
+
+      return {
+        rowCount: data.length,
+        visitsVisitTime: buildVisits(idxVisitTime, "Visit Time"),
+        visitsScheduled: buildVisits(idxScheduled, "Scheduled"),
+      };
+    }
+
+    function render(overlapsVisit, overlapsSched, ignoreMin, sheetName, rowCount){
+      // Stats
+      els.statRows.textContent = String(rowCount);
+      els.statVisit.textContent = String(overlapsVisit.length);
+      els.statSched.textContent = String(overlapsSched.length);
+
+      els.statVisit.className = "v " + (overlapsVisit.length ? "bad" : "ok");
+      els.statSched.className = "v " + (overlapsSched.length ? "bad" : "ok");
+
+      const total = overlapsVisit.length + overlapsSched.length;
+      els.resultMeta.textContent = `Sheet: ${sheetName} • Ignore ≤ ${ignoreMin} min • Total overlaps: ${total}`;
+
+      if (!total){
+        els.tbl.style.display = "none";
+        els.tbody.innerHTML = "";
+        els.summary.textContent = `✅ No overlaps found (ignoring ≤ ${ignoreMin} minutes).`;
+      } else {
+        els.tbl.style.display = "";
+        els.tbody.innerHTML = "";
+
+        const rows = [];
+        overlapsVisit.forEach(o => rows.push({ type:"Visit Time", ...o }));
+        overlapsSched.forEach(o => rows.push({ type:"Scheduled", ...o }));
+
+        // Sort: biggest overlaps first
+        rows.sort((x,y) => y.minutes - x.minutes);
+
+        rows.slice(0, 500).forEach((o, idx) => {
+          const a=o.a, b=o.b;
+          const tr = document.createElement("tr");
+          tr.innerHTML = `
+            <td>${idx+1}</td>
+            <td><span class="tag">${o.type}</span></td>
+            <td>${a.caregiver}</td>
+            <td>${a.visitDateText}</td>
+            <td><b>${Math.round(o.minutes)}</b></td>
+            <td class="small">Row ${a.rowNumber} / Sr# ${a.sr}<br>${a.member}<br>VisitID ${a.visitId}</td>
+            <td class="small">Row ${b.rowNumber} / Sr# ${b.sr}<br>${b.member}<br>VisitID ${b.visitId}</td>
+            <td class="mono">${a.rangeText}</td>
+            <td class="mono">${b.rangeText}</td>
+          `;
+          els.tbody.appendChild(tr);
+        });
+
+        const shown = Math.min(rows.length, 500);
+        els.summary.textContent =
+          `⚠️ Found ${total} overlap(s) > ${ignoreMin} minutes. Showing ${shown} (sorted by overlap minutes).`;
+      }
+    }
+
+    function buildCsv(overlapsVisit, overlapsSched){
+      const headers = [
+        "Type","Caregiver (Code)","Visit Date","Overlap Minutes",
+        "A Row","B Row","A Sr #","B Sr #",
+        "A Member (Admission ID)","B Member (Admission ID)",
+        "A Visit ID","B Visit ID",
+        "A Range","B Range"
+      ];
+
+      const rows = [];
+      rows.push(headers);
+
+      overlapsToCsvRows(overlapsVisit, "Visit Time").forEach(r => rows.push(r));
+      overlapsToCsvRows(overlapsSched, "Scheduled").forEach(r => rows.push(r));
+
+      return rows.map(r => r.map(escapeCsv).join(",")).join("\n");
+    }
+
+    // UI wiring
+    els.ignoreMin.addEventListener("input", () => {
+      const v = Math.max(0, Number(els.ignoreMin.value || 0));
+      els.chipIgnore.textContent = String(v);
+      els.btnCsv.disabled = true;
+      lastCsv = "";
+    });
+
+    els.mode.addEventListener("change", () => {
+      els.btnCsv.disabled = true;
+      lastCsv = "";
+    });
+
+    els.sheetSelect.addEventListener("change", () => {
+      els.btnCsv.disabled = true;
+      lastCsv = "";
+    });
+
+    els.customSheet.addEventListener("input", () => {
+      els.btnCsv.disabled = true;
+      lastCsv = "";
+    });
+
+    els.btnReset.addEventListener("click", resetAll);
+
+    els.file.addEventListener("change", () => {
+      const f = els.file.files?.[0];
+      handleFile(f);
+    });
+
+    // Drag & Drop
+    els.drop.addEventListener("dragover", (e) => {
+      e.preventDefault();
+      els.drop.classList.add("dragover");
+    });
+    els.drop.addEventListener("dragleave", () => els.drop.classList.remove("dragover"));
+    els.drop.addEventListener("drop", (e) => {
+      e.preventDefault();
+      els.drop.classList.remove("dragover");
+      const f = e.dataTransfer.files?.[0];
+      if (f) handleFile(f);
+    });
+
+    els.btnRun.addEventListener("click", () => {
+      if (!workbook) return;
+
+      els.btnCsv.disabled = true;
+      lastCsv = "";
+      els.tbl.style.display = "none";
+      els.tbody.innerHTML = "";
+
+      const ignoreMin = Math.max(0, Number(els.ignoreMin.value || 8));
+      const sheetName = pickSheetName();
+      const mode = els.mode.value;
+
+      setStatus("Running overlap check…", "muted");
+
+      try{
+        const { rowCount, visitsVisitTime, visitsScheduled } = buildVisitsFromSheet(sheetName, ignoreMin);
+
+        const overlapsVisit = (mode === "both" || mode === "visit")
+          ? computeOverlaps(visitsVisitTime, ignoreMin)
+          : [];
+
+        const overlapsSched = (mode === "both" || mode === "scheduled")
+          ? computeOverlaps(visitsScheduled, ignoreMin)
+          : [];
+
+        render(overlapsVisit, overlapsSched, ignoreMin, sheetName, rowCount);
+
+        // CSV only if overlaps exist
+        if (overlapsVisit.length || overlapsSched.length){
+          lastCsv = buildCsv(overlapsVisit, overlapsSched);
+          els.btnCsv.disabled = false;
+          setStatus("Done. You can download CSV if needed.", "good");
+        } else {
+          setStatus("Done. No overlaps found.", "good");
+        }
+
+        lastRunInfo = { sheet: sheetName, rows: rowCount, vOver: overlapsVisit.length, sOver: overlapsSched.length };
+
+      }catch(e){
+        setStatus(e?.message || String(e), "bad");
+      }
+    });
+
+    els.btnCsv.addEventListener("click", () => {
+      if (!lastCsv) return;
+      const stamp = new Date().toISOString().slice(0,19).replaceAll(":","-");
+      downloadText(`overlap_report_${stamp}.csv`, lastCsv, "text/csv");
+    });
+
+    // init
+    resetAll();
+  </script>
+</body>
+</html>

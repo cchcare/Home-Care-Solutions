@@ -63,6 +63,7 @@ import ESignatureTemplates from "@/pages/esignature-templates";
 import ESign from "@/pages/esign";
 import VisitLogUpload from "@/pages/visit-log-upload";
 import ScheduleOverlapReport from "@/pages/schedule-overlap-report";
+import OverlapChecker from "@/pages/overlap-checker";
 import MyProfile from "@/pages/my-profile";
 import MyCompliance from "@/pages/my-compliance";
 import MyDocuments from "@/pages/my-documents";
@@ -129,6 +130,7 @@ function Router() {
       <Route path="/api-docs" component={ApiDocumentation} />
       <Route path="/esign/:token" component={ESign} />
       <Route path="/kiosk" component={Kiosk} />
+      <Route path="/overlap-checker" component={OverlapChecker} />
       {!isAuthenticated ? (
         <Route path="/" component={Landing} />
       ) : (

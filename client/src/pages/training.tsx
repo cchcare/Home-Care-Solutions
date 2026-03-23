@@ -56,8 +56,10 @@ import {
   CheckCircle,
   XCircle,
   AlertCircle,
-  AlertTriangle
+  AlertTriangle,
+  Layers
 } from "lucide-react";
+import { Link } from "wouter";
 
 const trainingTypeLabels = {
   orientation: "Orientation",
@@ -404,6 +406,33 @@ export default function Training() {
             {viewOnlyMessage}
           </div>
         )}
+        {/* Agency Tools */}
+        <div className="mb-6">
+          <Card>
+            <CardHeader className="border-b border-border py-3">
+              <CardTitle className="text-sm flex items-center gap-2">
+                <Layers className="w-4 h-4" />
+                Agency Tools
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="p-3">
+              <div className="flex flex-wrap gap-3">
+                <Link href="/overlap-checker">
+                  <div className="flex items-center gap-3 p-3 border rounded-lg hover:bg-muted/50 transition-colors cursor-pointer" data-testid="training-tool-overlap-checker">
+                    <div className="w-9 h-9 bg-primary/10 rounded-lg flex items-center justify-center flex-shrink-0">
+                      <Layers className="w-4 h-4 text-primary" />
+                    </div>
+                    <div>
+                      <p className="font-medium text-sm">Visit Overlap Checker</p>
+                      <p className="text-xs text-muted-foreground">Detect overlapping visits from HHAeXchange exports</p>
+                    </div>
+                  </div>
+                </Link>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center space-x-2">
             <GraduationCap className="w-6 h-6" />

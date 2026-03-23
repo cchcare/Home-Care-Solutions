@@ -47,7 +47,8 @@ import {
   Monitor,
   MonitorCheck,
   ScrollText,
-  BookOpen
+  BookOpen,
+  Layers
 } from "lucide-react";
 
 interface NavItem {
@@ -116,6 +117,7 @@ export function Sidebar() {
         ]
       },
       { name: "Training & Resources", href: "/training", icon: GraduationCap },
+      { name: "Overlap Checker", href: "/overlap-checker", icon: Layers },
       { name: "Incident Reports", href: "/incidents", icon: AlertTriangle },
       { name: "Compliance", href: "/compliance", icon: Shield },
       { name: "Communication", href: "/communication", icon: MessageSquare },

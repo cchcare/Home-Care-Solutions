@@ -41,7 +41,8 @@ import {
   PlusCircle,
   Pencil,
   Globe,
-  X
+  X,
+  Layers
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -464,6 +465,31 @@ export default function Dashboard() {
 
             {/* AI Issue Detection Panel */}
             <AiIssuesPanel />
+
+            {/* Agency Tools */}
+            <Card data-testid="card-agency-tools">
+              <CardHeader className="border-b border-border">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Layers className="w-5 h-5" />
+                  Agency Tools
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="p-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                  <Link href="/overlap-checker">
+                    <div className="flex items-center gap-3 p-3 border rounded-lg hover:bg-muted/50 transition-colors cursor-pointer" data-testid="tool-card-overlap-checker">
+                      <div className="w-10 h-10 bg-primary/10 rounded-lg flex items-center justify-center flex-shrink-0">
+                        <Layers className="w-5 h-5 text-primary" />
+                      </div>
+                      <div>
+                        <p className="font-medium text-sm">Visit Overlap Checker</p>
+                        <p className="text-xs text-muted-foreground">Detect overlapping caregiver visits from HHAeXchange exports</p>
+                      </div>
+                    </div>
+                  </Link>
+                </div>
+              </CardContent>
+            </Card>
 
             {/* Quick Links Section */}
             {selectedOfficeId !== "all" && (
