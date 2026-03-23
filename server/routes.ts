@@ -16357,11 +16357,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
   const OFFICE_BOUNDARY_METERS = 152.4; // 500 feet in meters
 
   async function verifyKioskCredentials(staffId: string, pin: string) {
-    const [user] = await db.select().from(users).where(
+    const [user] = await db.select({
+      id: users.id,
+      firstName: users.firstName,
+      lastName: users.lastName,
+      role: users.role,
+      username: users.username,
+      profileImageUrl: users.profileImageUrl,
+      kioskEnabled: users.kioskEnabled,
+      kioskPin: users.kioskPin,
+      primaryOfficeId: users.primaryOfficeId,
+    }).from(users).where(
       or(eq(users.username, staffId), eq(users.email, staffId))
     ).limit(1);
     if (!user) return { error: "Staff ID not found" };
-    if (!user.kioskEnabled) return { error: "Kiosk access not enabled for this account" };
+    if (user.kioskEnabled !== true) return { error: "Kiosk access not enabled for this account" };
     if (!user.kioskPin) return { error: "No kiosk PIN configured for this account" };
     const { verifyPassword } = await import("./localAuth");
     const valid = await verifyPassword(pin, user.kioskPin);
@@ -16750,6 +16760,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             eq(users.role, 'admin'),
             eq(users.role, 'office_admin'),
             eq(users.role, 'supervisor'),
+            eq(users.role, 'caregiver'),
             eq(users.role, 'custom')
           )
         ))
