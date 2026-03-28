@@ -27,12 +27,7 @@ export function getTwilioFromPhoneNumber() {
 }
 
 function getBaseUrl(): string | null {
-  const deploymentUrl = process.env.REPLIT_DEPLOYMENT_URL;
-  const devDomain = process.env.REPLIT_DEV_DOMAIN;
-  
-  if (deploymentUrl) return `https://${deploymentUrl}`;
-  if (devDomain) return `https://${devDomain}`;
-  return null;
+  return process.env.BASE_URL || null;
 }
 
 function normalizePhoneForLookup(phone: string): string {
@@ -125,10 +120,12 @@ export function validateTwilioRequest(req: Request): boolean {
   const twilioSignature = req.headers['x-twilio-signature'] as string;
   if (!twilioSignature) return false;
   
-  const baseUrl = process.env.REPLIT_DEPLOYMENT_URL || process.env.REPLIT_DEV_DOMAIN;
-  const protocol = baseUrl ? 'https://' : 'http://';
-  const host = baseUrl || req.headers.host || 'localhost:5000';
-  const url = `${protocol}${host}${req.originalUrl}`;
+  const resolvedBaseUrl = getBaseUrl();
+  const protocol = resolvedBaseUrl ? '' : 'http://';
+  const host = resolvedBaseUrl || `http://${req.headers.host || 'localhost:5000'}`;
+  const url = resolvedBaseUrl
+    ? `${resolvedBaseUrl}${req.originalUrl}`
+    : `${protocol}${req.headers.host || 'localhost:5000'}${req.originalUrl}`;
   
   return twilio.validateRequest(authToken, twilioSignature, url, req.body);
 }

@@ -8,8 +8,10 @@ import memoize from "memoizee";
 import connectPg from "connect-pg-simple";
 import { storage } from "./storage";
 
-if (!process.env.REPLIT_DOMAINS) {
-  throw new Error("Environment variable REPLIT_DOMAINS not provided");
+const REPLIT_ENABLED = !!process.env.REPLIT_DOMAINS;
+
+if (!REPLIT_ENABLED) {
+  console.log("[ReplitAuth] REPLIT_DOMAINS not set — Replit OIDC auth disabled. Local auth only.");
 }
 
 // Allowed email domains for new Google sign-ups
@@ -129,6 +131,12 @@ export async function setupAuth(app: Express) {
   app.use(passport.initialize());
   app.use(passport.session());
 
+  if (!REPLIT_ENABLED) {
+    passport.serializeUser((user: Express.User, cb) => cb(null, user));
+    passport.deserializeUser((user: Express.User, cb) => cb(null, user));
+    return;
+  }
+
   const config = await getOidcConfig();
 
   const verify: VerifyFunction = async (
@@ -152,8 +160,7 @@ export async function setupAuth(app: Express) {
     }
   };
 
-  for (const domain of process.env
-    .REPLIT_DOMAINS!.split(",")) {
+  for (const domain of process.env.REPLIT_DOMAINS!.split(",")) {
     const strategy = new Strategy(
       {
         name: `replitauth:${domain}`,

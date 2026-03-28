@@ -5,13 +5,14 @@ import { db } from "./db";
 import { eq, and, desc, asc, ilike, or, isNull, gte, lte } from "drizzle-orm";
 import { setupAuth, isAuthenticated, hashPassword } from "./localAuth";
 import { setupMobileApi } from "./mobileApi";
-import { setupReplitAuth } from "./replitAuth";
+import { setupTwilioWebhooks } from "./twilio";
 import { setupStripeRoutes } from "./stripe";
 import { requireFeature, getOrganizationFeatures } from "./feature-gate";
 import multer from "multer";
 import crypto from "crypto";
 import path from "path";
 import fs from "fs";
+import { isS3Enabled, uploadFileToS3, getPresignedUrl, getS3KeyForFile, serveOrRedirectS3File, downloadFileFromS3 } from "./s3Storage";
 import PDFDocument from "pdfkit";
 import {
   insertOfficeSchema,
@@ -199,10 +200,13 @@ const excelUpload = multer({
   },
 });
 
-import { setupMobileApi } from "./mobileApi";
-import { setupTwilioWebhooks } from "./twilio";
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  // Health check endpoint for AWS load balancers / Elastic Beanstalk
+  app.get("/health", (_req, res) => {
+    res.status(200).json({ status: "ok", timestamp: new Date().toISOString() });
+  });
+
   // Auth middleware
   await setupAuth(app);
   
@@ -212,7 +216,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Register Twilio webhooks
   setupTwilioWebhooks(app);
 
-  // Ensure uploads directory exists
+  // Ensure uploads directory exists (used as local fallback when S3 is not configured)
   if (!fs.existsSync("uploads")) {
     fs.mkdirSync("uploads", { recursive: true });
   }
@@ -1821,10 +1825,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Add logo if available
       if (office?.logoFileName) {
-        const logoPath = path.join("uploads", office.logoFileName);
-        if (fs.existsSync(logoPath)) {
+        let logoPath = path.join("uploads", office.logoFileName);
+        let tempLogoPath: string | null = null;
+        if (isS3Enabled() && !fs.existsSync(logoPath)) {
+          // Download logo from S3 to a temp file for use in PDFKit
+          try {
+            const s3Key = getS3KeyForFile(office.logoFileName, "uploads");
+            tempLogoPath = path.join("uploads", `_tmp_logo_${Date.now()}_${office.logoFileName}`);
+            await downloadFileFromS3(s3Key, tempLogoPath);
+            logoPath = tempLogoPath;
+          } catch {
+            logoPath = "";
+          }
+        }
+        if (logoPath && fs.existsSync(logoPath)) {
           doc.image(logoPath, 50, 45, { width: 100 });
           doc.moveDown(4);
+        }
+        if (tempLogoPath && fs.existsSync(tempLogoPath)) {
+          fs.unlinkSync(tempLogoPath);
         }
       }
 
@@ -1927,6 +1946,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         writeStream.on('finish', resolve);
         writeStream.on('error', reject);
       });
+
+      // Read file size before potentially uploading to S3
+      const fileSize = fs.statSync(filePath).size;
+
+      // Upload to S3 if configured, then remove local temp file
+      if (isS3Enabled()) {
+        const s3Key = getS3KeyForFile(fileName, "uploads");
+        await uploadFileToS3(filePath, s3Key, "application/pdf");
+        fs.unlinkSync(filePath);
+      }
       
       // Save document record
       const encryptionKey = crypto.randomBytes(32).toString("hex");
@@ -1937,7 +1966,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         fileName: fileName,
         originalName: `Employment_Verification_${caregiverName.replace(/\s+/g, '_')}.pdf`,
         fileType: 'application/pdf',
-        fileSize: fs.statSync(filePath).size,
+        fileSize,
         documentType: 'employment_verification',
         encryptionKey,
       });
@@ -2546,6 +2575,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "No file uploaded" });
       }
 
+      // Upload to S3 if configured
+      if (isS3Enabled()) {
+        try {
+          const s3Key = getS3KeyForFile(req.file.filename, "uploads");
+          await uploadFileToS3(req.file.path, s3Key, req.file.mimetype);
+          // Clean up local temp file after S3 upload
+          fs.unlinkSync(req.file.path);
+        } catch (s3Err) {
+          console.error("S3 upload failed for document:", s3Err);
+          return res.status(500).json({ message: "Failed to store file" });
+        }
+      }
+
       // Generate encryption key for HIPAA compliance
       const encryptionKey = crypto.randomBytes(32).toString("hex");
       
@@ -2634,15 +2676,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!document) {
         return res.status(404).json({ message: "Document not found" });
       }
-      
-      const filePath = path.join("uploads", document.fileName);
-      if (!fs.existsSync(filePath)) {
-        return res.status(404).json({ message: "File not found on server" });
-      }
-      
-      res.setHeader("Content-Disposition", `attachment; filename="${document.originalName}"`);
-      res.setHeader("Content-Type", document.fileType || "application/octet-stream");
-      res.sendFile(path.resolve(filePath));
+
+      const s3Key = getS3KeyForFile(document.fileName, "uploads");
+      const localPath = path.join("uploads", document.fileName);
+
+      await serveOrRedirectS3File(res, s3Key, localPath, {
+        contentDisposition: `attachment; filename="${document.originalName}"`,
+        contentType: document.fileType || "application/octet-stream",
+      });
     } catch (error) {
       console.error("Error downloading document:", error);
       res.status(500).json({ message: "Failed to download document" });
@@ -2655,15 +2696,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!document) {
         return res.status(404).json({ message: "Document not found" });
       }
-      
-      const filePath = path.join("uploads", document.fileName);
-      if (!fs.existsSync(filePath)) {
-        return res.status(404).json({ message: "File not found on server" });
-      }
-      
-      res.setHeader("Content-Disposition", `inline; filename="${document.originalName}"`);
-      res.setHeader("Content-Type", document.fileType || "application/octet-stream");
-      res.sendFile(path.resolve(filePath));
+
+      const s3Key = getS3KeyForFile(document.fileName, "uploads");
+      const localPath = path.join("uploads", document.fileName);
+
+      await serveOrRedirectS3File(res, s3Key, localPath, {
+        contentDisposition: `inline; filename="${document.originalName}"`,
+        contentType: document.fileType || "application/octet-stream",
+      });
     } catch (error) {
       console.error("Error viewing document:", error);
       res.status(500).json({ message: "Failed to view document" });
@@ -2962,7 +3002,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const incidentDate = report.incidentDate ? format(new Date(report.incidentDate), 'MMMM d, yyyy') : 'today';
         for (const admin of adminUsers) {
           if (admin.email) {
-            const baseUrl = process.env.BASE_URL || process.env.REPLIT_DEPLOYMENT_URL || 'https://app.carechc.com';
+            const baseUrl = process.env.BASE_URL || 'https://app.carechc.com';
             await sendTemplatedEmail(
               admin.email,
               'incident_report_notification',
@@ -3463,23 +3503,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const mimetype = allowedImageTypes.test(req.file.mimetype);
       
       if (!mimetype || !extname) {
-        // Remove the uploaded file
         fs.unlinkSync(req.file.path);
         return res.status(400).json({ message: "Only image files (JPEG, PNG, GIF) are allowed" });
       }
       
       // Generate a unique filename
       const uniqueFilename = `profile_${userId}_${Date.now()}${path.extname(req.file.originalname)}`;
-      const newPath = path.join("uploads", "profiles", uniqueFilename);
-      
-      // Ensure profiles directory exists
-      const profilesDir = path.join("uploads", "profiles");
-      if (!fs.existsSync(profilesDir)) {
-        fs.mkdirSync(profilesDir, { recursive: true });
+
+      if (isS3Enabled()) {
+        // Upload directly to S3
+        const s3Key = getS3KeyForFile(uniqueFilename, "uploads/profiles");
+        await uploadFileToS3(req.file.path, s3Key, req.file.mimetype);
+        fs.unlinkSync(req.file.path);
+      } else {
+        // Local storage fallback
+        const profilesDir = path.join("uploads", "profiles");
+        if (!fs.existsSync(profilesDir)) {
+          fs.mkdirSync(profilesDir, { recursive: true });
+        }
+        const newPath = path.join(profilesDir, uniqueFilename);
+        fs.renameSync(req.file.path, newPath);
       }
-      
-      // Move file to profiles directory
-      fs.renameSync(req.file.path, newPath);
       
       // Generate the URL for the profile image
       const profileImageUrl = `/api/profile-images/${uniqueFilename}`;
@@ -3495,15 +3539,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
   
   // Serve profile images
-  app.get("/api/profile-images/:filename", (req, res) => {
+  app.get("/api/profile-images/:filename", async (req, res) => {
     const filename = req.params.filename;
-    const filePath = path.join("uploads", "profiles", filename);
-    
-    if (fs.existsSync(filePath)) {
-      res.sendFile(path.resolve(filePath));
-    } else {
-      res.status(404).json({ message: "Image not found" });
-    }
+    const s3Key = getS3KeyForFile(filename, "uploads/profiles");
+    const localPath = path.join("uploads", "profiles", filename);
+    await serveOrRedirectS3File(res, s3Key, localPath);
   });
 
   // Users route (for communication functionality)
@@ -3618,7 +3658,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         try {
           const { sendTemplatedEmail } = await import('./agentmail');
           const isCaregiver = user.role === 'caregiver';
-          const baseUrl = process.env.BASE_URL || process.env.REPLIT_DEPLOYMENT_URL || 'https://app.carechc.com';
+          const baseUrl = process.env.BASE_URL || 'https://app.carechc.com';
           if (isCaregiver) {
             await sendTemplatedEmail(
               user.email,
@@ -5609,13 +5649,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Upload image for a help article (stored in uploads/)
+  // Upload image for a help article
   app.post("/api/help-articles/upload-image", isAuthenticated, upload.single("image"), async (req: any, res) => {
     try {
       if (req.session?.user?.role !== "super_admin") {
         return res.status(403).json({ message: "Forbidden" });
       }
       if (!req.file) return res.status(400).json({ message: "No image uploaded" });
+
+      if (isS3Enabled()) {
+        const s3Key = getS3KeyForFile(req.file.filename, "uploads");
+        await uploadFileToS3(req.file.path, s3Key, req.file.mimetype);
+        fs.unlinkSync(req.file.path);
+      }
+
       const imageUrl = `/uploads/${req.file.filename}`;
       res.json({ url: imageUrl, filename: req.file.filename, originalName: req.file.originalname });
     } catch (error) {
@@ -14240,9 +14287,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         writeStream.on('finish', resolve);
         writeStream.on('error', reject);
       });
-      
-      // Get file size
-      const stats = fs.statSync(filePath);
+
+      // Read file size before potentially uploading to S3
+      const stats = { size: fs.statSync(filePath).size };
+
+      // Upload to S3 if configured, then remove local temp file
+      if (isS3Enabled()) {
+        const s3Key = getS3KeyForFile(fileName, "uploads");
+        await uploadFileToS3(filePath, s3Key, "application/pdf");
+        fs.unlinkSync(filePath);
+      }
       
       let documentRecord = null;
       
@@ -15649,7 +15703,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Send email with signing link
       const { sendTemplatedEmail } = await import('./agentmail');
-      const signingLink = `${process.env.REPLIT_DEPLOYMENT_URL || 'http://localhost:5000'}/esign/${accessToken}`;
+      const signingLink = `${process.env.BASE_URL || 'http://localhost:5000'}/esign/${accessToken}`;
       let documentName = 'Document';
       if (data.templateId) {
         const esigTemplate = await storage.getESignatureTemplate(data.templateId);
@@ -16404,20 +16458,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Returns { match: boolean|null, confidence: number } — null means skip/error
   async function compareFacesWithAI(selfieBase64: string, profileImageUrl: string): Promise<{ match: boolean | null; confidence: number }> {
     try {
-      const path = await import("path");
+      const pathMod = await import("path");
       const fsPromises = await import("fs/promises");
       const filename = profileImageUrl.split("/").pop();
       if (!filename) return { match: null, confidence: 0 };
 
-      const profilePath = path.join(process.cwd(), "uploads", "profiles", filename);
+      const ext = filename.split(".").pop()?.toLowerCase() || "jpeg";
+      const mimeType = ext === "png" ? "image/png" : ext === "webp" ? "image/webp" : "image/jpeg";
       let profileBase64: string;
-      try {
-        const buf = await fsPromises.readFile(profilePath);
-        const ext = filename.split(".").pop()?.toLowerCase() || "jpeg";
-        const mimeType = ext === "png" ? "image/png" : ext === "webp" ? "image/webp" : "image/jpeg";
-        profileBase64 = `data:${mimeType};base64,${buf.toString("base64")}`;
-      } catch {
-        return { match: null, confidence: 0 }; // Profile image not found — skip
+
+      if (isS3Enabled()) {
+        // Download profile image from S3 to a temp file
+        const s3Key = getS3KeyForFile(filename, "uploads/profiles");
+        const tmpPath = pathMod.join(process.cwd(), "uploads", `_tmp_kiosk_${Date.now()}_${filename}`);
+        try {
+          await downloadFileFromS3(s3Key, tmpPath);
+          const buf = await fsPromises.readFile(tmpPath);
+          profileBase64 = `data:${mimeType};base64,${buf.toString("base64")}`;
+        } catch {
+          return { match: null, confidence: 0 };
+        } finally {
+          fsPromises.unlink(tmpPath).catch(() => {});
+        }
+      } else {
+        const profilePath = pathMod.join(process.cwd(), "uploads", "profiles", filename);
+        try {
+          const buf = await fsPromises.readFile(profilePath);
+          profileBase64 = `data:${mimeType};base64,${buf.toString("base64")}`;
+        } catch {
+          return { match: null, confidence: 0 }; // Profile image not found — skip
+        }
       }
 
       const OpenAI = (await import("openai")).default;

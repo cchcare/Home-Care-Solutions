@@ -5,10 +5,24 @@ import { startScheduledJobs } from "./scheduler";
 import { runProductionInit, seedEmailTemplates } from "./initDb";
 
 import nodePath from "path";
+import { isS3Enabled, getPresignedUrl, getS3KeyForFile } from "./s3Storage";
 const app = express();
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ extended: false, limit: "50mb" }));
-app.use("/uploads", express.static(nodePath.join(process.cwd(), "uploads")));
+
+// Serve uploads: redirect to S3 pre-signed URL when S3 is configured, otherwise serve from disk
+app.use("/uploads", async (req: Request, res: Response, next: NextFunction) => {
+  if (!isS3Enabled()) {
+    return express.static(nodePath.join(process.cwd(), "uploads"))(req, res, next);
+  }
+  try {
+    const s3Key = getS3KeyForFile(req.path.replace(/^\//, ""), "uploads");
+    const url = await getPresignedUrl(s3Key);
+    return res.redirect(url);
+  } catch {
+    return res.status(404).send("Not found");
+  }
+});
 
 app.use((req, res, next) => {
   const start = Date.now();

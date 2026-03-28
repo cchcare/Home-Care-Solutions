@@ -62,7 +62,7 @@ function removeUnresolvedPlaceholders(content: string): string {
 }
 
 function buildGlobalDefaults(): TemplatePlaceholders {
-  const baseUrl = process.env.BASE_URL || process.env.REPLIT_DEPLOYMENT_URL || 'https://app.carechc.com';
+  const baseUrl = process.env.BASE_URL || 'https://app.carechc.com';
   return {
     companyName: process.env.COMPANY_NAME || 'CCHC Solutions',
     currentYear: new Date().getFullYear().toString(),
@@ -124,6 +124,12 @@ export async function sendTemplatedEmail(
 }
 
 async function getCredentials() {
+  // When running on AWS (or any non-Replit host), read credentials directly from env vars.
+  if (process.env.AGENTMAIL_API_KEY) {
+    return { apiKey: process.env.AGENTMAIL_API_KEY };
+  }
+
+  // Replit connector path — requires REPLIT_CONNECTORS_HOSTNAME + identity token
   const hostname = process.env.REPLIT_CONNECTORS_HOSTNAME;
   const xReplitToken = process.env.REPL_IDENTITY 
     ? 'repl ' + process.env.REPL_IDENTITY 
@@ -131,8 +137,8 @@ async function getCredentials() {
     ? 'depl ' + process.env.WEB_REPL_RENEWAL 
     : null;
 
-  if (!xReplitToken) {
-    throw new Error('X_REPLIT_TOKEN not found for repl/depl');
+  if (!hostname || !xReplitToken) {
+    throw new Error('AgentMail not configured: set AGENTMAIL_API_KEY, or REPLIT_CONNECTORS_HOSTNAME + REPL_IDENTITY');
   }
 
   connectionSettings = await fetch(
