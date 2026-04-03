@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Payroll Hours Comparison Tool</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: Arial, sans-serif; background: #f0f2f5; color: #222; min-height: 100vh; padding: 24px 16px; }
+  h1 { font-size: 20px; font-weight: 600; color: #1a1a2e; margin-bottom: 4px; }
+  .subtitle { font-size: 13px; color: #666; margin-bottom: 24px; }
+  .upload-zone { background: #fff; border: 2px dashed #c0c7d6; border-radius: 12px; padding: 40px 24px; text-align: center; cursor: pointer; transition: border-color 0.2s, background 0.2s; margin-bottom: 24px; }
+  .upload-zone:hover, .upload-zone.drag { border-color: #4a6fa5; background: #f0f4ff; }
+  .upload-zone svg { display: block; margin: 0 auto 12px; }
+  .upload-zone p { font-size: 15px; color: #555; }
+  .upload-zone span { font-size: 13px; color: #999; display: block; margin-top: 6px; }
+  #file-input { display: none; }
+  .upload-btn { display: inline-block; margin-top: 14px; padding: 8px 20px; background: #4a6fa5; color: #fff; border-radius: 8px; font-size: 14px; cursor: pointer; border: none; }
+  .upload-btn:hover { background: #3b5a8a; }
+  .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 14px; margin-bottom: 24px; }
+  .stat-card { background: #fff; border-radius: 10px; padding: 16px 18px; border: 1px solid #e5e9f0; }
+  .stat-card .label { font-size: 12px; color: #888; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; }
+  .stat-card .value { font-size: 24px; font-weight: 600; color: #1a1a2e; }
+  .stat-card.warning .value { color: #c0392b; }
+  .stat-card.ok .value { color: #27ae60; }
+  .controls { background: #fff; border-radius: 10px; padding: 16px 18px; border: 1px solid #e5e9f0; margin-bottom: 20px; display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; }
+  .ctrl-group { display: flex; flex-direction: column; gap: 4px; }
+  .ctrl-group label { font-size: 12px; color: #666; font-weight: 500; }
+  .ctrl-group input, .ctrl-group select { padding: 7px 10px; border: 1px solid #d0d7e5; border-radius: 6px; font-size: 13px; background: #fff; color: #222; min-width: 150px; }
+  .ctrl-group input:focus, .ctrl-group select:focus { outline: none; border-color: #4a6fa5; }
+  .filter-btn { padding: 7px 18px; background: #4a6fa5; color: #fff; border: none; border-radius: 6px; font-size: 13px; cursor: pointer; height: 33px; }
+  .filter-btn:hover { background: #3b5a8a; }
+  .reset-btn { padding: 7px 14px; background: #eee; color: #444; border: 1px solid #ccc; border-radius: 6px; font-size: 13px; cursor: pointer; height: 33px; }
+  .reset-btn:hover { background: #e0e0e0; }
+  .table-wrap { background: #fff; border-radius: 10px; border: 1px solid #e5e9f0; overflow-x: auto; margin-bottom: 24px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  thead th { background: #1a1a2e; color: #fff; padding: 11px 14px; text-align: left; font-weight: 500; font-size: 12px; white-space: nowrap; position: sticky; top: 0; }
+  thead th.sortable { cursor: pointer; user-select: none; }
+  thead th.sortable:hover { background: #2d2d55; }
+  tbody tr { border-bottom: 1px solid #f0f2f5; transition: background 0.1s; }
+  tbody tr:last-child { border-bottom: none; }
+  tbody tr:hover { background: #f7f9ff; }
+  td { padding: 9px 14px; color: #333; white-space: nowrap; }
+  td.diff-negative { color: #c0392b; font-weight: 600; }
+  td.diff-positive { color: #27ae60; font-weight: 600; }
+  td.diff-zero { color: #888; }
+  .badge { display: inline-block; padding: 2px 9px; border-radius: 20px; font-size: 11px; font-weight: 500; }
+  .badge-under { background: #fde8e8; color: #a93226; }
+  .badge-over { background: #e8fdf0; color: #1e8449; }
+  .badge-match { background: #eef2ff; color: #555; }
+  .actions { display: flex; gap: 10px; margin-bottom: 8px; flex-wrap: wrap; }
+  .dl-btn { padding: 9px 22px; border: none; border-radius: 8px; font-size: 14px; font-weight: 500; cursor: pointer; display: flex; align-items: center; gap: 7px; }
+  .dl-csv { background: #27ae60; color: #fff; }
+  .dl-csv:hover { background: #229954; }
+  .dl-excel { background: #1a5276; color: #fff; }
+  .dl-excel:hover { background: #154360; }
+  .no-data { text-align: center; padding: 48px 20px; color: #aaa; font-size: 14px; }
+  .error-msg { background: #fde8e8; border: 1px solid #f5b7b1; border-radius: 8px; padding: 12px 16px; color: #a93226; font-size: 13px; margin-bottom: 16px; display: none; }
+  .progress-bar { height: 4px; background: #e0e0e0; border-radius: 4px; overflow: hidden; margin-bottom: 16px; display: none; }
+  .progress-bar-inner { height: 100%; background: #4a6fa5; width: 0; transition: width 0.3s; }
+  .summary-footer { background: #1a1a2e; color: #fff; }
+  .summary-footer td { color: #fff; font-weight: 600; padding: 11px 14px; }
+</style>
+</head>
+<body>
+<h1>Payroll Hours Comparison Tool</h1>
+<p class="subtitle">Upload a Payroll Hours by Caregiver Summary (.xlsx) to compare Visit Hours vs Pay Hours</p>
+
+<div class="error-msg" id="error-msg"></div>
+<div class="progress-bar" id="progress"><div class="progress-bar-inner" id="progress-inner"></div></div>
+
+<div class="upload-zone" id="drop-zone">
+  <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#4a6fa5" stroke-width="1.5">
+    <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+  </svg>
+  <p>Drag & drop your Excel file here</p>
+  <span>Supports .xlsx files exported from HHAeXchange / ADP payroll system</span>
+  <br>
+  <label class="upload-btn" for="file-input">Browse File</label>
+  <input type="file" id="file-input" accept=".xlsx,.xls">
+</div>
+
+<div id="results-section" style="display:none;">
+  <div class="stats-grid" id="stats-grid"></div>
+  <div class="controls">
+    <div class="ctrl-group">
+      <label>Search Caregiver</label>
+      <input type="text" id="search-input" placeholder="Name or SSN...">
+    </div>
+    <div class="ctrl-group">
+      <label>Filter by Difference</label>
+      <select id="diff-filter">
+        <option value="all">All caregivers</option>
+        <option value="under">Visit > Pay (under-paid)</option>
+        <option value="over">Pay > Visit (over-paid)</option>
+        <option value="match">Exact match</option>
+      </select>
+    </div>
+    <div class="ctrl-group">
+      <label>Min Difference (hrs)</label>
+      <input type="number" id="min-diff" placeholder="e.g. 0.5" step="0.01" min="0" style="min-width:120px;">
+    </div>
+    <button class="filter-btn" onclick="applyFilters()">Apply</button>
+    <button class="reset-btn" onclick="resetFilters()">Reset</button>
+  </div>
+
+  <div class="actions">
+    <button class="dl-btn dl-csv" onclick="downloadCSV()">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+      Download CSV Report
+    </button>
+    <button class="dl-btn dl-excel" onclick="downloadExcel()">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="3"/></svg>
+      Download Excel Report
+    </button>
+  </div>
+
+  <div class="table-wrap">
+    <table id="data-table">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th class="sortable" onclick="sortTable('name')">Caregiver Name &#8597;</th>
+          <th class="sortable" onclick="sortTable('ssn')">SSN &#8597;</th>
+          <th>Type</th>
+          <th class="sortable" onclick="sortTable('visitHours')">Visit Hours &#8597;</th>
+          <th class="sortable" onclick="sortTable('payHours')">Pay Hours &#8597;</th>
+          <th class="sortable" onclick="sortTable('diffDecimal')">Difference &#8597;</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody id="table-body"></tbody>
+      <tfoot id="table-foot"></tfoot>
+    </table>
+  </div>
+</div>
+
+<script>
+let allData = [];
+let filteredData = [];
+let sortCol = null;
+let sortDir = 1;
+
+function parseHHMM(str) {
+  if (!str || str === '' || str === null) return null;
+  str = String(str).trim();
+  if (str === '0' || str === '00:00' || str === '0:00') return 0;
+  const parts = str.split(':');
+  if (parts.length !== 2) return null;
+  const h = parseInt(parts[0], 10);
+  const m = parseInt(parts[1], 10);
+  if (isNaN(h) || isNaN(m)) return null;
+  return h + m / 60;
+}
+
+function toHHMM(decimal) {
+  if (decimal === null || isNaN(decimal)) return '-';
+  const sign = decimal < 0 ? '-' : '';
+  const abs = Math.abs(decimal);
+  const h = Math.floor(abs);
+  const m = Math.round((abs - h) * 60);
+  return `${sign}${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
+}
+
+function showError(msg) {
+  const el = document.getElementById('error-msg');
+  el.textContent = msg;
+  el.style.display = 'block';
+  setTimeout(() => el.style.display = 'none', 6000);
+}
+
+function setProgress(pct) {
+  const bar = document.getElementById('progress');
+  bar.style.display = pct > 0 ? 'block' : 'none';
+  document.getElementById('progress-inner').style.width = pct + '%';
+}
+
+document.getElementById('file-input').addEventListener('change', e => {
+  if (e.target.files[0]) processFile(e.target.files[0]);
+});
+
+const dz = document.getElementById('drop-zone');
+dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('drag'); });
+dz.addEventListener('dragleave', () => dz.classList.remove('drag'));
+dz.addEventListener('drop', e => {
+  e.preventDefault(); dz.classList.remove('drag');
+  const f = e.dataTransfer.files[0];
+  if (f) processFile(f);
+});
+
+function processFile(file) {
+  if (!file.name.match(/\.xlsx?$/i)) { showError('Please upload an Excel (.xlsx) file.'); return; }
+  setProgress(20);
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      setProgress(50);
+      const data = new Uint8Array(e.target.result);
+      const wb = XLSX.read(data, { type: 'array', cellText: true, cellDates: false });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      setProgress(70);
+
+      const raw = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null, raw: false });
+
+      let headerRow = -1;
+      for (let i = 0; i < Math.min(25, raw.length); i++) {
+        const row = raw[i];
+        const rowStr = row.map(c => c ? String(c).toLowerCase() : '').join('|');
+        if (rowStr.includes('caregiver name') && rowStr.includes('ssn')) {
+          headerRow = i;
+          break;
+        }
+      }
+      if (headerRow === -1) { showError('Could not find header row. Make sure the file contains "Caregiver Name" and "SSN" columns.'); setProgress(0); return; }
+
+      const headers = raw[headerRow].map(h => h ? String(h).trim().toLowerCase() : '');
+
+      const colIdx = (name) => {
+        for (let i = 0; i < headers.length; i++) {
+          if (headers[i].includes(name)) return i;
+        }
+        return -1;
+      };
+
+      const nameCol = colIdx('caregiver name');
+      const ssnCol = colIdx('ssn');
+      const typeCol = colIdx('type');
+      const visitCol = colIdx('visit hours');
+      const payCol = colIdx('pay hours');
+
+      if (visitCol === -1 || payCol === -1) { showError('Could not find "Visit Hours" or "Pay Hours" columns.'); setProgress(0); return; }
+
+      allData = [];
+      for (let i = headerRow + 1; i < raw.length; i++) {
+        const row = raw[i];
+        if (!row || row.every(c => !c)) continue;
+        const name = nameCol >= 0 ? (row[nameCol] || '') : '';
+        const ssn = ssnCol >= 0 ? (row[ssnCol] || '') : '';
+        const type = typeCol >= 0 ? (row[typeCol] || '') : '';
+        const visitRaw = row[visitCol];
+        const payRaw = row[payCol];
+        if (!name && !ssn) continue;
+        if (String(name).toLowerCase().includes('total') || String(name).toLowerCase().includes('grand')) continue;
+        const visit = parseHHMM(visitRaw);
+        const pay = parseHHMM(payRaw);
+        if (visit === null && pay === null) continue;
+        const v = visit ?? 0;
+        const p = pay ?? 0;
+        const diff = v - p;
+        allData.push({ name: String(name).trim(), ssn: String(ssn).trim(), type: String(type).trim(), visitHours: v, payHours: p, diffDecimal: diff, visitRaw: visitRaw || '00:00', payRaw: payRaw || '00:00' });
+      }
+
+      if (allData.length === 0) { showError('No caregiver data found after the header row.'); setProgress(0); return; }
+
+      setProgress(100);
+      filteredData = [...allData];
+      renderAll();
+      document.getElementById('results-section').style.display = 'block';
+      document.getElementById('drop-zone').style.display = 'none';
+      setProgress(0);
+    } catch(err) {
+      showError('Error reading file: ' + err.message);
+      setProgress(0);
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function renderAll() {
+  renderStats(filteredData);
+  renderTable(filteredData);
+}
+
+function renderStats(data) {
+  const totalVisit = data.reduce((s, r) => s + r.visitHours, 0);
+  const totalPay = data.reduce((s, r) => s + r.payHours, 0);
+  const totalDiff = totalVisit - totalPay;
+  const mismatch = data.filter(r => Math.abs(r.diffDecimal) >= 0.02).length;
+
+  document.getElementById('stats-grid').innerHTML = `
+    <div class="stat-card"><div class="label">Total Caregivers</div><div class="value">${data.length}</div></div>
+    <div class="stat-card"><div class="label">Total Visit Hours</div><div class="value">${toHHMM(totalVisit)}</div></div>
+    <div class="stat-card"><div class="label">Total Pay Hours</div><div class="value">${toHHMM(totalPay)}</div></div>
+    <div class="stat-card ${Math.abs(totalDiff) < 0.02 ? 'ok' : 'warning'}">
+      <div class="label">Net Difference (Visit - Pay)</div>
+      <div class="value">${toHHMM(totalDiff)}</div>
+    </div>
+    <div class="stat-card ${mismatch > 0 ? 'warning' : 'ok'}">
+      <div class="label">With Discrepancy</div>
+      <div class="value">${mismatch}</div>
+    </div>
+    <div class="stat-card ok">
+      <div class="label">Exact Match</div>
+      <div class="value">${data.filter(r => Math.abs(r.diffDecimal) < 0.02).length}</div>
+    </div>
+  `;
+}
+
+function renderTable(data) {
+  const body = document.getElementById('table-body');
+  const foot = document.getElementById('table-foot');
+
+  if (!data.length) {
+    body.innerHTML = '<tr><td colspan="8" class="no-data">No records match your filters.</td></tr>';
+    foot.innerHTML = '';
+    return;
+  }
+
+  body.innerHTML = data.map((r, i) => {
+    const diffStr = toHHMM(r.diffDecimal);
+    const diffClass = r.diffDecimal > 0.02 ? 'diff-negative' : r.diffDecimal < -0.02 ? 'diff-positive' : 'diff-zero';
+    const badge = r.diffDecimal > 0.02
+      ? '<span class="badge badge-under">Visit > Pay</span>'
+      : r.diffDecimal < -0.02
+        ? '<span class="badge badge-over">Pay > Visit</span>'
+        : '<span class="badge badge-match">Match</span>';
+    return `<tr>
+      <td>${i+1}</td>
+      <td>${escHtml(r.name)}</td>
+      <td>${escHtml(r.ssn)}</td>
+      <td>${escHtml(r.type)}</td>
+      <td>${toHHMM(r.visitHours)}</td>
+      <td>${toHHMM(r.payHours)}</td>
+      <td class="${diffClass}">${diffStr}</td>
+      <td>${badge}</td>
+    </tr>`;
+  }).join('');
+
+  const tv = data.reduce((s, r) => s + r.visitHours, 0);
+  const tp = data.reduce((s, r) => s + r.payHours, 0);
+  const td = tv - tp;
+  const diffClass = td > 0.02 ? 'diff-negative' : td < -0.02 ? 'diff-positive' : 'diff-zero';
+  foot.innerHTML = `<tr class="summary-footer">
+    <td colspan="4"><strong>TOTAL (${data.length} records)</strong></td>
+    <td><strong>${toHHMM(tv)}</strong></td>
+    <td><strong>${toHHMM(tp)}</strong></td>
+    <td class="${diffClass}"><strong>${toHHMM(td)}</strong></td>
+    <td></td>
+  </tr>`;
+}
+
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function applyFilters() {
+  const search = document.getElementById('search-input').value.trim().toLowerCase();
+  const diffF = document.getElementById('diff-filter').value;
+  const minD = parseFloat(document.getElementById('min-diff').value) || 0;
+
+  filteredData = allData.filter(r => {
+    if (search && !r.name.toLowerCase().includes(search) && !r.ssn.includes(search)) return false;
+    if (diffF === 'under' && !(r.diffDecimal > 0.02)) return false;
+    if (diffF === 'over' && !(r.diffDecimal < -0.02)) return false;
+    if (diffF === 'match' && !(Math.abs(r.diffDecimal) < 0.02)) return false;
+    if (minD > 0 && Math.abs(r.diffDecimal) < minD) return false;
+    return true;
+  });
+  renderAll();
+}
+
+function resetFilters() {
+  document.getElementById('search-input').value = '';
+  document.getElementById('diff-filter').value = 'all';
+  document.getElementById('min-diff').value = '';
+  filteredData = [...allData];
+  renderAll();
+}
+
+function sortTable(col) {
+  if (sortCol === col) sortDir *= -1;
+  else { sortCol = col; sortDir = 1; }
+  filteredData.sort((a, b) => {
+    const av = a[col], bv = b[col];
+    if (typeof av === 'string') return av.localeCompare(bv) * sortDir;
+    return (av - bv) * sortDir;
+  });
+  renderTable(filteredData);
+}
+
+function buildReportRows() {
+  return filteredData.map(r => ({
+    'Caregiver Name': r.name,
+    'SSN': r.ssn,
+    'Type': r.type,
+    'Visit Hours': toHHMM(r.visitHours),
+    'Pay Hours': toHHMM(r.payHours),
+    'Difference (HH:MM)': toHHMM(r.diffDecimal),
+    'Difference (Decimal)': r.diffDecimal.toFixed(2),
+    'Status': r.diffDecimal > 0.02 ? 'Visit > Pay' : r.diffDecimal < -0.02 ? 'Pay > Visit' : 'Match'
+  }));
+}
+
+function downloadCSV() {
+  const rows = buildReportRows();
+  if (!rows.length) return;
+  const headers = Object.keys(rows[0]);
+  const lines = [headers.join(','), ...rows.map(r => headers.map(h => `"${String(r[h]).replace(/"/g,'""')}"`).join(','))];
+  const tv = filteredData.reduce((s,r)=>s+r.visitHours,0);
+  const tp = filteredData.reduce((s,r)=>s+r.payHours,0);
+  lines.push(`"TOTAL (${filteredData.length} records)","","","${toHHMM(tv)}","${toHHMM(tp)}","${toHHMM(tv-tp)}","${(tv-tp).toFixed(2)}",""`);
+  const blob = new Blob([lines.join('\n')], {type:'text/csv'});
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+  a.download = 'payroll_hours_comparison.csv'; a.click();
+}
+
+function downloadExcel() {
+  const rows = buildReportRows();
+  if (!rows.length) return;
+  const tv = filteredData.reduce((s,r)=>s+r.visitHours,0);
+  const tp = filteredData.reduce((s,r)=>s+r.payHours,0);
+  rows.push({
+    'Caregiver Name': `TOTAL (${filteredData.length} records)`,
+    'SSN': '', 'Type': '',
+    'Visit Hours': toHHMM(tv),
+    'Pay Hours': toHHMM(tp),
+    'Difference (HH:MM)': toHHMM(tv-tp),
+    'Difference (Decimal)': (tv-tp).toFixed(2),
+    'Status': ''
+  });
+  const ws = XLSX.utils.json_to_sheet(rows);
+  ws['!cols'] = [30,16,12,14,14,18,20,16].map(w=>({wch:w}));
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Hours Comparison');
+  XLSX.writeFile(wb, 'payroll_hours_comparison.xlsx');
+}
+</script>
+</body>
+</html>
