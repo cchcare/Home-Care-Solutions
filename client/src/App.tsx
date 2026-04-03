@@ -65,6 +65,7 @@ import VisitLogUpload from "@/pages/visit-log-upload";
 import ScheduleOverlapReport from "@/pages/schedule-overlap-report";
 import OverlapChecker from "@/pages/overlap-checker";
 import PayrollHoursCalculator from "@/pages/payroll-hours-calculator";
+import VisitHoursDifference from "@/pages/visit-hours-difference";
 import MyProfile from "@/pages/my-profile";
 import MyCompliance from "@/pages/my-compliance";
 import MyDocuments from "@/pages/my-documents";
@@ -133,6 +134,7 @@ function Router() {
       <Route path="/kiosk" component={Kiosk} />
       <Route path="/overlap-checker" component={OverlapChecker} />
       <Route path="/payroll-hours-calculator" component={PayrollHoursCalculator} />
+      <Route path="/visit-hours-difference" component={VisitHoursDifference} />
       {!isAuthenticated ? (
         <Route path="/" component={Landing} />
       ) : (

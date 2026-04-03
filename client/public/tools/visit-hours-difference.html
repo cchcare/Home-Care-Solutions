@@ -1,0 +1,509 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Visit Hours Difference</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:Arial,sans-serif;background:#f0f2f5;color:#1a1a2e;min-height:100vh;padding:24px 16px}
+h1{font-size:21px;font-weight:700;color:#1a1a2e;margin-bottom:3px}
+.sub{font-size:13px;color:#666;margin-bottom:22px}
+.upload-zone{background:#fff;border:2px dashed #b0bcd4;border-radius:12px;padding:44px 24px;text-align:center;cursor:pointer;transition:border-color .2s,background .2s;margin-bottom:22px}
+.upload-zone:hover,.upload-zone.drag{border-color:#3b6dbf;background:#f0f5ff}
+.upload-zone svg{display:block;margin:0 auto 12px}
+.upload-zone p{font-size:15px;color:#555}
+.upload-zone span{font-size:12px;color:#999;display:block;margin-top:5px}
+#file-input{display:none}
+.up-btn{display:inline-block;margin-top:14px;padding:9px 24px;background:#3b6dbf;color:#fff;border-radius:8px;font-size:14px;cursor:pointer;border:none}
+.up-btn:hover{background:#2d56a0}
+.err{background:#fde8e8;border:1px solid #f5b7b1;border-radius:8px;padding:11px 15px;color:#a93226;font-size:13px;margin-bottom:14px;display:none}
+.pbar{height:4px;background:#e0e0e0;border-radius:4px;overflow:hidden;margin-bottom:14px;display:none}
+.pbar-inner{height:100%;background:#3b6dbf;width:0;transition:width .3s}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(155px,1fr));gap:12px;margin-bottom:22px}
+.scard{background:#fff;border-radius:10px;padding:15px 17px;border:1px solid #e5e9f0}
+.scard .lbl{font-size:11px;color:#888;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px}
+.scard .val{font-size:23px;font-weight:700;color:#1a1a2e}
+.scard.warn .val{color:#c0392b}
+.scard.good .val{color:#1e8449}
+.scard.info .val{color:#2471a3}
+.note-bar{background:#fff8e1;border:1px solid #ffe082;border-radius:8px;padding:10px 16px;font-size:13px;color:#856404;margin-bottom:18px;display:flex;align-items:center;gap:8px}
+.controls{background:#fff;border-radius:10px;padding:14px 18px;border:1px solid #e5e9f0;margin-bottom:18px;display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end}
+.cg{display:flex;flex-direction:column;gap:4px}
+.cg label{font-size:12px;color:#555;font-weight:600}
+.cg input,.cg select{padding:7px 10px;border:1px solid #cdd5e0;border-radius:6px;font-size:13px;background:#fff;color:#222;min-width:160px}
+.cg input:focus,.cg select:focus{outline:none;border-color:#3b6dbf}
+.fbtn{padding:7px 18px;background:#3b6dbf;color:#fff;border:none;border-radius:6px;font-size:13px;cursor:pointer;height:34px}
+.fbtn:hover{background:#2d56a0}
+.rbtn{padding:7px 14px;background:#eee;color:#444;border:1px solid #ccc;border-radius:6px;font-size:13px;cursor:pointer;height:34px}
+.rbtn:hover{background:#e0e0e0}
+.actions{display:flex;gap:10px;margin-bottom:12px;flex-wrap:wrap;align-items:center}
+.dlbtn{padding:9px 20px;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:7px}
+.dlcsv{background:#1e8449;color:#fff}
+.dlcsv:hover{background:#186038}
+.dlxls{background:#1a3a6e;color:#fff}
+.dlxls:hover{background:#112a52}
+.rec-count{font-size:13px;color:#666;margin-left:4px}
+.twrap{background:#fff;border-radius:10px;border:1px solid #e5e9f0;overflow-x:auto;margin-bottom:24px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+thead th{background:#1a1a2e;color:#fff;padding:11px 16px;text-align:left;font-weight:600;font-size:12px;white-space:nowrap;position:sticky;top:0;z-index:2}
+thead th.sort{cursor:pointer;user-select:none}
+thead th.sort:hover{background:#2d2d55}
+thead th.num{text-align:right}
+tbody tr{border-bottom:1px solid #f0f2f5;transition:background .1s}
+tbody tr:last-child{border-bottom:none}
+tbody tr:hover{background:#f7f9ff}
+td{padding:10px 16px;color:#333;white-space:nowrap}
+td.num{text-align:right;font-family:monospace;font-size:13px}
+td.dn{color:#c0392b;font-weight:700;text-align:right;font-family:monospace}
+td.dp{color:#1e8449;font-weight:700;text-align:right;font-family:monospace}
+td.dz{color:#aaa;text-align:right}
+.badge{display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:700;letter-spacing:.2px}
+.b-early{background:#fff3cd;color:#856404}
+.b-late{background:#fde8e8;color:#a93226}
+.b-novisit{background:#f3e8ff;color:#6b21a8}
+tfoot tr{background:#1a1a2e}
+tfoot td{color:#fff;font-weight:700;padding:11px 16px;white-space:nowrap}
+tfoot td.num{text-align:right;font-family:monospace}
+tfoot td.dn{color:#ff8a80;font-weight:700;text-align:right;font-family:monospace}
+tfoot td.dp{color:#69f0ae;font-weight:700;text-align:right;font-family:monospace}
+.nodata{text-align:center;padding:56px;color:#aaa;font-size:14px}
+.newfile-btn{padding:7px 16px;background:#fff;color:#3b6dbf;border:1px solid #3b6dbf;border-radius:6px;font-size:13px;cursor:pointer;margin-bottom:18px}
+.newfile-btn:hover{background:#f0f5ff}
+</style>
+</head>
+<body>
+
+<h1>Visit Hours Difference</h1>
+<p class="sub">Upload a Visit Log (.xlsx) — shows only visits where the difference exceeds 15 minutes</p>
+
+<div class="err" id="err"></div>
+<div class="pbar" id="pbar"><div class="pbar-inner" id="pbar-inner"></div></div>
+
+<div class="upload-zone" id="dropzone">
+  <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="#3b6dbf" stroke-width="1.5">
+    <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
+    <polyline points="17 8 12 3 7 8"/>
+    <line x1="12" y1="3" x2="12" y2="15"/>
+  </svg>
+  <p>Drag &amp; drop your Visit Log Excel file here</p>
+  <span>Supports .xlsx — rows 1–15 skipped, headers from row 16, military time (0000-0000)</span>
+  <br>
+  <label class="up-btn" for="file-input">Browse File</label>
+  <input type="file" id="file-input" accept=".xlsx,.xls">
+</div>
+
+<div id="results" style="display:none">
+  <button class="newfile-btn" onclick="resetAll()">&#8592; Upload Different File</button>
+  <div class="stats" id="stats"></div>
+  <div class="note-bar">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#856404" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+    Only showing visits where Schedule vs Visit difference is <strong>&nbsp;more than 15 minutes</strong>. Visits within ±15 mins are excluded.
+  </div>
+  <div class="controls">
+    <div class="cg">
+      <label>Search Caregiver</label>
+      <input type="text" id="s-search" placeholder="Name...">
+    </div>
+    <div class="cg">
+      <label>Visit Date From</label>
+      <input type="date" id="s-from">
+    </div>
+    <div class="cg">
+      <label>Visit Date To</label>
+      <input type="date" id="s-to">
+    </div>
+    <div class="cg">
+      <label>Type</label>
+      <select id="s-status">
+        <option value="all">All discrepancies</option>
+        <option value="early">Early finish (Visit &lt; Schedule)</option>
+        <option value="late">Stayed late (Visit &gt; Schedule)</option>
+        <option value="novisit">No visit recorded</option>
+      </select>
+    </div>
+    <button class="fbtn" onclick="applyFilters()">Apply</button>
+    <button class="rbtn" onclick="resetFilters()">Reset Filters</button>
+  </div>
+  <div class="actions">
+    <button class="dlbtn dlcsv" onclick="dlCSV()">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+      Download CSV
+    </button>
+    <button class="dlbtn dlxls" onclick="dlExcel()">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="3"/></svg>
+      Download Excel
+    </button>
+    <span class="rec-count" id="rec-count"></span>
+  </div>
+  <div class="twrap">
+    <table>
+      <thead>
+        <tr>
+          <th>#</th>
+          <th class="sort" onclick="srt('caregiver')">Caregiver &#8597;</th>
+          <th class="sort" onclick="srt('visitDate')">Visit Date &#8597;</th>
+          <th class="num">Schedule</th>
+          <th class="num sort" onclick="srt('schedMins')">Sched. Hours &#8597;</th>
+          <th class="num">Visit</th>
+          <th class="num sort" onclick="srt('visitMins')">Visit Hours &#8597;</th>
+          <th class="num sort" onclick="srt('diffMins')">Difference &#8597;</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody id="tbody"></tbody>
+      <tfoot id="tfoot"></tfoot>
+    </table>
+  </div>
+</div>
+
+<script>
+let allData=[], filteredData=[], sortCol=null, sortDir=1;
+
+function parseMilRange(str){
+  if(!str||str===null) return null;
+  str=String(str).trim();
+  const m=str.match(/^(\d{3,4})-(\d{3,4})$/);
+  if(!m) return null;
+  const parseT=s=>{
+    s=s.padStart(4,'0');
+    const h=parseInt(s.slice(0,2),10), mn=parseInt(s.slice(2,4),10);
+    if(isNaN(h)||isNaN(mn)||h>23||mn>59) return null;
+    return h*60+mn;
+  };
+  const st=parseT(m[1]), en=parseT(m[2]);
+  if(st===null||en===null) return null;
+  let diff=en-st;
+  if(en===0) diff=24*60-st;
+  else if(diff<0) diff+=24*60;
+  return diff;
+}
+
+function minsToHHMM(mins){
+  if(mins===null||isNaN(mins)) return '--:--';
+  const sign=mins<0?'-':'';
+  const abs=Math.abs(mins);
+  const h=Math.floor(abs/60), m=abs%60;
+  return `${sign}${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
+}
+
+function showErr(msg){
+  const el=document.getElementById('err');
+  el.textContent=msg;el.style.display='block';
+  setTimeout(()=>el.style.display='none',7000);
+}
+function setProg(p){
+  document.getElementById('pbar').style.display=p>0?'block':'none';
+  document.getElementById('pbar-inner').style.width=p+'%';
+}
+
+document.getElementById('file-input').addEventListener('change',e=>{
+  if(e.target.files[0]) processFile(e.target.files[0]);
+});
+const dz=document.getElementById('dropzone');
+dz.addEventListener('dragover',e=>{e.preventDefault();dz.classList.add('drag')});
+dz.addEventListener('dragleave',()=>dz.classList.remove('drag'));
+dz.addEventListener('drop',e=>{
+  e.preventDefault();dz.classList.remove('drag');
+  if(e.dataTransfer.files[0]) processFile(e.dataTransfer.files[0]);
+});
+
+function processFile(file){
+  if(!file.name.match(/\.xlsx?$/i)){showErr('Please upload an .xlsx file.');return;}
+  setProg(15);
+  const reader=new FileReader();
+  reader.onload=e=>{
+    try{
+      setProg(40);
+      const data=new Uint8Array(e.target.result);
+      const wb=XLSX.read(data,{type:'array',cellText:true,cellDates:false,raw:false});
+      const ws=wb.Sheets[wb.SheetNames[0]];
+      setProg(65);
+      const raw=XLSX.utils.sheet_to_json(ws,{header:1,defval:null,raw:false});
+
+      let hdrRow=15;
+      for(let i=0;i<Math.min(25,raw.length);i++){
+        const r=raw[i].map(c=>c?String(c).toLowerCase():'').join('|');
+        if(r.includes('visit date')&&r.includes('caregiver')){hdrRow=i;break;}
+        if(r.includes('schedule')&&r.includes('caregiver')){hdrRow=i;break;}
+      }
+
+      const hdrs=raw[hdrRow].map(h=>h?String(h).trim().toLowerCase():'');
+      const findCol=names=>{
+        for(let i=0;i<hdrs.length;i++)
+          for(const n of names) if(hdrs[i].includes(n)) return i;
+        return -1;
+      };
+
+      const colCare=findCol(['caregiver']);
+      const colDate=findCol(['visit date']);
+      const colSched=findCol(['schedule']);
+      const colVisit=findCol(['visit']);
+      const colPat=findCol(['patient']);
+      const colAdm=findCol(['admission id','admission']);
+      const colContract=findCol(['primary contract','contract']);
+      const colCoord=findCol(['coordinator']);
+      const colAssign=findCol(['assignment id','assignment']);
+      const colSr=findCol(['# sr','sr']);
+      const colBilled=findCol(['billed']);
+
+      if(colSched===-1||colVisit===-1){
+        showErr('Could not find Schedule or Visit columns.');setProg(0);return;
+      }
+
+      allData=[];
+      for(let i=hdrRow+1;i<raw.length;i++){
+        const row=raw[i];
+        if(!row||row.every(c=>!c)) continue;
+        const care=colCare>=0?(row[colCare]||''):'';
+        const vdate=colDate>=0?(row[colDate]||''):'';
+        const schedRaw=colSched>=0?(row[colSched]||''):'';
+        const visitRaw=colVisit>=0?(row[colVisit]||''):'';
+        const pat=colPat>=0?(row[colPat]||''):'';
+        const adm=colAdm>=0?(row[colAdm]||''):'';
+        if(!care&&!pat&&!adm) continue;
+        if(String(care).toLowerCase().includes('total')||String(pat).toLowerCase().includes('total')) continue;
+
+        const schedMins=parseMilRange(schedRaw);
+        const visitMins=parseMilRange(visitRaw);
+        const diffMins=(schedMins!==null&&visitMins!==null)?(visitMins-schedMins):null;
+
+        let dateObj=null;
+        if(vdate){
+          const dp=String(vdate).split('/');
+          if(dp.length===3) dateObj=new Date(parseInt(dp[2]),parseInt(dp[0])-1,parseInt(dp[1]));
+        }
+
+        allData.push({
+          sr:colSr>=0?(row[colSr]||i-hdrRow):i-hdrRow,
+          caregiver:String(care).trim(),
+          patient:String(pat).trim(),
+          admissionId:String(adm).trim(),
+          contract:colContract>=0?String(row[colContract]||'').trim():'',
+          coordinator:colCoord>=0?String(row[colCoord]||'').trim():'',
+          assignmentId:colAssign>=0?String(row[colAssign]||'').trim():'',
+          visitDate:String(vdate).trim(),
+          dateObj,
+          schedRaw:String(schedRaw).trim(),
+          visitRaw:String(visitRaw).trim(),
+          schedMins,
+          visitMins,
+          diffMins,
+          billed:colBilled>=0?String(row[colBilled]||'').trim():''
+        });
+      }
+
+      if(allData.length===0){showErr('No data rows found after the header row.');setProg(0);return;}
+
+      filteredData=allData.filter(r=>
+        (r.diffMins!==null&&Math.abs(r.diffMins)>15)||
+        (r.schedMins!==null&&r.visitMins===null)
+      );
+
+      setProg(100);
+      renderAll();
+      document.getElementById('dropzone').style.display='none';
+      document.getElementById('results').style.display='block';
+      setTimeout(()=>setProg(0),400);
+    }catch(err){
+      showErr('Error reading file: '+err.message);setProg(0);
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function renderAll(){
+  renderStats();
+  renderTable(filteredData);
+}
+
+function renderStats(){
+  const total=allData.length;
+  const discrepant=allData.filter(r=>r.diffMins!==null&&Math.abs(r.diffMins)>15).length;
+  const noVisit=allData.filter(r=>r.schedMins!==null&&r.visitMins===null).length;
+  const early=allData.filter(r=>r.diffMins!==null&&r.diffMins<-15).length;
+  const late=allData.filter(r=>r.diffMins!==null&&r.diffMins>15).length;
+  const discRows=allData.filter(r=>r.diffMins!==null&&Math.abs(r.diffMins)>15);
+  const tSched=discRows.reduce((s,r)=>s+(r.schedMins||0),0);
+  const tVisit=discRows.reduce((s,r)=>s+(r.visitMins||0),0);
+  const tDiff=discRows.reduce((s,r)=>s+(r.diffMins||0),0);
+
+  document.getElementById('stats').innerHTML=`
+    <div class="scard info"><div class="lbl">Total Records</div><div class="val">${total}</div></div>
+    <div class="scard ${discrepant>0?'warn':'good'}"><div class="lbl">Discrepancies &gt;15 min</div><div class="val">${discrepant}</div></div>
+    <div class="scard ${early>0?'warn':'good'}"><div class="lbl">Early Finish</div><div class="val">${early}</div></div>
+    <div class="scard ${late>0?'warn':'good'}"><div class="lbl">Stayed Late</div><div class="val">${late}</div></div>
+    ${noVisit>0?`<div class="scard warn"><div class="lbl">No Visit Recorded</div><div class="val">${noVisit}</div></div>`:''}
+    <div class="scard"><div class="lbl">Discrepant Sched. Hrs</div><div class="val">${minsToHHMM(tSched)}</div></div>
+    <div class="scard"><div class="lbl">Discrepant Visit Hrs</div><div class="val">${minsToHHMM(tVisit)}</div></div>
+    <div class="scard ${Math.abs(tDiff)>0?'warn':'good'}"><div class="lbl">Net Over/Under</div><div class="val">${(tDiff>0?'+':'')+minsToHHMM(tDiff)}</div></div>
+  `;
+}
+
+function renderTable(d){
+  const tbody=document.getElementById('tbody');
+  const tfoot=document.getElementById('tfoot');
+  document.getElementById('rec-count').textContent=`Showing ${d.length} record${d.length!==1?'s':''}`;
+
+  if(!d.length){
+    tbody.innerHTML='<tr><td colspan="9" class="nodata">No records match your filters.</td></tr>';
+    tfoot.innerHTML='';return;
+  }
+
+  tbody.innerHTML=d.map((r,i)=>{
+    const hasVisit=r.visitMins!==null;
+    const diff=r.diffMins;
+    let diffCell='<td class="dz">--</td>', badge='';
+
+    if(!hasVisit&&r.schedMins!==null){
+      badge='<span class="badge b-novisit">No visit</span>';
+      diffCell='<td class="dz">--</td>';
+    } else if(diff!==null){
+      const cls=diff<0?'dn':'dp';
+      const sign=diff>0?'+':'';
+      diffCell=`<td class="${cls}">${sign}${minsToHHMM(diff)}</td>`;
+      badge=diff<0
+        ?`<span class="badge b-early">Early&nbsp;${minsToHHMM(diff)}</span>`
+        :`<span class="badge b-late">Late&nbsp;+${minsToHHMM(diff)}</span>`;
+    }
+
+    return `<tr>
+      <td style="color:#bbb;font-size:12px">${i+1}</td>
+      <td><strong>${esc(r.caregiver)}</strong></td>
+      <td>${esc(r.visitDate)}</td>
+      <td class="num" style="color:#888;font-family:monospace">${esc(r.schedRaw)||'--'}</td>
+      <td class="num">${r.schedMins!==null?minsToHHMM(r.schedMins):'--'}</td>
+      <td class="num" style="color:#888;font-family:monospace">${esc(r.visitRaw)||'--'}</td>
+      <td class="num">${hasVisit?minsToHHMM(r.visitMins):'--'}</td>
+      ${diffCell}
+      <td>${badge}</td>
+    </tr>`;
+  }).join('');
+
+  const ts=d.filter(r=>r.schedMins!==null).reduce((s,r)=>s+r.schedMins,0);
+  const tv=d.filter(r=>r.visitMins!==null).reduce((s,r)=>s+r.visitMins,0);
+  const td=d.filter(r=>r.diffMins!==null).reduce((s,r)=>s+r.diffMins,0);
+  const tdCls=td<0?'dn':td>0?'dp':'';
+  const tdSign=td>0?'+':'';
+  tfoot.innerHTML=`<tr>
+    <td colspan="4">TOTAL — ${d.length} records</td>
+    <td class="num">${minsToHHMM(ts)}</td>
+    <td></td>
+    <td class="num">${minsToHHMM(tv)}</td>
+    <td class="num ${tdCls}">${tdSign}${minsToHHMM(td)}</td>
+    <td></td>
+  </tr>`;
+}
+
+function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+
+function applyFilters(){
+  const search=document.getElementById('s-search').value.trim().toLowerCase();
+  const from=document.getElementById('s-from').value;
+  const to=document.getElementById('s-to').value;
+  const status=document.getElementById('s-status').value;
+
+  filteredData=allData.filter(r=>{
+    const absD=r.diffMins!==null?Math.abs(r.diffMins):0;
+    const noVis=r.schedMins!==null&&r.visitMins===null;
+    if(!noVis&&absD<=15) return false;
+    if(search&&!r.caregiver.toLowerCase().includes(search)&&!r.patient.toLowerCase().includes(search)) return false;
+    if(from&&r.dateObj&&r.dateObj<new Date(from)) return false;
+    if(to&&r.dateObj&&r.dateObj>new Date(to+'T23:59:59')) return false;
+    if(status==='early'&&!(r.diffMins!==null&&r.diffMins<-15)) return false;
+    if(status==='late'&&!(r.diffMins!==null&&r.diffMins>15)) return false;
+    if(status==='novisit'&&!noVis) return false;
+    return true;
+  });
+  renderTable(filteredData);
+}
+
+function resetFilters(){
+  ['s-search','s-from','s-to'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('s-status').value='all';
+  filteredData=allData.filter(r=>
+    (r.diffMins!==null&&Math.abs(r.diffMins)>15)||
+    (r.schedMins!==null&&r.visitMins===null)
+  );
+  renderTable(filteredData);
+}
+
+function srt(col){
+  if(sortCol===col) sortDir*=-1; else{sortCol=col;sortDir=1;}
+  filteredData.sort((a,b)=>{
+    const av=a[col],bv=b[col];
+    if(av===null&&bv===null) return 0;
+    if(av===null) return 1; if(bv===null) return -1;
+    if(typeof av==='string') return av.localeCompare(bv)*sortDir;
+    return (av-bv)*sortDir;
+  });
+  renderTable(filteredData);
+}
+
+function buildRows(){
+  return filteredData.map(r=>({
+    'Caregiver':r.caregiver,
+    'Visit Date':r.visitDate,
+    'Schedule (Raw)':r.schedRaw,
+    'Schedule Hours':r.schedMins!==null?minsToHHMM(r.schedMins):'',
+    'Visit (Raw)':r.visitRaw,
+    'Visit Hours':r.visitMins!==null?minsToHHMM(r.visitMins):'',
+    'Difference':(r.diffMins!==null&&r.diffMins>0?'+':'')+( r.diffMins!==null?minsToHHMM(r.diffMins):''),
+    'Difference (Mins)':r.diffMins!==null?r.diffMins:'',
+    'Status':r.visitMins===null&&r.schedMins!==null?'No visit':
+             r.diffMins===null?'':
+             r.diffMins<-15?'Early finish':
+             r.diffMins>15?'Stayed late':'',
+    'Patient':r.patient,
+    'Admission ID':r.admissionId,
+    'Contract':r.contract
+  }));
+}
+
+function dlCSV(){
+  const rows=buildRows();
+  if(!rows.length) return;
+  const hdrs=Object.keys(rows[0]);
+  const ts=filteredData.filter(r=>r.schedMins!==null).reduce((s,r)=>s+r.schedMins,0);
+  const tv=filteredData.filter(r=>r.visitMins!==null).reduce((s,r)=>s+r.visitMins,0);
+  const td=filteredData.filter(r=>r.diffMins!==null).reduce((s,r)=>s+r.diffMins,0);
+  const lines=[
+    hdrs.join(','),
+    ...rows.map(r=>hdrs.map(h=>`"${String(r[h]||'').replace(/"/g,'""')}"`).join(',')),
+    `"TOTAL (${filteredData.length})","","","${minsToHHMM(ts)}","","${minsToHHMM(tv)}","${(td>0?'+':'')+minsToHHMM(td)}","${td}","","","",""`
+  ];
+  const blob=new Blob([lines.join('\n')],{type:'text/csv'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);
+  a.download='visit_hours_discrepancies.csv';a.click();
+}
+
+function dlExcel(){
+  const rows=buildRows();
+  if(!rows.length) return;
+  const ts=filteredData.filter(r=>r.schedMins!==null).reduce((s,r)=>s+r.schedMins,0);
+  const tv=filteredData.filter(r=>r.visitMins!==null).reduce((s,r)=>s+r.visitMins,0);
+  const td=filteredData.filter(r=>r.diffMins!==null).reduce((s,r)=>s+r.diffMins,0);
+  rows.push({
+    'Caregiver':`TOTAL (${filteredData.length})`,'Visit Date':'',
+    'Schedule (Raw)':'','Schedule Hours':minsToHHMM(ts),
+    'Visit (Raw)':'','Visit Hours':minsToHHMM(tv),
+    'Difference':(td>0?'+':'')+minsToHHMM(td),'Difference (Mins)':td,
+    'Status':'','Patient':'','Admission ID':'','Contract':''
+  });
+  const ws=XLSX.utils.json_to_sheet(rows);
+  ws['!cols']=[22,12,14,14,14,12,14,16,14,22,14,20].map(w=>({wch:w}));
+  const wbk=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wbk,ws,'Discrepancies >15 min');
+  XLSX.writeFile(wbk,'visit_hours_discrepancies.xlsx');
+}
+
+function resetAll(){
+  allData=[];filteredData=[];
+  document.getElementById('results').style.display='none';
+  document.getElementById('dropzone').style.display='block';
+  document.getElementById('file-input').value='';
+}
+</script>
+</body>
+</html>
