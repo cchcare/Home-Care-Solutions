@@ -6,31 +6,31 @@
 <title>PaySync — ADP Payroll Import Generator</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,300&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
 :root {
-  --navy:       #0A0F1E;
-  --navy2:      #0D1426;
-  --navy3:      #111827;
-  --card:       #131B2E;
-  --card2:      #182035;
-  --border:     rgba(255,255,255,0.07);
-  --border2:    rgba(255,255,255,0.12);
-  --teal:       #00C2A8;
-  --teal2:      #00A896;
-  --teal-glow:  rgba(0,194,168,0.15);
-  --teal-faint: rgba(0,194,168,0.06);
-  --gold:       #F5A623;
-  --gold2:      #E8961A;
-  --red:        #FF4D6A;
-  --green:      #22C55E;
-  --green-faint:rgba(34,197,94,0.08);
-  --blue:       #3B82F6;
-  --text:       #F0F4FF;
-  --text2:      #8B9BBE;
-  --text3:      #4A567A;
-  --shadow:     0 24px 60px rgba(0,0,0,0.5);
-  --shadow-sm:  0 4px 16px rgba(0,0,0,0.3);
+  --navy:       #F4F7FD;
+  --navy2:      #EEF3FB;
+  --navy3:      #E8EEF8;
+  --card:       #FFFFFF;
+  --card2:      #F4F7FD;
+  --border:     #DDE4EF;
+  --border2:    #BCC8DF;
+  --teal:       hsl(210,100%,45%);
+  --teal2:      hsl(210,100%,38%);
+  --teal-glow:  rgba(0,115,230,0.12);
+  --teal-faint: rgba(0,115,230,0.06);
+  --gold:       #D97706;
+  --gold2:      #B45309;
+  --red:        #DC2626;
+  --green:      hsl(142,76%,36%);
+  --green-faint:rgba(21,128,61,0.08);
+  --blue:       hsl(210,100%,45%);
+  --text:       hsl(210,40%,8%);
+  --text2:      hsl(210,25%,35%);
+  --text3:      hsl(210,25%,55%);
+  --shadow:     0 4px 24px rgba(0,0,0,0.08);
+  --shadow-sm:  0 2px 8px rgba(0,0,0,0.05);
 }
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -40,22 +40,9 @@ html { scroll-behavior: smooth; }
 body {
   background: var(--navy);
   color: var(--text);
-  font-family: 'DM Sans', sans-serif;
+  font-family: 'Inter', sans-serif;
   min-height: 100vh;
   overflow-x: hidden;
-}
-
-/* ── BACKGROUND MESH ── */
-body::before {
-  content: '';
-  position: fixed;
-  inset: 0;
-  background:
-    radial-gradient(ellipse 80% 50% at 10% -10%, rgba(0,194,168,0.12) 0%, transparent 60%),
-    radial-gradient(ellipse 60% 40% at 90% 100%, rgba(59,130,246,0.08) 0%, transparent 60%),
-    radial-gradient(ellipse 40% 60% at 50% 50%, rgba(0,0,0,0) 0%, var(--navy) 100%);
-  pointer-events: none;
-  z-index: 0;
 }
 
 body > * { position: relative; z-index: 1; }
@@ -67,8 +54,7 @@ body > * { position: relative; z-index: 1; }
   padding: 0 40px;
   height: 64px;
   border-bottom: 1px solid var(--border);
-  background: rgba(10,15,30,0.8);
-  backdrop-filter: blur(20px);
+  background: #FFFFFF;
   position: sticky;
   top: 0;
   z-index: 200;
@@ -82,16 +68,16 @@ body > * { position: relative; z-index: 1; }
 }
 .logo-mark {
   width: 36px; height: 36px;
-  background: linear-gradient(135deg, var(--teal), #0070C0);
+  background: linear-gradient(135deg, var(--teal), var(--teal2));
   border-radius: 10px;
   display: flex; align-items: center; justify-content: center;
   font-size: 16px;
-  box-shadow: 0 0 20px rgba(0,194,168,0.4);
+  box-shadow: 0 0 16px var(--teal-glow);
 }
 .logo-text {
-  font-family: 'Syne', sans-serif;
+  font-family: 'Inter', sans-serif;
   font-size: 20px;
-  font-weight: 800;
+  font-weight: 700;
   color: var(--text);
   letter-spacing: -0.5px;
 }
@@ -158,19 +144,16 @@ body > * { position: relative; z-index: 1; }
   gap: 24px;
 }
 .hero h1 {
-  font-family: 'Syne', sans-serif;
-  font-size: 32px;
-  font-weight: 800;
+  font-family: 'Inter', sans-serif;
+  font-size: 28px;
+  font-weight: 700;
   color: var(--text);
-  letter-spacing: -1px;
-  line-height: 1.15;
+  letter-spacing: -0.5px;
+  line-height: 1.2;
 }
 .hero h1 em {
   font-style: normal;
-  background: linear-gradient(135deg, var(--teal), #60B8FF);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+  color: var(--teal);
 }
 .hero p {
   margin-top: 8px;
@@ -187,7 +170,7 @@ body > * { position: relative; z-index: 1; }
   border: 1px solid var(--border2);
   border-radius: 8px;
   color: var(--text2);
-  font-family: 'DM Sans', sans-serif;
+  font-family: 'Inter', sans-serif;
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
@@ -237,14 +220,14 @@ body > * { position: relative; z-index: 1; }
   flex-shrink: 0;
   transition: all 0.3s;
 }
-.step-circle.teal { background: var(--teal); color: #000; box-shadow: 0 0 12px rgba(0,194,168,0.5); }
+.step-circle.teal { background: var(--teal); color: #fff; box-shadow: 0 0 12px var(--teal-glow); }
 .step-circle.outline { background: transparent; border: 1.5px solid var(--text3); color: var(--text3); }
 .step-circle.gold { background: var(--gold); color: #000; }
 
 .panel-head h3 {
-  font-family: 'Syne', sans-serif;
+  font-family: 'Inter', sans-serif;
   font-size: 14px;
-  font-weight: 700;
+  font-weight: 600;
   color: var(--text);
   flex: 1;
 }
@@ -383,7 +366,7 @@ input.finput::placeholder { color: var(--text3); }
   border: none;
   background: transparent;
   color: var(--text3);
-  font-family: 'DM Sans', sans-serif;
+  font-family: 'Inter', sans-serif;
   font-size: 12px;
   font-weight: 500;
   cursor: pointer;
@@ -449,13 +432,13 @@ input.finput::placeholder { color: var(--text3); }
 .btn-generate {
   width: 100%;
   padding: 15px 20px;
-  background: linear-gradient(135deg, var(--teal), #0070C0);
+  background: linear-gradient(135deg, var(--teal), var(--teal2));
   border: none;
   border-radius: 12px;
   color: #fff;
-  font-family: 'Syne', sans-serif;
+  font-family: 'Inter', sans-serif;
   font-size: 15px;
-  font-weight: 700;
+  font-weight: 600;
   cursor: pointer;
   transition: all 0.25s;
   letter-spacing: 0.3px;
@@ -472,7 +455,7 @@ input.finput::placeholder { color: var(--text3); }
 .btn-generate:hover::before { left: 100%; }
 .btn-generate:hover:not(:disabled) {
   transform: translateY(-2px);
-  box-shadow: 0 8px 30px rgba(0,194,168,0.4);
+  box-shadow: 0 8px 24px var(--teal-glow);
 }
 .btn-generate:disabled {
   background: var(--card2);
@@ -484,7 +467,7 @@ input.finput::placeholder { color: var(--text3); }
 .btn-generate:disabled::before { display: none; }
 .gen-hint {
   display: block;
-  font-family: 'DM Sans', sans-serif;
+  font-family: 'Inter', sans-serif;
   font-size: 11px;
   font-weight: 400;
   margin-top: 4px;
@@ -498,7 +481,7 @@ input.finput::placeholder { color: var(--text3); }
   border: 1px solid var(--border);
   border-radius: 10px;
   color: var(--text3);
-  font-family: 'DM Sans', sans-serif;
+  font-family: 'Inter', sans-serif;
   font-size: 13px;
   cursor: pointer;
   transition: all 0.2s;
@@ -579,10 +562,10 @@ input.finput::placeholder { color: var(--text3); }
   background: var(--card2);
 }
 .log-head h4 {
-  font-family: 'Syne', sans-serif;
+  font-family: 'Inter', sans-serif;
   font-size: 13px;
-  font-weight: 700;
-  color: var(--text2);
+  font-weight: 600;
+  color: var(--text);
 }
 .log-count {
   margin-left: auto;
@@ -608,7 +591,7 @@ input.finput::placeholder { color: var(--text3); }
   display: flex;
   flex-direction: column;
   gap: 4px;
-  background: #080D1A;
+  background: var(--navy2);
 }
 .le { display: flex; gap: 12px; align-items: flex-start; }
 .le .ts { color: #3B4A6B; flex-shrink: 0; font-size: 11px; }
@@ -662,10 +645,10 @@ input.finput::placeholder { color: var(--text3); }
   background: var(--card2);
 }
 .table-head h4 {
-  font-family: 'Syne', sans-serif;
+  font-family: 'Inter', sans-serif;
   font-size: 13px;
-  font-weight: 700;
-  color: var(--text2);
+  font-weight: 600;
+  color: var(--text);
 }
 .row-pill {
   font-size: 11px;
@@ -692,7 +675,7 @@ thead {
   z-index: 2;
 }
 thead th {
-  background: #0D1220;
+  background: var(--navy3);
   padding: 10px 14px;
   text-align: left;
   color: var(--text3);
@@ -704,12 +687,12 @@ thead th {
   font-family: 'DM Mono', monospace;
 }
 tbody tr {
-  border-bottom: 1px solid rgba(255,255,255,0.04);
+  border-bottom: 1px solid var(--border);
   transition: background 0.15s;
 }
-tbody tr:hover { background: rgba(255,255,255,0.03); }
+tbody tr:hover { background: var(--teal-faint); }
 tbody td { padding: 10px 14px; white-space: nowrap; color: var(--text2); }
-td.emp-name { color: var(--text); font-weight: 500; font-family: 'DM Sans', sans-serif; font-size: 13px; }
+td.emp-name { color: var(--text); font-weight: 500; font-family: 'Inter', sans-serif; font-size: 13px; }
 td.adp-code { color: var(--teal); font-weight: 600; }
 td.reg-hrs { color: var(--blue); font-weight: 600; }
 td.ot-hrs { font-weight: 600; }
@@ -723,7 +706,7 @@ td.status-ok {
   text-align: center;
 }
 .empty-icon { font-size: 32px; margin-bottom: 12px; opacity: 0.4; }
-.empty-text { font-size: 13px; color: var(--text3); font-family: 'DM Sans', sans-serif; }
+.empty-text { font-size: 13px; color: var(--text3); font-family: 'Inter', sans-serif; }
 
 /* ── DOWNLOAD ROW ── */
 .dl-row {
@@ -736,10 +719,10 @@ td.status-ok {
   background: linear-gradient(135deg, var(--teal), var(--teal2));
   border: none;
   border-radius: 12px;
-  color: #000;
-  font-family: 'Syne', sans-serif;
+  color: #fff;
+  font-family: 'Inter', sans-serif;
   font-size: 14px;
-  font-weight: 700;
+  font-weight: 600;
   cursor: pointer;
   transition: all 0.25s;
   display: flex;
@@ -749,7 +732,7 @@ td.status-ok {
 }
 .btn-dl-primary:hover:not(:disabled) {
   transform: translateY(-2px);
-  box-shadow: 0 8px 24px rgba(0,194,168,0.35);
+  box-shadow: 0 8px 20px var(--teal-glow);
 }
 .btn-dl-primary:disabled { opacity: 0.3; cursor: not-allowed; transform: none; }
 
@@ -760,9 +743,9 @@ td.status-ok {
   border: 1px solid var(--border2);
   border-radius: 12px;
   color: var(--text2);
-  font-family: 'Syne', sans-serif;
+  font-family: 'Inter', sans-serif;
   font-size: 14px;
-  font-weight: 700;
+  font-weight: 600;
   cursor: pointer;
   transition: all 0.25s;
   display: flex;
