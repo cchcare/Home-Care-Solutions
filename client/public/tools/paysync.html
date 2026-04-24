@@ -983,6 +983,11 @@ td.status-ssn {
         <div class="stat-sub">Not in master</div>
       </div>
       <div class="stat-card" id="sc4">
+        <div class="stat-label">Total Regular Hours</div>
+        <div class="stat-val" id="st-reg" style="color:var(--blue)">—</div>
+        <div class="stat-sub">Regular hrs across all</div>
+      </div>
+      <div class="stat-card" id="sc5">
         <div class="stat-label">Total OT Hours</div>
         <div class="stat-val" id="st-ot" style="color:var(--gold)">—</div>
         <div class="stat-sub">Overtime across all</div>
@@ -1344,10 +1349,11 @@ function runProcess() {
   updateStat('st-total',     Object.keys(grouped).length);
   updateStat('st-matched',   output.length);
   updateStat('st-unmatched', unmatched.size);
+  updateStat('st-reg',       totReg.toFixed(1));
   updateStat('st-ot',        totOT.toFixed(1));
 
   // Animate stat cards
-  ['sc1','sc2','sc3','sc4'].forEach(id => {
+  ['sc1','sc2','sc3','sc4','sc5'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.classList.add('has-data');
   });
@@ -1463,11 +1469,11 @@ function resetAll() {
   });
   [['z-adp','n-adp'],['z-master','n-master'],['z-h1','n-h1'],['z-hw1','n-hw1'],['z-hw2','n-hw2']].forEach(([z,n]) => unmarkZone(z,n));
   ['d1','d2','d3','d4'].forEach(id => dot(id, false));
-  ['sc1','sc2','sc3','sc4'].forEach(id => { const el = document.getElementById(id); if(el) el.classList.remove('has-data'); });
+  ['sc1','sc2','sc3','sc4','sc5'].forEach(id => { const el = document.getElementById(id); if(el) el.classList.remove('has-data'); });
 
   document.getElementById('coCode').value  = '';
   document.getElementById('batchId').value = '';
-  ['st-total','st-matched','st-unmatched','st-ot'].forEach(id => { document.getElementById(id).textContent = '—'; });
+  ['st-total','st-matched','st-unmatched','st-reg','st-ot'].forEach(id => { document.getElementById(id).textContent = '—'; });
   document.getElementById('tBody').innerHTML = `<tr><td colspan="10"><div class="empty-state"><div class="empty-icon">📊</div><div class="empty-text">No data yet — upload your files and click Generate to see a preview.</div></div></td></tr>`;
   document.getElementById('rowCount').textContent = '0 rows';
   document.getElementById('warnBox').style.display = 'none';
