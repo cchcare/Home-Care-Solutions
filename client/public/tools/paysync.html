@@ -700,6 +700,12 @@ td.ot-hrs.has-ot { color: var(--gold); }
 td.status-ok {
   color: var(--green);
   font-size: 11px;
+  font-weight: 600;
+}
+td.status-ssn {
+  color: var(--gold);
+  font-size: 11px;
+  font-weight: 600;
 }
 .empty-state {
   padding: 48px 20px;
@@ -1235,18 +1241,34 @@ function runProcess() {
   const coCode  = document.getElementById('coCode').value.trim();
   const batchId = document.getElementById('batchId').value.trim() || 'DCW';
 
-  // Build lookup from master
+  // Normalize SSN: strip dashes/spaces, keep last 4 or full 9 digits
+  function normalizeSSN(v) {
+    if (!v) return '';
+    const s = String(v).replace(/[\s\-]/g, '');
+    if (/^\d{9}$/.test(s)) return s;
+    if (/^\d{4}$/.test(s)) return s; // last-4 only
+    const d = s.replace(/\D/g, '');
+    return d.length >= 4 ? d : '';
+  }
+
+  // Build lookup from master — primary by HHA code, secondary by SSN
   const lookup = {};
+  const ssnLookup = {};
   S.master.forEach(row => {
     const hha  = String(row['HHA Code'] ?? row['HHA code'] ?? row['hha_code'] ?? row['Aide Code'] ?? row['aide_code'] ?? '').trim();
     const adp  = String(row['ADP Code'] ?? row['ADP code'] ?? row['adp_code'] ?? row['File #'] ?? row['FileNumber'] ?? '').trim();
     const name = String(row['DCW Name'] ?? row['Name'] ?? row['Employee Name'] ?? row['Caregiver Name'] ?? '').trim();
-    if (hha && adp) lookup[hha] = { name, adpCode: adp };
+    const ssnRaw = row['SSN'] ?? row['Social Security Number'] ?? row['Social Security'] ?? row['Social'] ?? row['SS#'] ?? row['SS Number'] ?? row['ssn'] ?? '';
+    const ssn = normalizeSSN(ssnRaw);
+    if (hha && adp) lookup[hha] = { name, adpCode: adp, ssn };
+    if (ssn && adp) ssnLookup[ssn] = { name, adpCode: adp, hhaCode: hha };
   });
-  lg(`Master lookup built — ${Object.keys(lookup).length} entries`, 'i');
+  const ssnEntries = Object.keys(ssnLookup).length;
+  lg(`Master lookup built — ${Object.keys(lookup).length} code entries, ${ssnEntries} SSN entries`, 'i');
+  if (ssnEntries > 0) lg(`  SSN fallback enabled — will try Social Security match if aide code not found`, 'i');
   lg(`HHA rows to process — ${S.hhaRows.length} total`, 'i');
 
-  // Group by aide+week
+  // Group by aide+week (also capture SSN from HHA file if present)
   const grouped = {};
   S.hhaRows.forEach(row => {
     const aide = String(row['Aide Code'] ?? row['aide_code'] ?? row['AideCode'] ?? row['HHA Code'] ?? row['Employee ID'] ?? '').trim();
@@ -1254,31 +1276,58 @@ function runProcess() {
     const pay  = parseFloat(row['Pay Hours'] ?? row['pay_hours'] ?? row['Total Hrs'] ?? row['Hours'] ?? 0) || 0;
     const reg  = parseFloat(row['Regular Hours'] ?? row['Reg Hours'] ?? row['Reg'] ?? row['reg_hours'] ?? 0) || 0;
     const ot   = parseFloat(row['OT Hours'] ?? row['OT_Hours'] ?? row['O/T Hours'] ?? row['OT'] ?? row['Overtime Hours'] ?? 0) || 0;
+    const ssnRaw = row['SSN'] ?? row['Social Security Number'] ?? row['Social Security'] ?? row['Social'] ?? row['SS#'] ?? row['ssn'] ?? '';
+    const ssn = normalizeSSN(ssnRaw);
     if (!aide) return;
     const key = `${aide}||${week}`;
-    if (!grouped[key]) grouped[key] = { aide, week, pay: 0, reg: 0, ot: 0 };
+    if (!grouped[key]) grouped[key] = { aide, week, pay: 0, reg: 0, ot: 0, ssn };
     grouped[key].pay += pay;
     grouped[key].reg += reg;
     grouped[key].ot  += ot;
+    if (ssn && !grouped[key].ssn) grouped[key].ssn = ssn;
   });
   lg(`Grouped — ${Object.keys(grouped).length} unique aide-week combinations`, 'i');
 
   const output = [];
   const unmatched = new Set();
+  let ssnMatches = 0;
 
-  Object.values(grouped).forEach(({ aide, week, pay, reg, ot }) => {
-    const m = lookup[aide];
+  Object.values(grouped).forEach(({ aide, week, pay, reg, ot, ssn }) => {
+    let m = lookup[aide];
+    let matchMethod = 'Code';
+
+    // Fallback 1: try SSN from master (aide code might BE an SSN or last-4)
+    if (!m && ssnEntries > 0) {
+      const normAide = normalizeSSN(aide);
+      if (normAide && ssnLookup[normAide]) {
+        m = ssnLookup[normAide];
+        matchMethod = 'SSN';
+      }
+    }
+
+    // Fallback 2: try SSN captured from HHA row
+    if (!m && ssn && ssnEntries > 0 && ssnLookup[ssn]) {
+      m = ssnLookup[ssn];
+      matchMethod = 'SSN';
+    }
+
     if (!m) {
       unmatched.add(aide);
-      lg(`⚠ Aide Code ${aide} (Week ${week}) — no match in master, skipped`, 'w');
+      lg(`⚠ Aide Code ${aide} (Week ${week}) — no match by code or SSN, skipped`, 'w');
       return;
     }
+
+    if (matchMethod === 'SSN') {
+      ssnMatches++;
+      lg(`  ℹ Aide ${aide} (Week ${week}) — matched via SSN → ${m.name} (ADP: ${m.adpCode})`, 'i');
+    }
+
     let fReg = reg, fOT = ot;
     if (fReg === 0 && fOT === 0 && pay > 0) {
       fReg = Math.min(pay, 40);
       fOT  = Math.max(0, pay - 40);
     }
-    output.push({ coCode, batchId, name: m.name, adpCode: m.adpCode, flsaWk: week, regHrs: fReg, otHrs: fOT, week, aide });
+    output.push({ coCode, batchId, name: m.name, adpCode: m.adpCode, flsaWk: week, regHrs: fReg, otHrs: fOT, week, aide, matchMethod });
   });
 
   S.output    = output;
@@ -1320,7 +1369,8 @@ function runProcess() {
 
   lg(`✓ Processing complete — ${output.length} rows generated`, 's');
   lg(`  Regular Hours Total: ${totReg.toFixed(2)}  |  OT Hours Total: ${totOT.toFixed(2)}`, 's');
-  if (unmatched.size > 0) lg(`  ⚠ ${unmatched.size} aide code(s) could not be matched — check master sheet`, 'w');
+  if (ssnMatches > 0) lg(`  ✓ ${ssnMatches} employee(s) matched via SSN fallback`, 's');
+  if (unmatched.size > 0) lg(`  ⚠ ${unmatched.size} aide code(s) could not be matched by code or SSN — check master sheet`, 'w');
   lg('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'i');
 }
 
@@ -1345,7 +1395,7 @@ function renderTable(rows) {
       <td class="ot-hrs ${r.otHrs > 0 ? 'has-ot' : ''}">${r.otHrs.toFixed(2)}</td>
       <td style="color:var(--text3);font-family:'DM Mono',monospace">Wk ${r.week}</td>
       <td style="font-family:'DM Mono',monospace;color:var(--text2)">${r.aide}</td>
-      <td class="status-ok">✓ Matched</td>
+      <td class="${r.matchMethod === 'SSN' ? 'status-ssn' : 'status-ok'}">${r.matchMethod === 'SSN' ? '🔑 SSN Match' : '✓ Matched'}</td>
     </tr>
   `).join('');
 }
@@ -1393,7 +1443,8 @@ function downloadXlsx() {
     'Co Code': r.coCode, 'Batch ID': r.batchId, 'Employee Name': r.name,
     'ADP File #': r.adpCode, 'FLSA Workweek': r.flsaWk,
     'Reg Hours': r.regHrs, 'O/T Hours': r.otHrs,
-    'Week': r.week, 'Aide Code': r.aide
+    'Week': r.week, 'Aide Code': r.aide,
+    'Match Method': r.matchMethod || 'Code'
   }));
   const ws = XLSX.utils.json_to_sheet(data);
   const wb = XLSX.utils.book_new();
