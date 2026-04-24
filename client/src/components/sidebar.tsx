@@ -50,7 +50,8 @@ import {
   BookOpen,
   Layers,
   Calculator,
-  GitCompareArrows
+  GitCompareArrows,
+  Zap
 } from "lucide-react";
 
 interface NavItem {
@@ -136,6 +137,7 @@ export function Sidebar() {
           { name: "Financial Reports", href: "/financial-reports", icon: FileBarChart },
           { name: "Hours Calculator", href: "/payroll-hours-calculator", icon: Calculator },
           { name: "Visit Hours Difference", href: "/visit-hours-difference", icon: GitCompareArrows },
+          { name: "PaySync", href: "/paysync", icon: Zap },
           { name: "Care Quality Scorecard", href: "/care-quality-scorecard", icon: TrendingUp },
         ]
       },

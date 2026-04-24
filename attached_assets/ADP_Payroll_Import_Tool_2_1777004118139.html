@@ -1,0 +1,1451 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PaySync — ADP Payroll Import Generator</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,300&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --navy:       #0A0F1E;
+  --navy2:      #0D1426;
+  --navy3:      #111827;
+  --card:       #131B2E;
+  --card2:      #182035;
+  --border:     rgba(255,255,255,0.07);
+  --border2:    rgba(255,255,255,0.12);
+  --teal:       #00C2A8;
+  --teal2:      #00A896;
+  --teal-glow:  rgba(0,194,168,0.15);
+  --teal-faint: rgba(0,194,168,0.06);
+  --gold:       #F5A623;
+  --gold2:      #E8961A;
+  --red:        #FF4D6A;
+  --green:      #22C55E;
+  --green-faint:rgba(34,197,94,0.08);
+  --blue:       #3B82F6;
+  --text:       #F0F4FF;
+  --text2:      #8B9BBE;
+  --text3:      #4A567A;
+  --shadow:     0 24px 60px rgba(0,0,0,0.5);
+  --shadow-sm:  0 4px 16px rgba(0,0,0,0.3);
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html { scroll-behavior: smooth; }
+
+body {
+  background: var(--navy);
+  color: var(--text);
+  font-family: 'DM Sans', sans-serif;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* ── BACKGROUND MESH ── */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background:
+    radial-gradient(ellipse 80% 50% at 10% -10%, rgba(0,194,168,0.12) 0%, transparent 60%),
+    radial-gradient(ellipse 60% 40% at 90% 100%, rgba(59,130,246,0.08) 0%, transparent 60%),
+    radial-gradient(ellipse 40% 60% at 50% 50%, rgba(0,0,0,0) 0%, var(--navy) 100%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+body > * { position: relative; z-index: 1; }
+
+/* ── TOPBAR ── */
+.topbar {
+  display: flex;
+  align-items: center;
+  padding: 0 40px;
+  height: 64px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(10,15,30,0.8);
+  backdrop-filter: blur(20px);
+  position: sticky;
+  top: 0;
+  z-index: 200;
+}
+
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  text-decoration: none;
+}
+.logo-mark {
+  width: 36px; height: 36px;
+  background: linear-gradient(135deg, var(--teal), #0070C0);
+  border-radius: 10px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 16px;
+  box-shadow: 0 0 20px rgba(0,194,168,0.4);
+}
+.logo-text {
+  font-family: 'Syne', sans-serif;
+  font-size: 20px;
+  font-weight: 800;
+  color: var(--text);
+  letter-spacing: -0.5px;
+}
+.logo-text span { color: var(--teal); }
+
+.topbar-center {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+}
+.breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text3);
+  font-family: 'DM Mono', monospace;
+}
+.breadcrumb .sep { color: var(--text3); }
+.breadcrumb .current { color: var(--text2); }
+
+.topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.version-badge {
+  background: var(--teal-faint);
+  border: 1px solid rgba(0,194,168,0.3);
+  color: var(--teal);
+  font-size: 11px;
+  font-family: 'DM Mono', monospace;
+  padding: 4px 10px;
+  border-radius: 20px;
+  letter-spacing: 0.5px;
+}
+.status-indicator {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text3);
+}
+.pulse {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 8px var(--green);
+  animation: pulse 2s infinite;
+}
+@keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.6;transform:scale(0.85)} }
+
+/* ── HERO STRIP ── */
+.hero {
+  padding: 36px 40px 28px;
+  border-bottom: 1px solid var(--border);
+}
+.hero-inner {
+  max-width: 1240px;
+  margin: 0 auto;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+}
+.hero h1 {
+  font-family: 'Syne', sans-serif;
+  font-size: 32px;
+  font-weight: 800;
+  color: var(--text);
+  letter-spacing: -1px;
+  line-height: 1.15;
+}
+.hero h1 em {
+  font-style: normal;
+  background: linear-gradient(135deg, var(--teal), #60B8FF);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+.hero p {
+  margin-top: 8px;
+  font-size: 14px;
+  color: var(--text2);
+  font-weight: 300;
+  max-width: 480px;
+  line-height: 1.6;
+}
+.hero-actions { display: flex; gap: 10px; align-items: center; flex-shrink: 0; }
+.btn-outline {
+  padding: 9px 18px;
+  background: transparent;
+  border: 1px solid var(--border2);
+  border-radius: 8px;
+  color: var(--text2);
+  font-family: 'DM Sans', sans-serif;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+.btn-outline:hover { border-color: var(--teal); color: var(--teal); }
+
+/* ── MAIN LAYOUT ── */
+.workspace {
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: 32px 40px 60px;
+  display: grid;
+  grid-template-columns: 340px 1fr;
+  gap: 24px;
+  align-items: start;
+}
+
+/* ── SIDEBAR PANEL ── */
+.sidebar { display: flex; flex-direction: column; gap: 16px; }
+
+.panel {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  overflow: hidden;
+  transition: box-shadow 0.3s;
+}
+.panel:hover { box-shadow: 0 8px 32px rgba(0,0,0,0.3); }
+
+.panel-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+  background: var(--card2);
+}
+.step-circle {
+  width: 28px; height: 28px;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+  font-family: 'DM Mono', monospace;
+  flex-shrink: 0;
+  transition: all 0.3s;
+}
+.step-circle.teal { background: var(--teal); color: #000; box-shadow: 0 0 12px rgba(0,194,168,0.5); }
+.step-circle.outline { background: transparent; border: 1.5px solid var(--text3); color: var(--text3); }
+.step-circle.gold { background: var(--gold); color: #000; }
+
+.panel-head h3 {
+  font-family: 'Syne', sans-serif;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+  flex: 1;
+}
+.panel-head .badge {
+  font-size: 10px;
+  font-family: 'DM Mono', monospace;
+  padding: 3px 8px;
+  border-radius: 20px;
+  border: 1px solid;
+}
+.badge-opt { color: var(--text3); border-color: var(--text3); }
+.badge-req { color: var(--teal); border-color: rgba(0,194,168,0.4); background: var(--teal-faint); }
+
+.dot-status {
+  width: 9px; height: 9px;
+  border-radius: 50%;
+  background: var(--text3);
+  flex-shrink: 0;
+  transition: all 0.4s;
+  border: 1.5px solid var(--text3);
+}
+.dot-status.on {
+  background: var(--green);
+  border-color: var(--green);
+  box-shadow: 0 0 8px var(--green);
+}
+
+.panel-body { padding: 18px 20px; }
+
+/* ── FORM FIELDS ── */
+.field { margin-bottom: 14px; }
+.field:last-child { margin-bottom: 0; }
+.field label {
+  display: block;
+  font-size: 11px;
+  font-family: 'DM Mono', monospace;
+  color: var(--text2);
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  margin-bottom: 7px;
+}
+.field label .req-star { color: var(--teal); margin-left: 2px; }
+.field label .opt-tag { color: var(--text3); font-size: 10px; text-transform: none; letter-spacing: 0; margin-left: 4px; }
+
+input.finput {
+  width: 100%;
+  background: var(--navy2);
+  border: 1px solid var(--border2);
+  border-radius: 10px;
+  padding: 10px 14px;
+  color: var(--text);
+  font-family: 'DM Mono', monospace;
+  font-size: 14px;
+  outline: none;
+  transition: all 0.2s;
+}
+input.finput:focus { border-color: var(--teal); box-shadow: 0 0 0 3px rgba(0,194,168,0.12); }
+input.finput::placeholder { color: var(--text3); }
+
+/* ── UPLOAD ZONES ── */
+.dropzone {
+  position: relative;
+  border: 1.5px dashed var(--border2);
+  border-radius: 12px;
+  padding: 18px 16px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.25s;
+  background: var(--navy2);
+  overflow: hidden;
+}
+.dropzone::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, var(--teal-faint), transparent);
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+.dropzone:hover::before, .dropzone.drag::before { opacity: 1; }
+.dropzone:hover, .dropzone.drag {
+  border-color: var(--teal);
+  transform: translateY(-1px);
+  box-shadow: 0 8px 24px rgba(0,194,168,0.15);
+}
+.dropzone.loaded {
+  border-color: var(--green);
+  border-style: solid;
+  background: var(--green-faint);
+}
+.dropzone.loaded::before { opacity: 0; }
+.dropzone input[type=file] {
+  position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%;
+}
+.dz-icon { font-size: 24px; margin-bottom: 8px; position: relative; z-index: 1; }
+.dz-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text2);
+  position: relative; z-index: 1;
+  transition: color 0.2s;
+}
+.dropzone:hover .dz-title, .dropzone.drag .dz-title { color: var(--teal); }
+.dropzone.loaded .dz-title { color: var(--green); }
+.dz-sub {
+  font-size: 11px;
+  color: var(--text3);
+  margin-top: 3px;
+  font-family: 'DM Mono', monospace;
+  position: relative; z-index: 1;
+}
+.dz-name {
+  display: none;
+  font-size: 11px;
+  font-family: 'DM Mono', monospace;
+  color: var(--green);
+  margin-top: 8px;
+  word-break: break-all;
+  position: relative; z-index: 1;
+}
+.dropzone.loaded .dz-name { display: block; }
+
+/* ── WEEK MODE TABS ── */
+.mode-tabs {
+  display: flex;
+  background: var(--navy2);
+  border-radius: 10px;
+  padding: 3px;
+  margin-bottom: 14px;
+  border: 1px solid var(--border);
+}
+.mode-tab {
+  flex: 1;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  color: var(--text3);
+  font-family: 'DM Sans', sans-serif;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  text-align: center;
+  line-height: 1.3;
+}
+.mode-tab.on {
+  background: var(--card2);
+  color: var(--teal);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+  border: 1px solid rgba(0,194,168,0.2);
+}
+.week-label {
+  font-size: 11px;
+  font-family: 'DM Mono', monospace;
+  color: var(--text3);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin: 10px 0 6px;
+}
+
+/* ── CHECKLIST ── */
+.checklist { display: flex; flex-direction: column; gap: 6px; margin-bottom: 18px; }
+.check-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  transition: all 0.3s;
+  background: var(--navy2);
+}
+.check-item.met {
+  border-color: rgba(34,197,94,0.2);
+  background: rgba(34,197,94,0.06);
+}
+.check-icon {
+  width: 18px; height: 18px;
+  border-radius: 50%;
+  border: 1.5px solid var(--text3);
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+  font-size: 10px;
+  transition: all 0.3s;
+}
+.check-item.met .check-icon {
+  background: var(--green);
+  border-color: var(--green);
+  color: #000;
+}
+.check-text {
+  font-size: 12px;
+  color: var(--text3);
+  font-weight: 400;
+  transition: color 0.3s;
+  flex: 1;
+}
+.check-item.met .check-text { color: var(--text2); }
+
+/* ── GENERATE BUTTON ── */
+.btn-generate {
+  width: 100%;
+  padding: 15px 20px;
+  background: linear-gradient(135deg, var(--teal), #0070C0);
+  border: none;
+  border-radius: 12px;
+  color: #fff;
+  font-family: 'Syne', sans-serif;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.25s;
+  letter-spacing: 0.3px;
+  position: relative;
+  overflow: hidden;
+}
+.btn-generate::before {
+  content: '';
+  position: absolute;
+  top: 0; left: -100%; width: 100%; height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.15), transparent);
+  transition: left 0.5s;
+}
+.btn-generate:hover::before { left: 100%; }
+.btn-generate:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 30px rgba(0,194,168,0.4);
+}
+.btn-generate:disabled {
+  background: var(--card2);
+  color: var(--text3);
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+.btn-generate:disabled::before { display: none; }
+.gen-hint {
+  display: block;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 11px;
+  font-weight: 400;
+  margin-top: 4px;
+  opacity: 0.75;
+}
+
+.btn-ghost {
+  width: 100%;
+  padding: 10px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--text3);
+  font-family: 'DM Sans', sans-serif;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s;
+  margin-top: 8px;
+}
+.btn-ghost:hover { border-color: var(--red); color: var(--red); }
+
+/* ── CONTENT AREA ── */
+.content { display: flex; flex-direction: column; gap: 20px; }
+
+/* ── STAT CARDS ── */
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+}
+.stat-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 18px 20px;
+  position: relative;
+  overflow: hidden;
+  transition: all 0.3s;
+}
+.stat-card::after {
+  content: '';
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  height: 2px;
+  background: var(--accent-color, var(--teal));
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 0.4s;
+}
+.stat-card.has-data::after { transform: scaleX(1); }
+.stat-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-sm); }
+.stat-label {
+  font-size: 11px;
+  font-family: 'DM Mono', monospace;
+  color: var(--text3);
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  margin-bottom: 10px;
+}
+.stat-val {
+  font-family: 'Syne', sans-serif;
+  font-size: 28px;
+  font-weight: 800;
+  color: var(--text);
+  letter-spacing: -1px;
+  line-height: 1;
+  transition: color 0.3s;
+}
+.stat-sub {
+  font-size: 11px;
+  color: var(--text3);
+  margin-top: 4px;
+}
+.stat-card:nth-child(1) { --accent-color: var(--blue); }
+.stat-card:nth-child(2) { --accent-color: var(--green); }
+.stat-card:nth-child(3) { --accent-color: var(--red); }
+.stat-card:nth-child(4) { --accent-color: var(--gold); }
+
+/* ── LOG PANEL ── */
+.log-panel {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  overflow: hidden;
+}
+.log-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 13px 20px;
+  border-bottom: 1px solid var(--border);
+  background: var(--card2);
+}
+.log-head h4 {
+  font-family: 'Syne', sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text2);
+}
+.log-count {
+  margin-left: auto;
+  font-size: 11px;
+  font-family: 'DM Mono', monospace;
+  color: var(--text3);
+}
+.terminal-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+}
+.td-r { background: #FF5F57; }
+.td-y { background: #FFBD2E; }
+.td-g { background: #28CA41; }
+
+.log-body {
+  padding: 14px 20px;
+  font-family: 'DM Mono', monospace;
+  font-size: 12px;
+  min-height: 80px;
+  max-height: 160px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: #080D1A;
+}
+.le { display: flex; gap: 12px; align-items: flex-start; }
+.le .ts { color: #3B4A6B; flex-shrink: 0; font-size: 11px; }
+.le .msg { font-size: 12px; }
+.le.i .msg { color: #5A6E9E; }
+.le.s .msg { color: var(--green); }
+.le.w .msg { color: var(--gold); }
+.le.e .msg { color: var(--red); }
+
+/* ── WARN BOX ── */
+.warn-alert {
+  background: rgba(255,77,106,0.06);
+  border: 1px solid rgba(255,77,106,0.2);
+  border-radius: 12px;
+  padding: 14px 18px;
+  display: none;
+}
+.warn-alert-head {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--red);
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.tag-cloud { display: flex; flex-wrap: wrap; gap: 6px; }
+.utag {
+  background: rgba(255,77,106,0.1);
+  border: 1px solid rgba(255,77,106,0.25);
+  color: var(--red);
+  font-size: 11px;
+  font-family: 'DM Mono', monospace;
+  padding: 3px 9px;
+  border-radius: 6px;
+}
+
+/* ── PREVIEW TABLE ── */
+.table-panel {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  overflow: hidden;
+}
+.table-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 13px 20px;
+  border-bottom: 1px solid var(--border);
+  background: var(--card2);
+}
+.table-head h4 {
+  font-family: 'Syne', sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text2);
+}
+.row-pill {
+  font-size: 11px;
+  font-family: 'DM Mono', monospace;
+  background: var(--teal-faint);
+  border: 1px solid rgba(0,194,168,0.25);
+  color: var(--teal);
+  padding: 2px 10px;
+  border-radius: 20px;
+  margin-left: auto;
+}
+
+.tbl-wrap { overflow-x: auto; max-height: 380px; overflow-y: auto; }
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: 'DM Mono', monospace;
+  font-size: 12px;
+}
+thead {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+thead th {
+  background: #0D1220;
+  padding: 10px 14px;
+  text-align: left;
+  color: var(--text3);
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  font-size: 10px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+  font-family: 'DM Mono', monospace;
+}
+tbody tr {
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+  transition: background 0.15s;
+}
+tbody tr:hover { background: rgba(255,255,255,0.03); }
+tbody td { padding: 10px 14px; white-space: nowrap; color: var(--text2); }
+td.emp-name { color: var(--text); font-weight: 500; font-family: 'DM Sans', sans-serif; font-size: 13px; }
+td.adp-code { color: var(--teal); font-weight: 600; }
+td.reg-hrs { color: var(--blue); font-weight: 600; }
+td.ot-hrs { font-weight: 600; }
+td.ot-hrs.has-ot { color: var(--gold); }
+td.status-ok {
+  color: var(--green);
+  font-size: 11px;
+}
+.empty-state {
+  padding: 48px 20px;
+  text-align: center;
+}
+.empty-icon { font-size: 32px; margin-bottom: 12px; opacity: 0.4; }
+.empty-text { font-size: 13px; color: var(--text3); font-family: 'DM Sans', sans-serif; }
+
+/* ── DOWNLOAD ROW ── */
+.dl-row {
+  display: flex;
+  gap: 12px;
+}
+.btn-dl-primary {
+  flex: 1;
+  padding: 14px 20px;
+  background: linear-gradient(135deg, var(--teal), var(--teal2));
+  border: none;
+  border-radius: 12px;
+  color: #000;
+  font-family: 'Syne', sans-serif;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.25s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+.btn-dl-primary:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(0,194,168,0.35);
+}
+.btn-dl-primary:disabled { opacity: 0.3; cursor: not-allowed; transform: none; }
+
+.btn-dl-secondary {
+  flex: 1;
+  padding: 14px 20px;
+  background: var(--card2);
+  border: 1px solid var(--border2);
+  border-radius: 12px;
+  color: var(--text2);
+  font-family: 'Syne', sans-serif;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.25s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+.btn-dl-secondary:hover:not(:disabled) {
+  border-color: var(--blue);
+  color: var(--blue);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(59,130,246,0.2);
+}
+.btn-dl-secondary:disabled { opacity: 0.3; cursor: not-allowed; transform: none; }
+
+/* ── DIVIDER ── */
+.field-divider { height: 1px; background: var(--border); margin: 4px 0 14px; }
+
+/* ── SCROLLBAR ── */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
+
+.hidden { display: none !important; }
+
+/* ── ANIMATE IN ── */
+@keyframes fadeUp { from { opacity:0; transform:translateY(16px); } to { opacity:1; transform:translateY(0); } }
+.workspace { animation: fadeUp 0.5s ease both; }
+.hero { animation: fadeUp 0.3s ease both; }
+</style>
+</head>
+<body>
+
+<!-- TOPBAR -->
+<nav class="topbar">
+  <div class="logo">
+    <div class="logo-mark">⚡</div>
+    <span class="logo-text">Pay<span>Sync</span></span>
+  </div>
+  <div class="topbar-center">
+    <div class="breadcrumb">
+      <span>Payroll Tools</span>
+      <span class="sep">/</span>
+      <span class="current">ADP Import Generator</span>
+    </div>
+  </div>
+  <div class="topbar-right">
+    <div class="status-indicator">
+      <div class="pulse"></div>
+      <span>System Ready</span>
+    </div>
+    <div class="version-badge">v2.1 · ADP Payroll Hours Code Export</div>
+  </div>
+</nav>
+
+<!-- HERO -->
+<div class="hero">
+  <div class="hero-inner">
+    <div>
+      <h1>ADP Payroll <em>Import Generator</em></h1>
+      <p>Transform HHA caregiver hours into ADP-ready CSV files. Match aide codes, calculate overtime, and export in seconds.</p>
+    </div>
+    <div class="hero-actions">
+      <button class="btn-outline" onclick="resetAll()">↺ Reset Workspace</button>
+    </div>
+  </div>
+</div>
+
+<!-- WORKSPACE -->
+<div class="workspace">
+
+  <!-- ═══ SIDEBAR ═══ -->
+  <div class="sidebar">
+
+    <!-- Step 1 — Company -->
+    <div class="panel">
+      <div class="panel-head">
+        <div class="step-circle teal">1</div>
+        <h3>Company Settings</h3>
+        <div class="dot-status" id="d1"></div>
+      </div>
+      <div class="panel-body">
+        <div class="field">
+          <label>Company Code <span class="req-star">*</span></label>
+          <input class="finput" id="coCode" placeholder="e.g. UGR" maxlength="6" oninput="tick()" autocomplete="off" />
+        </div>
+        <div class="field">
+          <label>Batch ID <span class="opt-tag">(optional — default: DCW)</span></label>
+          <input class="finput" id="batchId" placeholder="DCW" maxlength="10" autocomplete="off" />
+        </div>
+      </div>
+    </div>
+
+    <!-- Step 2 — ADP Template -->
+    <div class="panel">
+      <div class="panel-head">
+        <div class="step-circle outline">2</div>
+        <h3>ADP Template</h3>
+        <span class="badge badge-opt">Optional</span>
+        <div class="dot-status" id="d2"></div>
+      </div>
+      <div class="panel-body">
+        <div class="dropzone" id="z-adp">
+          <input type="file" id="f-adp" accept=".csv" onchange="loadADP(this)" />
+          <div class="dz-icon">📄</div>
+          <div class="dz-title">PRUGREPI.csv</div>
+          <div class="dz-sub">Preserves ADP column structure</div>
+          <div class="dz-name" id="n-adp"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Step 3 — Master Sheet -->
+    <div class="panel">
+      <div class="panel-head">
+        <div class="step-circle teal">3</div>
+        <h3>Master Sheet</h3>
+        <span class="badge badge-req">Required</span>
+        <div class="dot-status" id="d3"></div>
+      </div>
+      <div class="panel-body">
+        <div class="dropzone" id="z-master">
+          <input type="file" id="f-master" accept=".xlsx,.xls" onchange="loadMaster(this)" />
+          <div class="dz-icon">🗂️</div>
+          <div class="dz-title">MasterSheet.xlsx</div>
+          <div class="dz-sub">HHA Code ↔ ADP Code ↔ Employee Name</div>
+          <div class="dz-name" id="n-master"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Step 4 — HHA Hours -->
+    <div class="panel">
+      <div class="panel-head">
+        <div class="step-circle teal">4</div>
+        <h3>HHA Hours</h3>
+        <span class="badge badge-req">Required</span>
+        <div class="dot-status" id="d4"></div>
+      </div>
+      <div class="panel-body">
+        <div class="mode-tabs">
+          <button class="mode-tab on" id="t-single" onclick="setMode('single')">
+            Single File<br><small style="font-size:10px;opacity:.6">Both weeks in one</small>
+          </button>
+          <button class="mode-tab" id="t-dual" onclick="setMode('dual')">
+            Two Files<br><small style="font-size:10px;opacity:.6">Week 1 + Week 2</small>
+          </button>
+        </div>
+
+        <div id="single-mode">
+          <div class="dropzone" id="z-h1">
+            <input type="file" id="f-h1" accept=".xlsx,.xls" onchange="loadHHA(this,'single')" />
+            <div class="dz-icon">📋</div>
+            <div class="dz-title">HHA_Hours.xlsx</div>
+            <div class="dz-sub">Must include Week column (1 or 2)</div>
+            <div class="dz-name" id="n-h1"></div>
+          </div>
+        </div>
+
+        <div id="dual-mode" class="hidden">
+          <div class="week-label">📅 Week 1</div>
+          <div class="dropzone" id="z-hw1">
+            <input type="file" id="f-hw1" accept=".xlsx,.xls" onchange="loadHHA(this,'w1')" />
+            <div class="dz-icon">📋</div>
+            <div class="dz-title">Week 1 Hours</div>
+            <div class="dz-name" id="n-hw1"></div>
+          </div>
+          <div class="week-label">📅 Week 2</div>
+          <div class="dropzone" id="z-hw2">
+            <input type="file" id="f-hw2" accept=".xlsx,.xls" onchange="loadHHA(this,'w2')" />
+            <div class="dz-icon">📋</div>
+            <div class="dz-title">Week 2 Hours</div>
+            <div class="dz-name" id="n-hw2"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Generate Card -->
+    <div class="panel">
+      <div class="panel-head">
+        <div class="step-circle gold">✓</div>
+        <h3>Generate Export</h3>
+      </div>
+      <div class="panel-body">
+        <div class="checklist">
+          <div class="check-item" id="chk-co">
+            <div class="check-icon">✓</div>
+            <span class="check-text">Company code entered</span>
+          </div>
+          <div class="check-item" id="chk-master">
+            <div class="check-icon">✓</div>
+            <span class="check-text">Master sheet loaded</span>
+          </div>
+          <div class="check-item" id="chk-hha">
+            <div class="check-icon">✓</div>
+            <span class="check-text">HHA hours loaded</span>
+          </div>
+        </div>
+        <button class="btn-generate" id="genBtn" onclick="runProcess()" disabled>
+          ⚡ Generate ADP Import
+          <span class="gen-hint" id="genHint">Complete all required fields above</span>
+        </button>
+        <button class="btn-ghost" onclick="resetAll()">↺ Clear All Files &amp; Reset</button>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ═══ CONTENT ═══ -->
+  <div class="content">
+
+    <!-- Stats -->
+    <div class="stats-grid">
+      <div class="stat-card" id="sc1">
+        <div class="stat-label">Total Employees</div>
+        <div class="stat-val" id="st-total" style="color:var(--blue)">—</div>
+        <div class="stat-sub">Aide-week pairs</div>
+      </div>
+      <div class="stat-card" id="sc2">
+        <div class="stat-label">Matched</div>
+        <div class="stat-val" id="st-matched" style="color:var(--green)">—</div>
+        <div class="stat-sub">Found in master</div>
+      </div>
+      <div class="stat-card" id="sc3">
+        <div class="stat-label">Unmatched</div>
+        <div class="stat-val" id="st-unmatched" style="color:var(--red)">—</div>
+        <div class="stat-sub">Not in master</div>
+      </div>
+      <div class="stat-card" id="sc4">
+        <div class="stat-label">Total OT Hours</div>
+        <div class="stat-val" id="st-ot" style="color:var(--gold)">—</div>
+        <div class="stat-sub">Overtime across all</div>
+      </div>
+    </div>
+
+    <!-- Log -->
+    <div class="log-panel">
+      <div class="log-head">
+        <div class="terminal-dot td-r"></div>
+        <div class="terminal-dot td-y"></div>
+        <div class="terminal-dot td-g"></div>
+        <h4 style="margin-left:8px">Processing Console</h4>
+        <span class="log-count" id="logCount">0 events</span>
+      </div>
+      <div class="log-body" id="logBody">
+        <div class="le i"><span class="ts">00:00</span><span class="msg">PaySync ready — complete all required steps and click Generate.</span></div>
+      </div>
+    </div>
+
+    <!-- Unmatched Warning -->
+    <div class="warn-alert" id="warnBox">
+      <div class="warn-alert-head">⚠ Unmatched Aide Codes — these will not appear in the export</div>
+      <div class="tag-cloud" id="warnTags"></div>
+    </div>
+
+    <!-- Table -->
+    <div class="table-panel">
+      <div class="table-head">
+        <h4>Export Preview</h4>
+        <div class="row-pill" id="rowCount">0 rows</div>
+      </div>
+      <div class="tbl-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Co Code</th>
+              <th>Batch ID</th>
+              <th>Employee Name</th>
+              <th>File # (ADP)</th>
+              <th>FLSA Wk</th>
+              <th>Reg Hours</th>
+              <th>O/T Hours</th>
+              <th>Week</th>
+              <th>Aide Code</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody id="tBody">
+            <tr>
+              <td colspan="10">
+                <div class="empty-state">
+                  <div class="empty-icon">📊</div>
+                  <div class="empty-text">No data yet — upload your files and click Generate to see a preview.</div>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Downloads -->
+    <div class="dl-row">
+      <button class="btn-dl-primary" id="dlCsv" onclick="downloadCSV()" disabled>
+        ↓ Download ADP CSV
+      </button>
+      <button class="btn-dl-secondary" id="dlXlsx" onclick="downloadXlsx()" disabled>
+        ↓ Download Excel Preview
+      </button>
+    </div>
+
+  </div>
+</div>
+
+<script>
+// ═══════════════════ STATE ═══════════════════
+const S = {
+  mode: 'single',
+  adpHeaders: null,
+  master: null,
+  hhaRows: [],
+  output: [],
+  unmatched: [],
+  logCount: 0
+};
+
+// ═══════════════════ LOGGING ═══════════════════
+function lg(msg, t = 'i') {
+  const b = document.getElementById('logBody');
+  const now = new Date();
+  const ts = `${String(now.getMinutes()).padStart(2,'0')}:${String(now.getSeconds()).padStart(2,'0')}`;
+  const d = document.createElement('div');
+  d.className = `le ${t}`;
+  d.innerHTML = `<span class="ts">${ts}</span><span class="msg">${msg}</span>`;
+  b.appendChild(d);
+  b.scrollTop = b.scrollHeight;
+  S.logCount++;
+  document.getElementById('logCount').textContent = `${S.logCount} events`;
+}
+
+// ═══════════════════ DOTS / MARKS ═══════════════════
+function dot(id, on) {
+  const el = document.getElementById(id);
+  if (el) el.classList.toggle('on', on);
+}
+function markZone(zid, fname, nid) {
+  const z = document.getElementById(zid);
+  const n = document.getElementById(nid);
+  if (z) z.classList.add('loaded');
+  if (n) n.textContent = '✓  ' + fname;
+}
+function unmarkZone(zid, nid) {
+  const z = document.getElementById(zid);
+  const n = document.getElementById(nid);
+  if (z) z.classList.remove('loaded');
+  if (n) n.textContent = '';
+}
+
+// ═══════════════════ MODE ═══════════════════
+function setMode(m) {
+  S.mode = m;
+  S.hhaRows = [];
+  document.getElementById('t-single').classList.toggle('on', m === 'single');
+  document.getElementById('t-dual').classList.toggle('on', m === 'dual');
+  document.getElementById('single-mode').classList.toggle('hidden', m !== 'single');
+  document.getElementById('dual-mode').classList.toggle('hidden', m !== 'dual');
+  ['z-h1','z-hw1','z-hw2'].forEach(id => { const el = document.getElementById(id); if(el) el.classList.remove('loaded'); });
+  ['n-h1','n-hw1','n-hw2'].forEach(id => { const el = document.getElementById(id); if(el) el.textContent = ''; });
+  dot('d4', false);
+  tick();
+}
+
+// ═══════════════════ TICK ═══════════════════
+function tick() {
+  const co = document.getElementById('coCode').value.trim();
+  const ok1 = co.length > 0;
+  const ok2 = !!(S.master && S.master.length > 0);
+  const ok3 = !!(S.hhaRows && S.hhaRows.length > 0);
+
+  const setCheck = (id, met) => {
+    const el = document.getElementById(id);
+    if (el) el.classList.toggle('met', met);
+  };
+  setCheck('chk-co', ok1);
+  setCheck('chk-master', ok2);
+  setCheck('chk-hha', ok3);
+  dot('d1', ok1);
+
+  const ready = ok1 && ok2 && ok3;
+  const btn = document.getElementById('genBtn');
+  if (btn) btn.disabled = !ready;
+
+  const hint = document.getElementById('genHint');
+  if (hint) {
+    if (ready) {
+      hint.textContent = `Ready — ${S.hhaRows.length} HHA rows · ${S.master.length} employees in master`;
+    } else {
+      const miss = [];
+      if (!ok1) miss.push('company code');
+      if (!ok2) miss.push('master sheet');
+      if (!ok3) miss.push('HHA hours');
+      hint.textContent = `Waiting for: ${miss.join(', ')}`;
+    }
+  }
+}
+
+// ═══════════════════ FILE LOADERS ═══════════════════
+function loadADP(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    const lines = e.target.result.split('\n').filter(l => l.trim());
+    if (lines.length > 0) {
+      S.adpHeaders = lines[0].split(',').map(h => h.trim().replace(/\r/g, ''));
+      lg(`✓ ADP template loaded — ${S.adpHeaders.length} columns detected`, 's');
+      markZone('z-adp', file.name, 'n-adp');
+      dot('d2', true);
+    }
+    tick();
+  };
+  reader.readAsText(file);
+}
+
+function loadMaster(input) {
+  const file = input.files[0];
+  if (!file) return;
+  lg(`Loading master sheet: ${file.name}`, 'i');
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const wb = XLSX.read(new Uint8Array(e.target.result), { type: 'array' });
+      let sn = wb.SheetNames[0];
+      if (wb.SheetNames.includes('Master Template')) sn = 'Master Template';
+      else if (wb.SheetNames.includes('Payroll Hrs')) sn = 'Payroll Hrs';
+      const rows = XLSX.utils.sheet_to_json(wb.Sheets[sn], { defval: '' });
+      S.master = rows;
+      lg(`✓ Master sheet ready — ${rows.length} employees from sheet "${sn}"`, 's');
+      if (rows.length > 0) lg(`  Detected columns: ${Object.keys(rows[0]).join('  ·  ')}`, 'i');
+      markZone('z-master', file.name, 'n-master');
+      dot('d3', true);
+    } catch(err) {
+      lg(`✗ Error reading master sheet: ${err.message}`, 'e');
+    }
+    tick();
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function loadHHA(input, slot) {
+  const file = input.files[0];
+  if (!file) return;
+  lg(`Loading HHA hours [${slot}]: ${file.name}`, 'i');
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const wb = XLSX.read(new Uint8Array(e.target.result), { type: 'array' });
+      const sn = wb.SheetNames[0];
+      let rows = XLSX.utils.sheet_to_json(wb.Sheets[sn], { defval: '' });
+
+      if (slot === 'single') {
+        S.hhaRows = rows;
+        const wks = [...new Set(rows.map(r => String(r['Week'] || r['week'] || '?')))];
+        lg(`✓ HHA loaded — ${rows.length} rows | Weeks: ${wks.join(', ')}`, 's');
+        markZone('z-h1', file.name, 'n-h1');
+        dot('d4', true);
+      } else if (slot === 'w1') {
+        rows = rows.map(r => ({ ...r, Week: 1 }));
+        S.hhaRows = [...S.hhaRows.filter(r => String(r['Week'] || r['week']) === '2'), ...rows];
+        lg(`✓ Week 1 HHA loaded — ${rows.length} rows`, 's');
+        markZone('z-hw1', file.name, 'n-hw1');
+        if (S.hhaRows.length > 0) dot('d4', true);
+      } else if (slot === 'w2') {
+        rows = rows.map(r => ({ ...r, Week: 2 }));
+        S.hhaRows = [...S.hhaRows.filter(r => String(r['Week'] || r['week']) === '1'), ...rows];
+        lg(`✓ Week 2 HHA loaded — ${rows.length} rows`, 's');
+        markZone('z-hw2', file.name, 'n-hw2');
+        if (S.hhaRows.length > 0) dot('d4', true);
+      }
+
+      if (rows.length > 0) lg(`  Detected columns: ${Object.keys(rows[0]).join('  ·  ')}`, 'i');
+    } catch(err) {
+      lg(`✗ Error reading HHA file: ${err.message}`, 'e');
+    }
+    tick();
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+// ═══════════════════ PROCESS ═══════════════════
+function runProcess() {
+  lg('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'i');
+  lg('Starting payroll processing...', 'i');
+
+  const coCode  = document.getElementById('coCode').value.trim();
+  const batchId = document.getElementById('batchId').value.trim() || 'DCW';
+
+  // Build lookup from master
+  const lookup = {};
+  S.master.forEach(row => {
+    const hha  = String(row['HHA Code'] ?? row['HHA code'] ?? row['hha_code'] ?? row['Aide Code'] ?? row['aide_code'] ?? '').trim();
+    const adp  = String(row['ADP Code'] ?? row['ADP code'] ?? row['adp_code'] ?? row['File #'] ?? row['FileNumber'] ?? '').trim();
+    const name = String(row['DCW Name'] ?? row['Name'] ?? row['Employee Name'] ?? row['Caregiver Name'] ?? '').trim();
+    if (hha && adp) lookup[hha] = { name, adpCode: adp };
+  });
+  lg(`Master lookup built — ${Object.keys(lookup).length} entries`, 'i');
+  lg(`HHA rows to process — ${S.hhaRows.length} total`, 'i');
+
+  // Group by aide+week
+  const grouped = {};
+  S.hhaRows.forEach(row => {
+    const aide = String(row['Aide Code'] ?? row['aide_code'] ?? row['AideCode'] ?? row['HHA Code'] ?? row['Employee ID'] ?? '').trim();
+    const week = String(row['Week'] ?? row['week'] ?? row['WEEK'] ?? '1').trim();
+    const pay  = parseFloat(row['Pay Hours'] ?? row['pay_hours'] ?? row['Total Hrs'] ?? row['Hours'] ?? 0) || 0;
+    const reg  = parseFloat(row['Regular Hours'] ?? row['Reg Hours'] ?? row['Reg'] ?? row['reg_hours'] ?? 0) || 0;
+    const ot   = parseFloat(row['OT Hours'] ?? row['OT_Hours'] ?? row['O/T Hours'] ?? row['OT'] ?? row['Overtime Hours'] ?? 0) || 0;
+    if (!aide) return;
+    const key = `${aide}||${week}`;
+    if (!grouped[key]) grouped[key] = { aide, week, pay: 0, reg: 0, ot: 0 };
+    grouped[key].pay += pay;
+    grouped[key].reg += reg;
+    grouped[key].ot  += ot;
+  });
+  lg(`Grouped — ${Object.keys(grouped).length} unique aide-week combinations`, 'i');
+
+  const output = [];
+  const unmatched = new Set();
+
+  Object.values(grouped).forEach(({ aide, week, pay, reg, ot }) => {
+    const m = lookup[aide];
+    if (!m) {
+      unmatched.add(aide);
+      lg(`⚠ Aide Code ${aide} (Week ${week}) — no match in master, skipped`, 'w');
+      return;
+    }
+    let fReg = reg, fOT = ot;
+    if (fReg === 0 && fOT === 0 && pay > 0) {
+      fReg = Math.min(pay, 40);
+      fOT  = Math.max(0, pay - 40);
+    }
+    output.push({ coCode, batchId, name: m.name, adpCode: m.adpCode, flsaWk: week, regHrs: fReg, otHrs: fOT, week, aide });
+  });
+
+  S.output    = output;
+  S.unmatched = [...unmatched];
+
+  const totOT  = output.reduce((s, r) => s + r.otHrs, 0);
+  const totReg = output.reduce((s, r) => s + r.regHrs, 0);
+
+  // Stats
+  const updateStat = (id, val) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = val;
+  };
+  updateStat('st-total',     Object.keys(grouped).length);
+  updateStat('st-matched',   output.length);
+  updateStat('st-unmatched', unmatched.size);
+  updateStat('st-ot',        totOT.toFixed(1));
+
+  // Animate stat cards
+  ['sc1','sc2','sc3','sc4'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.classList.add('has-data');
+  });
+
+  // Unmatched warning
+  const wb2 = document.getElementById('warnBox');
+  const wt  = document.getElementById('warnTags');
+  if (S.unmatched.length > 0) {
+    wb2.style.display = 'block';
+    wt.innerHTML = S.unmatched.map(c => `<span class="utag">${c}</span>`).join('');
+  } else {
+    wb2.style.display = 'none';
+  }
+
+  renderTable(output);
+
+  document.getElementById('dlCsv').disabled  = output.length === 0;
+  document.getElementById('dlXlsx').disabled = output.length === 0;
+
+  lg(`✓ Processing complete — ${output.length} rows generated`, 's');
+  lg(`  Regular Hours Total: ${totReg.toFixed(2)}  |  OT Hours Total: ${totOT.toFixed(2)}`, 's');
+  if (unmatched.size > 0) lg(`  ⚠ ${unmatched.size} aide code(s) could not be matched — check master sheet`, 'w');
+  lg('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'i');
+}
+
+// ═══════════════════ TABLE ═══════════════════
+function renderTable(rows) {
+  const tb = document.getElementById('tBody');
+  document.getElementById('rowCount').textContent = `${rows.length} rows`;
+
+  if (!rows.length) {
+    tb.innerHTML = `<tr><td colspan="10"><div class="empty-state"><div class="empty-icon">📭</div><div class="empty-text">No matching records found. Check that aide codes in HHA Hours exist in Master Sheet.</div></div></td></tr>`;
+    return;
+  }
+
+  tb.innerHTML = rows.map(r => `
+    <tr>
+      <td><span style="font-family:'DM Mono',monospace;color:var(--text3)">${r.coCode}</span></td>
+      <td><span style="font-family:'DM Mono',monospace;color:var(--text3)">${r.batchId}</span></td>
+      <td class="emp-name">${r.name || '—'}</td>
+      <td class="adp-code">${r.adpCode}</td>
+      <td style="color:var(--text3);font-family:'DM Mono',monospace">${r.flsaWk}</td>
+      <td class="reg-hrs">${r.regHrs.toFixed(2)}</td>
+      <td class="ot-hrs ${r.otHrs > 0 ? 'has-ot' : ''}">${r.otHrs.toFixed(2)}</td>
+      <td style="color:var(--text3);font-family:'DM Mono',monospace">Wk ${r.week}</td>
+      <td style="font-family:'DM Mono',monospace;color:var(--text2)">${r.aide}</td>
+      <td class="status-ok">✓ Matched</td>
+    </tr>
+  `).join('');
+}
+
+// ═══════════════════ DOWNLOADS ═══════════════════
+function downloadCSV() {
+  if (!S.output.length) return;
+  const coCode = document.getElementById('coCode').value.trim();
+  const headers = S.adpHeaders || [
+    'Co Code','Batch ID','File #','FLSA Workweek','Temp Dept','Temp Rate',
+    'Reg Hours','O/T Hours','Hours 3 Code','Hours 3 Amount','Hours 3 Code.1','Hours 3 Amount.1',
+    'Hours 3 Code.2','Hours 3 Amount.2','Hours 3 Code.3','Hours 3 Amount.3',
+    'Hours 4 Code','Hours 4 Amount','Hours 4 Code.1','Hours 4 Amount.1',
+    'Hours 4 Code.2','Hours 4 Amount.2','Hours 4 Code.3','Hours 4 Amount.3',
+    'Reg Earnings','O/T Earnings','Earnings 5 Code','Earnings 5 Amount',
+    'Earnings 5 Code.1','Earnings 5 Amount.1','Cancel Pay'
+  ];
+
+  const lines = [headers.join(',')];
+  S.output.forEach(r => {
+    const row = headers.map(h => {
+      if (h === 'Co Code')       return r.coCode;
+      if (h === 'Batch ID')      return r.batchId;
+      if (h === 'File #')        return r.adpCode;
+      if (h === 'FLSA Workweek') return r.flsaWk;
+      if (h === 'Reg Hours')     return r.regHrs;
+      if (h === 'O/T Hours')     return r.otHrs;
+      return '';
+    });
+    lines.push(row.join(','));
+  });
+
+  const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href = url; a.download = `PR${coCode}EPI.csv`;
+  document.body.appendChild(a); a.click();
+  document.body.removeChild(a); URL.revokeObjectURL(url);
+  lg(`✓ Downloaded: PR${coCode}EPI.csv  (${S.output.length} rows)`, 's');
+}
+
+function downloadXlsx() {
+  if (!S.output.length) return;
+  const data = S.output.map(r => ({
+    'Co Code': r.coCode, 'Batch ID': r.batchId, 'Employee Name': r.name,
+    'ADP File #': r.adpCode, 'FLSA Workweek': r.flsaWk,
+    'Reg Hours': r.regHrs, 'O/T Hours': r.otHrs,
+    'Week': r.week, 'Aide Code': r.aide
+  }));
+  const ws = XLSX.utils.json_to_sheet(data);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'ADP Import');
+  XLSX.writeFile(wb, 'ADP_Import_Preview.xlsx');
+  lg('✓ Downloaded: ADP_Import_Preview.xlsx', 's');
+}
+
+// ═══════════════════ RESET ═══════════════════
+function resetAll() {
+  S.adpHeaders = null; S.master = null; S.hhaRows = [];
+  S.output = []; S.unmatched = []; S.logCount = 0;
+
+  ['f-adp','f-master','f-h1','f-hw1','f-hw2'].forEach(id => {
+    const el = document.getElementById(id); if (el) el.value = '';
+  });
+  [['z-adp','n-adp'],['z-master','n-master'],['z-h1','n-h1'],['z-hw1','n-hw1'],['z-hw2','n-hw2']].forEach(([z,n]) => unmarkZone(z,n));
+  ['d1','d2','d3','d4'].forEach(id => dot(id, false));
+  ['sc1','sc2','sc3','sc4'].forEach(id => { const el = document.getElementById(id); if(el) el.classList.remove('has-data'); });
+
+  document.getElementById('coCode').value  = '';
+  document.getElementById('batchId').value = '';
+  ['st-total','st-matched','st-unmatched','st-ot'].forEach(id => { document.getElementById(id).textContent = '—'; });
+  document.getElementById('tBody').innerHTML = `<tr><td colspan="10"><div class="empty-state"><div class="empty-icon">📊</div><div class="empty-text">No data yet — upload your files and click Generate to see a preview.</div></div></td></tr>`;
+  document.getElementById('rowCount').textContent = '0 rows';
+  document.getElementById('warnBox').style.display = 'none';
+  document.getElementById('dlCsv').disabled  = true;
+  document.getElementById('dlXlsx').disabled = true;
+  document.getElementById('logBody').innerHTML = '<div class="le i"><span class="ts">00:00</span><span class="msg">Workspace cleared — ready for new files.</span></div>';
+  document.getElementById('logCount').textContent = '0 events';
+  tick();
+}
+
+// Init
+tick();
+</script>
+</body>
+</html>

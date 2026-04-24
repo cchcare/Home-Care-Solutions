@@ -415,6 +415,9 @@ export default function Landing() {
               <Link href="/pricing" className="text-sm text-muted-foreground hover:text-foreground" data-testid="link-pricing">
                 Pricing
               </Link>
+              <Link href="/paysync" className="text-sm text-muted-foreground hover:text-foreground font-medium" data-testid="link-paysync">
+                PaySync
+              </Link>
               <Button onClick={() => setShowLoginForm(true)} variant="outline" data-testid="button-login">
                 Staff Login
               </Button>
