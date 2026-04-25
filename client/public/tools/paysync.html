@@ -1090,6 +1090,7 @@ td.status-ssn {
         ↓ Download CM Pay Sheet
       </button>
     </div>
+    <div id="summaryStatNote" style="display:none;margin-top:8px;padding:10px 14px;border-radius:8px;background:var(--green-faint);border:1px solid rgba(21,128,61,.2);font-size:12px;color:var(--text2);font-family:'DM Mono',monospace"></div>
 
   </div>
 </div>
@@ -1279,12 +1280,14 @@ function runProcess() {
 
   // Clear any stale summary artifacts from a previous run
   S.filledSummary = null; S.cmPay = null;
-  const dlSumBtnPre = document.getElementById('dlSummary');
-  const dlCmBtnPre  = document.getElementById('dlCmPay');
-  const sumDlRowPre = document.getElementById('summaryDlRow');
-  if (dlSumBtnPre) dlSumBtnPre.disabled = true;
-  if (dlCmBtnPre)  dlCmBtnPre.disabled  = true;
-  if (sumDlRowPre) sumDlRowPre.style.display = 'none';
+  const dlSumBtnPre  = document.getElementById('dlSummary');
+  const dlCmBtnPre   = document.getElementById('dlCmPay');
+  const sumDlRowPre  = document.getElementById('summaryDlRow');
+  const statNotePre  = document.getElementById('summaryStatNote');
+  if (dlSumBtnPre)  dlSumBtnPre.disabled      = true;
+  if (dlCmBtnPre)   dlCmBtnPre.disabled       = true;
+  if (sumDlRowPre)  sumDlRowPre.style.display  = 'none';
+  if (statNotePre)  statNotePre.style.display  = 'none';
 
   const coCode  = document.getElementById('coCode').value.trim();
   const batchId = document.getElementById('batchId').value.trim() || 'DCW';
@@ -1502,6 +1505,7 @@ function runProcess() {
         if (sumAdp) lg(`  ⚠ "${sumAdp}" — no hours found in HHA file, row preserved as-is`, 'w');
         clone[wk1Col] = clone[wk1Col] || '';
         clone[wk2Col] = clone[wk2Col] || '';
+        clone['Summary Match Status'] = 'Unmatched';
         return clone;
       }
 
@@ -1511,6 +1515,7 @@ function runProcess() {
       const w2Hrs = emp[wk2Key] || 0;
       clone[wk1Col] = parseFloat(w1Hrs.toFixed(2));
       clone[wk2Col] = parseFloat(w2Hrs.toFixed(2));
+      clone['Summary Match Status'] = 'Matched';
       lg(`  ✓ ${sumAdp || hhaKey} — Wk${wk1Key}: ${w1Hrs.toFixed(2)}  Wk${wk2Key}: ${w2Hrs.toFixed(2)}`, 's');
       return clone;
     });
@@ -1536,6 +1541,15 @@ function runProcess() {
     if (dlSumBtn) dlSumBtn.disabled = false;
     if (dlCmBtn)  dlCmBtn.disabled  = S.cmPay.length === 0;
     if (sumDlRow) sumDlRow.style.display = 'flex';
+
+    // Show match counts in the UI note
+    const statNote = document.getElementById('summaryStatNote');
+    if (statNote) {
+      const total = sumMatched + sumUnmatched;
+      const pct   = total > 0 ? Math.round((sumMatched / total) * 100) : 0;
+      statNote.innerHTML = `📊 Summary Sheet — <strong style="color:var(--green)">${sumMatched} matched</strong> · <strong style="color:var(--red)">${sumUnmatched} unmatched</strong> of ${total} rows (${pct}%)${sumUnmatched > 0 ? ' — unmatched rows flagged with "Unmatched" in the export' : ''}`;
+      statNote.style.display = 'block';
+    }
 
     lg(`✓ Summary Sheet done — ${sumMatched} matched · ${sumUnmatched} unmatched`, 's');
     if (S.cmPay.length > 0) {
@@ -1710,12 +1724,14 @@ function resetAll() {
   document.getElementById('warnBox').style.display = 'none';
   document.getElementById('dlCsv').disabled  = true;
   document.getElementById('dlXlsx').disabled = true;
-  const dlSumBtn = document.getElementById('dlSummary');
-  const dlCmBtn  = document.getElementById('dlCmPay');
-  const sumDlRow = document.getElementById('summaryDlRow');
-  if (dlSumBtn) dlSumBtn.disabled = true;
-  if (dlCmBtn)  dlCmBtn.disabled  = true;
-  if (sumDlRow) sumDlRow.style.display = 'none';
+  const dlSumBtn   = document.getElementById('dlSummary');
+  const dlCmBtn    = document.getElementById('dlCmPay');
+  const sumDlRow   = document.getElementById('summaryDlRow');
+  const statNoteEl = document.getElementById('summaryStatNote');
+  if (dlSumBtn)   dlSumBtn.disabled      = true;
+  if (dlCmBtn)    dlCmBtn.disabled       = true;
+  if (sumDlRow)   sumDlRow.style.display = 'none';
+  if (statNoteEl) statNoteEl.style.display = 'none';
   document.getElementById('logBody').innerHTML = '<div class="le i"><span class="ts">00:00</span><span class="msg">Workspace cleared — ready for new files.</span></div>';
   document.getElementById('logCount').textContent = '0 events';
   tick();
