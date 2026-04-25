@@ -1277,6 +1277,15 @@ function runProcess() {
   lg('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'i');
   lg('Starting payroll processing...', 'i');
 
+  // Clear any stale summary artifacts from a previous run
+  S.filledSummary = null; S.cmPay = null;
+  const dlSumBtnPre = document.getElementById('dlSummary');
+  const dlCmBtnPre  = document.getElementById('dlCmPay');
+  const sumDlRowPre = document.getElementById('summaryDlRow');
+  if (dlSumBtnPre) dlSumBtnPre.disabled = true;
+  if (dlCmBtnPre)  dlCmBtnPre.disabled  = true;
+  if (sumDlRowPre) sumDlRowPre.style.display = 'none';
+
   const coCode  = document.getElementById('coCode').value.trim();
   const batchId = document.getElementById('batchId').value.trim() || 'DCW';
 
