@@ -545,6 +545,16 @@ input.finput::placeholder { color: var(--text3); }
 .stat-card:nth-child(2) { --accent-color: var(--green); }
 .stat-card:nth-child(3) { --accent-color: var(--red); }
 .stat-card:nth-child(4) { --accent-color: var(--gold); }
+.summary-stats-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+  margin-top: 14px;
+}
+.summary-stat-card { --accent-color: var(--teal); }
+#sc-sum-matched   { --accent-color: var(--green); }
+#sc-sum-unmatched { --accent-color: var(--red); }
+#sc-sum-pct       { --accent-color: var(--teal); }
 
 /* ── LOG PANEL ── */
 .log-panel {
@@ -1070,6 +1080,25 @@ td.status-ssn {
       </div>
     </div>
 
+    <!-- Summary Sheet Match Stats (shown only after processing a summary sheet) -->
+    <div id="summaryStatsRow" class="summary-stats-row" style="display:none">
+      <div class="stat-card summary-stat-card" id="sc-sum-matched">
+        <div class="stat-label">Summary Matched</div>
+        <div class="stat-val" id="st-sum-matched" style="color:var(--green)">—</div>
+        <div class="stat-sub" id="st-sum-matched-sub">of — Summary rows</div>
+      </div>
+      <div class="stat-card summary-stat-card" id="sc-sum-unmatched">
+        <div class="stat-label">Summary Unmatched</div>
+        <div class="stat-val" id="st-sum-unmatched" style="color:var(--red)">—</div>
+        <div class="stat-sub">Flagged in export</div>
+      </div>
+      <div class="stat-card summary-stat-card" id="sc-sum-pct">
+        <div class="stat-label">Match Rate</div>
+        <div class="stat-val" id="st-sum-pct" style="color:var(--teal)">—</div>
+        <div class="stat-sub">Summary rows matched</div>
+      </div>
+    </div>
+
     <!-- Log -->
     <div class="log-panel">
       <div class="log-head">
@@ -1444,6 +1473,8 @@ function runProcess() {
   if (dlCmBtnPre)   dlCmBtnPre.disabled       = true;
   if (sumDlRowPre)  sumDlRowPre.style.display  = 'none';
   if (statNotePre)  statNotePre.style.display  = 'none';
+  const sumRowPre = document.getElementById('summaryStatsRow');
+  if (sumRowPre) sumRowPre.style.display = 'none';
 
   const coCode  = document.getElementById('coCode').value.trim();
   const batchId = document.getElementById('batchId').value.trim() || 'DCW';
@@ -1744,6 +1775,21 @@ function runProcess() {
       statNote.style.display = 'block';
     }
 
+    // Show summary stat cards below the main stat grid
+    const total = sumMatched + sumUnmatched;
+    const pct   = total > 0 ? Math.round((sumMatched / total) * 100) : 0;
+    const sumRow = document.getElementById('summaryStatsRow');
+    if (sumRow) {
+      document.getElementById('st-sum-matched').textContent   = sumMatched;
+      document.getElementById('st-sum-matched-sub').textContent = `of ${total} Summary rows`;
+      document.getElementById('st-sum-unmatched').textContent = sumUnmatched;
+      document.getElementById('st-sum-pct').textContent       = pct + '%';
+      ['sc-sum-matched','sc-sum-unmatched','sc-sum-pct'].forEach(id => {
+        document.getElementById(id).classList.add('has-data');
+      });
+      sumRow.style.display = 'grid';
+    }
+
     lg(`✓ Summary Sheet done — ${sumMatched} matched · ${sumUnmatched} unmatched`, 's');
     if (S.cmPay.length > 0) {
       lg(`  CM Pay groups (${S.cmPay.length}): ${S.cmPay.map(r => `${r['Case Manager Name']} → $${r['CM Pay Total']}`).join(' · ')}`, 's');
@@ -2019,6 +2065,20 @@ function resetAll() {
   if (dlCmBtn)    dlCmBtn.disabled       = true;
   if (sumDlRow)   sumDlRow.style.display = 'none';
   if (statNoteEl) statNoteEl.style.display = 'none';
+  const sumRowEl = document.getElementById('summaryStatsRow');
+  if (sumRowEl) {
+    sumRowEl.style.display = 'none';
+    ['sc-sum-matched','sc-sum-unmatched','sc-sum-pct'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.classList.remove('has-data');
+    });
+    ['st-sum-matched','st-sum-unmatched','st-sum-pct'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.textContent = '—';
+    });
+    const sub = document.getElementById('st-sum-matched-sub');
+    if (sub) sub.textContent = 'of — Summary rows';
+  }
   document.getElementById('logBody').innerHTML = '<div class="le i"><span class="ts">00:00</span><span class="msg">Workspace cleared — ready for new files.</span></div>';
   document.getElementById('logCount').textContent = '0 events';
   tick();
