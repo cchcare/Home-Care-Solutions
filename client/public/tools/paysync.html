@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>PaySync — ADP Payroll Import Generator</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
@@ -1919,6 +1919,11 @@ function downloadSummarySheet() {
     ws[XLSX.utils.encode_cell({ r: headerRowIdx, c: wk2ColIdx })] = { t: 's', v: 'Week 2 Hours' };
     range.e.c = wk2ColIdx;
   }
+
+  // Append "Summary Match Status" column after all other columns
+  const statusColIdx = range.e.c + 1;
+  ws[XLSX.utils.encode_cell({ r: headerRowIdx, c: statusColIdx })] = { t: 's', v: 'Summary Match Status' };
+  range.e.c = statusColIdx;
   ws['!ref'] = XLSX.utils.encode_range(range);
 
   // Patch ONLY the Wk1 and Wk2 cells — all other cells are untouched
@@ -1945,6 +1950,22 @@ function downloadSummarySheet() {
       if (!existing2 || existing2.f === undefined) {
         ws[addr2] = { t: 'n', v: w2 };
       }
+    }
+
+    // Write match status value and apply row highlighting (xlsx-js-style)
+    const isUnmatched = row['Summary Match Status'] === 'Unmatched';
+    ws[XLSX.utils.encode_cell({ r: rowIdx, c: statusColIdx })] = {
+      t: 's', v: isUnmatched ? 'Unmatched' : 'Matched'
+    };
+    const fillRgb = isUnmatched ? 'FFC7CE' : 'C6EFCE';
+    const fontRgb = isUnmatched ? '9C0006' : '276221';
+    for (let c = range.s.c; c <= range.e.c; c++) {
+      const addr = XLSX.utils.encode_cell({ r: rowIdx, c });
+      if (!ws[addr]) ws[addr] = { t: 's', v: '' };
+      ws[addr].s = {
+        fill: { patternType: 'solid', fgColor: { rgb: fillRgb } },
+        font: { color: { rgb: fontRgb } }
+      };
     }
   });
 
