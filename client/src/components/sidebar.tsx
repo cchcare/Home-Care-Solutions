@@ -74,11 +74,20 @@ export function Sidebar() {
   const { hasFeature } = useFeatures();
   const [isOpen, setIsOpen] = useState(false);
   const [expandedMenus, setExpandedMenus] = useState<string[]>(["Admin"]);
+  const [expandedSubMenus, setExpandedSubMenus] = useState<string[]>([]);
   const isMobile = useIsMobile();
 
   const toggleMenu = (menuName: string) => {
-    setExpandedMenus(prev => 
-      prev.includes(menuName) 
+    setExpandedMenus(prev =>
+      prev.includes(menuName)
+        ? prev.filter(m => m !== menuName)
+        : [...prev, menuName]
+    );
+  };
+
+  const toggleSubMenu = (menuName: string) => {
+    setExpandedSubMenus(prev =>
+      prev.includes(menuName)
         ? prev.filter(m => m !== menuName)
         : [...prev, menuName]
     );
@@ -91,7 +100,6 @@ export function Sidebar() {
       ];
     }
 
-    // Caregiver role: limited access to own data only
     if ((user as any)?.role === "caregiver") {
       return [
         { name: "My Profile", href: "/my-profile", icon: UserCheck },
@@ -103,6 +111,36 @@ export function Sidebar() {
       ];
     }
 
+    const adminChildren: NavItem[] = [
+      { name: "User Management", href: "/user-management", icon: UserCog },
+      { name: "Super Admin", href: "/super-admin", icon: ShieldCheck },
+      { name: "Role & Access Control", href: "/role-wizard", icon: Key },
+      { name: "Office Management", href: "/offices", icon: Building2 },
+      { name: "MCO Setup", href: "/admin-settings", icon: Settings },
+      { name: "Letter Templates", href: "/letter-templates", icon: FileSignature },
+      { name: "E-Signature Templates", href: "/esignature-templates", icon: PenTool },
+      { name: "Birthday Notifications", href: "/birthday-notifications", icon: Cake },
+      { name: "Expiration Alerts", href: "/expiration-alerts", icon: Bell },
+      { name: "Client Intake", href: "/client-intake", icon: UserPlus },
+      { name: "HHAX Integration", href: "/hhax-integration", icon: Plug },
+      { name: "Visit Log Upload", href: "/visit-log-upload", icon: FileUp },
+      { name: "Exclusion Verification", href: "/exclusion-verification", icon: UserX },
+    ];
+
+    if ((user as any)?.role === "super_admin") {
+      adminChildren.push({ name: "Email Templates", href: "/email-templates", icon: Mail });
+      adminChildren.push({ name: "Help Center Content", href: "/help-center-admin", icon: BookOpen });
+      adminChildren.push({ name: "Error Log", href: "/error-log", icon: ScrollText });
+    }
+
+    if (hasFeature("api_access")) {
+      adminChildren.push({ name: "API Keys", href: "/api-keys", icon: Key, featureGate: "api_access" });
+    }
+
+    if (hasFeature("custom_integrations")) {
+      adminChildren.push({ name: "Custom Integrations", href: "/custom-integrations", icon: Link2, featureGate: "custom_integrations" });
+    }
+
     const baseNavigation: NavItem[] = [
       { name: "Dashboard", href: "/", icon: LayoutDashboard },
       {
@@ -110,12 +148,24 @@ export function Sidebar() {
         icon: Users2,
         children: [
           { name: "Client Management", href: "/clients", icon: Users },
-          { name: "Caregiver Management", href: "/caregivers", icon: UserCheck },
-          { name: "EVV Clock In/Out", href: "/evv-clock", icon: Clock },
-          { name: "Shift Swap Requests", href: "/shift-swap-requests", icon: ArrowLeftRight },
-          { name: "Staff Time Tracking", href: "/staff-time-tracking", icon: Clock },
-          { name: "Kiosk Terminal", href: "/kiosk", icon: MonitorCheck },
-          { name: "Kiosk Setup", href: "/kiosk-setup", icon: Monitor },
+          {
+            name: "Caregiver",
+            icon: UserCheck,
+            children: [
+              { name: "Caregiver Management", href: "/caregivers", icon: UserCheck },
+              { name: "EVV Clock In/Out", href: "/evv-clock", icon: Clock },
+              { name: "Shift Swap Requests", href: "/shift-swap-requests", icon: ArrowLeftRight },
+            ]
+          },
+          {
+            name: "Staff",
+            icon: UserCog,
+            children: [
+              { name: "Staff Time Tracking", href: "/staff-time-tracking", icon: Clock },
+              { name: "Kiosk Terminal", href: "/kiosk", icon: MonitorCheck },
+              { name: "Kiosk Setup", href: "/kiosk-setup", icon: Monitor },
+            ]
+          },
         ]
       },
       {
@@ -175,51 +225,21 @@ export function Sidebar() {
       },
     ];
 
-    if (hasFeature("api_access")) {
-      baseNavigation.push({ name: "API Keys", href: "/api-keys", icon: Key, featureGate: "api_access" });
-    }
-
-    if (hasFeature("custom_integrations")) {
-      baseNavigation.push({ name: "Custom Integrations", href: "/custom-integrations", icon: Link2, featureGate: "custom_integrations" });
-    }
-
-    if ((user as any)?.role === "admin" || (user as any)?.role === "supervisor" || (user as any)?.role === "super_admin" || (user as any)?.role === "office_admin") {
-      const adminChildren = [
-        { name: "User Management", href: "/user-management", icon: UserCog },
-        { name: "Super Admin", href: "/super-admin", icon: ShieldCheck },
-        { name: "Role & Access Control", href: "/role-wizard", icon: Key },
-        { name: "Office Management", href: "/offices", icon: Building2 },
-        { name: "MCO Setup", href: "/admin-settings", icon: Settings },
-        { name: "Letter Templates", href: "/letter-templates", icon: FileSignature },
-        { name: "E-Signature Templates", href: "/esignature-templates", icon: PenTool },
-        { name: "Birthday Notifications", href: "/birthday-notifications", icon: Cake },
-        { name: "Expiration Alerts", href: "/expiration-alerts", icon: Bell },
-        { name: "Client Intake", href: "/client-intake", icon: UserPlus },
-        { name: "HHAX Integration", href: "/hhax-integration", icon: Plug },
-        { name: "Visit Log Upload", href: "/visit-log-upload", icon: FileUp },
-        { name: "Exclusion Verification", href: "/exclusion-verification", icon: UserX },
-      ];
-      
-      if ((user as any)?.role === "super_admin") {
-        adminChildren.push({ name: "Email Templates", href: "/email-templates", icon: Mail });
-        adminChildren.push({ name: "Help Center Content", href: "/help-center-admin", icon: BookOpen });
-        adminChildren.push({ name: "Error Log", href: "/error-log", icon: ScrollText });
-      }
-      
-      baseNavigation.push({
-        name: "Admin",
-        icon: Cog,
-        children: adminChildren
-      });
+    if (
+      (user as any)?.role === "admin" ||
+      (user as any)?.role === "supervisor" ||
+      (user as any)?.role === "super_admin" ||
+      (user as any)?.role === "office_admin"
+    ) {
+      baseNavigation.push({ name: "Admin", icon: Cog, children: adminChildren });
     }
 
     return baseNavigation;
   };
 
   const navigation = getNavigation();
-
   const { logout } = useAuth();
-  
+
   const handleLogout = async () => {
     try {
       await logout();
@@ -235,9 +255,87 @@ export function Sidebar() {
     return location === href;
   };
 
-  const hasActiveChild = (item: NavItem): boolean => {
+  const hasActiveDescendant = (item: NavItem): boolean => {
     if (!item.children) return false;
-    return item.children.some(child => isActiveRoute(child.href));
+    return item.children.some(
+      child => isActiveRoute(child.href) || hasActiveDescendant(child)
+    );
+  };
+
+  // Render a leaf link (no children)
+  const renderLeaf = (child: NavItem, depth: number) => {
+    const ChildIcon = child.icon;
+    const isActive = isActiveRoute(child.href);
+    const pl = depth === 1 ? "pl-4" : "pl-8";
+
+    if (child.external) {
+      return (
+        <a
+          key={child.name}
+          href={child.href}
+          target="_blank"
+          rel="noopener noreferrer"
+          className={`flex items-center space-x-3 p-2.5 ${pl} rounded-lg text-sm font-medium transition-colors text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground`}
+          onClick={() => isMobile && setIsOpen(false)}
+          data-testid={`nav-link-${child.name.toLowerCase().replace(/\s+/g, '-')}`}
+        >
+          <ChildIcon className="w-4 h-4" />
+          <span>{child.name}</span>
+        </a>
+      );
+    }
+
+    return (
+      <Link
+        key={child.name}
+        href={child.href || "#"}
+        className={`flex items-center space-x-3 p-2.5 ${pl} rounded-lg text-sm font-medium transition-colors ${
+          isActive
+            ? "bg-sidebar-primary text-sidebar-primary-foreground"
+            : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+        }`}
+        onClick={() => isMobile && setIsOpen(false)}
+        data-testid={`nav-link-${child.name.toLowerCase().replace(/\s+/g, '-')}`}
+      >
+        <ChildIcon className="w-4 h-4" />
+        <span>{child.name}</span>
+      </Link>
+    );
+  };
+
+  // Render a child item — either a leaf or a nested sub-group
+  const renderChild = (child: NavItem, depth = 1) => {
+    if (!child.children) return renderLeaf(child, depth);
+
+    const ChildIcon = child.icon;
+    const isExpanded = expandedSubMenus.includes(child.name);
+    const hasActive = hasActiveDescendant(child);
+    const pl = depth === 1 ? "pl-2" : "pl-6";
+
+    return (
+      <div key={child.name}>
+        <button
+          onClick={() => toggleSubMenu(child.name)}
+          className={`w-full flex items-center justify-between p-2.5 ${pl} rounded-lg text-sm font-medium transition-colors ${
+            hasActive
+              ? "text-sidebar-primary"
+              : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+          }`}
+          data-testid={`nav-submenu-${child.name.toLowerCase().replace(/\s+/g, '-')}`}
+        >
+          <div className="flex items-center space-x-3">
+            <ChildIcon className="w-4 h-4" />
+            <span>{child.name}</span>
+          </div>
+          {isExpanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+        </button>
+        {isExpanded && (
+          <div className="mt-1 space-y-1">
+            {child.children.map(grandchild => renderChild(grandchild, depth + 1))}
+          </div>
+        )}
+      </div>
+    );
   };
 
   return (
@@ -255,17 +353,17 @@ export function Sidebar() {
       )}
 
       {isMobile && isOpen && (
-        <div 
+        <div
           className="fixed inset-0 bg-foreground/50 backdrop-blur-sm z-40 lg:hidden"
           onClick={() => setIsOpen(false)}
         />
       )}
 
-      <aside 
+      <aside
         className={`
           bg-sidebar border-r border-sidebar-border w-64 flex-shrink-0 sidebar-transition
-          ${isMobile ? 'fixed inset-y-0 left-0 z-50' : ''}
-          ${isMobile && !isOpen ? 'sidebar-closed' : ''}
+          ${isMobile ? "fixed inset-y-0 left-0 z-50" : ""}
+          ${isMobile && !isOpen ? "sidebar-closed" : ""}
         `}
         data-testid="sidebar"
       >
@@ -301,22 +399,20 @@ export function Sidebar() {
           <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
             {navigation.map((item) => {
               const Icon = item.icon;
-              
+
               if (item.children) {
                 const isExpanded = expandedMenus.includes(item.name);
-                const hasActive = hasActiveChild(item);
-                
+                const hasActive = hasActiveDescendant(item);
+
                 return (
                   <div key={item.name}>
                     <button
                       onClick={() => toggleMenu(item.name)}
-                      className={`
-                        w-full flex items-center justify-between p-3 rounded-lg font-medium transition-colors
-                        ${hasActive 
-                          ? 'bg-sidebar-accent text-sidebar-primary' 
-                          : 'text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground'
-                        }
-                      `}
+                      className={`w-full flex items-center justify-between p-3 rounded-lg font-medium transition-colors ${
+                        hasActive
+                          ? "bg-sidebar-accent text-sidebar-primary"
+                          : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                      }`}
                       data-testid={`nav-menu-${item.name.toLowerCase().replace(/\s+/g, '-')}`}
                     >
                       <div className="flex items-center space-x-3">
@@ -329,58 +425,16 @@ export function Sidebar() {
                         <ChevronRight className="w-4 h-4" />
                       )}
                     </button>
-                    
+
                     {isExpanded && (
                       <div className="ml-4 mt-1 space-y-1">
-                        {item.children.map((child) => {
-                          const ChildIcon = child.icon;
-                          const isActive = isActiveRoute(child.href);
-                          
-                          if (child.external) {
-                            return (
-                              <a
-                                key={child.name}
-                                href={child.href}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className={`
-                                  flex items-center space-x-3 p-2.5 pl-4 rounded-lg text-sm font-medium transition-colors
-                                  text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground
-                                `}
-                                onClick={() => isMobile && setIsOpen(false)}
-                                data-testid={`nav-link-${child.name.toLowerCase().replace(/\s+/g, '-')}`}
-                              >
-                                <ChildIcon className="w-4 h-4" />
-                                <span>{child.name}</span>
-                              </a>
-                            );
-                          }
-
-                          return (
-                            <Link 
-                              key={child.name} 
-                              href={child.href || "#"}
-                              className={`
-                                flex items-center space-x-3 p-2.5 pl-4 rounded-lg text-sm font-medium transition-colors
-                                ${isActive 
-                                  ? 'bg-sidebar-primary text-sidebar-primary-foreground' 
-                                  : 'text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground'
-                                }
-                              `}
-                              onClick={() => isMobile && setIsOpen(false)}
-                              data-testid={`nav-link-${child.name.toLowerCase().replace(/\s+/g, '-')}`}
-                            >
-                              <ChildIcon className="w-4 h-4" />
-                              <span>{child.name}</span>
-                            </Link>
-                          );
-                        })}
+                        {item.children.map(child => renderChild(child, 1))}
                       </div>
                     )}
                   </div>
                 );
               }
-              
+
               const isActive = isActiveRoute(item.href);
 
               if (item.external) {
@@ -390,10 +444,7 @@ export function Sidebar() {
                     href={item.href}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className={`
-                      flex items-center space-x-3 p-3 rounded-lg font-medium transition-colors
-                      text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground
-                    `}
+                    className="flex items-center space-x-3 p-3 rounded-lg font-medium transition-colors text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
                     onClick={() => isMobile && setIsOpen(false)}
                     data-testid={`nav-link-${item.name.toLowerCase().replace(/\s+/g, '-')}`}
                   >
@@ -402,18 +453,16 @@ export function Sidebar() {
                   </a>
                 );
               }
-              
+
               return (
-                <Link 
-                  key={item.name} 
+                <Link
+                  key={item.name}
                   href={item.href || "#"}
-                  className={`
-                    flex items-center space-x-3 p-3 rounded-lg font-medium transition-colors
-                    ${isActive 
-                      ? 'bg-sidebar-primary text-sidebar-primary-foreground' 
-                      : 'text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground'
-                    }
-                  `}
+                  className={`flex items-center space-x-3 p-3 rounded-lg font-medium transition-colors ${
+                    isActive
+                      ? "bg-sidebar-primary text-sidebar-primary-foreground"
+                      : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                  }`}
                   onClick={() => isMobile && setIsOpen(false)}
                   data-testid={`nav-link-${item.name.toLowerCase().replace(/\s+/g, '-')}`}
                 >
