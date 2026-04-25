@@ -556,6 +556,23 @@ input.finput::placeholder { color: var(--text3); }
 #sc-sum-unmatched { --accent-color: var(--red); }
 #sc-sum-pct       { --accent-color: var(--teal); }
 
+@keyframes summaryCardIn {
+  from {
+    opacity: 0;
+    transform: translateY(-12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.summary-stat-card.card-animate {
+  animation: summaryCardIn 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.summary-stat-card.card-animate:nth-child(1) { animation-delay: 0ms; }
+.summary-stat-card.card-animate:nth-child(2) { animation-delay: 80ms; }
+.summary-stat-card.card-animate:nth-child(3) { animation-delay: 160ms; }
+
 /* ── LOG PANEL ── */
 .log-panel {
   background: var(--card);
@@ -1792,14 +1809,39 @@ function runProcess() {
     const pct   = total > 0 ? Math.round((sumMatched / total) * 100) : 0;
     const sumRow = document.getElementById('summaryStatsRow');
     if (sumRow) {
-      document.getElementById('st-sum-matched').textContent   = sumMatched;
       document.getElementById('st-sum-matched-sub').textContent = `of ${total} Summary rows`;
-      document.getElementById('st-sum-unmatched').textContent = sumUnmatched;
-      document.getElementById('st-sum-pct').textContent       = pct + '%';
+
+      // Reset values and animations before showing
+      document.getElementById('st-sum-matched').textContent   = '0';
+      document.getElementById('st-sum-unmatched').textContent = '0';
+      document.getElementById('st-sum-pct').textContent       = '0%';
       ['sc-sum-matched','sc-sum-unmatched','sc-sum-pct'].forEach(id => {
-        document.getElementById(id).classList.add('has-data');
+        const el = document.getElementById(id);
+        el.classList.remove('card-animate');
+        void el.offsetWidth; // force reflow to restart animation
+        el.classList.add('has-data', 'card-animate');
       });
       sumRow.style.display = 'grid';
+
+      // Counter animation helper
+      function animateCount(el, target, suffix, duration) {
+        const start = performance.now();
+        function step(now) {
+          const elapsed = now - start;
+          const progress = Math.min(elapsed / duration, 1);
+          // ease-out cubic
+          const eased = 1 - Math.pow(1 - progress, 3);
+          const current = Math.round(eased * target);
+          el.textContent = current + suffix;
+          if (progress < 1) requestAnimationFrame(step);
+        }
+        requestAnimationFrame(step);
+      }
+
+      const countDuration = 600;
+      animateCount(document.getElementById('st-sum-matched'),   sumMatched,   '', countDuration);
+      animateCount(document.getElementById('st-sum-unmatched'), sumUnmatched, '', countDuration);
+      animateCount(document.getElementById('st-sum-pct'),       pct,          '%', countDuration);
     }
 
     lg(`✓ Summary Sheet done — ${sumMatched} matched · ${sumUnmatched} unmatched`, 's');
