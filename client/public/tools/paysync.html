@@ -931,20 +931,21 @@ td.status-ssn {
       </div>
     </div>
 
-    <!-- Step 5 — Summary Sheet (Optional) -->
-    <div class="panel">
-      <div class="panel-head">
+    <!-- Step 5 — Summary Sheet (Optional / Collapsible) -->
+    <div class="panel panel-collapsible" id="panel-summary">
+      <div class="panel-head" onclick="toggleSummaryPanel()" style="cursor:pointer;user-select:none">
         <div class="step-circle outline">5</div>
         <h3>Summary Sheet</h3>
         <span class="badge badge-opt">Optional</span>
         <div class="dot-status" id="d5"></div>
+        <span id="summary-chevron" style="margin-left:auto;font-size:14px;color:var(--text3);transition:transform .2s">▾</span>
       </div>
-      <div class="panel-body">
+      <div class="panel-body" id="summary-panel-body">
         <p style="font-size:12px;color:var(--text3);margin-bottom:10px;line-height:1.5">Upload your summary sheet to auto-fill <strong>Week 1 &amp; Week 2 hours</strong> and generate a <strong>CM Pay</strong> report. Not required for ADP export.</p>
         <div class="dropzone" id="z-summary">
-          <input type="file" id="f-summary" accept=".xlsx,.xls" onchange="loadSummary(this)" />
+          <input type="file" id="f-summary" accept=".xlsx,.xls,.csv" onchange="loadSummary(this)" />
           <div class="dz-icon">📊</div>
-          <div class="dz-title">SummarySheet.xlsx</div>
+          <div class="dz-title">SummarySheet.xlsx / .csv</div>
           <div class="dz-sub">ADP Code · HHA ID · Case Manager · CM Pay</div>
           <div class="dz-name" id="n-summary"></div>
         </div>
@@ -1472,16 +1473,16 @@ function runProcess() {
       const sumAdp = scm.adpCode ? String(row[scm.adpCode] ?? '').trim() : '';
       if (sumAdp && adpToHHA[sumAdp]) hhaKey = adpToHHA[sumAdp];
 
-      // 2. Try HHA code directly from summary row
-      if (!hhaKey && scm.hhaCode) {
-        const sumHHA = String(row[scm.hhaCode] ?? '').trim();
-        if (sumHHA && hoursMap[sumHHA]) hhaKey = sumHHA;
-      }
-
-      // 3. Try SSN fallback
+      // 2. Try SSN fallback (before HHA ID, as per required matching order)
       if (!hhaKey && scm.ssn) {
         const sumSSN = normalizeSSN(row[scm.ssn]);
         if (sumSSN && ssnLookup[sumSSN]) hhaKey = ssnLookup[sumSSN].hhaCode;
+      }
+
+      // 3. Try HHA code directly from summary row (last resort)
+      if (!hhaKey && scm.hhaCode) {
+        const sumHHA = String(row[scm.hhaCode] ?? '').trim();
+        if (sumHHA && hoursMap[sumHHA]) hhaKey = sumHHA;
       }
 
       const wk1Col = scm.wk1 || 'Week 1 Hours';
@@ -1616,15 +1617,29 @@ function downloadXlsx() {
   lg('✓ Downloaded: ADP_Import_Preview.xlsx', 's');
 }
 
+// ═══════════════════ SUMMARY PANEL TOGGLE ═══════════════════
+function toggleSummaryPanel() {
+  const body     = document.getElementById('summary-panel-body');
+  const chevron  = document.getElementById('summary-chevron');
+  if (!body) return;
+  const isOpen = body.style.display !== 'none';
+  body.style.display    = isOpen ? 'none' : '';
+  chevron.style.transform = isOpen ? 'rotate(-90deg)' : '';
+}
+
 // ═══════════════════ SUMMARY SHEET LOADER ═══════════════════
 function loadSummary(input) {
   const file = input.files[0];
   if (!file) return;
   lg(`Loading Summary Sheet: ${file.name}`, 'i');
+  const ext = file.name.split('.').pop().toLowerCase();
   const reader = new FileReader();
-  reader.onload = e => {
+
+  const parseWorkbook = (data, isBinary) => {
     try {
-      const wb = XLSX.read(new Uint8Array(e.target.result), { type: 'array' });
+      const wb = isBinary
+        ? XLSX.read(new Uint8Array(data), { type: 'array' })
+        : XLSX.read(data, { type: 'string' });
       const sn = wb.SheetNames[0];
       const rows = XLSX.utils.sheet_to_json(wb.Sheets[sn], { defval: '' });
       S.summaryRows = rows;
@@ -1636,7 +1651,14 @@ function loadSummary(input) {
       lg(`✗ Error reading Summary Sheet: ${err.message}`, 'e');
     }
   };
-  reader.readAsArrayBuffer(file);
+
+  if (ext === 'csv') {
+    reader.onload = e => parseWorkbook(e.target.result, false);
+    reader.readAsText(file);
+  } else {
+    reader.onload = e => parseWorkbook(e.target.result, true);
+    reader.readAsArrayBuffer(file);
+  }
 }
 
 // ═══════════════════ SUMMARY DOWNLOADS ═══════════════════
