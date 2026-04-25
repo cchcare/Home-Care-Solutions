@@ -1615,7 +1615,9 @@ function runProcess() {
     });
 
     // Build hoursMap: hhaCode → { weekKey: totalHrs } from HHA rows (using hhaMap)
+    // Also build ssnToAide: SSN → aide code (from HHA file itself, not master)
     const hoursMap = {};
+    const ssnToAide = {};
     S.hhaRows.forEach(row => {
       const hha  = hMap.aideCode ? String(row[hMap.aideCode] ?? '').trim()
                  : String(row['Aide Code'] ?? row['aide_code'] ?? row['AideCode'] ?? row['HHA Code'] ?? row['Employee ID'] ?? '').trim();
@@ -1630,7 +1632,14 @@ function runProcess() {
       if (!hha || !week) return;
       if (!hoursMap[hha]) hoursMap[hha] = {};
       hoursMap[hha][week] = (hoursMap[hha][week] || 0) + hrs;
+      // Capture SSN → aide mapping directly from HHA file (for cross-file matching)
+      const hhaSsnRaw = hMap.ssn ? (row[hMap.ssn] ?? '')
+                      : (row['SSN'] ?? row['Social Security Number'] ?? row['Social Security'] ?? row['Social'] ?? row['SS#'] ?? row['ssn'] ?? '');
+      const hhaSsn = normalizeSSN(hhaSsnRaw);
+      if (hhaSsn && !ssnToAide[hhaSsn]) ssnToAide[hhaSsn] = hha;
     });
+    const hhaSsnEntries = Object.keys(ssnToAide).length;
+    if (hhaSsnEntries > 0) lg(`  HHA SSN index built — ${hhaSsnEntries} unique SSNs from HHA file for cross-file matching`, 'i');
 
     // Determine week keys (could be "1"/"2" from single-file, or natural numbers)
     const allWeekKeys = [...new Set(S.hhaRows.map(r => String(r['Week'] ?? r['week'] ?? '1').trim()))].sort();
@@ -1649,16 +1658,40 @@ function runProcess() {
       const sumAdp = scm.adpCode ? String(row[scm.adpCode] ?? '').trim() : '';
       if (sumAdp && adpToHHA[sumAdp]) hhaKey = adpToHHA[sumAdp];
 
-      // 2. Try SSN fallback (before HHA ID, as per required matching order)
+      // 2. Try SSN from summary → master SSN lookup → HHA code
+      let matchMethod = 'ADP→Master';
       if (!hhaKey && scm.ssn) {
         const sumSSN = normalizeSSN(row[scm.ssn]);
-        if (sumSSN && ssnLookup[sumSSN]) hhaKey = ssnLookup[sumSSN].hhaCode;
+        if (sumSSN && ssnLookup[sumSSN]) {
+          hhaKey = ssnLookup[sumSSN].hhaCode;
+          matchMethod = 'SSN→Master';
+        }
       }
 
-      // 3. Try HHA code directly from summary row (last resort)
+      // 3. Try HHA code directly from summary row → hoursMap
       if (!hhaKey && scm.hhaCode) {
         const sumHHA = String(row[scm.hhaCode] ?? '').trim();
-        if (sumHHA && hoursMap[sumHHA]) hhaKey = sumHHA;
+        if (sumHHA && hoursMap[sumHHA]) {
+          hhaKey = sumHHA;
+          matchMethod = 'HHA ID (direct)';
+        }
+      }
+
+      // 4. Cross-file SSN: SSN from summary → aide code from HHA Hours file → hoursMap
+      //    (works even when the employee isn't in the master sheet)
+      if (!hhaKey && scm.ssn) {
+        const sumSSN = normalizeSSN(row[scm.ssn]);
+        if (sumSSN && ssnToAide[sumSSN] && hoursMap[ssnToAide[sumSSN]]) {
+          hhaKey = ssnToAide[sumSSN];
+          matchMethod = 'SSN→HHA file';
+        }
+      }
+
+      // 5. ADP code from summary used directly as aide code in hoursMap
+      //    (catches cases where ADP # isn't in master but IS the aide code in HHA file)
+      if (!hhaKey && sumAdp && hoursMap[sumAdp]) {
+        hhaKey = sumAdp;
+        matchMethod = 'ADP→HHA file (no master)';
       }
 
       const wk1Col = scm.wk1 || 'Week 1 Hours';
@@ -1666,7 +1699,7 @@ function runProcess() {
 
       if (!hhaKey || !hoursMap[hhaKey]) {
         sumUnmatched++;
-        if (sumAdp) lg(`  ⚠ "${sumAdp}" — no hours found in HHA file, row preserved as-is`, 'w');
+        if (sumAdp) lg(`  ⚠ "${sumAdp}" — no match via ADP/SSN/HHA code, row preserved as-is`, 'w');
         return clone;
       }
 
@@ -1676,7 +1709,7 @@ function runProcess() {
       const w2Hrs = emp[wk2Key] || 0;
       clone[wk1Col] = parseFloat(w1Hrs.toFixed(2));
       clone[wk2Col] = parseFloat(w2Hrs.toFixed(2));
-      lg(`  ✓ ${sumAdp || hhaKey} — Wk${wk1Key}: ${w1Hrs.toFixed(2)}  Wk${wk2Key}: ${w2Hrs.toFixed(2)}`, 's');
+      lg(`  ✓ ${sumAdp || hhaKey} [${matchMethod}] — Wk${wk1Key}: ${w1Hrs.toFixed(2)}  Wk${wk2Key}: ${w2Hrs.toFixed(2)}`, 's');
       return clone;
     });
 
