@@ -8,6 +8,7 @@ import {
   Heart,
   LayoutDashboard,
   Users,
+  Users2,
   UserCheck,
   Building2,
   Shield,
@@ -51,7 +52,11 @@ import {
   Layers,
   Calculator,
   GitCompareArrows,
-  Zap
+  Zap,
+  Stethoscope,
+  Briefcase,
+  Wrench,
+  LifeBuoy
 } from "lucide-react";
 
 interface NavItem {
@@ -100,34 +105,38 @@ export function Sidebar() {
 
     const baseNavigation: NavItem[] = [
       { name: "Dashboard", href: "/", icon: LayoutDashboard },
-      { name: "Client Management", href: "/clients", icon: Users },
-      { 
-        name: "Caregiver",
-        icon: UserCheck,
+      {
+        name: "People",
+        icon: Users2,
         children: [
+          { name: "Client Management", href: "/clients", icon: Users },
           { name: "Caregiver Management", href: "/caregivers", icon: UserCheck },
           { name: "EVV Clock In/Out", href: "/evv-clock", icon: Clock },
           { name: "Shift Swap Requests", href: "/shift-swap-requests", icon: ArrowLeftRight },
-        ]
-      },
-      {
-        name: "Staff",
-        icon: UserCog,
-        children: [
           { name: "Staff Time Tracking", href: "/staff-time-tracking", icon: Clock },
           { name: "Kiosk Terminal", href: "/kiosk", icon: MonitorCheck },
           { name: "Kiosk Setup", href: "/kiosk-setup", icon: Monitor },
         ]
       },
-      { name: "Training & Resources", href: "/training", icon: GraduationCap },
-      { name: "Overlap Checker", href: "/overlap-checker", icon: Layers },
-      { name: "Incident Reports", href: "/incidents", icon: AlertTriangle },
-      { name: "Compliance", href: "/compliance", icon: Shield },
-      { name: "Communication", href: "/communication", icon: MessageSquare },
-      { name: "Tasks & Workflows", href: "/tasks", icon: ClipboardList },
-      { name: "Forms & Documents", href: "/documents", icon: FileText },
-      { name: "Analytics & Reports", href: "/reports", icon: BarChart3 },
-      { 
+      {
+        name: "Clinical",
+        icon: Stethoscope,
+        children: [
+          { name: "Compliance", href: "/compliance", icon: Shield },
+          { name: "Incident Reports", href: "/incidents", icon: AlertTriangle },
+          { name: "Training & Resources", href: "/training", icon: GraduationCap },
+        ]
+      },
+      {
+        name: "Operations",
+        icon: Briefcase,
+        children: [
+          { name: "Tasks & Workflows", href: "/tasks", icon: ClipboardList },
+          { name: "Forms & Documents", href: "/documents", icon: FileText },
+          { name: "Communication", href: "/communication", icon: MessageSquare },
+        ]
+      },
+      {
         name: "Payroll",
         icon: DollarSign,
         children: [
@@ -137,12 +146,33 @@ export function Sidebar() {
           { name: "Financial Reports", href: "/financial-reports", icon: FileBarChart },
           { name: "Hours Calculator", href: "/payroll-hours-calculator", icon: Calculator },
           { name: "Visit Hours Difference", href: "/visit-hours-difference", icon: GitCompareArrows },
-          { name: "PaySync", href: "/paysync", icon: Zap },
+        ]
+      },
+      {
+        name: "Analytics",
+        icon: BarChart3,
+        children: [
+          { name: "Analytics & Reports", href: "/reports", icon: BarChart3 },
           { name: "Care Quality Scorecard", href: "/care-quality-scorecard", icon: TrendingUp },
         ]
       },
-      { name: "AI Assistant", href: "/ai-assistant", icon: Bot },
-      { name: "Support Tickets", href: "/support-tickets", icon: Ticket },
+      {
+        name: "Tools",
+        icon: Wrench,
+        children: [
+          { name: "Overlap Checker", href: "/overlap-checker", icon: Layers },
+          { name: "AI Assistant", href: "/ai-assistant", icon: Bot },
+          { name: "PaySync", href: "/paysync", icon: Zap },
+        ]
+      },
+      {
+        name: "Support",
+        icon: LifeBuoy,
+        children: [
+          { name: "Support Tickets", href: "/support-tickets", icon: Ticket },
+          { name: "Help & Support", href: "/support-center", icon: HelpCircle, external: true },
+        ]
+      },
     ];
 
     if (hasFeature("api_access")) {
@@ -152,8 +182,6 @@ export function Sidebar() {
     if (hasFeature("custom_integrations")) {
       baseNavigation.push({ name: "Custom Integrations", href: "/custom-integrations", icon: Link2, featureGate: "custom_integrations" });
     }
-
-    baseNavigation.push({ name: "Help & Support", href: "/support-center", icon: HelpCircle, external: true });
 
     if ((user as any)?.role === "admin" || (user as any)?.role === "supervisor" || (user as any)?.role === "super_admin" || (user as any)?.role === "office_admin") {
       const adminChildren = [
@@ -308,6 +336,26 @@ export function Sidebar() {
                           const ChildIcon = child.icon;
                           const isActive = isActiveRoute(child.href);
                           
+                          if (child.external) {
+                            return (
+                              <a
+                                key={child.name}
+                                href={child.href}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className={`
+                                  flex items-center space-x-3 p-2.5 pl-4 rounded-lg text-sm font-medium transition-colors
+                                  text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground
+                                `}
+                                onClick={() => isMobile && setIsOpen(false)}
+                                data-testid={`nav-link-${child.name.toLowerCase().replace(/\s+/g, '-')}`}
+                              >
+                                <ChildIcon className="w-4 h-4" />
+                                <span>{child.name}</span>
+                              </a>
+                            );
+                          }
+
                           return (
                             <Link 
                               key={child.name} 
