@@ -1106,6 +1106,9 @@ const S = {
   unmatched: [],
   logCount: 0,
   summaryRows: [],
+  summaryWb: null,
+  summarySn: null,
+  summaryCols: null,
   filledSummary: null,
   cmPay: null,
 };
@@ -1279,7 +1282,7 @@ function runProcess() {
   lg('Starting payroll processing...', 'i');
 
   // Clear any stale summary artifacts from a previous run
-  S.filledSummary = null; S.cmPay = null;
+  S.filledSummary = null; S.cmPay = null; S.summaryCols = null;
   const dlSumBtnPre  = document.getElementById('dlSummary');
   const dlCmBtnPre   = document.getElementById('dlCmPay');
   const sumDlRowPre  = document.getElementById('summaryDlRow');
@@ -1445,6 +1448,7 @@ function runProcess() {
       wk2:     findCol('Week 2 Hours','Wk2 Hours','Week2','W2 Hours','Week 2','Wk 2'),
     };
     lg(`  Columns — ADP:${scm.adpCode||'—'} | HHA:${scm.hhaCode||'—'} | CM:${scm.caseMgr||'—'} | CMPay:${scm.cmPay||'—'} | Wk1→"${scm.wk1||'Week 1 Hours'}" | Wk2→"${scm.wk2||'Week 2 Hours'}"`, 'i');
+    S.summaryCols = { wk1: scm.wk1 || 'Week 1 Hours', wk2: scm.wk2 || 'Week 2 Hours' };
 
     // Build adpCode → hhaCode reverse lookup from master
     const adpToHHA = {};
@@ -1503,9 +1507,6 @@ function runProcess() {
       if (!hhaKey || !hoursMap[hhaKey]) {
         sumUnmatched++;
         if (sumAdp) lg(`  ⚠ "${sumAdp}" — no hours found in HHA file, row preserved as-is`, 'w');
-        clone[wk1Col] = clone[wk1Col] || '';
-        clone[wk2Col] = clone[wk2Col] || '';
-        clone['Summary Match Status'] = 'Unmatched';
         return clone;
       }
 
@@ -1515,7 +1516,6 @@ function runProcess() {
       const w2Hrs = emp[wk2Key] || 0;
       clone[wk1Col] = parseFloat(w1Hrs.toFixed(2));
       clone[wk2Col] = parseFloat(w2Hrs.toFixed(2));
-      clone['Summary Match Status'] = 'Matched';
       lg(`  ✓ ${sumAdp || hhaKey} — Wk${wk1Key}: ${w1Hrs.toFixed(2)}  Wk${wk2Key}: ${w2Hrs.toFixed(2)}`, 's');
       return clone;
     });
@@ -1658,10 +1658,14 @@ function loadSummary(input) {
   const reader = new FileReader();
   reader.onload = e => {
     try {
-      const wb = XLSX.read(new Uint8Array(e.target.result), { type: 'array' });
+      const wb = XLSX.read(new Uint8Array(e.target.result), {
+        type: 'array', cellStyles: true, cellNF: true, cellDates: true
+      });
       const sn = wb.SheetNames[0];
       const rows = XLSX.utils.sheet_to_json(wb.Sheets[sn], { defval: '' });
       S.summaryRows = rows;
+      S.summaryWb   = wb;
+      S.summarySn   = sn;
       lg(`✓ Summary Sheet loaded — ${rows.length} rows from sheet "${sn}"`, 's');
       if (rows.length > 0) lg(`  Detected columns: ${Object.keys(rows[0]).join('  ·  ')}`, 'i');
       markZone('z-summary', file.name, 'n-summary');
@@ -1675,11 +1679,69 @@ function loadSummary(input) {
 
 // ═══════════════════ SUMMARY DOWNLOADS ═══════════════════
 function downloadSummarySheet() {
-  if (!S.filledSummary || !S.filledSummary.length) return;
-  const ws = XLSX.utils.json_to_sheet(S.filledSummary);
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'Summary Sheet');
-  XLSX.writeFile(wb, 'Summary_Sheet_Updated.xlsx');
+  if (!S.summaryWb || !S.summarySn || !S.filledSummary) return;
+
+  // Deep-clone the original sheet so all formatting, column widths,
+  // merged cells, freeze panes, and themes are fully preserved
+  const origSheet = S.summaryWb.Sheets[S.summarySn];
+  const ws = JSON.parse(JSON.stringify(origSheet));
+
+  // Decode range and locate header row
+  const range = XLSX.utils.decode_range(ws['!ref'] || 'A1');
+  const headerRowIdx = range.s.r;
+
+  // Build header name → column index map
+  const colNameToIdx = {};
+  for (let c = range.s.c; c <= range.e.c; c++) {
+    const cell = ws[XLSX.utils.encode_cell({ r: headerRowIdx, c })];
+    if (cell && cell.v !== undefined) colNameToIdx[String(cell.v).trim()] = c;
+  }
+
+  // Locate Wk1 / Wk2 column indices by all accepted aliases
+  const wk1Aliases = ['Week 1 Hours','Wk1 Hours','Week1','W1 Hours','Week 1','Wk 1'];
+  const wk2Aliases = ['Week 2 Hours','Wk2 Hours','Week2','W2 Hours','Week 2','Wk 2'];
+  const findIdx = aliases => {
+    for (const [name, idx] of Object.entries(colNameToIdx)) {
+      if (aliases.some(a => name.toLowerCase() === a.toLowerCase())) return idx;
+    }
+    return null;
+  };
+
+  let wk1ColIdx = findIdx(wk1Aliases);
+  let wk2ColIdx = findIdx(wk2Aliases);
+
+  // If a column isn't found, append it as a new header at the end
+  if (wk1ColIdx === null) {
+    wk1ColIdx = range.e.c + 1;
+    ws[XLSX.utils.encode_cell({ r: headerRowIdx, c: wk1ColIdx })] = { t: 's', v: 'Week 1 Hours' };
+    range.e.c = wk1ColIdx;
+  }
+  if (wk2ColIdx === null) {
+    wk2ColIdx = range.e.c + 1;
+    ws[XLSX.utils.encode_cell({ r: headerRowIdx, c: wk2ColIdx })] = { t: 's', v: 'Week 2 Hours' };
+    range.e.c = wk2ColIdx;
+  }
+  ws['!ref'] = XLSX.utils.encode_range(range);
+
+  // Patch ONLY the Wk1 and Wk2 cells — all other cells are untouched
+  const wk1Key = S.summaryCols ? S.summaryCols.wk1 : 'Week 1 Hours';
+  const wk2Key = S.summaryCols ? S.summaryCols.wk2 : 'Week 2 Hours';
+
+  S.filledSummary.forEach((row, i) => {
+    const rowIdx = headerRowIdx + 1 + i;
+    const w1 = row[wk1Key];
+    const w2 = row[wk2Key];
+    if (w1 !== '' && w1 !== undefined && w1 !== null) {
+      ws[XLSX.utils.encode_cell({ r: rowIdx, c: wk1ColIdx })] = { t: 'n', v: w1 };
+    }
+    if (w2 !== '' && w2 !== undefined && w2 !== null) {
+      ws[XLSX.utils.encode_cell({ r: rowIdx, c: wk2ColIdx })] = { t: 'n', v: w2 };
+    }
+  });
+
+  const outWb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(outWb, ws, S.summarySn);
+  XLSX.writeFile(outWb, 'Summary_Sheet_Updated.xlsx');
   lg('✓ Downloaded: Summary_Sheet_Updated.xlsx', 's');
 }
 
@@ -1696,7 +1758,8 @@ function downloadCMPay() {
 function resetAll() {
   S.adpHeaders = null; S.master = null; S.hhaRows = [];
   S.output = []; S.unmatched = []; S.logCount = 0;
-  S.summaryRows = []; S.filledSummary = null; S.cmPay = null;
+  S.summaryRows = []; S.summaryWb = null; S.summarySn = null;
+  S.summaryCols = null; S.filledSummary = null; S.cmPay = null;
 
   ['f-adp','f-master','f-h1','f-hw1','f-hw2','f-summary'].forEach(id => {
     const el = document.getElementById(id); if (el) el.value = '';
