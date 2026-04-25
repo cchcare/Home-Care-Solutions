@@ -320,7 +320,7 @@ input.finput::placeholder { color: var(--text3); }
 }
 .dropzone.loaded::before { opacity: 0; }
 .dropzone input[type=file] {
-  position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%;
+  position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%; z-index: 3;
 }
 .dz-icon { font-size: 24px; margin-bottom: 8px; position: relative; z-index: 1; }
 .dz-title {
@@ -943,9 +943,9 @@ td.status-ssn {
       <div class="panel-body" id="summary-panel-body">
         <p style="font-size:12px;color:var(--text3);margin-bottom:10px;line-height:1.5">Upload your summary sheet to auto-fill <strong>Week 1 &amp; Week 2 hours</strong> and generate a <strong>CM Pay</strong> report. Not required for ADP export.</p>
         <div class="dropzone" id="z-summary">
-          <input type="file" id="f-summary" accept=".xlsx,.xls,.csv" onchange="loadSummary(this)" />
+          <input type="file" id="f-summary" accept=".xlsx,.xls" onchange="loadSummary(this)" />
           <div class="dz-icon">📊</div>
-          <div class="dz-title">SummarySheet.xlsx / .csv</div>
+          <div class="dz-title">SummarySheet.xlsx</div>
           <div class="dz-sub">ADP Code · HHA ID · Case Manager · CM Pay</div>
           <div class="dz-name" id="n-summary"></div>
         </div>
@@ -1655,14 +1655,10 @@ function loadSummary(input) {
   const file = input.files[0];
   if (!file) return;
   lg(`Loading Summary Sheet: ${file.name}`, 'i');
-  const ext = file.name.split('.').pop().toLowerCase();
   const reader = new FileReader();
-
-  const parseWorkbook = (data, isBinary) => {
+  reader.onload = e => {
     try {
-      const wb = isBinary
-        ? XLSX.read(new Uint8Array(data), { type: 'array' })
-        : XLSX.read(data, { type: 'string' });
+      const wb = XLSX.read(new Uint8Array(e.target.result), { type: 'array' });
       const sn = wb.SheetNames[0];
       const rows = XLSX.utils.sheet_to_json(wb.Sheets[sn], { defval: '' });
       S.summaryRows = rows;
@@ -1674,14 +1670,7 @@ function loadSummary(input) {
       lg(`✗ Error reading Summary Sheet: ${err.message}`, 'e');
     }
   };
-
-  if (ext === 'csv') {
-    reader.onload = e => parseWorkbook(e.target.result, false);
-    reader.readAsText(file);
-  } else {
-    reader.onload = e => parseWorkbook(e.target.result, true);
-    reader.readAsArrayBuffer(file);
-  }
+  reader.readAsArrayBuffer(file);
 }
 
 // ═══════════════════ SUMMARY DOWNLOADS ═══════════════════
@@ -1737,8 +1726,58 @@ function resetAll() {
   tick();
 }
 
+// ═══════════════════ DRAG AND DROP ═══════════════════
+function setupDragDrop() {
+  document.querySelectorAll('.dropzone').forEach(zone => {
+    const input = zone.querySelector('input[type=file]');
+    if (!input) return;
+
+    zone.addEventListener('dragover', e => {
+      e.preventDefault();
+      e.stopPropagation();
+      zone.classList.add('drag');
+    });
+
+    zone.addEventListener('dragleave', e => {
+      e.preventDefault();
+      e.stopPropagation();
+      // Only remove if actually leaving the zone (not a child element)
+      if (!zone.contains(e.relatedTarget)) zone.classList.remove('drag');
+    });
+
+    zone.addEventListener('drop', e => {
+      e.preventDefault();
+      e.stopPropagation();
+      zone.classList.remove('drag');
+      const files = e.dataTransfer.files;
+      if (!files || !files.length) return;
+      const file = files[0];
+
+      // Validate against the input's accepted extensions
+      const accept = (input.accept || '').split(',').map(a => a.trim().toLowerCase());
+      if (accept.length && accept[0] !== '') {
+        const ext = '.' + file.name.split('.').pop().toLowerCase();
+        const ok  = accept.some(a => a === ext);
+        if (!ok) {
+          lg(`✗ Dropped file type "${ext}" not accepted — expected: ${accept.join(', ')}`, 'e');
+          return;
+        }
+      }
+
+      // Assign to the hidden input and fire change so existing loaders run
+      try {
+        const dt = new DataTransfer();
+        dt.items.add(file);
+        input.files = dt.files;
+      } catch(_) {}
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+  });
+}
+
 // Init
 tick();
+setupDragDrop();
 </script>
 </body>
 </html>
