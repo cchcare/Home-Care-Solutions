@@ -1968,7 +1968,15 @@ function downloadSummarySheet() {
 
   // Append "Summary Match Status" column after all other columns
   const statusColIdx = range.e.c + 1;
-  ws[XLSX.utils.encode_cell({ r: headerRowIdx, c: statusColIdx })] = { t: 's', v: 'Summary Match Status' };
+  ws[XLSX.utils.encode_cell({ r: headerRowIdx, c: statusColIdx })] = {
+    t: 's',
+    v: 'Summary Match Status',
+    s: {
+      fill: { patternType: 'solid', fgColor: { rgb: '375623' } },
+      font: { bold: true, color: { rgb: 'FFFFFF' } },
+      alignment: { horizontal: 'center' }
+    }
+  };
   range.e.c = statusColIdx;
   ws['!ref'] = XLSX.utils.encode_range(range);
 
