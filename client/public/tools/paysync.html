@@ -1166,6 +1166,14 @@ td.status-ssn {
     </div>
 
     <!-- Summary Sheet Downloads (shown only when summary was uploaded & processed) -->
+    <div id="summaryDlOptions" style="display:none;margin-top:12px;align-items:center;gap:10px;font-size:12px;color:var(--text2)">
+      <label for="statusColPosition" style="font-weight:500;white-space:nowrap;color:var(--text2)">Match Status column:</label>
+      <select id="statusColPosition" style="font-size:12px;padding:4px 8px;border:1px solid var(--border2);border-radius:6px;background:var(--card);color:var(--text);font-family:'Inter',sans-serif;cursor:pointer;outline:none">
+        <option value="last">Last column (default)</option>
+        <option value="first">First column</option>
+        <option value="hidden">Hidden (exclude)</option>
+      </select>
+    </div>
     <div class="dl-row" id="summaryDlRow" style="display:none;margin-top:8px">
       <button class="btn-dl-primary" id="dlSummary" onclick="downloadSummarySheet()" disabled style="background:var(--green)">
         ↓ Download Updated Summary Sheet
@@ -1468,10 +1476,12 @@ function runProcess() {
   const dlSumBtnPre  = document.getElementById('dlSummary');
   const dlCmBtnPre   = document.getElementById('dlCmPay');
   const sumDlRowPre  = document.getElementById('summaryDlRow');
+  const sumDlOptPre  = document.getElementById('summaryDlOptions');
   const statNotePre  = document.getElementById('summaryStatNote');
   if (dlSumBtnPre)  dlSumBtnPre.disabled      = true;
   if (dlCmBtnPre)   dlCmBtnPre.disabled       = true;
   if (sumDlRowPre)  sumDlRowPre.style.display  = 'none';
+  if (sumDlOptPre)  sumDlOptPre.style.display  = 'none';
   if (statNotePre)  statNotePre.style.display  = 'none';
   const sumRowPre = document.getElementById('summaryStatsRow');
   if (sumRowPre) sumRowPre.style.display = 'none';
@@ -1762,9 +1772,11 @@ function runProcess() {
     const dlSumBtn  = document.getElementById('dlSummary');
     const dlCmBtn   = document.getElementById('dlCmPay');
     const sumDlRow  = document.getElementById('summaryDlRow');
+    const sumDlOpt  = document.getElementById('summaryDlOptions');
     if (dlSumBtn) dlSumBtn.disabled = false;
     if (dlCmBtn)  dlCmBtn.disabled  = S.cmPay.length === 0;
     if (sumDlRow) sumDlRow.style.display = 'flex';
+    if (sumDlOpt) sumDlOpt.style.display = 'flex';
 
     // Show match counts in the UI note
     const statNote = document.getElementById('summaryStatNote');
@@ -1925,6 +1937,8 @@ function loadSummary(input) {
 function downloadSummarySheet() {
   if (!S.summaryWb || !S.summarySn || !S.filledSummary) return;
 
+  const statusPosition = (document.getElementById('statusColPosition') || {}).value || 'last';
+
   // Deep-clone the original sheet so all formatting, column widths,
   // merged cells, freeze panes, and themes are fully preserved
   const origSheet = S.summaryWb.Sheets[S.summarySn];
@@ -1966,19 +1980,54 @@ function downloadSummarySheet() {
     range.e.c = wk2ColIdx;
   }
 
-  // Append "Summary Match Status" column after all other columns
-  const statusColIdx = range.e.c + 1;
-  ws[XLSX.utils.encode_cell({ r: headerRowIdx, c: statusColIdx })] = {
-    t: 's',
-    v: 'Summary Match Status',
-    s: {
-      fill: { patternType: 'solid', fgColor: { rgb: '375623' } },
-      font: { bold: true, color: { rgb: 'FFFFFF' } },
-      alignment: { horizontal: 'center' }
+  // Determine where the "Summary Match Status" column goes
+  let statusColIdx = null;
+
+  if (statusPosition !== 'hidden') {
+    if (statusPosition === 'first') {
+      // Shift every existing cell right by one column to make room at range.s.c
+      for (let c = range.e.c; c >= range.s.c; c--) {
+        for (let r = range.s.r; r <= range.e.r; r++) {
+          const oldAddr = XLSX.utils.encode_cell({ r, c });
+          const newAddr = XLSX.utils.encode_cell({ r, c: c + 1 });
+          if (ws[oldAddr]) { ws[newAddr] = ws[oldAddr]; delete ws[oldAddr]; }
+        }
+      }
+      // Shift column-width metadata if present
+      if (ws['!cols'] && Array.isArray(ws['!cols'])) {
+        ws['!cols'].unshift({});
+      }
+      // Shift merge metadata if present
+      if (ws['!merges']) {
+        ws['!merges'] = ws['!merges'].map(m => ({
+          s: { r: m.s.r, c: m.s.c + 1 },
+          e: { r: m.e.r, c: m.e.c + 1 }
+        }));
+      }
+      // Update tracked indices after shift
+      wk1ColIdx++;
+      wk2ColIdx++;
+      range.e.c++;
+      statusColIdx = range.s.c;
+    } else {
+      // 'last' — append after all existing columns
+      statusColIdx = range.e.c + 1;
     }
-  };
-  range.e.c = statusColIdx;
-  ws['!ref'] = XLSX.utils.encode_range(range);
+
+    ws[XLSX.utils.encode_cell({ r: headerRowIdx, c: statusColIdx })] = {
+      t: 's',
+      v: 'Summary Match Status',
+      s: {
+        fill: { patternType: 'solid', fgColor: { rgb: '375623' } },
+        font: { bold: true, color: { rgb: 'FFFFFF' } },
+        alignment: { horizontal: 'center' }
+      }
+    };
+    range.e.c = Math.max(range.e.c, statusColIdx);
+    ws['!ref'] = XLSX.utils.encode_range(range);
+  } else {
+    ws['!ref'] = XLSX.utils.encode_range(range);
+  }
 
   // Patch ONLY the Wk1 and Wk2 cells — all other cells are untouched
   const wk1Key = S.summaryCols ? S.summaryCols.wk1 : 'Week 1 Hours';
@@ -2006,11 +2055,13 @@ function downloadSummarySheet() {
       }
     }
 
-    // Write match status value and apply row highlighting (xlsx-js-style)
+    // Write match status value (when not hidden) and apply row highlighting
     const isUnmatched = row['Summary Match Status'] === 'Unmatched';
-    ws[XLSX.utils.encode_cell({ r: rowIdx, c: statusColIdx })] = {
-      t: 's', v: isUnmatched ? 'Unmatched' : 'Matched'
-    };
+    if (statusColIdx !== null) {
+      ws[XLSX.utils.encode_cell({ r: rowIdx, c: statusColIdx })] = {
+        t: 's', v: isUnmatched ? 'Unmatched' : 'Matched'
+      };
+    }
     const fillRgb = isUnmatched ? 'FFC7CE' : 'C6EFCE';
     const fontRgb = isUnmatched ? '9C0006' : '276221';
     for (let c = range.s.c; c <= range.e.c; c++) {
@@ -2068,11 +2119,15 @@ function resetAll() {
   const dlSumBtn   = document.getElementById('dlSummary');
   const dlCmBtn    = document.getElementById('dlCmPay');
   const sumDlRow   = document.getElementById('summaryDlRow');
+  const sumDlOpt2  = document.getElementById('summaryDlOptions');
   const statNoteEl = document.getElementById('summaryStatNote');
   if (dlSumBtn)   dlSumBtn.disabled      = true;
   if (dlCmBtn)    dlCmBtn.disabled       = true;
   if (sumDlRow)   sumDlRow.style.display = 'none';
+  if (sumDlOpt2)  sumDlOpt2.style.display = 'none';
   if (statNoteEl) statNoteEl.style.display = 'none';
+  const statusSel = document.getElementById('statusColPosition');
+  if (statusSel) statusSel.value = 'last';
   const sumRowEl = document.getElementById('summaryStatsRow');
   if (sumRowEl) {
     sumRowEl.style.display = 'none';
