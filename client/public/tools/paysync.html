@@ -782,6 +782,58 @@ td.status-ssn {
 @keyframes fadeUp { from { opacity:0; transform:translateY(16px); } to { opacity:1; transform:translateY(0); } }
 .workspace { animation: fadeUp 0.5s ease both; }
 .hero { animation: fadeUp 0.3s ease both; }
+
+/* ── COLUMN MAPPING UI ── */
+.col-map {
+  margin-top: 10px;
+  padding: 10px 12px;
+  background: var(--navy3);
+  border-radius: 10px;
+  border: 1px solid var(--border2);
+}
+.col-map-head {
+  font-size: 9.5px;
+  font-family: 'DM Mono', monospace;
+  color: var(--text3);
+  text-transform: uppercase;
+  letter-spacing: 0.7px;
+  margin-bottom: 9px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+.col-map-row {
+  display: grid;
+  grid-template-columns: 100px 1fr;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 5px;
+}
+.col-map-row:last-child { margin-bottom: 0; }
+.col-map-label {
+  font-size: 10px;
+  font-family: 'DM Mono', monospace;
+  color: var(--text2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.col-map-select {
+  font-size: 10.5px;
+  font-family: 'DM Mono', monospace;
+  background: var(--card);
+  border: 1px solid var(--border2);
+  border-radius: 6px;
+  padding: 3px 5px;
+  color: var(--text);
+  cursor: pointer;
+  width: 100%;
+  min-width: 0;
+  outline: none;
+  transition: border-color 0.2s;
+}
+.col-map-select:focus { border-color: var(--teal); }
+.col-map-select.col-map-miss { border-color: var(--gold); background: rgba(217,119,6,0.07); color: var(--gold); }
+.col-map-select.col-map-ok   { border-color: var(--green); }
 </style>
 </head>
 <body>
@@ -881,6 +933,7 @@ td.status-ssn {
           <div class="dz-sub">HHA Code ↔ ADP Code ↔ Employee Name</div>
           <div class="dz-name" id="n-master"></div>
         </div>
+        <div class="col-map" id="map-master" style="display:none"></div>
       </div>
     </div>
 
@@ -928,6 +981,7 @@ td.status-ssn {
             <div class="dz-name" id="n-hw2"></div>
           </div>
         </div>
+        <div class="col-map" id="map-hha" style="display:none"></div>
       </div>
     </div>
 
@@ -949,6 +1003,7 @@ td.status-ssn {
           <div class="dz-sub">ADP Code · HHA ID · Case Manager · CM Pay</div>
           <div class="dz-name" id="n-summary"></div>
         </div>
+        <div class="col-map" id="map-summary" style="display:none"></div>
       </div>
     </div>
 
@@ -1111,7 +1166,93 @@ const S = {
   summaryCols: null,
   filledSummary: null,
   cmPay: null,
+  masterMap: null,   // { hhaCode, adpCode, empName, ssn }
+  hhaMap: null,      // { aideCode, week, regHrs, otHrs, payHrs, ssn }
+  summaryMap: null,  // { adpCode, hhaCode, ssn, wk1, wk2, caseMgr, cmPay }
 };
+
+// ═══════════════════ COLUMN MAPPING ═══════════════════
+
+// Field definitions: [stateKey, displayLabel, required, [...aliasNames]]
+const MASTER_FIELDS = [
+  ['hhaCode', 'HHA / Aide Code', true,  ['HHA Code','HHA code','hha_code','Aide Code','aide_code','Employee ID']],
+  ['adpCode', 'ADP / File #',    true,  ['ADP Code','ADP code','adp_code','File #','File#','FileNumber','ADP File']],
+  ['empName', 'Employee Name',   false, ['DCW Name','Name','Employee Name','Caregiver Name','Emp Name','Full Name']],
+  ['ssn',     'SSN',             false, ['SSN','Social Security Number','Social Security','Social','SS#','SS Number','ssn']],
+];
+const HHA_FIELDS = [
+  ['aideCode', 'Aide Code',        true,  ['Aide Code','aide_code','AideCode','HHA Code','Employee ID','Caregiver ID']],
+  ['week',     'Week # (1 or 2)',  false, ['Week','week','WEEK','Pay Week','Payroll Week']],
+  ['regHrs',   'Regular Hours',    false, ['Regular Hours','Reg Hours','Reg','reg_hours','RegHrs','Regular Hrs']],
+  ['otHrs',    'OT Hours',         false, ['OT Hours','OT_Hours','O/T Hours','OT','Overtime Hours','Overtime Hrs','OT Hrs']],
+  ['payHrs',   'Pay Hours (total)',false, ['Pay Hours','pay_hours','Total Hrs','Hours','Total Hours','Payable Hours']],
+  ['ssn',      'SSN',              false, ['SSN','Social Security Number','Social Security','Social','SS#','ssn']],
+];
+const SUMMARY_FIELDS = [
+  ['adpCode', 'ADP Code',     false, ['ADP Code','ADP code','adp_code','File #','File#','FileNumber','ADP']],
+  ['hhaCode', 'HHA / Aide',   false, ['HHA Code','Aide Code','HHA code','hha_code','Employee ID','HHA ID']],
+  ['ssn',     'SSN',          false, ['SSN','Social Security Number','Social Security','Social','SS#','ssn']],
+  ['wk1',     'Week 1 Hours', true,  ['Week 1 Hours','Wk1 Hours','Week1','W1 Hours','Week 1','Wk 1']],
+  ['wk2',     'Week 2 Hours', true,  ['Week 2 Hours','Wk2 Hours','Week2','W2 Hours','Week 2','Wk 2']],
+  ['caseMgr', 'Case Manager', false, ['Case Manager','CM Name','Case Manager Name','CM','case_manager','Case Mgr','CM Coordinator']],
+  ['cmPay',   'CM Pay',       false, ['CM Pay','cm_pay','CM Payment','Case Manager Pay','CM Fee','CM Total']],
+];
+
+// Auto-detect: find best matching column from sampleRow for each field's aliases
+function autoDetectMap(sampleRow, fieldDefs) {
+  const keys = Object.keys(sampleRow);
+  const result = {};
+  for (const [stateKey, , , aliases] of fieldDefs) {
+    const found = keys.find(k =>
+      aliases.some(a => k.trim().toLowerCase() === a.toLowerCase())
+    );
+    result[stateKey] = found || '';
+  }
+  return result;
+}
+
+// Render the column-mapping UI inside containerId
+function renderColMap(containerId, type, fieldDefs, columns) {
+  const el = document.getElementById(containerId);
+  if (!el) return;
+  const map = S[type + 'Map'] || {};
+  const isSingleMode = (type === 'hha' && S.mode === 'single');
+
+  const rows = fieldDefs.map(([key, label, required, ]) => {
+    // For dual-mode HHA, hide the Week field (it's auto-forced to 1/2)
+    if (key === 'week' && type === 'hha' && S.mode !== 'single') return '';
+    const val = map[key] || '';
+    const isMiss = required && !val;
+    const opts = ['', ...columns]
+      .map(c => `<option value="${c.replace(/"/g,'&quot;')}"${c === val ? ' selected' : ''}>${c || '— not mapped —'}</option>`)
+      .join('');
+    return `
+      <div class="col-map-row">
+        <span class="col-map-label" title="${label}">${label}${required ? ' <span style="color:var(--teal)">*</span>' : ''}</span>
+        <select class="col-map-select${isMiss ? ' col-map-miss' : ' col-map-ok'}"
+                onchange="updateColMap('${type}','${key}',this)">
+          ${opts}
+        </select>
+      </div>`;
+  }).join('');
+
+  const hasMissing = fieldDefs.some(([key, , req]) => req && !map[key] && !(key === 'week' && type === 'hha' && S.mode !== 'single'));
+  el.innerHTML = `
+    <div class="col-map-head">⚙ Column Mapping${hasMissing ? ' &nbsp;<span style="color:var(--gold);font-size:9px">⚠ required columns missing</span>' : ''}</div>
+    ${rows}`;
+  el.style.display = 'block';
+}
+
+// Update a single mapping field; re-color the select immediately
+function updateColMap(type, key, selectEl) {
+  const val = selectEl.value;
+  if (!S[type + 'Map']) S[type + 'Map'] = {};
+  S[type + 'Map'][key] = val;
+  // Update select color class
+  const isRequired = [...MASTER_FIELDS, ...HHA_FIELDS, ...SUMMARY_FIELDS]
+    .find(f => f[0] === key)?.[2];
+  selectEl.className = 'col-map-select ' + (isRequired && !val ? 'col-map-miss' : 'col-map-ok');
+}
 
 // ═══════════════════ LOGGING ═══════════════════
 function lg(msg, t = 'i') {
@@ -1224,8 +1365,13 @@ function loadMaster(input) {
       else if (wb.SheetNames.includes('Payroll Hrs')) sn = 'Payroll Hrs';
       const rows = XLSX.utils.sheet_to_json(wb.Sheets[sn], { defval: '' });
       S.master = rows;
-      lg(`✓ Master sheet ready — ${rows.length} employees from sheet "${sn}"`, 's');
-      if (rows.length > 0) lg(`  Detected columns: ${Object.keys(rows[0]).join('  ·  ')}`, 'i');
+      if (rows.length > 0) {
+        const cols = Object.keys(rows[0]);
+        S.masterMap = autoDetectMap(rows[0], MASTER_FIELDS);
+        lg(`✓ Master sheet ready — ${rows.length} employees from sheet "${sn}"`, 's');
+        lg(`  Columns: ${cols.join('  ·  ')}`, 'i');
+        renderColMap('map-master', 'master', MASTER_FIELDS, cols);
+      }
       markZone('z-master', file.name, 'n-master');
       dot('d3', true);
     } catch(err) {
@@ -1247,9 +1393,18 @@ function loadHHA(input, slot) {
       const sn = wb.SheetNames[0];
       let rows = XLSX.utils.sheet_to_json(wb.Sheets[sn], { defval: '' });
 
+      // Auto-detect column mapping from this file (done before forcing Week col)
+      if (rows.length > 0) {
+        const rawCols = Object.keys(rows[0]);
+        S.hhaMap = autoDetectMap(rows[0], HHA_FIELDS);
+        lg(`  Columns: ${rawCols.join('  ·  ')}`, 'i');
+        renderColMap('map-hha', 'hha', HHA_FIELDS, rawCols);
+      }
+
       if (slot === 'single') {
         S.hhaRows = rows;
-        const wks = [...new Set(rows.map(r => String(r['Week'] || r['week'] || '?')))];
+        const wkKey = S.hhaMap?.week || 'Week';
+        const wks = [...new Set(rows.map(r => String(r[wkKey] || r['Week'] || r['week'] || '?')))];
         lg(`✓ HHA loaded — ${rows.length} rows | Weeks: ${wks.join(', ')}`, 's');
         markZone('z-h1', file.name, 'n-h1');
         dot('d4', true);
@@ -1266,8 +1421,6 @@ function loadHHA(input, slot) {
         markZone('z-hw2', file.name, 'n-hw2');
         if (S.hhaRows.length > 0) dot('d4', true);
       }
-
-      if (rows.length > 0) lg(`  Detected columns: ${Object.keys(rows[0]).join('  ·  ')}`, 'i');
     } catch(err) {
       lg(`✗ Error reading HHA file: ${err.message}`, 'e');
     }
@@ -1308,11 +1461,16 @@ function runProcess() {
   // Build lookup from master — primary by HHA code, secondary by SSN
   const lookup = {};
   const ssnLookup = {};
+  const mMap = S.masterMap || {};
   S.master.forEach(row => {
-    const hha  = String(row['HHA Code'] ?? row['HHA code'] ?? row['hha_code'] ?? row['Aide Code'] ?? row['aide_code'] ?? '').trim();
-    const adp  = String(row['ADP Code'] ?? row['ADP code'] ?? row['adp_code'] ?? row['File #'] ?? row['FileNumber'] ?? '').trim();
-    const name = String(row['DCW Name'] ?? row['Name'] ?? row['Employee Name'] ?? row['Caregiver Name'] ?? '').trim();
-    const ssnRaw = row['SSN'] ?? row['Social Security Number'] ?? row['Social Security'] ?? row['Social'] ?? row['SS#'] ?? row['SS Number'] ?? row['ssn'] ?? '';
+    const hha  = mMap.hhaCode ? String(row[mMap.hhaCode] ?? '').trim()
+               : String(row['HHA Code'] ?? row['HHA code'] ?? row['hha_code'] ?? row['Aide Code'] ?? row['aide_code'] ?? '').trim();
+    const adp  = mMap.adpCode ? String(row[mMap.adpCode] ?? '').trim()
+               : String(row['ADP Code'] ?? row['ADP code'] ?? row['adp_code'] ?? row['File #'] ?? row['FileNumber'] ?? '').trim();
+    const name = mMap.empName ? String(row[mMap.empName] ?? '').trim()
+               : String(row['DCW Name'] ?? row['Name'] ?? row['Employee Name'] ?? row['Caregiver Name'] ?? '').trim();
+    const ssnRaw = mMap.ssn ? (row[mMap.ssn] ?? '')
+                 : (row['SSN'] ?? row['Social Security Number'] ?? row['Social Security'] ?? row['Social'] ?? row['SS#'] ?? row['SS Number'] ?? row['ssn'] ?? '');
     const ssn = normalizeSSN(ssnRaw);
     if (hha && adp) lookup[hha] = { name, adpCode: adp, ssn };
     if (ssn && adp) ssnLookup[ssn] = { name, adpCode: adp, hhaCode: hha };
@@ -1324,13 +1482,20 @@ function runProcess() {
 
   // Group by aide+week (also capture SSN from HHA file if present)
   const grouped = {};
+  const hMap = S.hhaMap || {};
   S.hhaRows.forEach(row => {
-    const aide = String(row['Aide Code'] ?? row['aide_code'] ?? row['AideCode'] ?? row['HHA Code'] ?? row['Employee ID'] ?? '').trim();
-    const week = String(row['Week'] ?? row['week'] ?? row['WEEK'] ?? '1').trim();
-    const pay  = parseFloat(row['Pay Hours'] ?? row['pay_hours'] ?? row['Total Hrs'] ?? row['Hours'] ?? 0) || 0;
-    const reg  = parseFloat(row['Regular Hours'] ?? row['Reg Hours'] ?? row['Reg'] ?? row['reg_hours'] ?? 0) || 0;
-    const ot   = parseFloat(row['OT Hours'] ?? row['OT_Hours'] ?? row['O/T Hours'] ?? row['OT'] ?? row['Overtime Hours'] ?? 0) || 0;
-    const ssnRaw = row['SSN'] ?? row['Social Security Number'] ?? row['Social Security'] ?? row['Social'] ?? row['SS#'] ?? row['ssn'] ?? '';
+    const aide = hMap.aideCode ? String(row[hMap.aideCode] ?? '').trim()
+               : String(row['Aide Code'] ?? row['aide_code'] ?? row['AideCode'] ?? row['HHA Code'] ?? row['Employee ID'] ?? '').trim();
+    // 'Week' is force-injected for dual-mode; use mapped col for single-mode
+    const week = String(row['Week'] ?? (hMap.week ? row[hMap.week] : undefined) ?? row['week'] ?? row['WEEK'] ?? '1').trim();
+    const pay  = hMap.payHrs ? (parseFloat(row[hMap.payHrs]) || 0)
+               : (parseFloat(row['Pay Hours'] ?? row['pay_hours'] ?? row['Total Hrs'] ?? row['Hours'] ?? 0) || 0);
+    const reg  = hMap.regHrs ? (parseFloat(row[hMap.regHrs]) || 0)
+               : (parseFloat(row['Regular Hours'] ?? row['Reg Hours'] ?? row['Reg'] ?? row['reg_hours'] ?? 0) || 0);
+    const ot   = hMap.otHrs  ? (parseFloat(row[hMap.otHrs]) || 0)
+               : (parseFloat(row['OT Hours'] ?? row['OT_Hours'] ?? row['O/T Hours'] ?? row['OT'] ?? row['Overtime Hours'] ?? 0) || 0);
+    const ssnRaw = hMap.ssn ? (row[hMap.ssn] ?? '')
+                 : (row['SSN'] ?? row['Social Security Number'] ?? row['Social Security'] ?? row['Social'] ?? row['SS#'] ?? row['ssn'] ?? '');
     const ssn = normalizeSSN(ssnRaw);
     if (!aide) return;
     const key = `${aide}||${week}`;
@@ -1434,38 +1599,33 @@ function runProcess() {
     lg('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'i');
     lg('📊 Processing Summary Sheet...', 'i');
 
-    // Detect column names in the summary sheet
-    const sampleRow = S.summaryRows[0];
-    const sKeys = Object.keys(sampleRow);
-    const findCol = (...names) => sKeys.find(k => names.some(n => k.trim().toLowerCase() === n.toLowerCase())) || null;
-    const scm = {
-      adpCode: findCol('ADP Code','ADP code','adp_code','File #','FileNumber','ADP'),
-      hhaCode: findCol('HHA Code','Aide Code','HHA code','hha_code','Employee ID','HHA ID'),
-      ssn:     findCol('SSN','Social Security Number','Social Security','Social','SS#','SS Number','ssn'),
-      caseMgr: findCol('Case Manager','CM Name','Case Manager Name','CM','case_manager','Case Mgr'),
-      cmPay:   findCol('CM Pay','cm_pay','CM Payment','Case Manager Pay','CM Fee'),
-      wk1:     findCol('Week 1 Hours','Wk1 Hours','Week1','W1 Hours','Week 1','Wk 1'),
-      wk2:     findCol('Week 2 Hours','Wk2 Hours','Week2','W2 Hours','Week 2','Wk 2'),
-    };
+    // Use the column map stored at load time (user may have adjusted via UI)
+    const scm = S.summaryMap || {};
     lg(`  Columns — ADP:${scm.adpCode||'—'} | HHA:${scm.hhaCode||'—'} | CM:${scm.caseMgr||'—'} | CMPay:${scm.cmPay||'—'} | Wk1→"${scm.wk1||'Week 1 Hours'}" | Wk2→"${scm.wk2||'Week 2 Hours'}"`, 'i');
     S.summaryCols = { wk1: scm.wk1 || 'Week 1 Hours', wk2: scm.wk2 || 'Week 2 Hours' };
 
-    // Build adpCode → hhaCode reverse lookup from master
+    // Build adpCode → hhaCode reverse lookup from master (using masterMap)
     const adpToHHA = {};
     S.master.forEach(row => {
-      const hha = String(row['HHA Code'] ?? row['HHA code'] ?? row['hha_code'] ?? row['Aide Code'] ?? row['aide_code'] ?? '').trim();
-      const adp = String(row['ADP Code'] ?? row['ADP code'] ?? row['adp_code'] ?? row['File #'] ?? row['FileNumber'] ?? '').trim();
+      const hha = mMap.hhaCode ? String(row[mMap.hhaCode] ?? '').trim()
+                : String(row['HHA Code'] ?? row['HHA code'] ?? row['hha_code'] ?? row['Aide Code'] ?? row['aide_code'] ?? '').trim();
+      const adp = mMap.adpCode ? String(row[mMap.adpCode] ?? '').trim()
+                : String(row['ADP Code'] ?? row['ADP code'] ?? row['adp_code'] ?? row['File #'] ?? row['FileNumber'] ?? '').trim();
       if (adp && hha) adpToHHA[adp] = hha;
     });
 
-    // Build hoursMap: hhaCode → { weekKey: totalHrs } from HHA rows
+    // Build hoursMap: hhaCode → { weekKey: totalHrs } from HHA rows (using hhaMap)
     const hoursMap = {};
     S.hhaRows.forEach(row => {
-      const hha  = String(row['Aide Code'] ?? row['aide_code'] ?? row['AideCode'] ?? row['HHA Code'] ?? row['Employee ID'] ?? '').trim();
-      const week = String(row['Week'] ?? row['week'] ?? row['WEEK'] ?? '1').trim();
-      const pay  = parseFloat(row['Pay Hours'] ?? row['pay_hours'] ?? row['Total Hrs'] ?? row['Hours'] ?? 0) || 0;
-      const reg  = parseFloat(row['Regular Hours'] ?? row['Reg Hours'] ?? row['Reg'] ?? row['reg_hours'] ?? 0) || 0;
-      const ot   = parseFloat(row['OT Hours'] ?? row['OT_Hours'] ?? row['O/T Hours'] ?? row['OT'] ?? row['Overtime Hours'] ?? 0) || 0;
+      const hha  = hMap.aideCode ? String(row[hMap.aideCode] ?? '').trim()
+                 : String(row['Aide Code'] ?? row['aide_code'] ?? row['AideCode'] ?? row['HHA Code'] ?? row['Employee ID'] ?? '').trim();
+      const week = String(row['Week'] ?? (hMap.week ? row[hMap.week] : undefined) ?? row['week'] ?? row['WEEK'] ?? '1').trim();
+      const pay  = hMap.payHrs ? (parseFloat(row[hMap.payHrs]) || 0)
+                 : (parseFloat(row['Pay Hours'] ?? row['pay_hours'] ?? row['Total Hrs'] ?? row['Hours'] ?? 0) || 0);
+      const reg  = hMap.regHrs ? (parseFloat(row[hMap.regHrs]) || 0)
+                 : (parseFloat(row['Regular Hours'] ?? row['Reg Hours'] ?? row['Reg'] ?? row['reg_hours'] ?? 0) || 0);
+      const ot   = hMap.otHrs  ? (parseFloat(row[hMap.otHrs]) || 0)
+                 : (parseFloat(row['OT Hours'] ?? row['OT_Hours'] ?? row['O/T Hours'] ?? row['OT'] ?? row['Overtime Hours'] ?? 0) || 0);
       const hrs  = (reg + ot) > 0 ? (reg + ot) : pay;
       if (!hha || !week) return;
       if (!hoursMap[hha]) hoursMap[hha] = {};
@@ -1666,8 +1826,13 @@ function loadSummary(input) {
       S.summaryRows = rows;
       S.summaryWb   = wb;
       S.summarySn   = sn;
-      lg(`✓ Summary Sheet loaded — ${rows.length} rows from sheet "${sn}"`, 's');
-      if (rows.length > 0) lg(`  Detected columns: ${Object.keys(rows[0]).join('  ·  ')}`, 'i');
+      if (rows.length > 0) {
+        const cols = Object.keys(rows[0]);
+        S.summaryMap = autoDetectMap(rows[0], SUMMARY_FIELDS);
+        lg(`✓ Summary Sheet loaded — ${rows.length} rows from sheet "${sn}"`, 's');
+        lg(`  Columns: ${cols.join('  ·  ')}`, 'i');
+        renderColMap('map-summary', 'summary', SUMMARY_FIELDS, cols);
+      }
       markZone('z-summary', file.name, 'n-summary');
       dot('d5', true);
     } catch(err) {
@@ -1731,11 +1896,22 @@ function downloadSummarySheet() {
     const rowIdx = headerRowIdx + 1 + i;
     const w1 = row[wk1Key];
     const w2 = row[wk2Key];
+
+    const addr1 = XLSX.utils.encode_cell({ r: rowIdx, c: wk1ColIdx });
+    const addr2 = XLSX.utils.encode_cell({ r: rowIdx, c: wk2ColIdx });
+
+    // Skip cells that already contain formulas — preserve them as-is
     if (w1 !== '' && w1 !== undefined && w1 !== null) {
-      ws[XLSX.utils.encode_cell({ r: rowIdx, c: wk1ColIdx })] = { t: 'n', v: w1 };
+      const existing1 = ws[addr1];
+      if (!existing1 || existing1.f === undefined) {
+        ws[addr1] = { t: 'n', v: w1 };
+      }
     }
     if (w2 !== '' && w2 !== undefined && w2 !== null) {
-      ws[XLSX.utils.encode_cell({ r: rowIdx, c: wk2ColIdx })] = { t: 'n', v: w2 };
+      const existing2 = ws[addr2];
+      if (!existing2 || existing2.f === undefined) {
+        ws[addr2] = { t: 'n', v: w2 };
+      }
     }
   });
 
@@ -1760,6 +1936,11 @@ function resetAll() {
   S.output = []; S.unmatched = []; S.logCount = 0;
   S.summaryRows = []; S.summaryWb = null; S.summarySn = null;
   S.summaryCols = null; S.filledSummary = null; S.cmPay = null;
+  S.masterMap = null; S.hhaMap = null; S.summaryMap = null;
+  ['map-master','map-hha','map-summary'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) { el.innerHTML = ''; el.style.display = 'none'; }
+  });
 
   ['f-adp','f-master','f-h1','f-hw1','f-hw2','f-summary'].forEach(id => {
     const el = document.getElementById(id); if (el) el.value = '';
