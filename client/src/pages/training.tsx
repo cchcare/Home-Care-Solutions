@@ -439,6 +439,17 @@ export default function Training() {
                     </div>
                   </div>
                 </Link>
+                <Link href="/staff-training">
+                  <div className="flex items-center gap-3 p-3 border rounded-lg hover:bg-muted/50 transition-colors cursor-pointer" data-testid="training-tool-staff-training">
+                    <div className="w-9 h-9 bg-primary/10 rounded-lg flex items-center justify-center flex-shrink-0">
+                      <GraduationCap className="w-4 h-4 text-primary" />
+                    </div>
+                    <div>
+                      <p className="font-medium text-sm">Administrative Staff Training</p>
+                      <p className="text-xs text-muted-foreground">Role-based PA-compliant training for office staff with 10 modules, quizzes & certificate</p>
+                    </div>
+                  </div>
+                </Link>
               </div>
             </CardContent>
           </Card>

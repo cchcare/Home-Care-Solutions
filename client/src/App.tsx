@@ -68,6 +68,7 @@ import PayrollHoursCalculator from "@/pages/payroll-hours-calculator";
 import VisitHoursDifference from "@/pages/visit-hours-difference";
 import PaySync from "@/pages/paysync";
 import DcwTraining from "@/pages/dcw-training";
+import StaffTraining from "@/pages/staff-training";
 import MyProfile from "@/pages/my-profile";
 import MyCompliance from "@/pages/my-compliance";
 import MyDocuments from "@/pages/my-documents";
@@ -139,6 +140,7 @@ function Router() {
       <Route path="/visit-hours-difference" component={VisitHoursDifference} />
       <Route path="/paysync" component={PaySync} />
       <Route path="/dcw-training" component={DcwTraining} />
+      <Route path="/staff-training" component={StaffTraining} />
       {!isAuthenticated ? (
         <Route path="/" component={Landing} />
       ) : (

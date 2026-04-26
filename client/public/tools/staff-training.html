@@ -1,0 +1,1093 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Care Crafter | Administrative Staff Training Program</title>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,600;0,700;1,500&family=IBM+Plex+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --navy: #0f2044;
+  --navy-mid: #1a3360;
+  --teal: #0a7c68;
+  --teal-lt: #12a589;
+  --teal-pale: #e4f4f1;
+  --amber: #c9710a;
+  --amber-lt: #fdf1e0;
+  --purple: #5c3da6;
+  --purple-lt: #ede8ff;
+  --rose: #b52c45;
+  --rose-lt: #fceef1;
+  --slate: #3d5166;
+  --gray-50: #f6f8fa;
+  --gray-100: #eef1f5;
+  --gray-300: #c4cdd8;
+  --gray-500: #7a8fa6;
+  --gray-700: #3d5166;
+  --green: #1a7a52;
+  --green-lt: #e4f4ec;
+  --red: #b52c45;
+  --red-lt: #fceef1;
+  --white: #fff;
+  --r: 10px;
+  --sh: 0 2px 20px rgba(15,32,68,.09);
+  --sh-lg: 0 8px 40px rgba(15,32,68,.14);
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{font-family:'IBM Plex Sans',sans-serif;background:var(--gray-50);color:var(--navy);min-height:100vh}
+
+/* TOPBAR */
+.topbar{background:linear-gradient(110deg,var(--navy) 0%,var(--navy-mid) 100%);color:#fff;position:sticky;top:0;z-index:200;box-shadow:0 2px 12px rgba(0,0,0,.25)}
+.topbar-inner{max-width:1160px;margin:0 auto;padding:12px 20px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.brand{display:flex;align-items:center;gap:10px;flex-shrink:0}
+.brand-badge{background:var(--teal);border-radius:7px;padding:6px 11px;font-family:'Playfair Display',serif;font-size:14px;letter-spacing:.4px}
+.brand-sub{font-size:12px;font-weight:600;opacity:.75;white-space:nowrap}
+.prog-wrap{flex:1;display:flex;align-items:center;gap:10px;min-width:180px}
+.prog-track{flex:1;height:5px;background:rgba(255,255,255,.15);border-radius:99px;overflow:hidden}
+.prog-fill{height:100%;background:var(--teal-lt);border-radius:99px;transition:width .5s ease;width:0}
+.prog-lbl{font-size:11px;font-weight:700;white-space:nowrap;opacity:.8}
+
+/* ROLE SELECTOR */
+.role-bar{background:var(--white);border-bottom:2px solid var(--gray-100);position:sticky;top:53px;z-index:150;overflow-x:auto}
+.role-bar::-webkit-scrollbar{height:3px}
+.role-bar::-webkit-scrollbar-thumb{background:var(--gray-300)}
+.role-inner{max-width:1160px;margin:0 auto;padding:0 20px;display:flex;gap:0}
+.role-btn{flex-shrink:0;padding:12px 18px;background:none;border:none;border-bottom:3px solid transparent;font-family:'IBM Plex Sans',sans-serif;font-size:13px;font-weight:600;color:var(--gray-500);cursor:pointer;white-space:nowrap;transition:all .2s;display:flex;align-items:center;gap:7px;margin-bottom:-2px}
+.role-btn:hover{color:var(--navy);background:var(--gray-50)}
+.role-btn.active{color:var(--teal);border-bottom-color:var(--teal);background:var(--teal-pale)}
+
+/* LAYOUT */
+.layout{max-width:1160px;margin:0 auto;padding:28px 16px;display:grid;grid-template-columns:260px 1fr;gap:24px;align-items:start}
+@media(max-width:760px){.layout{grid-template-columns:1fr}.sidebar{display:none}}
+
+/* SIDEBAR */
+.sidebar{background:var(--white);border-radius:var(--r);box-shadow:var(--sh);padding:18px;position:sticky;top:112px;max-height:calc(100vh - 130px);overflow-y:auto}
+.sidebar h4{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;color:var(--gray-500);padding:12px 4px 6px}
+.sb-btn{width:100%;text-align:left;background:none;border:none;border-radius:7px;padding:9px 11px;cursor:pointer;font-family:'IBM Plex Sans',sans-serif;font-size:13px;font-weight:500;color:var(--gray-700);display:flex;align-items:center;gap:9px;transition:background .18s}
+.sb-btn:hover{background:var(--gray-100)}
+.sb-btn.active{background:var(--teal-pale);color:var(--teal)}
+.sb-btn.done{color:var(--green)}
+.sb-status{margin-left:auto;font-size:13px}
+
+/* WELCOME */
+.welcome{background:var(--white);border-radius:var(--r);box-shadow:var(--sh);padding:48px 36px;text-align:center}
+.welcome.gone{display:none}
+.welcome-icon{font-size:48px;margin-bottom:18px}
+.welcome h1{font-family:'Playfair Display',serif;font-size:30px;font-weight:700;color:var(--navy);margin-bottom:10px}
+.welcome p{font-size:15px;color:var(--gray-500);max-width:540px;margin:0 auto 26px;line-height:1.7}
+.role-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px;margin:24px 0;text-align:left}
+.rg-card{background:var(--gray-50);border:1px solid var(--gray-100);border-radius:9px;padding:14px}
+.rg-card .ico{font-size:20px;margin-bottom:7px}
+.rg-card h5{font-size:13px;font-weight:700;color:var(--navy);margin-bottom:3px}
+.rg-card p{font-size:11px;color:var(--gray-500);line-height:1.5}
+.reg-note{font-size:12px;color:var(--gray-500);background:var(--gray-100);border-radius:8px;padding:10px 16px;margin-top:18px;line-height:1.7}
+
+/* CARDS */
+.mod-card{background:var(--white);border-radius:var(--r);box-shadow:var(--sh);overflow:hidden;display:none;animation:fadeUp .3s ease}
+.mod-card.on{display:block}
+@keyframes fadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+
+.card-head{padding:26px 30px 20px;border-bottom:1px solid var(--gray-100)}
+.type-pill{display:inline-block;padding:3px 10px;border-radius:99px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;margin-bottom:9px}
+.pill-all{background:var(--teal-pale);color:var(--teal)}
+.pill-ceo{background:var(--navy);color:#fff}
+.pill-mgr{background:var(--purple-lt);color:var(--purple)}
+.pill-coord{background:var(--amber-lt);color:var(--amber)}
+.pill-hr{background:var(--rose-lt);color:var(--rose)}
+.pill-billing{background:#e5f2ff;color:#1455a3}
+.pill-evv{background:#e8f7f0;color:var(--green)}
+.pill-clerical{background:var(--gray-100);color:var(--gray-700)}
+.mod-num{font-size:11px;font-weight:600;color:var(--gray-500);margin-bottom:4px}
+.card-head h2{font-family:'Playfair Display',serif;font-size:24px;font-weight:600;color:var(--navy);margin-bottom:7px;line-height:1.2}
+.card-meta{font-size:12px;color:var(--gray-500);display:flex;gap:14px;flex-wrap:wrap}
+.card-meta span{display:flex;align-items:center;gap:4px}
+.card-body{padding:26px 30px}
+
+/* CONTENT */
+.cs{margin-bottom:26px}
+.cs h3{font-size:15px;font-weight:700;color:var(--navy);margin-bottom:10px;padding-bottom:7px;border-bottom:2px solid var(--teal-pale);display:flex;align-items:center;gap:7px}
+.cs h4{font-size:14px;font-weight:700;color:var(--navy);margin:12px 0 7px}
+.cs p{font-size:14px;line-height:1.72;color:var(--gray-700);margin-bottom:9px}
+.cs ul,.cs ol{margin-left:18px;margin-bottom:9px}
+.cs li{font-size:14px;line-height:1.72;color:var(--gray-700);margin-bottom:3px}
+.ibox{border-radius:8px;padding:14px 16px;margin:12px 0;display:flex;gap:11px;align-items:flex-start}
+.ibox.tip{background:var(--teal-pale);border-left:4px solid var(--teal)}
+.ibox.warn{background:var(--amber-lt);border-left:4px solid var(--amber)}
+.ibox.stop{background:var(--red-lt);border-left:4px solid var(--red)}
+.ibox.law{background:var(--purple-lt);border-left:4px solid var(--purple)}
+.ibox-ico{font-size:16px;flex-shrink:0;margin-top:1px}
+.ibox-txt{font-size:13px;line-height:1.6;color:var(--gray-700)}
+.ibox-txt strong{color:var(--navy)}
+
+/* QUIZ */
+.quiz-wrap{background:var(--gray-100);border-radius:9px;padding:22px;margin-top:22px}
+.quiz-hdr{display:flex;align-items:center;gap:9px;margin-bottom:18px}
+.quiz-hdr h3{font-size:16px;font-weight:700;color:var(--navy);border-bottom:none;padding-bottom:0;margin-bottom:0}
+.qbadge{background:var(--navy);color:#fff;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:1px;padding:3px 7px;border-radius:4px}
+.qblock{margin-bottom:20px}
+.qblock:last-of-type{margin-bottom:0}
+.qtxt{font-size:14px;font-weight:600;color:var(--navy);margin-bottom:11px;line-height:1.5}
+.qnum{color:var(--teal);font-weight:700;margin-right:3px}
+.opts{display:flex;flex-direction:column;gap:7px}
+.opt{display:flex;align-items:flex-start;gap:9px;padding:10px 13px;border-radius:7px;background:var(--white);border:2px solid transparent;cursor:pointer;font-size:13px;line-height:1.5;color:var(--gray-700);transition:all .18s}
+.opt:hover{border-color:var(--gray-300)}
+.opt input{margin-top:2px;accent-color:var(--teal);flex-shrink:0}
+.opt.correct{border-color:var(--green);background:var(--green-lt);color:var(--green);font-weight:500}
+.opt.wrong{border-color:var(--red);background:var(--red-lt);color:var(--red)}
+.opt.missed{border-color:var(--green);background:var(--green-lt);color:var(--green);opacity:.6}
+.fb{margin-top:9px;padding:9px 13px;border-radius:7px;font-size:12px;font-weight:500;line-height:1.55;display:none}
+.fb.ok{background:var(--green-lt);color:var(--green);display:block}
+.fb.no{background:var(--red-lt);color:var(--red);display:block}
+
+/* BUTTONS */
+.btn{display:inline-flex;align-items:center;gap:7px;padding:11px 22px;border-radius:7px;font-family:'IBM Plex Sans',sans-serif;font-size:14px;font-weight:600;cursor:pointer;border:none;transition:all .2s}
+.btn-p{background:var(--teal);color:#fff}
+.btn-p:hover{background:var(--teal-lt);transform:translateY(-1px);box-shadow:0 4px 14px rgba(10,124,104,.28)}
+.btn-s{background:var(--gray-100);color:var(--navy)}
+.btn-s:hover{background:var(--gray-300)}
+.btn:disabled{opacity:.4;cursor:not-allowed;transform:none!important}
+.qactions{margin-top:16px;display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.score-lbl{margin-left:auto;font-size:14px;font-weight:700;color:var(--navy)}
+.result-box{margin-top:18px;padding:18px;border-radius:9px;text-align:center;display:none}
+.result-box.pass{background:var(--green-lt);border:2px solid var(--green)}
+.result-box.fail{background:var(--red-lt);border:2px solid var(--red)}
+.result-box h4{font-size:18px;font-weight:700;margin-bottom:5px}
+.result-box.pass h4{color:var(--green)}
+.result-box.fail h4{color:var(--red)}
+.result-box p{font-size:13px}
+.mod-nav{display:flex;gap:10px;margin-top:16px;flex-wrap:wrap}
+
+/* CERT */
+.cert-screen{background:var(--white);border-radius:var(--r);box-shadow:var(--sh);padding:48px 36px;text-align:center;display:none}
+.cert-screen.on{display:block}
+.cert-box{border:4px solid var(--navy);border-radius:14px;padding:38px;max-width:620px;margin:0 auto;position:relative}
+.cert-box::before{content:'';position:absolute;inset:7px;border:1px solid var(--teal);border-radius:8px;pointer-events:none}
+.cert-box h1{font-family:'Playfair Display',serif;font-size:27px;color:var(--navy);margin-bottom:4px}
+.cert-sub{font-size:12px;color:var(--gray-500);margin-bottom:22px}
+.cert-name{font-family:'Playfair Display',serif;font-size:24px;font-style:italic;color:var(--teal);margin-bottom:6px;min-height:32px}
+.cert-role{font-size:13px;font-weight:700;color:var(--navy);margin-bottom:14px}
+.cert-desc{font-size:13px;color:var(--gray-700);line-height:1.7;margin-bottom:18px}
+.cert-seal{font-size:36px;margin-bottom:6px}
+.cert-date{font-size:12px;color:var(--gray-500)}
+.cert-agency{font-weight:700;color:var(--navy);margin-top:4px;font-size:13px}
+
+.sidebar::-webkit-scrollbar{width:3px}
+.sidebar::-webkit-scrollbar-thumb{background:var(--gray-300);border-radius:3px}
+@media print{.topbar,.role-bar,.sidebar,.mod-nav,.qactions,.btn,.welcome{display:none!important}.cert-screen{display:block!important}}
+</style>
+</head>
+<body>
+
+<!-- TOPBAR -->
+<header class="topbar">
+  <div class="topbar-inner">
+    <div class="brand">
+      <div class="brand-badge">CareCrafter</div>
+      <div class="brand-sub">Administrative Staff Training Program</div>
+    </div>
+    <div class="prog-wrap">
+      <div class="prog-track"><div class="prog-fill" id="progFill"></div></div>
+      <div class="prog-lbl" id="progLbl">0 / 10 Complete</div>
+    </div>
+  </div>
+</header>
+
+<!-- ROLE FILTER BAR -->
+<div class="role-bar">
+  <div class="role-inner" id="roleBar"></div>
+</div>
+
+<!-- LAYOUT -->
+<div class="layout">
+  <aside class="sidebar"><div id="sideNav"></div></aside>
+  <main>
+
+    <!-- WELCOME -->
+    <div class="welcome" id="welcomeScreen">
+      <div class="welcome-icon">🏢</div>
+      <h1>Administrative Staff Training</h1>
+      <p>Pennsylvania-compliant training for all home care office and administrative personnel. Select your role to begin your personalized training path, or complete all modules for full certification.</p>
+      <div class="role-grid">
+        <div class="rg-card"><div class="ico">👑</div><h5>CEO / Owner</h5><p>Licensure, governance, financial oversight, quality assurance</p></div>
+        <div class="rg-card"><div class="ico">🗂️</div><h5>Office Manager</h5><p>Operations, staffing, scheduling, compliance oversight</p></div>
+        <div class="rg-card"><div class="ico">📋</div><h5>Care Coordinator</h5><p>Care plans, consumer rights, incident management, MCO communication</p></div>
+        <div class="rg-card"><div class="ico">📡</div><h5>EVV Coordinator</h5><p>EVV compliance, HHAeXchange, 21st Century Cures Act</p></div>
+        <div class="rg-card"><div class="ico">👥</div><h5>HR</h5><p>Background checks, hiring requirements, personnel files</p></div>
+        <div class="rg-card"><div class="ico">💰</div><h5>Billing Coordinator</h5><p>PROMISe™, MCO billing, Medicaid compliance, fraud prevention</p></div>
+        <div class="rg-card"><div class="ico">📁</div><h5>Clerical Staff</h5><p>HIPAA, records management, consumer confidentiality</p></div>
+      </div>
+      <button class="btn btn-p" onclick="startCourse()" style="font-size:15px;padding:13px 32px;">▶ Start Training</button>
+      <div class="reg-note">⚖️ This training addresses requirements under <strong>28 Pa. Code Chapter 611</strong> (Home Care Agencies &amp; Registries), <strong>HIPAA</strong>, Pennsylvania's <strong>Community HealthChoices (CHC)</strong> program, the <strong>21st Century Cures Act (EVV)</strong>, Pennsylvania Older Adults Protective Services Act, and applicable federal employment law. Completion must be documented in each staff member's personnel file. <br><strong>Care Crafter Home Care LLC</strong> — 5208 Clairton Blvd., Pittsburgh, PA 15236</div>
+    </div>
+
+    <!-- MODULES -->
+    <div id="modCards"></div>
+
+    <!-- CERT -->
+    <div class="cert-screen" id="certScreen">
+      <div class="cert-box">
+        <div class="cert-seal">🏅</div>
+        <h1>Certificate of Completion</h1>
+        <div class="cert-sub">Administrative Staff Training Program</div>
+        <div style="font-size:13px;color:var(--gray-500);margin-bottom:7px">This certifies that</div>
+        <div class="cert-name" id="certName">___________________________</div>
+        <div class="cert-role" id="certRole"></div>
+        <div class="cert-desc">has successfully completed the <strong>Care Crafter Home Care LLC Administrative Staff Training Program</strong>, covering Pennsylvania regulatory compliance, HIPAA, consumer rights, EVV, Medicaid billing, HR requirements, and agency operations per <strong>28 Pa. Code Chapter 611</strong> and applicable state and federal regulations.</div>
+        <div class="cert-date" id="certDate"></div>
+        <div class="cert-agency">Care Crafter Home Care LLC | 5208 Clairton Blvd., Pittsburgh, PA 15236</div>
+      </div>
+      <div style="margin-top:22px;display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
+        <button class="btn btn-p" onclick="window.print()">🖨 Print Certificate</button>
+        <button class="btn btn-s" onclick="restartCourse()">↩ Restart</button>
+      </div>
+      <div class="reg-note" style="max-width:620px;margin:18px auto 0">A copy of this certificate must be retained in your personnel file. Annual refresher training is required. Report training completion to HR/Supervisor.</div>
+    </div>
+
+  </main>
+</div>
+
+<script>
+/* ============================================================
+   MODULE DATA
+   ============================================================ */
+const roles = [
+  {id:'all',    label:'All Staff',        icon:'🏢'},
+  {id:'ceo',    label:'CEO / Owner',      icon:'👑'},
+  {id:'mgr',    label:'Office Manager',   icon:'🗂️'},
+  {id:'coord',  label:'Care Coordinator', icon:'📋'},
+  {id:'evv',    label:'EVV Coordinator',  icon:'📡'},
+  {id:'hr',     label:'HR',               icon:'👥'},
+  {id:'billing',label:'Billing',          icon:'💰'},
+  {id:'clerical',label:'Clerical',        icon:'📁'},
+];
+
+const modules = [
+/* ---- MODULE 1: ALL STAFF ---- */
+{
+  id:'m1', icon:'🔒', title:'HIPAA & Confidentiality for Office Staff',
+  roles:['all','ceo','mgr','coord','evv','hr','billing','clerical'],
+  pill:'pill-all', pillTxt:'All Staff — Required',
+  reg:'HIPAA 45 CFR Parts 160 & 164; 28 Pa. Code § 611.57',
+  duration:'~25 min',
+  content:`
+  <div class="cs"><h3>🔒 HIPAA in the Home Care Office</h3>
+  <p>The Health Insurance Portability and Accountability Act (HIPAA) applies to all employees of Care Crafter — not just clinical staff. Every person who handles consumer information, billing records, scheduling data, or personnel files has HIPAA obligations.</p>
+  <p><strong>Protected Health Information (PHI)</strong> includes any information that could identify a consumer combined with health data — names, addresses, dates of service, diagnoses, Medicaid ID numbers, and more.</p>
+  <div class="ibox stop"><div class="ibox-ico">⛔</div><div class="ibox-txt"><strong>PHI may never be shared</strong> via personal email, text, or social media. Use only agency-approved, encrypted systems for all consumer data.</div></div>
+  </div>
+  <div class="cs"><h3>📋 Office Staff PHI Obligations</h3>
+  <ul>
+    <li>Lock file cabinets and computer screens when away from your desk</li>
+    <li>Never share login credentials with coworkers</li>
+    <li>Shred all documents with PHI before disposal — never put in open recycling</li>
+    <li>Do not discuss consumer information in common areas or within earshot of non-authorized persons</li>
+    <li>Access only the consumer records you need for your specific job duties (minimum necessary rule)</li>
+    <li>Report any suspected data breach to the supervisor immediately — HIPAA requires breach notification within 60 days</li>
+  </ul>
+  </div>
+  <div class="cs"><h3>📞 Phone & Verbal Communication</h3>
+  <p>When calling consumers or families, confirm the identity of the person before sharing any information. When leaving voicemails, use minimum information (first name + callback number only). Do not leave clinical or billing details on voicemail.</p>
+  <div class="ibox tip"><div class="ibox-ico">💡</div><div class="ibox-txt">Pennsylvania's Consumer Protection law under <strong>28 Pa. Code § 611.57</strong> also requires agencies to provide consumers with information about how their records are used and their rights to access them.</div></div>
+  </div>
+  <div class="cs"><h3>🖥️ Electronic Systems Security</h3>
+  <ul>
+    <li>Use strong, unique passwords — never share or write them on sticky notes</li>
+    <li>Lock your workstation when stepping away (Windows: Win+L)</li>
+    <li>Do not use personal devices for agency work unless authorized and encrypted</li>
+    <li>Do not open suspicious emails or click unknown links — report to your supervisor</li>
+    <li>HHAeXchange, agency EHR, and billing portals contain PHI — follow all system access policies</li>
+  </ul>
+  </div>`,
+  questions:[
+    {q:"Which of the following is an example of a HIPAA violation?",opts:["Emailing a consumer's care plan to your personal Gmail account","Discussing a consumer's schedule with their assigned DCW","Documenting a consumer's visit in the agency's EHR","Verifying a consumer's Medicaid ID in PROMISe™"],correct:0,fb:"Sending PHI to a personal email is a HIPAA violation. Only agency-approved, encrypted systems may be used for PHI."},
+    {q:"The 'minimum necessary' rule under HIPAA means:",opts:["You only access the consumer information needed for your specific job duties","You must always share all consumer information with your supervisor","You may share any consumer record with any employee of the agency","You are not required to protect information if you didn't create it"],correct:0,fb:"The minimum necessary standard requires employees to access and share only the PHI that is needed to perform their specific job function."},
+    {q:"A consumer's family member calls and asks for the consumer's diagnosis. You should:",opts:["Share the diagnosis since family usually knows","Ask the consumer's name, verify authorization, then share only if they are an authorized contact","Post the information to the consumer's online portal","Refer them to Google for general information"],correct:1,fb:"Always verify identity and authorization before sharing any PHI. Not all family members are authorized to receive health information."},
+    {q:"If you suspect a HIPAA data breach occurred, you should:",opts:["Wait to see if anyone reports a problem","Ignore it if you weren't responsible for it","Report it to your supervisor immediately","Only report it if more than 500 records are affected"],correct:2,fb:"Any suspected breach must be reported immediately so the agency can assess, contain, and if required, notify affected individuals within 60 days per HIPAA."},
+    {q:"Documents containing PHI that are no longer needed should be:",opts:["Thrown in the trash","Recycled in the office bins","Shredded before disposal","Kept indefinitely just in case"],correct:2,fb:"All PHI documents must be cross-cut shredded before disposal to prevent unauthorized access."}
+  ]
+},
+
+/* ---- MODULE 2: ALL STAFF ---- */
+{
+  id:'m2', icon:'⚖️', title:'PA Home Care Regulations & Agency Compliance',
+  roles:['all','ceo','mgr','coord'],
+  pill:'pill-all', pillTxt:'All Staff — Required',
+  reg:'28 Pa. Code Chapter 611; 28 Pa. Code § 611.4',
+  duration:'~25 min',
+  content:`
+  <div class="cs"><h3>⚖️ Pennsylvania Home Care Licensure Framework</h3>
+  <p>Care Crafter is licensed as a Home Care Agency (HCA) under <strong>28 Pa. Code Chapter 611</strong>, administered by the Pennsylvania Department of Health (PA DOH). Understanding this framework is required for all administrative staff.</p>
+  <ul>
+    <li><strong>License renewal:</strong> Must maintain active DOH license at all times — operating without a license is illegal</li>
+    <li><strong>Inspections:</strong> DOH may conduct announced or unannounced on-site surveys at any time — all staff must cooperate</li>
+    <li><strong>Scope of services:</strong> Only provide services within the agency's licensed scope and individual consumer care plans</li>
+    <li><strong>Branch offices:</strong> Each operating location must comply with licensure requirements</li>
+  </ul>
+  <div class="ibox law"><div class="ibox-ico">⚖️</div><div class="ibox-txt"><strong>28 Pa. Code § 611.4</strong> requires the agency to maintain a current copy of all applicable regulations on file and to comply with all applicable federal, state, and local standards.</div></div>
+  </div>
+  <div class="cs"><h3>🏥 Community HealthChoices (CHC) Program</h3>
+  <p>Care Crafter participates in Pennsylvania's <strong>Community HealthChoices (CHC)</strong> program — the mandatory Medicaid managed long-term services and supports program for eligible Pennsylvanians. Key facts:</p>
+  <ul>
+    <li>Administered by three MCOs: <strong>AmeriHealth Caritas, Keystone First, UPMC Community HealthChoices</strong></li>
+    <li>All services must be prior authorized by the MCO before delivery</li>
+    <li>Care plans (ISPs) come from the MCO's service coordination — the agency must follow them exactly</li>
+    <li>Any change to authorized hours must be communicated with and approved by the MCO</li>
+    <li>Providers must maintain active MCO contracts and be credentialed with each MCO</li>
+  </ul>
+  </div>
+  <div class="cs"><h3>📋 Consumer Protection Requirements (§ 611.57)</h3>
+  <p>Pennsylvania law requires the agency to provide each consumer with a written disclosure that includes:</p>
+  <ul>
+    <li>Consumer's rights and responsibilities</li>
+    <li>Agency contact information and complaint hotline</li>
+    <li>PA DOH complaint number: <strong>1-866-826-3644</strong></li>
+    <li>Information about the Ombudsman Program through the local Area Agency on Aging (AAA)</li>
+    <li>Information about how to access DOH licensure compliance records</li>
+    <li>Disclosure of DCW employment status (employee vs. independent contractor)</li>
+  </ul>
+  <div class="ibox stop"><div class="ibox-ico">⛔</div><div class="ibox-txt"><strong>Never discourage a consumer from filing a complaint.</strong> Retaliation against a consumer for filing a complaint is illegal under Pennsylvania law and federal Medicaid regulations.</div></div>
+  </div>
+  <div class="cs"><h3>🔍 DOH Survey Readiness</h3>
+  <p>All staff should know: during a DOH survey, cooperate fully, provide only factual answers, and route all requests for records to the supervisor or compliance officer. Do not offer opinions or speculate.</p>
+  </div>`,
+  questions:[
+    {q:"Pennsylvania home care agencies are licensed under:",opts:["55 Pa. Code Chapter 2600","28 Pa. Code Chapter 611","The Nurse Practice Act","The Older Adults Protective Services Act"],correct:1,fb:"28 Pa. Code Chapter 611 governs the licensure and operation of home care agencies and registries in Pennsylvania, administered by the PA Department of Health."},
+    {q:"The three MCOs that administer Community HealthChoices in Pennsylvania are:",opts:["UPMC, Highmark, Independence Blue Cross","AmeriHealth Caritas, Keystone First, UPMC Community HealthChoices","Aetna, Cigna, Humana","DHS, DOH, and OLTL"],correct:1,fb:"Pennsylvania's CHC program is administered by AmeriHealth Caritas, Keystone First, and UPMC Community HealthChoices."},
+    {q:"Before services are delivered under CHC, what must the agency obtain?",opts:["A verbal authorization from the consumer","Prior authorization from the MCO","A physician's order for every visit","A signed release from the consumer's family"],correct:1,fb:"All CHC services require prior authorization from the MCO before delivery. Delivering services without authorization risks non-payment and compliance violations."},
+    {q:"If a consumer wants to file a complaint with the PA DOH, you should:",opts:["Discourage them and try to resolve it internally first","Provide them with the PA DOH complaint hotline: 1-866-826-3644","Tell them complaints must go through the MCO only","Require the consumer to submit complaints in writing only"],correct:1,fb:"Consumers have the right to file complaints with the PA DOH at any time. The agency must provide the hotline number (1-866-826-3644) and may not discourage complaints."},
+    {q:"During an unannounced DOH inspection, office staff should:",opts:["Refuse access until an attorney is present","Cooperate fully, provide factual answers, and route record requests to the supervisor","Quickly update or clean up files before the inspector reviews them","Tell the inspector you are too busy to assist today"],correct:1,fb:"Staff must cooperate fully with DOH surveys. Altering records, refusing access, or being uncooperative are serious violations that can result in license revocation."}
+  ]
+},
+
+/* ---- MODULE 3: HR ---- */
+{
+  id:'m3', icon:'👥', title:'HR: Hiring Requirements, Background Checks & Personnel Files',
+  roles:['hr','ceo','mgr'],
+  pill:'pill-hr', pillTxt:'HR / CEO / Office Manager',
+  reg:'28 Pa. Code §§ 611.51–611.54; Act 169; Act 31; Act 96',
+  duration:'~30 min',
+  content:`
+  <div class="cs"><h3>👥 Pennsylvania Hiring Requirements for Home Care Workers</h3>
+  <p>Before any direct care worker or office staff member begins work, the agency must complete all required checks. This applies to all staff — not just DCWs.</p>
+  <div class="ibox law"><div class="ibox-ico">⚖️</div><div class="ibox-txt">Per <strong>28 Pa. Code § 611.51(a)</strong>, all applicants for employment as a DCW AND as a member of the office staff must obtain a criminal history report. Owners also must obtain one.</div></div>
+  </div>
+  <div class="cs"><h3>🔍 Required Background Clearances (All Staff)</h3>
+  <ul>
+    <li><strong>PA State Police Criminal History Record (PATCH)</strong> — Required for all PA residents of 2+ years. Used for "employment" purposes. <em>Act 169 of 1996.</em></li>
+    <li><strong>FBI Fingerprint Check</strong> — Required for any applicant who has NOT lived in PA continuously for 2+ years, or if a minor lives in the consumer's home.</li>
+    <li><strong>PA Child Abuse History Clearance (ChildLine)</strong> — Required for all staff who will have contact with consumers under 18. <em>Act 31 of 2014 / Act 96.</em></li>
+    <li><strong>OIG Exclusion Check</strong> — All Medicaid-billing agencies must check the HHS Office of Inspector General exclusion database before hire and monthly thereafter. Hiring an excluded individual results in loss of Medicaid billing rights.</li>
+    <li><strong>SAM.gov Check</strong> — Federal exclusion database check required for Medicaid providers.</li>
+  </ul>
+  <div class="ibox stop"><div class="ibox-ico">⛔</div><div class="ibox-txt"><strong>Never place a DCW with a consumer before receiving the PA State Police clearance result.</strong> Provisional hire is permitted only under strict conditions with direct supervision — see § 611.54.</div></div>
+  </div>
+  <div class="cs"><h3>⏱ Provisional Hire Rules (§ 611.54)</h3>
+  <ul>
+    <li>An applicant may be provisionally hired ONLY while awaiting the criminal history report — NOT while awaiting child abuse clearance if working with minors</li>
+    <li>Provisional period cannot exceed <strong>30 days</strong> for PA residents of 2+ years</li>
+    <li>Provisionally hired DCWs must be directly supervised during all consumer visits</li>
+    <li>Agency must monitor the provisional hire through random, direct observation</li>
+    <li>The provisional hire may NOT be assigned alone until clearances are received and approved</li>
+  </ul>
+  </div>
+  <div class="cs"><h3>📁 Required Personnel File Contents</h3>
+  <p>Every employee's file must contain and be available for DOH inspection:</p>
+  <ul>
+    <li>Application and hire date</li>
+    <li>All background clearance results (PATCH, FBI if applicable, ChildLine if applicable)</li>
+    <li>OIG/SAM exclusion check documentation (initial and monthly)</li>
+    <li>TB screen / health screening documentation</li>
+    <li>Competency training completion certificates</li>
+    <li>Annual competency review documentation</li>
+    <li>Job description and signed acknowledgment</li>
+    <li>I-9 (Employment Eligibility Verification)</li>
+    <li>W-4 and direct deposit forms (maintained separately)</li>
+    <li>Any disciplinary records</li>
+    <li>Copies of professional licenses (RN, LPN, CNA if applicable)</li>
+  </ul>
+  <div class="ibox tip"><div class="ibox-ico">💡</div><div class="ibox-txt">PA DOH surveyors will review personnel files. Missing clearances, expired training records, or missing TB screens are the most common citation areas for home care agencies.</div></div>
+  </div>
+  <div class="cs"><h3>🏥 TB Screening Requirements</h3>
+  <p>Per PA DOH regulations, the agency must conduct TB screens for all DCWs, contractors, and office staff who have <strong>direct consumer contact</strong>. TB screens must be documented in the personnel file.</p>
+  </div>`,
+  questions:[
+    {q:"Which clearances are required for ALL employees of a PA home care agency, including office staff?",opts:["Only DCWs need clearances","PA State Police criminal history check and OIG exclusion check for all staff","Only the CEO needs background checks","Background checks are only needed if the consumer is under 18"],correct:1,fb:"28 Pa. Code § 611.51 requires criminal history checks for all employees — DCWs, office staff, and owners. OIG/SAM checks are also required for all Medicaid-billing agency staff."},
+    {q:"An FBI fingerprint check is required for:",opts:["All employees regardless of state of residence","Applicants who have NOT lived in PA continuously for the past 2 years, or when a minor lives in the consumer's home","Only employees who have a prior criminal record","Only DCWs, not office staff"],correct:1,fb:"FBI checks are required for applicants who have not been PA residents for 2+ consecutive years, or in any case where a child under 18 lives in the consumer's home."},
+    {q:"The maximum provisional hire period for a Pennsylvania resident of 2+ years is:",opts:["7 days","14 days","30 days","90 days"],correct:2,fb:"Per 28 Pa. Code § 611.54, provisional hire may not exceed 30 days for individuals who have been PA residents for 2 or more years. During this period, the employee must be directly supervised."},
+    {q:"The OIG exclusion database must be checked:",opts:["Only at initial hire","At hire and then annually","At hire and then monthly","Only if there is a complaint against the employee"],correct:2,fb:"Medicaid regulations require that all agencies check the OIG exclusion list before hire AND monthly thereafter. Employing an excluded individual — even unknowingly — can result in loss of Medicaid billing rights."},
+    {q:"A DOH surveyor asks to review a DCW's personnel file. The file is missing the competency training certificate. This is:",opts:["Not a problem if the DCW verbally confirms they completed training","A potential citation — training completion must be documented in writing","Only a problem if it has been more than 12 months since hire","Acceptable if the supervisor signs a statement confirming completion"],correct:1,fb:"Training completion must be documented in writing in the personnel file. Verbal confirmation is insufficient. Missing documentation is one of the most commonly cited deficiencies in PA DOH surveys."}
+  ]
+},
+
+/* ---- MODULE 4: CEO / OWNER ---- */
+{
+  id:'m4', icon:'👑', title:'CEO & Owner Responsibilities: Governance, QA & Compliance',
+  roles:['ceo'],
+  pill:'pill-ceo', pillTxt:'CEO / Owner',
+  reg:'28 Pa. Code §§ 611.1–611.4; 28 Pa. Code Chapter 601; CHC Provider Agreement',
+  duration:'~30 min',
+  content:`
+  <div class="cs"><h3>👑 CEO & Owner Legal Obligations</h3>
+  <p>As the owner or CEO of a licensed home care agency in Pennsylvania, you carry ultimate legal and regulatory responsibility for the agency's compliance. This cannot be fully delegated.</p>
+  <ul>
+    <li><strong>Maintain active DOH licensure</strong> — apply for renewal before expiration and notify DOH of any material change (address, ownership, services offered)</li>
+    <li><strong>Ensure all staff meet hiring requirements</strong> including clearances, training, and health screens</li>
+    <li><strong>Maintain MCO provider agreements</strong> with AmeriHealth Caritas, Keystone First, and UPMC CHC and comply with all contract requirements</li>
+    <li><strong>Ensure the agency has written policies and procedures</strong> covering all regulated areas (client rights, hiring, abuse reporting, EVV, billing, etc.)</li>
+    <li><strong>Conduct or delegate annual Quality Assurance (QA) review</strong> of agency operations</li>
+  </ul>
+  </div>
+  <div class="cs"><h3>📊 Quality Assurance & Program Evaluation</h3>
+  <p>Pennsylvania-participating agencies should conduct at minimum a <strong>quarterly internal review</strong> and a comprehensive <strong>annual program evaluation</strong>, assessing:</p>
+  <ul>
+    <li>Consumer satisfaction and complaint data</li>
+    <li>Personnel file compliance rate</li>
+    <li>EVV compliance percentage and exception rate</li>
+    <li>Billing accuracy and denial/rejection rate</li>
+    <li>Incident reports and trends</li>
+    <li>Staff turnover rate and training completion status</li>
+  </ul>
+  <div class="ibox tip"><div class="ibox-ico">💡</div><div class="ibox-txt">Document all QA activities. PA DOH surveyors will ask for evidence of internal oversight and corrective actions taken in response to identified problems.</div></div>
+  </div>
+  <div class="cs"><h3>💼 Financial Compliance & Anti-Fraud</h3>
+  <ul>
+    <li>Only bill for services that were actually rendered and properly documented with EVV data</li>
+    <li>Maintain financial records sufficient for Medicaid audit — typically 6 years</li>
+    <li>Establish and enforce an Anti-Fraud, Waste, and Abuse (FWA) policy</li>
+    <li>Ensure the agency has a <strong>Compliance Officer</strong> (can be the CEO for smaller agencies)</li>
+    <li>Report any suspected fraud by staff or consumers to the appropriate authority</li>
+    <li>Cooperate with any CMS, MCO, or PA DHS audit</li>
+  </ul>
+  <div class="ibox stop"><div class="ibox-ico">⛔</div><div class="ibox-txt">Medicaid fraud — including billing for services not rendered or upcoding — is a federal and state crime. Penalties include exclusion from Medicaid, civil monetary penalties, and criminal prosecution.</div></div>
+  </div>
+  <div class="cs"><h3>🚨 Mandatory Reporting: Abuse & Critical Incidents</h3>
+  <p>Owners are responsible for ensuring the agency has a functioning abuse reporting and incident management system:</p>
+  <ul>
+    <li>All suspected abuse of consumers must be reported to PA Adult Protective Services: <strong>1-800-490-8505</strong></li>
+    <li>Critical incidents must be reported to the MCO within required timeframes (typically 24 hours for serious incidents)</li>
+    <li>Maintain incident logs and trend analysis as part of QA</li>
+  </ul>
+  </div>`,
+  questions:[
+    {q:"As CEO, who bears ultimate responsibility for the agency's compliance with PA DOH regulations?",opts:["The Office Manager","The Compliance Officer","The CEO / Owner","The Billing Department"],correct:2,fb:"While compliance duties can be delegated, the CEO/Owner bears ultimate legal responsibility for the agency's regulatory compliance."},
+    {q:"Medicaid billing records must generally be retained for at least:",opts:["1 year","3 years","6 years","10 years"],correct:2,fb:"Medicaid providers are typically required to retain financial and clinical records for a minimum of 6 years to support potential audits."},
+    {q:"An Anti-Fraud, Waste, and Abuse (FWA) policy is:",opts:["Optional for small agencies","Required for all Medicaid-participating providers","Only needed if the agency has been audited","A recommendation, not a requirement"],correct:1,fb:"All Medicaid-participating providers must have written FWA policies, train staff on them, and enforce them. This is a condition of the MCO provider agreement."},
+    {q:"Critical incidents involving consumers must generally be reported to the MCO within:",opts:["72 hours","One week","24 hours for serious incidents","The next scheduled MCO meeting"],correct:2,fb:"Serious critical incidents (abuse, hospitalization, death, serious injury) must generally be reported to the MCO within 24 hours. Exact timeframes are specified in each MCO's provider agreement."},
+    {q:"An annual quality assurance program evaluation should review:",opts:["Only billing data","Only clinical records","Consumer satisfaction, EVV compliance, billing accuracy, staff training, and incident trends","Only new consumer enrollment data"],correct:2,fb:"A comprehensive QA evaluation assesses all operational areas: consumer satisfaction, billing accuracy, EVV compliance, personnel file status, incident trends, and staff training completion."}
+  ]
+},
+
+/* ---- MODULE 5: CARE COORDINATOR ---- */
+{
+  id:'m5', icon:'📋', title:'Care Coordinator: Consumer Rights, Care Plans & Incidents',
+  roles:['coord','mgr'],
+  pill:'pill-coord', pillTxt:'Care Coordinator / Office Manager',
+  reg:'28 Pa. Code § 611.57; CHC Provider Standards; 6 Pa. Code § 15',
+  duration:'~30 min',
+  content:`
+  <div class="cs"><h3>📋 Role of the Care Coordinator</h3>
+  <p>Care Coordinators are the bridge between consumers, DCWs, MCOs, and supervisors. You are responsible for ensuring care is delivered as authorized, consumers' rights are protected, and any problems are escalated promptly.</p>
+  </div>
+  <div class="cs"><h3>📜 Consumer Rights — Key Obligations</h3>
+  <p>Every consumer enrolled with Care Crafter has legal rights under Pennsylvania law:</p>
+  <ul>
+    <li><strong>Right to be informed</strong> about their care plan, services, and any changes in advance</li>
+    <li><strong>Right to refuse</strong> any service or any caregiver</li>
+    <li><strong>Right to privacy</strong> in their home and regarding their personal information</li>
+    <li><strong>Right to file complaints</strong> without fear of retaliation or service reduction</li>
+    <li><strong>Right to participate</strong> in care planning decisions</li>
+    <li><strong>Right to continuity of care</strong> — the agency must ensure consistent scheduling</li>
+  </ul>
+  <div class="ibox stop"><div class="ibox-ico">⛔</div><div class="ibox-txt">The agency may <strong>never</strong> reduce, suspend, or terminate services in retaliation for a consumer complaint. Doing so violates state law and the MCO provider agreement.</div></div>
+  </div>
+  <div class="cs"><h3>📄 Care Plan & Authorization Management</h3>
+  <ul>
+    <li>Review MCO authorizations regularly — track unit balances and expiration dates</li>
+    <li>Ensure DCWs are only scheduled for authorized service codes and hours</li>
+    <li>Request prior authorization extensions well in advance of expiration (typically 30+ days)</li>
+    <li>Communicate any changes to the consumer's condition or needs to the MCO service coordinator</li>
+    <li>Document all MCO communications — keep records of calls, emails, and portal messages</li>
+    <li>Ensure care plans are updated and signed when changes occur</li>
+  </ul>
+  </div>
+  <div class="cs"><h3>🚨 Incident Reporting & Abuse</h3>
+  <p>Care Coordinators are often the first office staff member to learn of a problem at a consumer's home. You must:</p>
+  <ul>
+    <li>Take all reports of abuse, neglect, or exploitation seriously — document and escalate immediately</li>
+    <li>Report suspected abuse to PA Adult Protective Services: <strong>1-800-490-8505</strong></li>
+    <li>Report to the MCO per their incident reporting protocol (usually within 24 hours for serious incidents)</li>
+    <li>Complete an internal incident report for all significant events (falls, hospitalizations, complaints, missed visits)</li>
+    <li>Follow up on all open incidents to ensure resolution and trend tracking</li>
+  </ul>
+  <div class="ibox warn"><div class="ibox-ico">⚠️</div><div class="ibox-txt">Failure to report suspected abuse is a <strong>criminal offense</strong> in Pennsylvania under the Older Adults Protective Services Act. When in doubt, report.</div></div>
+  </div>
+  <div class="cs"><h3>📞 Missed Visit Protocol</h3>
+  <p>When a DCW misses a visit or is late, the coordinator must:</p>
+  <ol>
+    <li>Attempt to reach the DCW immediately</li>
+    <li>Contact the consumer to verify their status and safety</li>
+    <li>Arrange coverage or supervisor visit if consumer needs immediate assistance</li>
+    <li>Document the missed visit and reason in the system</li>
+    <li>Report to the MCO if required by their protocol</li>
+  </ol>
+  </div>`,
+  questions:[
+    {q:"A consumer calls to complain that their DCW arrived late three times this week. The correct response is:",opts:["Tell the consumer that occasional lateness is normal","Document the complaint, investigate, and follow up with the consumer with a resolution","Ask the consumer not to call the office directly","Tell the consumer to speak with the DCW directly"],correct:1,fb:"All consumer complaints must be documented, investigated, and resolved with follow-up. The consumer must be informed of the outcome and their right to escalate to the MCO or DOH."},
+    {q:"If a consumer's MCO authorization is expiring in 15 days, you should:",opts:["Wait until it expires to begin the renewal process","Continue services without authorization until renewed","Request a prior authorization extension immediately — well before the expiration date","Ask the DCW to reduce hours to stretch the current authorization"],correct:2,fb:"Authorization renewals should be initiated at least 30 days before expiration to prevent gaps in service. Delivering services without authorization results in non-payment."},
+    {q:"A DCW calls you to report that the consumer had a fall and is complaining of hip pain. Your first action is:",opts:["Schedule a replacement DCW for tomorrow","Ask the DCW to document it in their log at the end of the shift","Instruct the DCW to call 9-1-1 immediately and stay with the consumer, then notify your supervisor","Tell the DCW to help the consumer up and see if they feel better"],correct:2,fb:"A fall with injury complaints requires immediate 9-1-1 activation. Do not move the consumer. The coordinator must escalate to the supervisor and complete an incident report and MCO notification."},
+    {q:"Suspected elder abuse must be reported to:",opts:["Only the MCO","PA Adult Protective Services at 1-800-490-8505 and, if required, the MCO","The consumer's family only","The consumer's physician only"],correct:1,fb:"All suspected abuse must be reported to PA APS (1-800-490-8505). The MCO must also be notified per their incident reporting protocol. Both reports are required."},
+    {q:"A consumer says they want to change their assigned DCW. You should:",opts:["Tell them the agency decides who provides their care","Honor the request — consumers have the right to refuse any caregiver","Ask the consumer to put it in writing first","Require a 30-day notice period before making the change"],correct:1,fb:"Consumers have the explicit right to refuse any caregiver under Pennsylvania law and consumer rights requirements. The agency must make reasonable efforts to accommodate this preference."}
+  ]
+},
+
+/* ---- MODULE 6: EVV COORDINATOR ---- */
+{
+  id:'m6', icon:'📡', title:'EVV Coordinator: HHAeXchange, 21st Century Cures Act & Compliance',
+  roles:['evv','mgr','billing'],
+  pill:'pill-evv', pillTxt:'EVV Coordinator / Office Manager / Billing',
+  reg:'21st Century Cures Act; PA DHS EVV Requirements; 42 CFR § 441.301',
+  duration:'~30 min',
+  content:`
+  <div class="cs"><h3>📡 What is EVV?</h3>
+  <p><strong>Electronic Visit Verification (EVV)</strong> is a federal mandate under the <strong>21st Century Cures Act</strong> that requires all Medicaid-funded personal care and home health services to be electronically verified. Pennsylvania implemented EVV for personal care services and home health care services through PA DHS and the MCOs.</p>
+  <div class="ibox law"><div class="ibox-ico">⚖️</div><div class="ibox-txt">Federal law mandates EVV for all Medicaid personal care services. Pennsylvania began enforcing EVV claim requirements on <strong>July 1, 2020</strong> for PCS. Claims without corresponding EVV data are denied.</div></div>
+  </div>
+  <div class="cs"><h3>📊 The Six Required EVV Data Points</h3>
+  <p>Every EVV record must capture all six of these required data elements:</p>
+  <ul>
+    <li><strong>1. Type of service</strong> delivered (service code)</li>
+    <li><strong>2. Individual receiving the service</strong> (consumer/member ID)</li>
+    <li><strong>3. Individual providing the service</strong> (DCW ID)</li>
+    <li><strong>4. Date of the service</strong></li>
+    <li><strong>5. Location of service delivery</strong> (GPS or telephony-verified)</li>
+    <li><strong>6. Time the service begins and ends</strong> (clock-in / clock-out)</li>
+  </ul>
+  <div class="ibox stop"><div class="ibox-ico">⛔</div><div class="ibox-txt">A missing or incorrect data point generates an <strong>EVV exception</strong> in HHAeXchange. Exceptions must be resolved before billing. Unresolved exceptions result in claim denials.</div></div>
+  </div>
+  <div class="cs"><h3>🖥️ HHAeXchange Portal — EVV Coordinator Responsibilities</h3>
+  <ul>
+    <li>Monitor the portal daily for EVV exceptions, missed visits, and authorization alerts</li>
+    <li>Resolve EVV exceptions promptly — document the reason for any correction</li>
+    <li>Ensure all DCWs are trained on clock-in/clock-out using the approved method (telephony or mobile app)</li>
+    <li>Maintain DCW profiles in the portal with accurate information (name, ID, service codes)</li>
+    <li>Track authorization balances and alert the Care Coordinator when units are low</li>
+    <li>Generate EVV compliance reports for management review</li>
+    <li>Communicate MCO notes and alerts to appropriate staff</li>
+  </ul>
+  </div>
+  <div class="cs"><h3>🚨 EVV Fraud Prevention</h3>
+  <p>EVV is specifically designed to detect and prevent fraud. As the EVV Coordinator, you must:</p>
+  <ul>
+    <li>Never alter EVV data to show a service was delivered when it was not</li>
+    <li>Never clock in or clock out on behalf of a DCW</li>
+    <li>Never approve a visit that has no EVV record without proper supervisor documentation and justification</li>
+    <li>Report any pattern of suspicious EVV activity (e.g., DCW clocking in from wrong location) to the supervisor</li>
+    <li>Maintain correction logs for any EVV data adjustments with documented reasons</li>
+  </ul>
+  <div class="ibox stop"><div class="ibox-ico">⛔</div><div class="ibox-txt">Falsifying EVV data is <strong>Medicaid fraud</strong>. Penalties include agency exclusion from Medicaid, civil monetary penalties, and criminal prosecution. <em>This applies even if done to help a DCW.</em></div></div>
+  </div>
+  <div class="cs"><h3>📋 EVV Exception Management Workflow</h3>
+  <ol>
+    <li>Log into HHAeXchange daily and review the exception queue</li>
+    <li>For each exception, identify the root cause (late clock-out, wrong location, missing clock-in)</li>
+    <li>Contact the DCW or supervisor to verify what actually occurred</li>
+    <li>Correct the record with appropriate documentation and supervisor approval</li>
+    <li>Track exception rates by DCW and report trends to management monthly</li>
+  </ol>
+  </div>`,
+  questions:[
+    {q:"The 21st Century Cures Act requires EVV for:",opts:["Only non-Medicaid home care services","All Medicaid-funded personal care and home health services","Only services provided to consumers over age 65","Only services provided in assisted living facilities"],correct:1,fb:"The 21st Century Cures Act mandates EVV for all Medicaid-funded personal care services and home health care services. Pennsylvania enforces this requirement and denies claims without EVV data."},
+    {q:"Which of the following is NOT one of the six required EVV data elements?",opts:["Date of service","Consumer's diagnosis","Time service begins and ends","Location of service delivery"],correct:1,fb:"The six required EVV data elements are: type of service, individual receiving the service, individual providing the service, date of service, location of service, and start/end times. Diagnosis is not a required EVV element."},
+    {q:"An EVV exception is generated when:",opts:["A DCW provides excellent service","One or more of the six required EVV data elements is missing or incorrect","A consumer requests a different DCW","The MCO sends a new authorization"],correct:1,fb:"EVV exceptions are generated when the system identifies a missing or incorrect data element. Exceptions must be resolved before billing, or the claim will be denied."},
+    {q:"If you discover a DCW has been consistently clocking in from a location other than the consumer's address, you should:",opts:["Correct the location in the system without investigating","Assume the GPS is malfunctioning and ignore it","Report the pattern to your supervisor immediately for investigation","Ask the DCW to try clocking in again next time"],correct:2,fb:"Consistent location mismatches are a potential indicator of fraud (billing for services not rendered at the consumer's home). This must be reported to supervision immediately for investigation."},
+    {q:"Clocking in or out on behalf of a DCW in the EVV system is:",opts:["Acceptable if the DCW asks you to","Permitted when the DCW's phone isn't working","Medicaid fraud and is never permitted","Required when the DCW is running late"],correct:2,fb:"Clocking in or out on behalf of a DCW — regardless of reason — constitutes falsification of EVV data and is Medicaid fraud. Proper exception procedures must be followed instead."}
+  ]
+},
+
+/* ---- MODULE 7: BILLING ---- */
+{
+  id:'m7', icon:'💰', title:'Billing Coordinator: Medicaid Billing, PROMISe™ & Compliance',
+  roles:['billing','ceo','mgr'],
+  pill:'pill-billing', pillTxt:'Billing / CEO / Office Manager',
+  reg:'42 CFR Part 455; PA DHS PROMISe™; CHC MCO Billing Policies; False Claims Act',
+  duration:'~30 min',
+  content:`
+  <div class="cs"><h3>💰 Pennsylvania Home Care Billing Overview</h3>
+  <p>Care Crafter bills for Medicaid home care services through two channels:</p>
+  <ul>
+    <li><strong>Community HealthChoices (CHC) MCOs</strong> — AmeriHealth Caritas, Keystone First, UPMC CHC — via HHAeXchange portal</li>
+    <li><strong>PA DHS PROMISe™ system</strong> — Pennsylvania's Medicaid Management Information System for fee-for-service claims</li>
+  </ul>
+  <div class="ibox law"><div class="ibox-ico">⚖️</div><div class="ibox-txt">All billing must be based on <strong>actually rendered, properly authorized, and EVV-verified services</strong>. Billing for unrendered services — even clerical errors — can constitute Medicaid fraud.</div></div>
+  </div>
+  <div class="cs"><h3>📋 Pre-Billing Checklist</h3>
+  <p>Before submitting any claim, verify:</p>
+  <ul>
+    <li>✅ Service was authorized by the MCO (check authorization number and units)</li>
+    <li>✅ EVV data is complete and verified — no open exceptions for the visit</li>
+    <li>✅ Service code matches the authorized service code</li>
+    <li>✅ Consumer was Medicaid-eligible on the date of service</li>
+    <li>✅ DCW who provided the service is enrolled and active with the MCO</li>
+    <li>✅ Visit documentation matches the EVV record</li>
+    <li>✅ Units billed do not exceed authorization balance</li>
+  </ul>
+  </div>
+  <div class="cs"><h3>📊 Common PA CHC Billing Service Codes</h3>
+  <ul>
+    <li><strong>W1792</strong> — Personal Assistance Services (PAS) — most common CHC code for home care</li>
+    <li><strong>W7069</strong> — Participant-directed PAS</li>
+    <li>Codes and rates are updated periodically by PA DHS — always verify current approved codes from the MCO</li>
+    <li>Billing units are typically in 15-minute increments — verify with each MCO</li>
+  </ul>
+  </div>
+  <div class="cs"><h3>🚨 Fraud, Waste & Abuse Prevention</h3>
+  <p>As Billing Coordinator, you have a critical role in protecting the agency from fraud:</p>
+  <ul>
+    <li><strong>Never bill for a service that wasn't delivered</strong></li>
+    <li><strong>Never upcode</strong> — do not bill a higher rate service code than what was delivered</li>
+    <li><strong>Never duplicate bill</strong> — do not submit the same claim twice</li>
+    <li>Perform regular internal billing audits (monthly recommended)</li>
+    <li>Reconcile EVV data against billed claims quarterly</li>
+    <li>Report any suspected billing errors or fraud to the supervisor immediately</li>
+  </ul>
+  <div class="ibox stop"><div class="ibox-ico">⛔</div><div class="ibox-txt">The <strong>False Claims Act</strong> imposes civil penalties of $13,000–$27,000 per false claim plus treble damages. Criminal prosecution is possible for intentional fraud. Report any concern immediately.</div></div>
+  </div>
+  <div class="cs"><h3>🔄 Claim Corrections & Rebilling</h3>
+  <ul>
+    <li>If a claim is denied, review the denial reason code and correct the root cause before resubmitting</li>
+    <li>For CHC MCO denials, use HHAeXchange rebilling functionality</li>
+    <li>Document all claim corrections with the reason and who approved the change</li>
+    <li>Track denial rates and root causes — report to management monthly</li>
+    <li>Timely filing limits vary by MCO (typically 90–180 days) — track submission deadlines</li>
+  </ul>
+  </div>`,
+  questions:[
+    {q:"Before submitting a claim for a CHC service, you must verify that:",opts:["The consumer has private insurance as a backup","The service was authorized, EVV-verified, and service codes match the authorization","The DCW has worked with the consumer for at least 30 days","The consumer signed a new plan of care this month"],correct:1,fb:"Pre-billing verification must confirm authorization, EVV completion, correct service codes, consumer eligibility, and DCW enrollment. Missing any of these results in denial or potential fraud."},
+    {q:"The most common CHC service code for Personal Assistance Services is:",opts:["W7069","W1792","T1019","S5125"],correct:1,fb:"W1792 is the primary CHC Medicaid service code for Personal Assistance Services in Pennsylvania. Always verify current codes with the MCO as they are subject to change."},
+    {q:"A claim is submitted for a visit that the EVV system shows was never clocked in. This is:",opts:["Acceptable if the DCW confirms they were there","A billing error that could constitute Medicaid fraud","Normal because EVV systems sometimes have technical issues","Acceptable if the supervisor approves it"],correct:1,fb:"Billing for a visit without corresponding EVV data is a serious compliance issue. Without EVV verification, the claim lacks required documentation and could be considered fraudulent billing."},
+    {q:"If you discover that a claim was submitted twice for the same visit, you should:",opts:["Leave it and see if the MCO catches it","Void the duplicate claim immediately and document the correction","Assume the MCO's system will automatically reject the duplicate","Wait until the end of the month to clean up billing errors"],correct:1,fb:"Duplicate claims must be voided immediately upon discovery. Document the error and correction. Repeated duplicate billing patterns may trigger a fraud investigation."},
+    {q:"The typical timely filing deadline for CHC MCO claims is:",opts:["7 days","30 days","90–180 days depending on the MCO","1 year"],correct:2,fb:"Timely filing limits vary by MCO but are typically 90–180 days from the date of service. Missing these deadlines results in permanent denial. Track all submission deadlines carefully."}
+  ]
+},
+
+/* ---- MODULE 8: OFFICE MANAGER ---- */
+{
+  id:'m8', icon:'🗂️', title:'Office Manager: Operations, Scheduling & Agency Management',
+  roles:['mgr'],
+  pill:'pill-mgr', pillTxt:'Office Manager',
+  reg:'28 Pa. Code Chapter 611; CHC Provider Standards',
+  duration:'~25 min',
+  content:`
+  <div class="cs"><h3>🗂️ Office Manager Core Responsibilities</h3>
+  <p>The Office Manager oversees day-to-day operations of the agency and is responsible for ensuring all departments function in compliance with Pennsylvania regulations and MCO requirements.</p>
+  <ul>
+    <li>Supervise care coordinators, EVV coordinator, billing, and clerical staff</li>
+    <li>Ensure all staff training is current and documented</li>
+    <li>Manage scheduling operations to ensure coverage for all consumers</li>
+    <li>Oversee DCW onboarding, orientation, and competency verification</li>
+    <li>Monitor and respond to MCO portal communications daily</li>
+    <li>Prepare for and participate in DOH inspections and MCO audits</li>
+  </ul>
+  </div>
+  <div class="cs"><h3>📅 Scheduling Compliance</h3>
+  <ul>
+    <li>Only schedule DCWs for services they are competency-verified to perform</li>
+    <li>Never schedule a DCW who has pending clearances to work unsupervised</li>
+    <li>Match scheduled hours to MCO-authorized hours — do not schedule beyond authorized units</li>
+    <li>Maintain backup coverage lists for sick calls and emergencies</li>
+    <li>Document all schedule changes and communicate to EVV Coordinator</li>
+    <li>Ensure DCWs are appropriately matched to consumer needs (language, experience, preferences)</li>
+  </ul>
+  </div>
+  <div class="cs"><h3>📊 Staff Management & Compliance Tracking</h3>
+  <p>Maintain a compliance tracker for all staff showing:</p>
+  <ul>
+    <li>Clearance expiration dates (PA Child Abuse clears expire every 5 years for volunteers, 60 months for employees)</li>
+    <li>Annual training completion status for every employee</li>
+    <li>TB screen results and renewal dates</li>
+    <li>OIG/SAM monthly check completion</li>
+    <li>License expiration dates (RN, LPN, CNA)</li>
+    <li>DCW competency review dates (annual minimum)</li>
+  </ul>
+  <div class="ibox tip"><div class="ibox-ico">💡</div><div class="ibox-txt">Set automated reminders 60 days before any clearance, training, or license expiration. A lapsed clearance can result in the employee being removed from the schedule immediately per DOH requirements.</div></div>
+  </div>
+  <div class="cs"><h3>🚨 Emergency Operations</h3>
+  <p>The agency must have a written emergency preparedness plan. The Office Manager ensures:</p>
+  <ul>
+    <li>Emergency contact list for all staff and key consumers is maintained and updated quarterly</li>
+    <li>Backup coverage protocol is documented and practiced</li>
+    <li>Staff know procedures for weather emergencies, utility outages, and public health emergencies</li>
+    <li>MCO and DOH are notified of any agency-wide service disruptions per contract requirements</li>
+  </ul>
+  </div>`,
+  questions:[
+    {q:"A DCW's PA Child Abuse History clearance is about to expire. You should:",opts:["Wait until it expires since renewals take time","Set a reminder and notify the DCW to renew at least 60 days before expiration","Allow the DCW to continue working since the clearance is still technically valid","Only address it if a surveyor asks about it"],correct:1,fb:"Proactive clearance management is essential. The Office Manager should track all clearance expiration dates and initiate renewals at least 60 days in advance to prevent any gap in compliance."},
+    {q:"You discover a DCW was scheduled for 8 hours on a day when the MCO only authorized 6 hours. You should:",opts:["Approve the extra hours and explain to the MCO later","Correct the schedule immediately, adjust to match authorized hours, and investigate how the over-scheduling occurred","Allow the full 8 hours since the consumer may need the extra care","Ask the DCW to leave 2 hours early without telling the consumer"],correct:1,fb:"Services must be delivered within authorized hours only. Over-scheduling and billing above authorized units constitutes an overpayment and potential fraud. Correct the schedule and investigate the root cause."},
+    {q:"An Office Manager's role during a DOH inspection is to:",opts:["Limit the inspector's access to protect staff privacy","Cooperate fully, provide requested records, and ensure staff answer questions factually","Handle everything alone without involving other staff","Require the inspector to schedule a second appointment"],correct:1,fb:"Full cooperation with DOH inspections is required by law. The Office Manager coordinates access to records, ensures staff are available, and routes all requests appropriately."},
+    {q:"Emergency preparedness planning for a home care agency should include:",opts:["Only a contact list for emergency services","A comprehensive plan including backup coverage, emergency contacts, communication protocols, and MCO notification procedures","Only a fire evacuation plan for the office","Plans only for weather emergencies"],correct:1,fb:"A comprehensive emergency preparedness plan must address multiple scenarios — weather, staffing emergencies, public health crises, and utility outages — with specific protocols for each."},
+    {q:"How often must DCW competency be reviewed after initial establishment?",opts:["Every 2 years","Only when a complaint is made","At least once per year, and more often if a quality infraction occurs","Every 5 years"],correct:2,fb:"Per 28 Pa. Code § 611.55(e), competency review must occur at least annually. More frequent review is required following any quality infraction, disciplinary action, or verbal warning."}
+  ]
+},
+
+/* ---- MODULE 9: CLERICAL ---- */
+{
+  id:'m9', icon:'📁', title:'Clerical Staff: Records Management, Phones & Office Compliance',
+  roles:['clerical','all'],
+  pill:'pill-clerical', pillTxt:'Clerical Staff',
+  reg:'HIPAA; 28 Pa. Code § 611.57; Pennsylvania Records Retention',
+  duration:'~20 min',
+  content:`
+  <div class="cs"><h3>📁 Clerical Staff Role in Compliance</h3>
+  <p>Clerical staff handle consumer records, mail, phone calls, and office systems every day. You are on the front line of HIPAA compliance and consumer confidentiality. Your attention to proper procedures protects consumers and the agency.</p>
+  </div>
+  <div class="cs"><h3>📞 Incoming Calls — Best Practices</h3>
+  <ul>
+    <li>Answer professionally: "Thank you for calling Care Crafter Home Care, this is [your name], how may I help you?"</li>
+    <li><strong>Verify caller identity</strong> before sharing any consumer information — ask for full name and date of birth or Medicaid ID</li>
+    <li>If caller claims to be law enforcement or DOH requesting records, take their information and route to the supervisor — do not release records verbally over the phone without supervisor approval</li>
+    <li>Document all messages accurately and route to the correct staff member</li>
+    <li>Never put a consumer or family member on hold for more than 2 minutes without checking back</li>
+  </ul>
+  </div>
+  <div class="cs"><h3>📂 Record Filing & Retention</h3>
+  <ul>
+    <li>File consumer and personnel documents in the correct file — never mix consumer files with personnel files</li>
+    <li>Medical and service records: retain minimum <strong>6 years</strong> per Medicaid requirements</li>
+    <li>Personnel records: retain minimum <strong>3 years</strong> after termination per FLSA requirements</li>
+    <li>Never destroy records without supervisor approval and in compliance with the agency's records retention policy</li>
+    <li>All documents with PHI must be shredded — never thrown in trash or recycling</li>
+  </ul>
+  </div>
+  <div class="cs"><h3>📬 Mail & Fax Handling</h3>
+  <ul>
+    <li>Open and route mail promptly — MCO correspondence, DOH notices, and audit letters require immediate attention</li>
+    <li>Never leave faxes containing PHI unattended on the fax machine</li>
+    <li>Confirm fax number before sending PHI documents — a misdirected fax is a HIPAA breach</li>
+    <li>Log all incoming and outgoing faxes containing PHI</li>
+  </ul>
+  <div class="ibox warn"><div class="ibox-ico">⚠️</div><div class="ibox-txt">If you receive a fax that appears to be misdirected (wrong recipient), notify your supervisor immediately. Do not copy or retain the misdirected document — it belongs to someone else's patient.</div></div>
+  </div>
+  <div class="cs"><h3>🖥️ Computer & System Security</h3>
+  <ul>
+    <li>Lock your workstation every time you step away</li>
+    <li>Never share your system login with anyone</li>
+    <li>Do not save consumer information on USB drives or personal devices</li>
+    <li>If you notice a security issue (strange emails, unauthorized system access), report to supervisor immediately</li>
+  </ul>
+  </div>`,
+  questions:[
+    {q:"A caller asks for a consumer's home address, claiming to be the consumer's daughter. You should:",opts:["Provide the address since they said they are family","Verify the caller's identity using a security question before releasing any information","Tell them you'll call them back later","Provide only the consumer's first name"],correct:1,fb:"Family members are not automatically authorized to receive consumer information. Always verify identity before releasing any PHI."},
+    {q:"Consumer medical and service records must be retained for at least:",opts:["1 year","3 years","6 years","Until the consumer passes away"],correct:2,fb:"Medicaid regulations require medical and service records to be retained for a minimum of 6 years to support potential audits."},
+    {q:"You send a fax with consumer PHI but realize you dialed the wrong number. You should:",opts:["Do nothing since faxes are secure","Send a second fax asking the recipient to discard the first one","Report the incident to your supervisor immediately as a potential HIPAA breach","Assume the recipient will not read it"],correct:2,fb:"A misdirected fax containing PHI is a HIPAA breach that must be reported to your supervisor immediately. The agency must assess and, if required, notify affected individuals."},
+    {q:"Paper documents containing consumer PHI that are no longer needed must be:",opts:["Placed in the regular trash","Recycled in the office paper bin","Cross-cut shredded before disposal","Stored in a box in the break room"],correct:2,fb:"All paper PHI must be cross-cut shredded before disposal to prevent unauthorized access. Never place PHI in trash or recycling bins."},
+    {q:"A person arrives at the office claiming to be a DOH inspector and asks to see consumer files. You should:",opts:["Provide all consumer files immediately","Ask them to wait and immediately notify your supervisor","Refuse access and ask them to come back with an appointment","Call the police"],correct:1,fb:"Politely ask the inspector to wait and immediately notify your supervisor. DOH inspectors must be cooperated with, but record access should be coordinated through the supervisor to ensure proper protocols are followed."}
+  ]
+},
+
+/* ---- MODULE 10: ALL STAFF ANNUAL ---- */
+{
+  id:'m10', icon:'🔄', title:'Annual Refresher: Abuse Reporting, Ethics & Workplace Safety',
+  roles:['all','ceo','mgr','coord','evv','hr','billing','clerical'],
+  pill:'pill-all', pillTxt:'All Staff — Annual Refresher',
+  reg:'Older Adults Protective Services Act (35 Pa.C.S. § 10225); PA Human Relations Act; OSHA',
+  duration:'~20 min',
+  content:`
+  <div class="cs"><h3>🛡️ Mandatory Abuse Reporting — All Staff</h3>
+  <p>Every employee of Care Crafter — including all administrative and office staff — is a <strong>mandated reporter</strong> of suspected abuse, neglect, or exploitation of older adults and adults with disabilities in Pennsylvania.</p>
+  <div class="ibox stop"><div class="ibox-ico">⛔</div><div class="ibox-txt">Failure to report suspected abuse is a <strong>criminal offense</strong> under the Older Adults Protective Services Act. <br><strong>PA Adult Protective Services: 1-800-490-8505</strong> (24 hours/day)</div></div>
+  <h4>Signs of Abuse to Report (Even from the Office):</h4>
+  <ul>
+    <li>Consumer mentions during a phone call that they are being hurt or threatened</li>
+    <li>DCW reports observing unexplained injuries, poor living conditions, or concerning behavior by other household members</li>
+    <li>Billing shows patterns that suggest financial exploitation (unusual large cash transactions, sudden change of payee)</li>
+    <li>Consumer appears fearful when a particular family member or caregiver is mentioned</li>
+  </ul>
+  </div>
+  <div class="cs"><h3>⚖️ Workplace Ethics & Anti-Discrimination</h3>
+  <p>All staff must comply with the <strong>Pennsylvania Human Relations Act</strong> and federal anti-discrimination law. Care Crafter prohibits discrimination in employment and service delivery on the basis of:</p>
+  <ul>
+    <li>Race, color, religion, national origin, sex, age, disability, sexual orientation, gender identity, or any other protected class</li>
+    <li>All consumer requests for caregiver changes based on race or nationality must be referred to a supervisor — the agency may not honor discriminatory requests</li>
+    <li>Workplace harassment of any form — sexual, racial, or otherwise — is prohibited and grounds for immediate termination</li>
+    <li>Report any discrimination or harassment concerns to HR or the CEO immediately</li>
+  </ul>
+  </div>
+  <div class="cs"><h3>🏢 Workplace Safety (OSHA)</h3>
+  <ul>
+    <li>Report any unsafe working conditions in the office (electrical hazards, slip/fall risks, faulty equipment) to your supervisor</li>
+    <li>Know the location of fire exits, fire extinguishers, and AED in the office</li>
+    <li>In case of workplace violence — call 9-1-1. Do not engage the aggressor</li>
+    <li>OSHA requires the agency to maintain a safe work environment — you have the right to report unsafe conditions without retaliation</li>
+  </ul>
+  </div>
+  <div class="cs"><h3>🔁 Compliance Culture</h3>
+  <p>A compliant agency is everyone's responsibility. Key commitments:</p>
+  <ul>
+    <li><strong>Speak up</strong> — if you see something that doesn't seem right, say something to your supervisor</li>
+    <li><strong>Never alter records</strong> — altering records is fraud, even if you're trying to help</li>
+    <li><strong>No retaliation</strong> — reporting compliance concerns is protected activity under Pennsylvania and federal law</li>
+    <li><strong>Annual training</strong> — completion of this refresher training is required for all staff and must be documented</li>
+  </ul>
+  <div class="ibox tip"><div class="ibox-ico">💡</div><div class="ibox-txt">Your annual training completion must be signed, dated, and kept in your personnel file. The agency must be able to produce it for DOH surveyors and MCO auditors on demand.</div></div>
+  </div>`,
+  questions:[
+    {q:"Under the Pennsylvania Older Adults Protective Services Act, administrative office staff:",opts:["Are not required to report abuse — only DCWs are mandated reporters","Are mandated reporters and must report suspected abuse regardless of their role","Only need to report abuse if they personally witnessed it","May report voluntarily but are not legally required to"],correct:1,fb:"All employees — including administrative and office staff — are mandated reporters under the Pennsylvania Older Adults Protective Services Act. Failure to report is a criminal offense."},
+    {q:"A consumer calls and says their neighbor, who checks on them sometimes, has been taking money from their wallet. You should:",opts:["Tell the consumer it's a personal matter and they should handle it themselves","Document the report and report it to APS at 1-800-490-8505, then notify your supervisor","Ask the consumer for more evidence before reporting","Tell the DCW to keep an eye on the neighbor"],correct:1,fb:"Financial exploitation is a form of abuse. Document what the consumer told you and report to PA APS (1-800-490-8505) immediately. Notify your supervisor so the agency can also report to the MCO."},
+    {q:"A consumer's family member specifically requests a caregiver of a particular race. The correct response is:",opts:["Accommodate the request since the consumer is the employer","Refer the request to a supervisor — the agency cannot honor racially discriminatory caregiver requests","Honor the request quietly without documenting it","Tell the DCW not to mention it to anyone"],correct:1,fb:"Racially discriminatory service requests cannot be honored. This would violate the Pennsylvania Human Relations Act and federal anti-discrimination law. Refer immediately to a supervisor."},
+    {q:"If you suspect a coworker is altering billing records, you should:",opts:["Confront the coworker directly","Do nothing since it's not your department","Report your concern to your supervisor or the compliance officer","Wait to see if an auditor discovers it"],correct:2,fb:"Suspected billing fraud must be reported immediately to a supervisor or the compliance officer. You are protected from retaliation for reporting compliance concerns in good faith."},
+    {q:"Annual training completion for administrative staff must be:",opts:["Completed voluntarily but not documented","Documented in writing and kept in the employee's personnel file","Only required for employees with direct consumer contact","Completed within 2 years of hire"],correct:1,fb:"Annual training completion must be documented in writing and maintained in each employee's personnel file. It must be available for DOH surveyors and MCO auditors on demand."}
+  ]
+}
+];
+
+/* ============================================================
+   STATE
+   ============================================================ */
+let currentMod = -1;
+let completed = new Set();
+let workerName = '';
+let workerRole = '';
+let activeRoleFilter = 'all';
+
+/* ============================================================
+   BUILD UI
+   ============================================================ */
+function buildRoleBar() {
+  const bar = document.getElementById('roleBar');
+  roles.forEach(r => {
+    const b = document.createElement('button');
+    b.className = 'role-btn' + (r.id === 'all' ? ' active' : '');
+    b.id = 'roleBtn_' + r.id;
+    b.innerHTML = r.icon + ' ' + r.label;
+    b.onclick = () => filterByRole(r.id);
+    bar.appendChild(b);
+  });
+}
+
+function filterByRole(roleId) {
+  activeRoleFilter = roleId;
+  document.querySelectorAll('.role-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('roleBtn_' + roleId).classList.add('active');
+  buildSidebar();
+  const visible = modules.filter(m => m.roles.includes(roleId) || roleId === 'all');
+  if (visible.length > 0) {
+    const idx = modules.indexOf(visible[0]);
+    showModule(idx);
+  }
+}
+
+function buildSidebar() {
+  const nav = document.getElementById('sideNav');
+  nav.innerHTML = '';
+  const visible = modules.filter((m) => {
+    if (activeRoleFilter === 'all') return true;
+    return m.roles.includes(activeRoleFilter);
+  });
+  if (!visible.length) { nav.innerHTML = '<div style="font-size:13px;color:var(--gray-500);padding:12px 4px">No modules for this role filter.</div>'; return; }
+  const hdr = document.createElement('div');
+  hdr.style.cssText = 'font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;color:var(--gray-500);padding:10px 4px 6px';
+  hdr.textContent = activeRoleFilter === 'all' ? 'All Modules' : 'Your Modules';
+  nav.appendChild(hdr);
+  visible.forEach(mod => {
+    const globalIdx = modules.indexOf(mod);
+    const btn = document.createElement('button');
+    btn.className = 'sb-btn' + (completed.has(globalIdx) ? ' done' : '');
+    btn.id = 'sbBtn_' + globalIdx;
+    btn.innerHTML = `<span>${mod.icon}</span><span style="flex:1;font-size:12px;line-height:1.3">${mod.title}</span><span class="sb-status" id="sbSt_${globalIdx}">${completed.has(globalIdx) ? '✓' : '○'}</span>`;
+    btn.onclick = () => showModule(globalIdx);
+    nav.appendChild(btn);
+  });
+}
+
+function buildModuleCards() {
+  const container = document.getElementById('modCards');
+  container.innerHTML = '';
+  modules.forEach((mod, idx) => {
+    const card = document.createElement('div');
+    card.className = 'mod-card';
+    card.id = 'mod_' + idx;
+    const prevIdx = getPrev(idx);
+    const nextIdx = getNext(idx);
+    card.innerHTML = `
+      <div class="card-head">
+        <div><span class="type-pill ${mod.pill}">${mod.pillTxt}</span></div>
+        <div class="mod-num">Module ${idx+1} of ${modules.length} · ${mod.reg}</div>
+        <h2>${mod.icon} ${mod.title}</h2>
+        <div class="card-meta">
+          <span>⏱ ${mod.duration}</span>
+          <span>📋 ${mod.questions.length} questions</span>
+          <span>✅ Pass: 70%</span>
+        </div>
+      </div>
+      <div class="card-body">
+        ${mod.content}
+        <div class="quiz-wrap" id="quiz_${idx}">
+          <div class="quiz-hdr"><h3>Knowledge Check</h3><span class="qbadge">Required</span></div>
+          ${mod.questions.map((q,qi) => `
+            <div class="qblock" id="qb_${idx}_${qi}">
+              <div class="qtxt"><span class="qnum">Q${qi+1}.</span>${q.q}</div>
+              <div class="opts">
+                ${q.opts.map((o,oi) => `<label class="opt" id="opt_${idx}_${qi}_${oi}"><input type="radio" name="q_${idx}_${qi}" value="${oi}"> ${o}</label>`).join('')}
+              </div>
+              <div class="fb" id="fb_${idx}_${qi}"></div>
+            </div>
+          `).join('')}
+          <div class="qactions">
+            <button class="btn btn-p" id="subBtn_${idx}" onclick="submitQuiz(${idx})">Submit Answers</button>
+            <button class="btn btn-s" id="retBtn_${idx}" onclick="retryQuiz(${idx})" style="display:none">↩ Retry</button>
+            <span class="score-lbl" id="scoreLbl_${idx}"></span>
+          </div>
+          <div class="result-box" id="res_${idx}"></div>
+        </div>
+        <div class="mod-nav">
+          ${prevIdx >= 0 ? `<button class="btn btn-s" onclick="showModule(${prevIdx})">← Previous</button>` : ''}
+          <button class="btn btn-p" id="nxtBtn_${idx}" onclick="nextMod(${idx})" disabled>
+            ${nextIdx >= 0 ? 'Next →' : '🎓 Certificate'}
+          </button>
+        </div>
+      </div>`;
+    container.appendChild(card);
+    if (completed.has(idx)) document.getElementById('nxtBtn_'+idx).disabled = false;
+  });
+}
+
+function getPrev(idx) {
+  for (let i = idx-1; i >= 0; i--) {
+    if (activeRoleFilter === 'all' || modules[i].roles.includes(activeRoleFilter)) return i;
+  }
+  return -1;
+}
+function getNext(idx) {
+  for (let i = idx+1; i < modules.length; i++) {
+    if (activeRoleFilter === 'all' || modules[i].roles.includes(activeRoleFilter)) return i;
+  }
+  return -1;
+}
+
+function startCourse() {
+  workerName = prompt('Enter your full name for the certificate:', '') || 'Staff Member';
+  const roleChoice = prompt('Enter your role:\n' + roles.map((r,i) => `${i+1}. ${r.icon} ${r.label}`).join('\n') + '\n\nType the number:');
+  const roleNum = parseInt(roleChoice) - 1;
+  workerRole = (roles[roleNum] ? roles[roleNum].label : 'Administrative Staff');
+  activeRoleFilter = (roles[roleNum] ? roles[roleNum].id : 'all');
+  document.getElementById('welcomeScreen').classList.add('gone');
+  buildRoleBar();
+  buildSidebar();
+  buildModuleCards();
+  const first = modules.findIndex(m => activeRoleFilter === 'all' || m.roles.includes(activeRoleFilter));
+  if (first >= 0) showModule(first);
+  document.getElementById('roleBtn_' + activeRoleFilter).classList.add('active');
+  document.querySelectorAll('.role-btn').forEach(b => { if (b.id !== 'roleBtn_'+activeRoleFilter) b.classList.remove('active'); });
+}
+
+function showModule(idx) {
+  document.querySelectorAll('.mod-card').forEach(c => c.classList.remove('on'));
+  const card = document.getElementById('mod_'+idx);
+  if (card) { card.classList.add('on'); card.scrollIntoView({behavior:'smooth',block:'start'}); }
+  document.querySelectorAll('.sb-btn').forEach(b => b.classList.remove('active'));
+  const sb = document.getElementById('sbBtn_'+idx);
+  if (sb) sb.classList.add('active');
+  currentMod = idx;
+  updateProgress();
+}
+
+function submitQuiz(modIdx) {
+  const mod = modules[modIdx];
+  let correct = 0, answered = true;
+  mod.questions.forEach((q,qi) => {
+    const sel = document.querySelector(`input[name="q_${modIdx}_${qi}"]:checked`);
+    if (!sel) { answered = false; return; }
+    const val = parseInt(sel.value);
+    document.querySelectorAll(`input[name="q_${modIdx}_${qi}"]`).forEach(r => r.disabled = true);
+    q.opts.forEach((o,oi) => {
+      const lbl = document.getElementById(`opt_${modIdx}_${qi}_${oi}`);
+      if (oi === q.correct) lbl.classList.add('correct');
+      else if (oi === val && val !== q.correct) lbl.classList.add('wrong');
+    });
+    const fb = document.getElementById(`fb_${modIdx}_${qi}`);
+    if (val === q.correct) { correct++; fb.className='fb ok'; fb.textContent='✓ '+q.fb; }
+    else { fb.className='fb no'; fb.textContent='✗ '+q.fb; document.getElementById(`opt_${modIdx}_${qi}_${q.correct}`).classList.add('missed'); }
+  });
+  if (!answered) { alert('Please answer all questions before submitting.'); return; }
+  const score = Math.round((correct/mod.questions.length)*100);
+  const pass = score >= 70;
+  const sl = document.getElementById(`scoreLbl_${modIdx}`);
+  sl.textContent = `Score: ${correct}/${mod.questions.length} (${score}%)`;
+  sl.style.color = pass ? 'var(--green)' : 'var(--red)';
+  const res = document.getElementById(`res_${modIdx}`);
+  res.style.display = 'block';
+  if (pass) {
+    res.className = 'result-box pass';
+    res.innerHTML = `<h4>✅ Passed (${score}%)</h4><p>Well done! Continue to the next module.</p>`;
+    completed.add(modIdx);
+    document.getElementById(`nxtBtn_${modIdx}`).disabled = false;
+    const sb = document.getElementById(`sbSt_${modIdx}`);
+    if (sb) sb.textContent = '✓';
+    const sbBtn = document.getElementById(`sbBtn_${modIdx}`);
+    if (sbBtn) sbBtn.classList.add('done');
+  } else {
+    res.className = 'result-box fail';
+    res.innerHTML = `<h4>❌ Not Passed (${score}%)</h4><p>70% required. Review the content and retry.</p>`;
+    document.getElementById(`retBtn_${modIdx}`).style.display = 'inline-flex';
+  }
+  document.getElementById(`subBtn_${modIdx}`).style.display = 'none';
+  updateProgress();
+}
+
+function retryQuiz(modIdx) {
+  modules[modIdx].questions.forEach((q,qi) => {
+    document.querySelectorAll(`input[name="q_${modIdx}_${qi}"]`).forEach(r => { r.disabled=false; r.checked=false; });
+    q.opts.forEach((o,oi) => document.getElementById(`opt_${modIdx}_${qi}_${oi}`).className='opt');
+    const fb = document.getElementById(`fb_${modIdx}_${qi}`); fb.className='fb'; fb.textContent='';
+  });
+  document.getElementById(`scoreLbl_${modIdx}`).textContent='';
+  document.getElementById(`res_${modIdx}`).style.display='none';
+  document.getElementById(`retBtn_${modIdx}`).style.display='none';
+  document.getElementById(`subBtn_${modIdx}`).style.display='inline-flex';
+}
+
+function nextMod(idx) {
+  const next = getNext(idx);
+  if (next >= 0) showModule(next);
+  else showCert();
+}
+
+function showCert() {
+  document.querySelectorAll('.mod-card').forEach(c => c.classList.remove('on'));
+  const cert = document.getElementById('certScreen');
+  cert.classList.add('on');
+  cert.scrollIntoView({behavior:'smooth',block:'start'});
+  document.getElementById('certName').textContent = workerName;
+  document.getElementById('certRole').textContent = workerRole + ' — Care Crafter Home Care LLC';
+  const d = new Date();
+  document.getElementById('certDate').textContent = 'Completed: ' + d.toLocaleDateString('en-US',{year:'numeric',month:'long',day:'numeric'});
+}
+
+function updateProgress() {
+  const visible = modules.filter((m) => activeRoleFilter==='all' || m.roles.includes(activeRoleFilter));
+  const done = visible.filter((m) => completed.has(modules.indexOf(m))).length;
+  const total = visible.length;
+  const pct = total ? Math.round((done/total)*100) : 0;
+  document.getElementById('progFill').style.width = pct+'%';
+  document.getElementById('progLbl').textContent = done+' / '+total+' Complete';
+}
+
+function restartCourse() {
+  completed = new Set();
+  currentMod = -1;
+  workerName = '';
+  workerRole = '';
+  activeRoleFilter = 'all';
+  document.getElementById('certScreen').classList.remove('on');
+  document.getElementById('welcomeScreen').classList.remove('gone');
+  document.getElementById('modCards').innerHTML='';
+  document.getElementById('sideNav').innerHTML='';
+  document.getElementById('roleBar').innerHTML='';
+  updateProgress();
+  window.scrollTo(0,0);
+}
+</script>
+
+</body>
+</html>
