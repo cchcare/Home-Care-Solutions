@@ -428,6 +428,17 @@ export default function Training() {
                     </div>
                   </div>
                 </Link>
+                <Link href="/dcw-training">
+                  <div className="flex items-center gap-3 p-3 border rounded-lg hover:bg-muted/50 transition-colors cursor-pointer" data-testid="training-tool-dcw-training">
+                    <div className="w-9 h-9 bg-primary/10 rounded-lg flex items-center justify-center flex-shrink-0">
+                      <GraduationCap className="w-4 h-4 text-primary" />
+                    </div>
+                    <div>
+                      <p className="font-medium text-sm">New DCW Training and Orientation</p>
+                      <p className="text-xs text-muted-foreground">Interactive PA-compliant orientation & annual training course with quizzes</p>
+                    </div>
+                  </div>
+                </Link>
               </div>
             </CardContent>
           </Card>

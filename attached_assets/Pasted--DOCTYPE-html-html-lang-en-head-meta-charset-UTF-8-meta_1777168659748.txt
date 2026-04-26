@@ -1,0 +1,1624 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Care Crafter | DCW Training & Orientation Course</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --navy: #0d1f3c;
+    --teal: #0d7c66;
+    --teal-light: #13a589;
+    --teal-pale: #e6f6f3;
+    --gold: #e8a020;
+    --gold-light: #fdf3e0;
+    --white: #ffffff;
+    --off-white: #f8f9fb;
+    --gray-100: #f0f2f5;
+    --gray-300: #c8d0db;
+    --gray-500: #7a8699;
+    --gray-700: #3d4a5c;
+    --red: #c0392b;
+    --red-light: #fdf0ee;
+    --green: #1a8a5a;
+    --green-light: #e8f7f0;
+    --radius: 12px;
+    --shadow: 0 4px 24px rgba(13,31,60,0.10);
+    --shadow-lg: 0 12px 48px rgba(13,31,60,0.16);
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body {
+    font-family: 'DM Sans', sans-serif;
+    background: var(--off-white);
+    color: var(--navy);
+    min-height: 100vh;
+  }
+
+/* HEADER */
+.course-header {
+background: linear-gradient(135deg, var(–navy) 0%, #1a3a6e 100%);
+color: white;
+padding: 0;
+position: sticky;
+top: 0;
+z-index: 100;
+box-shadow: 0 2px 16px rgba(0,0,0,0.3);
+}
+.header-inner {
+max-width: 1100px;
+margin: 0 auto;
+padding: 14px 24px;
+display: flex;
+align-items: center;
+justify-content: space-between;
+gap: 16px;
+}
+.logo-area { display: flex; align-items: center; gap: 12px; }
+.logo-badge {
+background: var(–teal);
+border-radius: 8px;
+padding: 8px 12px;
+font-family: ‘DM Serif Display’, serif;
+font-size: 16px;
+font-weight: 400;
+letter-spacing: 0.5px;
+}
+.course-title-header { font-size: 14px; font-weight: 600; opacity: 0.85; }
+.progress-bar-container {
+display: flex;
+align-items: center;
+gap: 10px;
+flex: 1;
+max-width: 360px;
+}
+.progress-bar-track {
+flex: 1;
+height: 6px;
+background: rgba(255,255,255,0.15);
+border-radius: 99px;
+overflow: hidden;
+}
+.progress-bar-fill {
+height: 100%;
+background: var(–teal-light);
+border-radius: 99px;
+transition: width 0.5s ease;
+width: 0%;
+}
+.progress-label { font-size: 12px; font-weight: 600; white-space: nowrap; opacity: 0.8; }
+
+/* MAIN LAYOUT */
+.course-layout {
+max-width: 1100px;
+margin: 0 auto;
+padding: 32px 16px;
+display: grid;
+grid-template-columns: 280px 1fr;
+gap: 28px;
+align-items: start;
+}
+@media (max-width: 768px) {
+.course-layout { grid-template-columns: 1fr; }
+.sidebar { display: none; }
+}
+
+/* SIDEBAR */
+.sidebar {
+background: white;
+border-radius: var(–radius);
+box-shadow: var(–shadow);
+padding: 20px;
+position: sticky;
+top: 72px;
+max-height: calc(100vh - 100px);
+overflow-y: auto;
+}
+.sidebar h3 {
+font-size: 11px;
+font-weight: 700;
+text-transform: uppercase;
+letter-spacing: 1.5px;
+color: var(–gray-500);
+margin-bottom: 14px;
+}
+.sidebar-module {
+margin-bottom: 6px;
+border-radius: 8px;
+overflow: hidden;
+}
+.sidebar-module-btn {
+width: 100%;
+text-align: left;
+background: none;
+border: none;
+padding: 10px 12px;
+cursor: pointer;
+display: flex;
+align-items: center;
+gap: 10px;
+border-radius: 8px;
+transition: background 0.2s;
+font-family: ‘DM Sans’, sans-serif;
+}
+.sidebar-module-btn:hover { background: var(–gray-100); }
+.sidebar-module-btn.active { background: var(–teal-pale); color: var(–teal); }
+.sidebar-module-btn.completed { color: var(–green); }
+.module-icon { font-size: 16px; flex-shrink: 0; }
+.module-label { font-size: 13px; font-weight: 500; line-height: 1.3; }
+.module-status { margin-left: auto; font-size: 14px; }
+
+/* CONTENT AREA */
+.content-area { display: flex; flex-direction: column; gap: 20px; }
+
+/* MODULE CARD */
+.module-card {
+background: white;
+border-radius: var(–radius);
+box-shadow: var(–shadow);
+overflow: hidden;
+display: none;
+animation: slideIn 0.35s ease;
+}
+.module-card.active { display: block; }
+@keyframes slideIn {
+from { opacity: 0; transform: translateY(12px); }
+to { opacity: 1; transform: translateY(0); }
+}
+
+.module-card-header {
+padding: 28px 32px 22px;
+border-bottom: 1px solid var(–gray-100);
+}
+.module-type-badge {
+display: inline-block;
+padding: 3px 10px;
+border-radius: 99px;
+font-size: 10px;
+font-weight: 700;
+text-transform: uppercase;
+letter-spacing: 1.2px;
+margin-bottom: 10px;
+}
+.badge-new-hire { background: var(–teal-pale); color: var(–teal); }
+.badge-annual { background: var(–gold-light); color: #9a6500; }
+.badge-personal-care { background: #ede8ff; color: #5a28c9; }
+.module-number { font-size: 12px; font-weight: 600; color: var(–gray-500); margin-bottom: 4px; }
+.module-card-header h2 {
+font-family: ‘DM Serif Display’, serif;
+font-size: 26px;
+font-weight: 400;
+color: var(–navy);
+line-height: 1.2;
+margin-bottom: 8px;
+}
+.module-meta { font-size: 13px; color: var(–gray-500); display: flex; gap: 16px; flex-wrap: wrap; }
+.module-meta span { display: flex; align-items: center; gap: 5px; }
+
+.module-card-body { padding: 28px 32px; }
+
+/* CONTENT SECTIONS */
+.content-section { margin-bottom: 28px; }
+.content-section h3 {
+font-size: 16px;
+font-weight: 700;
+color: var(–navy);
+margin-bottom: 12px;
+padding-bottom: 8px;
+border-bottom: 2px solid var(–teal-pale);
+display: flex;
+align-items: center;
+gap: 8px;
+}
+.content-section p { font-size: 15px; line-height: 1.7; color: var(–gray-700); margin-bottom: 10px; }
+.content-section ul, .content-section ol {
+margin-left: 20px;
+margin-bottom: 10px;
+}
+.content-section li { font-size: 15px; line-height: 1.7; color: var(–gray-700); margin-bottom: 4px; }
+
+.info-box {
+border-radius: 10px;
+padding: 16px 18px;
+margin: 14px 0;
+display: flex;
+gap: 12px;
+align-items: flex-start;
+}
+.info-box.tip { background: var(–teal-pale); border-left: 4px solid var(–teal); }
+.info-box.warn { background: var(–gold-light); border-left: 4px solid var(–gold); }
+.info-box.important { background: var(–red-light); border-left: 4px solid var(–red); }
+.info-box-icon { font-size: 18px; flex-shrink: 0; margin-top: 1px; }
+.info-box-text { font-size: 14px; line-height: 1.6; color: var(–gray-700); }
+.info-box-text strong { color: var(–navy); }
+
+/* QUIZ SECTION */
+.quiz-section {
+background: var(–gray-100);
+border-radius: 10px;
+padding: 24px;
+margin-top: 24px;
+}
+.quiz-header {
+display: flex;
+align-items: center;
+gap: 10px;
+margin-bottom: 20px;
+}
+.quiz-header h3 {
+font-size: 17px;
+font-weight: 700;
+color: var(–navy);
+}
+.quiz-badge {
+background: var(–navy);
+color: white;
+font-size: 10px;
+font-weight: 700;
+text-transform: uppercase;
+letter-spacing: 1px;
+padding: 3px 8px;
+border-radius: 4px;
+}
+.question-block { margin-bottom: 22px; }
+.question-block:last-child { margin-bottom: 0; }
+.question-text {
+font-size: 15px;
+font-weight: 600;
+color: var(–navy);
+margin-bottom: 12px;
+line-height: 1.5;
+}
+.question-num {
+color: var(–teal);
+font-weight: 700;
+margin-right: 4px;
+}
+.options { display: flex; flex-direction: column; gap: 8px; }
+.option-label {
+display: flex;
+align-items: flex-start;
+gap: 10px;
+padding: 11px 14px;
+border-radius: 8px;
+background: white;
+border: 2px solid transparent;
+cursor: pointer;
+transition: all 0.2s;
+font-size: 14px;
+line-height: 1.5;
+color: var(–gray-700);
+}
+.option-label:hover { border-color: var(–gray-300); background: #fafbfd; }
+.option-label input { margin-top: 2px; accent-color: var(–teal); flex-shrink: 0; }
+.option-label.correct { border-color: var(–green); background: var(–green-light); color: var(–green); font-weight: 500; }
+.option-label.incorrect { border-color: var(–red); background: var(–red-light); color: var(–red); }
+.option-label.missed { border-color: var(–green); background: var(–green-light); color: var(–green); opacity: 0.65; }
+
+.feedback-box {
+margin-top: 10px;
+padding: 10px 14px;
+border-radius: 8px;
+font-size: 13px;
+font-weight: 500;
+display: none;
+line-height: 1.5;
+}
+.feedback-box.correct { background: var(–green-light); color: var(–green); display: block; }
+.feedback-box.incorrect { background: var(–red-light); color: var(–red); display: block; }
+
+/* BUTTONS */
+.btn {
+display: inline-flex;
+align-items: center;
+gap: 8px;
+padding: 12px 24px;
+border-radius: 8px;
+font-family: ‘DM Sans’, sans-serif;
+font-size: 15px;
+font-weight: 600;
+cursor: pointer;
+border: none;
+transition: all 0.2s;
+}
+.btn-primary { background: var(–teal); color: white; }
+.btn-primary:hover { background: var(–teal-light); transform: translateY(-1px); box-shadow: 0 4px 16px rgba(13,124,102,0.3); }
+.btn-secondary { background: var(–gray-100); color: var(–navy); }
+.btn-secondary:hover { background: var(–gray-300); }
+.btn-gold { background: var(–gold); color: white; }
+.btn-gold:hover { background: #d49010; }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none !important; }
+
+.quiz-actions { margin-top: 18px; display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+.score-display {
+margin-left: auto;
+font-weight: 700;
+font-size: 15px;
+color: var(–navy);
+}
+
+.result-box {
+margin-top: 20px;
+padding: 20px;
+border-radius: 10px;
+text-align: center;
+display: none;
+}
+.result-box.pass { background: var(–green-light); border: 2px solid var(–green); }
+.result-box.fail { background: var(–red-light); border: 2px solid var(–red); }
+.result-box h4 { font-size: 20px; font-weight: 700; margin-bottom: 6px; }
+.result-box p { font-size: 14px; }
+.result-box.pass h4 { color: var(–green); }
+.result-box.fail h4 { color: var(–red); }
+
+.module-nav { display: flex; gap: 12px; margin-top: 8px; }
+
+/* WELCOME SCREEN */
+.welcome-screen {
+background: white;
+border-radius: var(–radius);
+box-shadow: var(–shadow);
+padding: 48px 40px;
+text-align: center;
+}
+.welcome-screen.hidden { display: none; }
+.welcome-logo {
+width: 72px;
+height: 72px;
+background: linear-gradient(135deg, var(–teal), var(–teal-light));
+border-radius: 18px;
+display: flex;
+align-items: center;
+justify-content: center;
+font-size: 32px;
+margin: 0 auto 24px;
+}
+.welcome-screen h1 {
+font-family: ‘DM Serif Display’, serif;
+font-size: 32px;
+font-weight: 400;
+color: var(–navy);
+margin-bottom: 10px;
+}
+.welcome-screen p { color: var(–gray-500); font-size: 16px; max-width: 520px; margin: 0 auto 28px; line-height: 1.7; }
+.welcome-grid {
+display: grid;
+grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+gap: 16px;
+margin: 28px 0;
+text-align: left;
+}
+.welcome-card {
+background: var(–off-white);
+border-radius: 10px;
+padding: 16px;
+border: 1px solid var(–gray-100);
+}
+.welcome-card .icon { font-size: 22px; margin-bottom: 8px; }
+.welcome-card h4 { font-size: 14px; font-weight: 700; color: var(–navy); margin-bottom: 4px; }
+.welcome-card p { font-size: 12px; color: var(–gray-500); line-height: 1.5; }
+.reg-note {
+font-size: 12px;
+color: var(–gray-500);
+background: var(–gray-100);
+border-radius: 8px;
+padding: 10px 16px;
+margin-top: 20px;
+line-height: 1.6;
+}
+
+/* CERTIFICATE */
+.cert-screen {
+background: white;
+border-radius: var(–radius);
+box-shadow: var(–shadow);
+padding: 48px 40px;
+text-align: center;
+display: none;
+}
+.cert-screen.visible { display: block; }
+.cert-inner {
+border: 4px solid var(–navy);
+border-radius: 16px;
+padding: 40px;
+position: relative;
+max-width: 600px;
+margin: 0 auto;
+}
+.cert-inner::before {
+content: ‘’;
+position: absolute;
+inset: 8px;
+border: 1px solid var(–teal);
+border-radius: 10px;
+pointer-events: none;
+}
+.cert-inner h1 {
+font-family: ‘DM Serif Display’, serif;
+font-size: 30px;
+color: var(–navy);
+margin-bottom: 4px;
+}
+.cert-inner .subtitle { font-size: 13px; color: var(–gray-500); margin-bottom: 24px; }
+.cert-name {
+font-family: ‘DM Serif Display’, serif;
+font-size: 26px;
+color: var(–teal);
+font-style: italic;
+margin-bottom: 8px;
+min-height: 36px;
+}
+.cert-desc { font-size: 14px; color: var(–gray-700); margin-bottom: 20px; line-height: 1.7; }
+.cert-seal { font-size: 40px; margin-bottom: 8px; }
+.cert-date { font-size: 13px; color: var(–gray-500); }
+.cert-agency { font-weight: 700; color: var(–navy); margin-top: 4px; font-size: 14px; }
+
+/* Scrollbar */
+.sidebar::-webkit-scrollbar { width: 4px; }
+.sidebar::-webkit-scrollbar-track { background: transparent; }
+.sidebar::-webkit-scrollbar-thumb { background: var(–gray-300); border-radius: 4px; }
+
+/* Print */
+@media print {
+.course-header, .sidebar, .module-nav, .quiz-actions, .btn, .welcome-screen { display: none !important; }
+.cert-screen { display: block !important; }
+}
+</style>
+
+</head>
+<body>
+
+<!-- HEADER -->
+
+<header class="course-header">
+  <div class="header-inner">
+    <div class="logo-area">
+      <div class="logo-badge">Care<br>Crafter</div>
+      <div class="course-title-header">DCW Training & Orientation Program</div>
+    </div>
+    <div class="progress-bar-container">
+      <div class="progress-bar-track">
+        <div class="progress-bar-fill" id="progressFill"></div>
+      </div>
+      <div class="progress-label" id="progressLabel">0 / 8 Complete</div>
+    </div>
+  </div>
+</header>
+
+<!-- LAYOUT -->
+
+<div class="course-layout">
+
+  <!-- SIDEBAR -->
+
+  <aside class="sidebar">
+    <h3>Course Modules</h3>
+    <div id="sidebarNav"></div>
+  </aside>
+
+  <!-- CONTENT -->
+
+  <main class="content-area" id="contentArea">
+
+```
+<!-- WELCOME -->
+<div class="welcome-screen" id="welcomeScreen">
+  <div class="welcome-logo">🏥</div>
+  <h1>Welcome to DCW Training</h1>
+  <p>This Pennsylvania-compliant training program covers all required orientation topics and annual training requirements for Direct Care Workers under <strong>28 Pa. Code Chapter 611</strong> and related regulations.</p>
+  <div class="welcome-grid">
+    <div class="welcome-card">
+      <div class="icon">📋</div>
+      <h4>New Hire Orientation</h4>
+      <p>Required before providing services. Covers all 10 core competency areas.</p>
+    </div>
+    <div class="welcome-card">
+      <div class="icon">🤝</div>
+      <h4>Personal Care Skills</h4>
+      <p>6 additional required topics for DCWs providing ADL/personal care services.</p>
+    </div>
+    <div class="welcome-card">
+      <div class="icon">📅</div>
+      <h4>Annual Training</h4>
+      <p>Required yearly competency review topics per Pa. DOH guidelines.</p>
+    </div>
+    <div class="welcome-card">
+      <div class="icon">✅</div>
+      <h4>Pass &amp; Certify</h4>
+      <p>Score 70% or above on each module quiz to earn your certificate.</p>
+    </div>
+  </div>
+  <button class="btn btn-primary" onclick="startCourse()" style="font-size:16px;padding:14px 36px;">
+    ▶ Start Training
+  </button>
+  <div class="reg-note">
+    ⚖️ This course satisfies competency requirements under <strong>28 Pa. Code § 611.55</strong> (Home Care Agencies & Registries) and is consistent with <strong>55 Pa. Code §§ 2600.65 / 2800.65</strong>. Completion must be documented in each DCW's personnel file. Care Crafter Home Care LLC — 5208 Clairton Blvd., Pittsburgh, PA 15236
+  </div>
+</div>
+
+<!-- MODULE CARDS (generated by JS) -->
+<div id="moduleCards"></div>
+
+<!-- CERTIFICATE -->
+<div class="cert-screen" id="certScreen">
+  <div class="cert-inner">
+    <div class="cert-seal">🏅</div>
+    <h1>Certificate of Completion</h1>
+    <div class="subtitle">Direct Care Worker Training &amp; Orientation</div>
+    <div style="font-size:14px;color:var(--gray-500);margin-bottom:8px;">This certifies that</div>
+    <div class="cert-name" id="certName">___________________________</div>
+    <div class="cert-desc">
+      has successfully completed the Care Crafter Home Care LLC<br>
+      <strong>Direct Care Worker New Hire Orientation &amp; Annual Training Program</strong><br>
+      in accordance with <strong>28 Pa. Code § 611.55</strong> and applicable Pennsylvania Department of Health regulations governing home care agencies.
+    </div>
+    <div class="cert-date" id="certDate"></div>
+    <div class="cert-agency">Care Crafter Home Care LLC | 5208 Clairton Blvd., Pittsburgh, PA 15236</div>
+  </div>
+  <div style="margin-top:24px;display:flex;gap:12px;justify-content:center;flex-wrap:wrap;">
+    <button class="btn btn-primary" onclick="window.print()">🖨 Print Certificate</button>
+    <button class="btn btn-secondary" onclick="restartCourse()">↩ Restart Course</button>
+  </div>
+  <div class="reg-note" style="max-width:600px;margin:20px auto 0;">
+    A copy of this certificate must be submitted to your supervisor and retained in your personnel file per <strong>28 Pa. Code § 611.55(d)</strong>. Annual competency review required per § 611.55(e).
+  </div>
+</div>
+```
+
+  </main>
+</div>
+
+<script>
+// ==================== COURSE DATA ====================
+const modules = [
+  // ---- NEW HIRE / ORIENTATION MODULES ----
+  {
+    id: 'confidentiality',
+    title: 'Confidentiality & Privacy (HIPAA)',
+    type: 'new-hire',
+    typeBadge: 'New Hire Orientation',
+    badgeClass: 'badge-new-hire',
+    icon: '🔒',
+    duration: '~20 min',
+    regulation: '28 Pa. Code § 611.55(b)(1)',
+    content: `
+      <div class="content-section">
+        <h3>🔒 What is Confidentiality?</h3>
+        <p>As a Direct Care Worker, you will access sensitive personal, medical, and financial information about the people you serve. <strong>Confidentiality</strong> means keeping this information private and sharing it only when authorized or legally required.</p>
+        <p>Pennsylvania home care regulations require all DCWs to understand and respect consumer privacy. Federal law under HIPAA (Health Insurance Portability and Accountability Act) also applies to home care settings.</p>
+        <div class="info-box important">
+          <div class="info-box-icon">⛔</div>
+          <div class="info-box-text"><strong>Never share client information</strong> with unauthorized persons — including family members, friends, neighbors, or on social media — without the client's written consent.</div>
+        </div>
+      </div>
+      <div class="content-section">
+        <h3>📋 What Information is Protected?</h3>
+        <ul>
+          <li>Client name, address, phone number</li>
+          <li>Medical diagnosis, treatment, medications</li>
+          <li>Financial information and insurance details</li>
+          <li>Mental health history and disability information</li>
+          <li>Daily routines, home access codes, family matters</li>
+        </ul>
+      </div>
+      <div class="content-section">
+        <h3>✅ Your Responsibilities</h3>
+        <ul>
+          <li>Only discuss client information with your supervisor or care team members who need it</li>
+          <li>Do not leave client records, notes, or schedules visible to others</li>
+          <li>Do not take photos of clients or their homes without written consent</li>
+          <li>Lock or secure any written documentation</li>
+          <li>Report any privacy breach to your supervisor immediately</li>
+        </ul>
+        <div class="info-box tip">
+          <div class="info-box-icon">💡</div>
+          <div class="info-box-text"><strong>Remember:</strong> When in doubt, don't share. Ask your supervisor if you're unsure whether you may disclose information.</div>
+        </div>
+      </div>
+      <div class="content-section">
+        <h3>📱 Digital & Social Media Rules</h3>
+        <p>Posting anything about clients on Facebook, TikTok, Instagram, or any other platform — even without using their name — is a serious HIPAA violation and grounds for termination and legal action.</p>
+      </div>
+    `,
+    questions: [
+      {
+        q: "Which of the following is an example of a confidentiality violation?",
+        options: ["Telling your supervisor about a change in the client's condition", "Texting a friend about the client's medical diagnosis", "Documenting the services you provided in the care log", "Reporting suspected abuse to your supervisor"],
+        correct: 1,
+        feedback: "Sharing client medical information with unauthorized people — including friends — is a serious confidentiality violation. Only communicate client information to those directly involved in their care."
+      },
+      {
+        q: "Under HIPAA and Pennsylvania law, protected health information includes:",
+        options: ["Only the client's name", "The client's medical diagnosis, medications, and personal details", "Only information written on paper", "Information shared only at the client's home"],
+        correct: 1,
+        feedback: "HIPAA protects all individually identifiable health information, including diagnoses, treatments, medications, and personal identifiers, regardless of the format."
+      },
+      {
+        q: "A neighbor asks you about the health condition of a client you care for. You should:",
+        options: ["Share general information since the neighbor seems concerned", "Politely decline and explain you cannot discuss client information", "Tell the neighbor to call the office directly", "Share the information if the client seems to like the neighbor"],
+        correct: 1,
+        feedback: "Correct! You must politely decline. Client information may not be shared with anyone — including neighbors, family, or friends — without proper written authorization."
+      },
+      {
+        q: "What should you do if you accidentally share confidential client information with someone?",
+        options: ["Do nothing; it was an accident", "Report it to your supervisor immediately", "Ask the person to keep it a secret", "Wait to see if there are any consequences"],
+        correct: 1,
+        feedback: "Any privacy breach, even accidental, must be reported to your supervisor immediately. Early reporting allows the agency to take corrective action and comply with breach notification requirements."
+      },
+      {
+        q: "Which of the following is ALLOWED without the client's written consent?",
+        options: ["Posting a photo of the client's home on social media", "Discussing the client's care needs with your direct supervisor", "Telling a friend about the client's daily routine", "Sharing the client's phone number with a neighbor"],
+        correct: 1,
+        feedback: "Discussing client care needs with your direct supervisor is necessary for proper care coordination and is authorized. All other options are violations of client confidentiality."
+      }
+    ]
+  },
+  {
+    id: 'consumer-control',
+    title: 'Consumer Rights & Independent Living',
+    type: 'new-hire',
+    typeBadge: 'New Hire Orientation',
+    badgeClass: 'badge-new-hire',
+    icon: '🙌',
+    duration: '~20 min',
+    regulation: '28 Pa. Code § 611.55(b)(2)',
+    content: `
+      <div class="content-section">
+        <h3>🙌 The Independent Living Philosophy</h3>
+        <p>Pennsylvania's home care regulations are built on the principle that people with disabilities and older adults have the right to <strong>direct their own care and live as independently as possible</strong>. This is called <em>consumer control</em>.</p>
+        <p>Your role is to support the client in achieving their goals — not to take over their life. Clients are partners in their care, not passive recipients.</p>
+        <div class="info-box tip">
+          <div class="info-box-icon">💡</div>
+          <div class="info-box-text">The client is the expert on their own life. Your job is to assist them in doing what they choose, not to tell them what to do.</div>
+        </div>
+      </div>
+      <div class="content-section">
+        <h3>📜 Client Rights Under Pennsylvania Law</h3>
+        <ul>
+          <li><strong>Right to be informed</strong> — about their care plan, services, and any changes</li>
+          <li><strong>Right to refuse</strong> — any service, at any time, without penalty</li>
+          <li><strong>Right to privacy</strong> — in their home and about their personal matters</li>
+          <li><strong>Right to dignity and respect</strong> — to be treated with courtesy</li>
+          <li><strong>Right to file a complaint</strong> — without fear of retaliation</li>
+          <li><strong>Right to choose</strong> — their caregiver, schedule, and services within the plan</li>
+          <li><strong>Right to cultural respect</strong> — including language, customs, and beliefs</li>
+        </ul>
+      </div>
+      <div class="content-section">
+        <h3>⚠️ What to Avoid</h3>
+        <ul>
+          <li>Making decisions for the client without their input</li>
+          <li>Doing tasks the client can do themselves (this reduces independence)</li>
+          <li>Speaking to the client in a condescending or childlike tone</li>
+          <li>Ignoring the client's preferences about how tasks are done</li>
+          <li>Discussing the client's situation with others in their presence as if they aren't there</li>
+        </ul>
+        <div class="info-box warn">
+          <div class="info-box-icon">⚠️</div>
+          <div class="info-box-text"><strong>Important:</strong> If a client refuses a service, document it and report it to your supervisor. You cannot force care on a client who refuses.</div>
+        </div>
+      </div>
+    `,
+    questions: [
+      {
+        q: "The independent living philosophy in home care means:",
+        options: ["The client must be able to live alone without help", "Clients have the right to direct their own care and make their own decisions", "DCWs decide what services are best for the client", "Clients must have family members present at all times"],
+        correct: 1,
+        feedback: "The independent living philosophy holds that people with disabilities and older adults have the right to direct their own care, make their own choices, and live as independently as possible."
+      },
+      {
+        q: "A client refuses a bath today, saying they are tired. You should:",
+        options: ["Insist on the bath since it is in the care plan", "Document the refusal and report it to your supervisor", "Call the client's family to convince them", "Skip documenting it since it only happened once"],
+        correct: 1,
+        feedback: "Clients have the right to refuse any service. You must document the refusal and notify your supervisor. Never force care on a client."
+      },
+      {
+        q: "You notice your client can slowly button their own shirt. The best approach is to:",
+        options: ["Button it for them to save time", "Let them try and assist only if needed, to support their independence", "Call your supervisor to report a care plan issue", "Ask family members to do it instead"],
+        correct: 1,
+        feedback: "Supporting independence means allowing clients to do what they can for themselves, even if it takes longer. Only assist with what they truly cannot do."
+      },
+      {
+        q: "Which of the following is a violation of client rights?",
+        options: ["Asking the client how they prefer their meals prepared", "Making a care decision without consulting the client", "Documenting the services provided", "Reporting a client complaint to your supervisor"],
+        correct: 1,
+        feedback: "Making decisions without consulting the client violates their right to self-determination and control over their own care."
+      },
+      {
+        q: "A client asks you to perform a task not listed in their care plan. You should:",
+        options: ["Perform the task since the client asked", "Refuse completely and say nothing", "Explain you need to check with your supervisor before adding tasks outside the plan", "Ask another DCW to do it"],
+        correct: 2,
+        feedback: "Tasks must be authorized in the care plan. Politely explain you need supervisor approval before performing tasks outside the plan. Never just refuse without explanation."
+      }
+    ]
+  },
+  {
+    id: 'iadls',
+    title: 'Instrumental Activities of Daily Living (IADLs)',
+    type: 'new-hire',
+    typeBadge: 'New Hire Orientation',
+    badgeClass: 'badge-new-hire',
+    icon: '🏠',
+    duration: '~20 min',
+    regulation: '28 Pa. Code § 611.55(b)(3)',
+    content: `
+      <div class="content-section">
+        <h3>🏠 What Are IADLs?</h3>
+        <p><strong>Instrumental Activities of Daily Living (IADLs)</strong> are tasks that support a person's ability to live independently in the community. Unlike basic ADLs (bathing, dressing), IADLs are more complex activities of daily life.</p>
+        <p>Many DCWs are authorized to assist with IADLs as part of their care plan.</p>
+      </div>
+      <div class="content-section">
+        <h3>📋 Common IADLs in Home Care</h3>
+        <ul>
+          <li><strong>Meal preparation</strong> — planning and cooking nutritious meals per the client's preferences and dietary needs</li>
+          <li><strong>Light housekeeping</strong> — vacuuming, mopping, laundry, dishes, trash removal</li>
+          <li><strong>Grocery shopping</strong> — using a list, managing the client's money carefully</li>
+          <li><strong>Transportation</strong> — accompanying clients to appointments (if authorized)</li>
+          <li><strong>Medication reminders</strong> — reminding clients when to take their medications (NOT administering unless certified)</li>
+          <li><strong>Managing appointments</strong> — helping schedule and keep track of appointments</li>
+          <li><strong>Social/leisure activities</strong> — assisting with phone calls, letters, visiting community activities</li>
+        </ul>
+        <div class="info-box important">
+          <div class="info-box-icon">⛔</div>
+          <div class="info-box-text"><strong>Only perform IADLs listed in your client's care plan.</strong> Do not go beyond your authorized duties without supervisor approval.</div>
+        </div>
+      </div>
+      <div class="content-section">
+        <h3>💰 Managing Client Funds</h3>
+        <p>If authorized to handle client funds (e.g., grocery money), you must:</p>
+        <ul>
+          <li>Always keep a receipt for every purchase</li>
+          <li>Return all change promptly to the client</li>
+          <li>Never borrow or accept money from clients</li>
+          <li>Never mix your money with the client's money</li>
+          <li>Document all transactions</li>
+        </ul>
+        <div class="info-box warn">
+          <div class="info-box-icon">⚠️</div>
+          <div class="info-box-text"><strong>Financial exploitation of clients is a crime in Pennsylvania</strong> and will result in immediate termination and criminal charges.</div>
+        </div>
+      </div>
+    `,
+    questions: [
+      {
+        q: "IADLs (Instrumental Activities of Daily Living) include which of the following?",
+        options: ["Bathing and dressing", "Meal preparation and light housekeeping", "Wound care and medication administration", "Taking vital signs"],
+        correct: 1,
+        feedback: "IADLs include tasks like meal prep, housekeeping, shopping, and transportation. Bathing and dressing are basic ADLs, while wound care and medication administration require clinical training."
+      },
+      {
+        q: "While grocery shopping for a client, you should:",
+        options: ["Keep the receipt and return any change to the client", "Keep the change if it is less than $5", "Use your own judgment on what to buy", "Purchase items not on the list if you think they need it"],
+        correct: 0,
+        feedback: "Always keep receipts and return all change to the client immediately. Mishandling client funds is a serious issue that can result in termination and legal consequences."
+      },
+      {
+        q: "A client asks you to iron their clothes, but this task is not in the care plan. You should:",
+        options: ["Iron the clothes since it only takes a few minutes", "Refuse and do nothing else", "Tell the client you need to check with your supervisor before adding tasks", "Ask the client to call the office themselves"],
+        correct: 2,
+        feedback: "Tasks not listed in the care plan require supervisor approval. Communicate kindly with the client and follow up with your supervisor."
+      },
+      {
+        q: "When preparing meals for a client, which is most important?",
+        options: ["Making what you personally enjoy cooking", "Following the client's dietary restrictions and preferences per the care plan", "Preparing the fastest meal possible", "Choosing foods that are cheapest"],
+        correct: 1,
+        feedback: "Always follow the client's dietary plan and personal preferences. Some clients have serious restrictions due to medical conditions like diabetes, kidney disease, or allergies."
+      },
+      {
+        q: "Reminding a client to take their medication is:",
+        options: ["Prohibited for all DCWs", "Only allowed if the nurse is present", "An IADL task that may be authorized in the care plan", "The same as administering medication"],
+        correct: 2,
+        feedback: "Medication reminders (prompting a client to take their own medication) are an IADL that may be authorized. Medication administration is a separate, clinical task that requires certification."
+      }
+    ]
+  },
+  {
+    id: 'recognizing-changes',
+    title: 'Recognizing & Reporting Changes',
+    type: 'new-hire',
+    typeBadge: 'New Hire Orientation',
+    badgeClass: 'badge-new-hire',
+    icon: '👁️',
+    duration: '~20 min',
+    regulation: '28 Pa. Code § 611.55(b)(4)',
+    content: `
+      <div class="content-section">
+        <h3>👁️ Why Observation Matters</h3>
+        <p>As a DCW, you spend more time with clients than any other member of the care team. You are often the <strong>first person to notice</strong> changes in a client's physical or mental condition. Timely reporting of these changes can prevent hospitalizations and save lives.</p>
+      </div>
+      <div class="content-section">
+        <h3>🚨 Physical Changes to Report</h3>
+        <ul>
+          <li>New or worsening pain anywhere in the body</li>
+          <li>Shortness of breath, difficulty breathing</li>
+          <li>Chest pain or pressure</li>
+          <li>Sudden weakness, dizziness, or loss of balance</li>
+          <li>Confusion, disorientation, or sudden behavior changes</li>
+          <li>High or very low body temperature / fever</li>
+          <li>Swelling in legs, ankles, or feet</li>
+          <li>New skin breakdown, pressure sores, wounds, or redness</li>
+          <li>Significant changes in appetite or weight</li>
+          <li>Difficulty swallowing or choking</li>
+          <li>Changes in urination (frequency, color, odor, pain)</li>
+          <li>Falls or near-falls</li>
+        </ul>
+      </div>
+      <div class="content-section">
+        <h3>🧠 Mental & Emotional Changes to Report</h3>
+        <ul>
+          <li>Unusual sadness, crying, or withdrawal</li>
+          <li>Statements about wanting to die or self-harm</li>
+          <li>Extreme agitation, paranoia, or hallucinations</li>
+          <li>Memory lapses or worsening confusion</li>
+          <li>Refusing to eat, drink, or take medications</li>
+        </ul>
+        <div class="info-box important">
+          <div class="info-box-icon">⛔</div>
+          <div class="info-box-text"><strong>EMERGENCY:</strong> If a client is in immediate danger — unconscious, having a heart attack, not breathing, or threatening self-harm — call <strong>9-1-1 FIRST</strong>, then notify your supervisor.</div>
+        </div>
+      </div>
+      <div class="content-section">
+        <h3>📝 How to Report</h3>
+        <ol>
+          <li>Stay calm and ensure the client is safe</li>
+          <li>Document exactly what you observed — use facts, not opinions</li>
+          <li>Contact your supervisor as soon as possible</li>
+          <li>Follow all instructions from your supervisor</li>
+          <li>Complete required incident documentation</li>
+        </ol>
+        <div class="info-box tip">
+          <div class="info-box-icon">💡</div>
+          <div class="info-box-text">Write down what you <em>see, hear, and smell</em> — not what you think or guess. Example: "Client's right leg appears swollen and red" is better than "Client looks sick."</div>
+        </div>
+      </div>
+    `,
+    questions: [
+      {
+        q: "Your client suddenly becomes very confused and cannot remember where they are. You should:",
+        options: ["Wait until your shift ends to report it", "Reassure the client and report the change to your supervisor immediately", "Assume the client is just tired and continue your work", "Ask a neighbor if this is normal for the client"],
+        correct: 1,
+        feedback: "Sudden confusion can be a sign of a serious condition such as stroke, infection, or medication issue. Report changes immediately to your supervisor."
+      },
+      {
+        q: "Which of the following should you report to your supervisor?",
+        options: ["The client's favorite TV show", "New redness on the client's heel that wasn't there yesterday", "The client's usual lunch preference", "The client's daily schedule"],
+        correct: 1,
+        feedback: "New skin redness, especially over bony areas, can be the beginning of a pressure sore and must be reported immediately."
+      },
+      {
+        q: "When documenting a change in a client's condition, you should write:",
+        options: ["Your personal opinion about what caused the change", "Only what you think will be easiest to understand", "Objective facts about what you observed", "Whatever your client tells you to write"],
+        correct: 2,
+        feedback: "Documentation must be objective and factual. Write what you see, hear, and observe — not interpretations or opinions."
+      },
+      {
+        q: "Your client falls and is conscious but complaining of hip pain. What is the first action?",
+        options: ["Help the client up immediately", "Call 9-1-1 and notify your supervisor", "Wait to see if the pain improves", "Document the fall and continue your shift"],
+        correct: 1,
+        feedback: "Do NOT move a client who has fallen and may have a serious injury. Call 9-1-1 first, then notify your supervisor. Moving the client could worsen an injury."
+      },
+      {
+        q: "You notice your client seems unusually sad and mentions they don't see the point of living. You should:",
+        options: ["Change the subject to cheer them up", "Report this statement to your supervisor immediately", "Assume this is normal for older people", "Wait to see if they say it again"],
+        correct: 1,
+        feedback: "Any statement about not wanting to live or self-harm must be taken seriously and reported to your supervisor immediately."
+      }
+    ]
+  },
+  {
+    id: 'infection-control',
+    title: 'Infection Control & Universal Precautions',
+    type: 'new-hire',
+    typeBadge: 'New Hire Orientation',
+    badgeClass: 'badge-new-hire',
+    icon: '🦠',
+    duration: '~25 min',
+    regulation: '28 Pa. Code § 611.55(b)(5) & (6)',
+    content: `
+      <div class="content-section">
+        <h3>🦠 How Infections Spread</h3>
+        <p>Infections can spread through <strong>direct contact</strong> (touching), <strong>droplets</strong> (coughing/sneezing), <strong>airborne particles</strong>, <strong>contaminated surfaces</strong>, and <strong>blood/body fluids</strong>. DCWs must take steps to prevent spreading illness to and from clients.</p>
+      </div>
+      <div class="content-section">
+        <h3>🙌 Proper Handwashing (Most Important Prevention Tool)</h3>
+        <ol>
+          <li>Wet hands with clean, running water</li>
+          <li>Apply soap and lather for at least <strong>20 seconds</strong></li>
+          <li>Scrub backs of hands, between fingers, and under nails</li>
+          <li>Rinse thoroughly</li>
+          <li>Dry with a clean towel or air dry</li>
+        </ol>
+        <p><strong>When to wash hands:</strong> before and after client care, after using the bathroom, before food preparation, after removing gloves, after coughing or sneezing, and when arriving or leaving the client's home.</p>
+      </div>
+      <div class="content-section">
+        <h3>🧤 Universal Precautions</h3>
+        <p><strong>Universal Precautions</strong> means treating all blood and body fluids as potentially infectious, regardless of the client's diagnosis or history. This protects both you and the client.</p>
+        <ul>
+          <li>Always wear gloves when handling blood, urine, feces, vomit, wound drainage, or other body fluids</li>
+          <li>Wear a mask if the client has a respiratory illness</li>
+          <li>Dispose of soiled materials in appropriate bags immediately</li>
+          <li>Never recap needles — dispose in a sharps container if applicable</li>
+          <li>Change gloves between tasks and never reuse gloves</li>
+        </ul>
+        <div class="info-box tip">
+          <div class="info-box-icon">💡</div>
+          <div class="info-box-text">If you don't have gloves and a situation requires them, improvise barriers (plastic bags) and get proper PPE as soon as possible.</div>
+        </div>
+      </div>
+      <div class="content-section">
+        <h3>🏠 Keeping the Home Clean</h3>
+        <ul>
+          <li>Clean and disinfect surfaces that are frequently touched (doorknobs, faucets, remote controls)</li>
+          <li>Launder soiled items promptly in hot water</li>
+          <li>Do not mix client laundry with your own</li>
+          <li>Empty and clean trash regularly</li>
+          <li>Store food properly to prevent contamination</li>
+        </ul>
+        <div class="info-box important">
+          <div class="info-box-icon">⛔</div>
+          <div class="info-box-text"><strong>If you are sick</strong> (fever, vomiting, diarrhea, active rash, known contagious illness), notify your supervisor and do NOT report to work.</div>
+        </div>
+      </div>
+    `,
+    questions: [
+      {
+        q: "Universal Precautions means:",
+        options: ["Only using gloves with clients you know have infections", "Treating all blood and body fluids as potentially infectious for all clients", "Wearing a mask every time you enter a client's home", "Only washing hands when visibly dirty"],
+        correct: 1,
+        feedback: "Universal Precautions require treating all blood and body fluids as potentially infectious, regardless of the client's known health status. This protects both you and the client."
+      },
+      {
+        q: "How long should you scrub when washing your hands?",
+        options: ["5 seconds", "10 seconds", "20 seconds", "Only until the soap is rinsed off"],
+        correct: 2,
+        feedback: "The CDC recommends scrubbing hands with soap for at least 20 seconds — about the time it takes to hum the 'Happy Birthday' song twice."
+      },
+      {
+        q: "You should wear gloves when:",
+        options: ["Only when asked by the client", "Handling any blood, urine, feces, or body fluids", "Only when the client has a known infection", "Just for your personal preference"],
+        correct: 1,
+        feedback: "Gloves must be worn whenever there is risk of contact with blood or body fluids, regardless of whether a client has a known diagnosis."
+      },
+      {
+        q: "You wake up with a fever and stomach virus on the morning of your shift. You should:",
+        options: ["Go to work and wear a mask", "Call your supervisor and stay home", "Take some medicine and wait to see if you feel better before going", "Go to work but avoid touching the client"],
+        correct: 1,
+        feedback: "If you are ill with a contagious condition, you must call your supervisor and stay home to protect your client, who may be medically fragile."
+      },
+      {
+        q: "After removing soiled gloves, you should:",
+        options: ["Reuse them if they look clean", "Wash your hands immediately", "Put them in your pocket for later disposal", "Rinse them for reuse with the same client"],
+        correct: 1,
+        feedback: "Gloves are single-use only. After removing them, wash your hands immediately. Reusing gloves or putting them in your pocket risks spreading contamination."
+      }
+    ]
+  },
+  {
+    id: 'emergencies-abuse',
+    title: 'Emergencies, Documentation & Abuse Reporting',
+    type: 'new-hire',
+    typeBadge: 'New Hire Orientation',
+    badgeClass: 'badge-new-hire',
+    icon: '🚨',
+    duration: '~25 min',
+    regulation: '28 Pa. Code § 611.55(b)(7)-(10)',
+    content: `
+      <div class="content-section">
+        <h3>🚨 Handling Emergencies</h3>
+        <p>Emergencies can happen at any time. Your response in the first moments can make a life-or-death difference.</p>
+        <div class="info-box important">
+          <div class="info-box-icon">🚑</div>
+          <div class="info-box-text"><strong>Emergency Protocol:</strong> (1) Ensure scene safety. (2) Call 9-1-1. (3) Notify your supervisor. (4) Stay with the client until help arrives. (5) Document the incident.</div>
+        </div>
+        <h4 style="margin:12px 0 6px;font-size:14px;font-weight:700;">Common Emergencies:</h4>
+        <ul>
+          <li><strong>Unresponsive client</strong> — Call 9-1-1. Begin CPR if trained.</li>
+          <li><strong>Fall</strong> — Do not move the client. Call 9-1-1 if injured. Notify supervisor.</li>
+          <li><strong>Chest pain / stroke symptoms</strong> — Call 9-1-1 immediately. (FAST: Face drooping, Arm weakness, Speech difficulty, Time to call 9-1-1)</li>
+          <li><strong>Severe allergic reaction</strong> — Call 9-1-1. Locate EpiPen if prescribed.</li>
+          <li><strong>Fire</strong> — Evacuate first, then call 911. Do not use elevator.</li>
+          <li><strong>Choking</strong> — Perform Heimlich maneuver if trained; call 9-1-1.</li>
+        </ul>
+      </div>
+      <div class="content-section">
+        <h3>📝 Documentation</h3>
+        <p>Accurate documentation is a legal and regulatory requirement. You must document:</p>
+        <ul>
+          <li>Services provided during each visit (with times)</li>
+          <li>Client's mood, condition, and any changes observed</li>
+          <li>Any incidents, refusals, or unusual events</li>
+          <li>Vital signs if you are trained and authorized to take them</li>
+          <li>Use Electronic Visit Verification (EVV) as required in Pennsylvania CHC/Medicaid programs</li>
+        </ul>
+        <div class="info-box tip">
+          <div class="info-box-icon">💡</div>
+          <div class="info-box-text">Good documentation rule: <strong>"If it wasn't documented, it didn't happen."</strong> Always document accurately and never alter records.</div>
+        </div>
+      </div>
+      <div class="content-section">
+        <h3>🛡️ Recognizing & Reporting Abuse and Neglect</h3>
+        <p>Pennsylvania law <strong>requires</strong> DCWs to report suspected abuse or neglect of adults in care. Failure to report is a criminal offense.</p>
+        <h4 style="margin:12px 0 6px;font-size:14px;font-weight:700;">Types of Abuse:</h4>
+        <ul>
+          <li><strong>Physical abuse</strong> — hitting, pushing, restraining, or any physical harm</li>
+          <li><strong>Emotional/psychological abuse</strong> — threatening, humiliating, yelling, or isolating</li>
+          <li><strong>Sexual abuse</strong> — any non-consensual sexual contact</li>
+          <li><strong>Financial exploitation</strong> — stealing money, property, or manipulating finances</li>
+          <li><strong>Neglect</strong> — failing to provide needed care (food, water, medication, hygiene)</li>
+          <li><strong>Self-neglect</strong> — when a client refuses care that puts them at risk</li>
+        </ul>
+        <h4 style="margin:12px 0 6px;font-size:14px;font-weight:700;">Warning Signs:</h4>
+        <ul>
+          <li>Unexplained bruises, burns, or injuries</li>
+          <li>Client appears fearful, anxious, or withdrawn</li>
+          <li>Poor hygiene or malnutrition despite adequate resources</li>
+          <li>Client reports mistreatment</li>
+          <li>Caregiver is aggressive, controlling, or isolating</li>
+        </ul>
+        <div class="info-box important">
+          <div class="info-box-icon">⛔</div>
+          <div class="info-box-text"><strong>Report suspected abuse to your supervisor immediately.</strong> If you believe a client is in immediate danger, call 9-1-1. Pennsylvania Adult Protective Services: <strong>1-800-490-8505</strong>. You may also report anonymously.</div>
+        </div>
+      </div>
+      <div class="content-section">
+        <h3>🧠 Dealing with Difficult Behaviors</h3>
+        <p>Clients with dementia, mental illness, or brain injuries may exhibit challenging behaviors. Tips:</p>
+        <ul>
+          <li>Stay calm — your tone affects the client's behavior</li>
+          <li>Use simple, clear language</li>
+          <li>Redirect attention to something positive</li>
+          <li>Never argue with or correct a client who has dementia</li>
+          <li>Never restrain a client without specific training and authorization</li>
+          <li>Document the behavior and notify your supervisor</li>
+        </ul>
+      </div>
+    `,
+    questions: [
+      {
+        q: "Your client is unconscious and not breathing. What is the FIRST action?",
+        options: ["Call your supervisor", "Call 9-1-1 immediately", "Wait a few minutes to see if the client wakes up", "Check the care plan for instructions"],
+        correct: 1,
+        feedback: "An unresponsive, non-breathing client is a medical emergency. Call 9-1-1 immediately. Begin CPR if you are trained to do so."
+      },
+      {
+        q: "Under Pennsylvania law, if you suspect a client is being abused, you:",
+        options: ["Are encouraged but not required to report it", "Must report it; failure to report is a crime", "Should only report if you see it happen directly", "Should wait for your supervisor to bring it up"],
+        correct: 1,
+        feedback: "Pennsylvania law mandates that home care workers report suspected abuse or neglect. Failure to report is a criminal offense."
+      },
+      {
+        q: "Which of the following is an example of financial exploitation?",
+        options: ["Keeping receipts for all purchases", "Taking money from a client's wallet without permission", "Reminding a client of their bill payment schedule", "Reporting a client's financial concerns to a supervisor"],
+        correct: 1,
+        feedback: "Taking money or property from a client without authorization is financial exploitation — a form of abuse and a crime."
+      },
+      {
+        q: "When documenting services provided, you should:",
+        options: ["Document only if something unusual happened", "Accurately record all services, times, and observations", "Let someone else fill in your records later", "Document whatever takes the least time"],
+        correct: 1,
+        feedback: "Accurate, timely documentation of all services and observations is a legal requirement and protects both the client and the DCW."
+      },
+      {
+        q: "A client with dementia becomes agitated and starts yelling. The best response is:",
+        options: ["Raise your voice so they understand you are serious", "Restrain the client to keep them safe", "Stay calm, speak gently, and try to redirect their attention", "Leave the home and call 9-1-1"],
+        correct: 2,
+        feedback: "With clients who have dementia, staying calm and redirecting attention is the most effective response. Arguing, raising your voice, or restraining the client will worsen the situation."
+      }
+    ]
+  },
+
+  // ---- PERSONAL CARE MODULE ----
+  {
+    id: 'personal-care',
+    title: 'Personal Care Skills (ADLs)',
+    type: 'personal-care',
+    typeBadge: 'Personal Care (Required for ADL Services)',
+    badgeClass: 'badge-personal-care',
+    icon: '🛁',
+    duration: '~30 min',
+    regulation: '28 Pa. Code § 611.55(c)',
+    content: `
+      <div class="content-section">
+        <h3>🛁 Bathing, Shaving, Grooming & Dressing</h3>
+        <p>Personal care assistance requires skill, sensitivity, and respect for the client's dignity and privacy. Always explain what you are going to do before doing it and ask for the client's preferences.</p>
+        <ul>
+          <li><strong>Bathing:</strong> Test water temperature (comfortable: ~100–105°F/38–40°C). Use bath seat or grab bars as needed. Never leave client unattended in the tub or shower. Pat dry thoroughly, especially between skin folds.</li>
+          <li><strong>Shaving:</strong> Use only an electric razor unless the client specifically requests a blade and is capable of participating safely. Shave in the direction of hair growth.</li>
+          <li><strong>Grooming:</strong> Assist with combing hair per client's preference. Keep nails clean (nail cutting requires clinical authorization in most agencies — verify with supervisor).</li>
+          <li><strong>Dressing:</strong> Allow client to choose their own clothing. Dress affected (weaker) side first; undress affected side last. Allow time for the client to participate as much as possible.</li>
+        </ul>
+        <div class="info-box tip"><div class="info-box-icon">💡</div><div class="info-box-text">Always knock and announce yourself before entering a room where the client is undressed. Maintain privacy with a sheet or towel during care.</div></div>
+      </div>
+      <div class="content-section">
+        <h3>💇 Hair, Skin & Mouth Care</h3>
+        <ul>
+          <li><strong>Hair care:</strong> Brush/comb gently, following the client's style preferences. Use products the client provides.</li>
+          <li><strong>Skin care:</strong> Inspect skin daily for redness, breakdown, or rashes. Apply lotion as directed. Report any new skin issues immediately.</li>
+          <li><strong>Mouth care:</strong> Assist with brushing teeth or denture care at least twice daily. If client cannot brush independently, assist using a soft toothbrush. Good oral hygiene prevents infection.</li>
+        </ul>
+      </div>
+      <div class="content-section">
+        <h3>🚶 Ambulation & Transfers</h3>
+        <p>Transfers are among the highest-risk activities for both clients and DCWs. Proper technique prevents falls and back injuries.</p>
+        <ul>
+          <li><strong>Body mechanics:</strong> Bend at the hips and knees — never your back. Keep the client close to your body. Widen your stance for stability.</li>
+          <li><strong>Never lift alone</strong> what requires two people — request assistance or use a mechanical lift device.</li>
+          <li><strong>Gait belt:</strong> Use a gait belt when ambulating clients who are unsteady. Apply at the waist, over clothing.</li>
+          <li><strong>Wheelchair transfers:</strong> Lock wheels, remove footrests, position yourself close, and guide the client through the movement with their participation.</li>
+          <li><strong>Bed mobility:</strong> Use drawsheets and mechanical aids as directed. Check care plan for specific instructions.</li>
+        </ul>
+        <div class="info-box warn"><div class="info-box-icon">⚠️</div><div class="info-box-text">Never attempt a two-person transfer alone. If uncertain about a transfer technique, contact your supervisor before proceeding.</div></div>
+      </div>
+      <div class="content-section">
+        <h3>🍽️ Meal Preparation & Feeding</h3>
+        <ul>
+          <li>Follow all dietary restrictions (low-sodium, diabetic, pureed, thickened liquids, etc.)</li>
+          <li>Offer small, frequent meals if recommended</li>
+          <li>When assisting with feeding: sit at eye level, offer small bites, allow time to chew and swallow</li>
+          <li>Watch for choking — especially clients with dysphagia (swallowing difficulty)</li>
+          <li>Document food and fluid intake as required</li>
+        </ul>
+      </div>
+      <div class="content-section">
+        <h3>🚽 Toileting</h3>
+        <ul>
+          <li>Assist clients to the bathroom promptly and with dignity</li>
+          <li>Use proper technique for bedpan, commode, or urinal as directed</li>
+          <li>Perform perineal care front to back (to prevent infection)</li>
+          <li>Dispose of waste properly per infection control procedures</li>
+          <li>Document any concerns about urination or bowel function</li>
+        </ul>
+      </div>
+      <div class="content-section">
+        <h3>💊 Assistance with Self-Administered Medications</h3>
+        <p>DCWs may assist clients with <em>self-administered</em> medications (not administration). This means:</p>
+        <ul>
+          <li>Reminding the client when it is time for medication</li>
+          <li>Handing the client a pre-filled medication container (not opening or preparing medications)</li>
+          <li>Observing that the client has taken their medication as scheduled</li>
+        </ul>
+        <div class="info-box important"><div class="info-box-icon">⛔</div><div class="info-box-text"><strong>DCWs may NOT crush, cut, or prepare medications. They may NOT administer medications by any route.</strong> Only licensed nurses or certified medication assistants may do this. If a client requires medication administration beyond self-administration, notify your supervisor.</div></div>
+      </div>
+    `,
+    questions: [
+      {
+        q: "When dressing a client who has weakness on their left side, you should:",
+        options: ["Dress the right (stronger) side first", "Dress the left (weaker) side first", "It does not matter which side you dress first", "Ask the client to dress themselves completely"],
+        correct: 1,
+        feedback: "Always dress the affected/weaker side first to minimize discomfort and awkward movement. When undressing, remove the unaffected (stronger) side first."
+      },
+      {
+        q: "When transferring a client from bed to wheelchair, the most important safety step is:",
+        options: ["Move as quickly as possible", "Lock the wheelchair brakes before the transfer", "Keep the client's feet on the bed during transfer", "Complete the transfer without a gait belt"],
+        correct: 1,
+        feedback: "Locking wheelchair brakes prevents the chair from rolling during the transfer, which is a major fall risk. Always lock brakes before any transfer."
+      },
+      {
+        q: "As a DCW, you are authorized to:",
+        options: ["Crush medications and mix them in food if the client has difficulty swallowing", "Remind the client when to take their medication", "Open and prepare the client's medications", "Administer medications by injection"],
+        correct: 1,
+        feedback: "DCWs may remind clients when to take medications and hand them a pre-filled medication container. Preparing, crushing, or administering medications requires nursing licensure or certification."
+      },
+      {
+        q: "When assisting a client with eating, you should:",
+        options: ["Feed the client as quickly as possible to save time", "Offer large bites to reduce the number of bites needed", "Sit at the client's eye level and offer small bites, allowing time to chew", "Stand while assisting to be ready if an emergency occurs"],
+        correct: 2,
+        feedback: "Sitting at eye level shows respect and allows you to monitor the client for choking. Small bites and adequate time to chew and swallow reduce choking risk."
+      },
+      {
+        q: "Perineal care should always be performed:",
+        options: ["Back to front for efficiency", "Front to back to prevent infection", "Only when the client asks for it", "By a nurse only"],
+        correct: 1,
+        feedback: "Perineal care must always be performed front to back to prevent bacteria from the rectal area from contaminating the urinary tract, which causes UTIs."
+      }
+    ]
+  },
+
+  // ---- ANNUAL TRAINING MODULES ----
+  {
+    id: 'annual-dementia',
+    title: 'Annual Training: Dementia & Mental Health Care',
+    type: 'annual',
+    typeBadge: 'Annual Training',
+    badgeClass: 'badge-annual',
+    icon: '🧠',
+    duration: '~25 min',
+    regulation: '28 Pa. Code § 611.55(e); 55 Pa. Code §§ 2600.65(f), 2800.65(i)',
+    content: `
+      <div class="content-section">
+        <h3>🧠 Understanding Dementia</h3>
+        <p><strong>Dementia</strong> is a group of conditions characterized by a decline in memory, language, problem-solving, and other cognitive functions severe enough to interfere with daily life. Alzheimer's disease is the most common type.</p>
+        <p>Dementia is <strong>not a normal part of aging</strong>. It is a disease that progressively impairs the brain.</p>
+        <h4 style="margin:12px 0 6px;font-size:14px;font-weight:700;">Stages of Dementia:</h4>
+        <ul>
+          <li><strong>Early stage:</strong> Occasional memory lapses, difficulty with complex tasks, personality changes</li>
+          <li><strong>Middle stage:</strong> Significant memory loss, confusion about time/place, needs help with ADLs, behavioral changes</li>
+          <li><strong>Late stage:</strong> Loses ability to communicate verbally, requires total care, very vulnerable to infection</li>
+        </ul>
+      </div>
+      <div class="content-section">
+        <h3>💬 Communicating with Clients Who Have Dementia</h3>
+        <ul>
+          <li>Use short, simple sentences with one instruction at a time</li>
+          <li>Speak slowly and calmly; maintain eye contact</li>
+          <li>Use the client's preferred name</li>
+          <li>Do not argue or correct if the client says something untrue — redirect instead</li>
+          <li>Use nonverbal communication: gentle touch, smiles, gestures</li>
+          <li>Approach from the front — never startle a client from behind</li>
+        </ul>
+        <div class="info-box tip"><div class="info-box-icon">💡</div><div class="info-box-text">If a client with dementia believes it is 1975 and their mother is coming for dinner, do not correct them. Redirect to a positive activity instead. Reality orientation can cause distress.</div></div>
+      </div>
+      <div class="content-section">
+        <h3>🧩 Managing Behavioral Symptoms</h3>
+        <ul>
+          <li><strong>Wandering:</strong> Ensure exits are secured; use visual cues. Report to supervisor.</li>
+          <li><strong>Sundowning:</strong> Increased confusion in the late afternoon/evening. Maintain consistent routine and calm environment.</li>
+          <li><strong>Aggression:</strong> Stay calm, give space, redirect. Never retaliate or restrain.</li>
+          <li><strong>Repetitive questions:</strong> Answer calmly each time or redirect to an activity.</li>
+        </ul>
+      </div>
+      <div class="content-section">
+        <h3>💙 Mental Health Awareness</h3>
+        <p>Many home care clients experience depression, anxiety, or other mental health conditions. Signs of depression include persistent sadness, loss of interest, changes in sleep/appetite, and withdrawal from social activities.</p>
+        <ul>
+          <li>Be compassionate and non-judgmental</li>
+          <li>Encourage social interaction and meaningful activities</li>
+          <li>Report significant mood changes or suicidal statements immediately</li>
+          <li>Never dismiss mental health concerns as "just part of getting old"</li>
+        </ul>
+      </div>
+    `,
+    questions: [
+      {
+        q: "A client with dementia tells you that their mother is coming over today, though their mother passed away years ago. The best response is:",
+        options: ["Firmly correct the client and explain their mother passed away", "Redirect the client to a pleasant activity", "Tell the client their memory is not working well today", "Call the supervisor because the client is confused"],
+        correct: 1,
+        feedback: "Correcting a person with dementia about something they believe causes distress without benefit. Gentle redirection to an activity or topic they enjoy is the best approach."
+      },
+      {
+        q: "Sundowning in dementia refers to:",
+        options: ["A client who sleeps during the day", "Increased confusion and agitation in the late afternoon or evening", "A client who wakes up very early", "The final stage of Alzheimer's disease"],
+        correct: 1,
+        feedback: "Sundowning is a pattern of increased confusion, agitation, or restlessness that typically occurs in the late afternoon or evening in people with dementia."
+      },
+      {
+        q: "Which communication technique is best when speaking with a client who has dementia?",
+        options: ["Use long, detailed explanations", "Speak loudly so they understand", "Give one simple instruction at a time, calmly and clearly", "Use complex vocabulary to engage their brain"],
+        correct: 2,
+        feedback: "Short, simple instructions delivered calmly and clearly are most effective for people with dementia. Overloading them with information increases confusion and anxiety."
+      },
+      {
+        q: "Signs of depression in a home care client include:",
+        options: ["Increased energy and talkativeness", "Persistent sadness, withdrawal, and loss of interest in activities", "Improved sleep and appetite", "Increased interest in social activities"],
+        correct: 1,
+        feedback: "Depression signs include persistent sadness, withdrawal, loss of interest in previously enjoyed activities, and changes in sleep and appetite. These should be reported to your supervisor."
+      },
+      {
+        q: "A client with dementia becomes agitated and starts swinging their arms. You should:",
+        options: ["Restrain their arms to prevent injury", "Get angry and tell them to stop", "Give them space, stay calm, and try gentle redirection", "Leave the home immediately"],
+        correct: 2,
+        feedback: "Never restrain or argue with an agitated client. Give them space, maintain a calm tone, and try to redirect their attention to something soothing or familiar."
+      }
+    ]
+  },
+  {
+    id: 'annual-fire-safety',
+    title: 'Annual Training: Fire Safety, Infection Control & Wellness',
+    type: 'annual',
+    typeBadge: 'Annual Training',
+    badgeClass: 'badge-annual',
+    icon: '🔥',
+    duration: '~20 min',
+    regulation: '55 Pa. Code §§ 2600.65(g), 2800.65(j); 28 Pa. Code § 611.55(e)',
+    content: `
+      <div class="content-section">
+        <h3>🔥 Fire Safety in the Home</h3>
+        <p>Pennsylvania regulations require annual fire safety training for all DCWs. Home fires are a serious risk for elderly and disabled individuals who may not be able to self-evacuate.</p>
+        <ul>
+          <li><strong>Prevention:</strong> Never leave cooking unattended. Keep flammable materials away from heat sources. Check that smoke detectors work. Supervise smoking (if permitted).</li>
+          <li><strong>RACE Protocol:</strong> <strong>R</strong>escue (move client away from danger), <strong>A</strong>lert (call 9-1-1 and announce the fire), <strong>C</strong>onfine (close doors to slow fire spread), <strong>E</strong>vacuate (exit the building).</li>
+          <li><strong>Never use an elevator</strong> in a fire emergency</li>
+          <li><strong>Never re-enter</strong> a burning building</li>
+          <li>Know the designated emergency exit and meeting point for each client's home</li>
+        </ul>
+        <div class="info-box important"><div class="info-box-icon">⛔</div><div class="info-box-text">Clients may be unable to self-evacuate. Always plan ahead: know the fastest exit route and whether any mobility equipment (wheelchair, walker) will be needed.</div></div>
+      </div>
+      <div class="content-section">
+        <h3>🦠 Annual Infection Control Update</h3>
+        <ul>
+          <li>Stay current with flu vaccines and other recommended immunizations</li>
+          <li>Follow current CDC guidelines for respiratory virus prevention (masking, ventilation)</li>
+          <li>Report any multi-drug-resistant organism (MRSA, C. diff) client diagnoses to your supervisor</li>
+          <li>Understand your agency's PPE protocols for isolation precautions</li>
+          <li>Disinfection best practices: use EPA-approved disinfectants on high-touch surfaces daily</li>
+        </ul>
+      </div>
+      <div class="content-section">
+        <h3>🌿 Client Wellness & Prevention</h3>
+        <ul>
+          <li><strong>Pressure ulcer prevention:</strong> Reposition bed-bound clients at least every 2 hours. Inspect bony areas (heels, hips, tailbone, elbows) at every visit.</li>
+          <li><strong>Fall prevention:</strong> Remove trip hazards, ensure adequate lighting, use mobility aids, wear non-slip footwear.</li>
+          <li><strong>Dehydration prevention:</strong> Offer fluids regularly; many elderly clients do not feel thirsty. Aim for 6–8 glasses/day unless restricted.</li>
+          <li><strong>Nutrition:</strong> Monitor food intake; report significant appetite changes.</li>
+        </ul>
+        <div class="info-box tip"><div class="info-box-icon">💡</div><div class="info-box-text">Your annual competency review per <strong>28 Pa. Code § 611.55(e)</strong> must be documented in your personnel file. This course satisfies the training component. Your supervisor will also conduct direct observation of your skills.</div></div>
+      </div>
+      <div class="content-section">
+        <h3>📋 EVV & Documentation Review</h3>
+        <p>Pennsylvania requires Electronic Visit Verification (EVV) for all Medicaid-funded home care services under the Community HealthChoices (CHC) program. Ensure you:</p>
+        <ul>
+          <li>Clock in at the start of every visit using the approved EVV method</li>
+          <li>Clock out at the end of every visit — never early clock-out</li>
+          <li>Document any missed or corrected visits through proper channels</li>
+          <li>Falsifying EVV records is fraud and grounds for immediate termination</li>
+        </ul>
+      </div>
+    `,
+    questions: [
+      {
+        q: "In a home fire, the RACE protocol stands for:",
+        options: ["Run, Alert, Climb, Exit", "Rescue, Alert, Confine, Evacuate", "React, Assess, Call, Escape", "Remove, Activate, Call, Evacuate"],
+        correct: 1,
+        feedback: "RACE = Rescue (client from immediate danger), Alert (call 9-1-1), Confine (close doors), Evacuate (exit building). This is the standard fire response protocol."
+      },
+      {
+        q: "How often should you reposition a client who is bed-bound to prevent pressure ulcers?",
+        options: ["Once per shift", "Every 4 hours", "At least every 2 hours", "Only when the client asks to be moved"],
+        correct: 2,
+        feedback: "Bed-bound clients should be repositioned at least every 2 hours to relieve pressure on bony prominences and prevent pressure ulcers."
+      },
+      {
+        q: "Electronic Visit Verification (EVV) in Pennsylvania requires you to:",
+        options: ["Only clock in if the visit is over 2 hours", "Clock in and out at the actual start and end of each visit", "Have a family member verify your hours", "Only use EVV for new clients"],
+        correct: 1,
+        feedback: "EVV requires accurate clock-in at the start and clock-out at the end of every visit. Falsifying EVV records is Medicaid fraud."
+      },
+      {
+        q: "To prevent dehydration in elderly clients, you should:",
+        options: ["Wait until the client says they are thirsty", "Offer fluids regularly throughout the visit", "Only offer water with meals", "Restrict fluids if the client has incontinence"],
+        correct: 1,
+        feedback: "Many elderly clients have a diminished sense of thirst. Offer fluids regularly throughout the visit rather than waiting to be asked."
+      },
+      {
+        q: "During a fire emergency in a multi-story building, you should:",
+        options: ["Use the elevator for faster evacuation", "Use the stairs and never the elevator", "Stay in place and wait for firefighters", "Call your supervisor before calling 9-1-1"],
+        correct: 1,
+        feedback: "Never use an elevator during a fire emergency. Elevators may malfunction, and smoke rises through elevator shafts. Always use the stairs."
+      }
+    ]
+  }
+];
+
+// ==================== STATE ====================
+let currentModule = -1;
+let completedModules = new Set();
+let moduleScores = {};
+let workerName = '';
+
+// ==================== INIT ====================
+function buildSidebar() {
+  const nav = document.getElementById('sidebarNav');
+  const sections = [
+    { label: 'New Hire Orientation', types: ['new-hire'] },
+    { label: 'Personal Care Skills', types: ['personal-care'] },
+    { label: 'Annual Training', types: ['annual'] }
+  ];
+  sections.forEach(sec => {
+    const mods = modules.filter(m => sec.types.includes(m.type));
+    if (!mods.length) return;
+    const header = document.createElement('div');
+    header.style.cssText = 'font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;color:var(--gray-500);padding:16px 4px 6px;';
+    header.textContent = sec.label;
+    nav.appendChild(header);
+    mods.forEach((mod, idx) => {
+      const globalIdx = modules.indexOf(mod);
+      const btn = document.createElement('div');
+      btn.className = 'sidebar-module';
+      btn.innerHTML = `<button class="sidebar-module-btn" id="sidebarBtn_${globalIdx}" onclick="showModule(${globalIdx})">
+        <span class="module-icon">${mod.icon}</span>
+        <span class="module-label">${mod.title}</span>
+        <span class="module-status" id="sidebarStatus_${globalIdx}">○</span>
+      </button>`;
+      nav.appendChild(btn);
+    });
+  });
+}
+
+function buildModuleCards() {
+  const container = document.getElementById('moduleCards');
+  modules.forEach((mod, idx) => {
+    const card = document.createElement('div');
+    card.className = 'module-card';
+    card.id = `module_${idx}`;
+    card.innerHTML = `
+      <div class="module-card-header">
+        <div><span class="module-type-badge ${mod.badgeClass}">${mod.typeBadge}</span></div>
+        <div class="module-number">Module ${idx + 1} of ${modules.length} &nbsp;·&nbsp; ${mod.regulation}</div>
+        <h2>${mod.icon} ${mod.title}</h2>
+        <div class="module-meta">
+          <span>⏱ ${mod.duration}</span>
+          <span>📋 ${mod.questions.length} quiz questions</span>
+          <span>✅ Pass rate: 70%</span>
+        </div>
+      </div>
+      <div class="module-card-body">
+        ${mod.content}
+        <div class="quiz-section" id="quiz_${idx}">
+          <div class="quiz-header">
+            <h3>Knowledge Check</h3>
+            <span class="quiz-badge">Required</span>
+          </div>
+          ${mod.questions.map((q, qi) => `
+            <div class="question-block" id="qblock_${idx}_${qi}">
+              <div class="question-text"><span class="question-num">Q${qi+1}.</span> ${q.q}</div>
+              <div class="options">
+                ${q.options.map((opt, oi) => `
+                  <label class="option-label" id="opt_${idx}_${qi}_${oi}">
+                    <input type="radio" name="q_${idx}_${qi}" value="${oi}"> ${opt}
+                  </label>
+                `).join('')}
+              </div>
+              <div class="feedback-box" id="feedback_${idx}_${qi}"></div>
+            </div>
+          `).join('')}
+          <div class="quiz-actions">
+            <button class="btn btn-primary" onclick="submitQuiz(${idx})">Submit Answers</button>
+            <button class="btn btn-secondary" id="retryBtn_${idx}" onclick="retryQuiz(${idx})" style="display:none;">↩ Retry Quiz</button>
+            <span class="score-display" id="scoreDisplay_${idx}"></span>
+          </div>
+          <div class="result-box" id="resultBox_${idx}"></div>
+        </div>
+        <div class="module-nav">
+          ${idx > 0 ? `<button class="btn btn-secondary" onclick="showModule(${idx-1})">← Previous</button>` : ''}
+          <button class="btn btn-primary" id="nextBtn_${idx}" onclick="nextModule(${idx})" ${completedModules.has(idx) ? '' : 'disabled'}>
+            ${idx < modules.length - 1 ? 'Next Module →' : '🎓 Get Certificate'}
+          </button>
+        </div>
+      </div>
+    `;
+    container.appendChild(card);
+  });
+}
+
+function startCourse() {
+  workerName = prompt("Please enter your full name for your certificate:", "") || "Direct Care Worker";
+  document.getElementById('welcomeScreen').classList.add('hidden');
+  buildSidebar();
+  buildModuleCards();
+  showModule(0);
+}
+
+function showModule(idx) {
+  document.querySelectorAll('.module-card').forEach(c => c.classList.remove('active'));
+  document.querySelectorAll('.sidebar-module-btn').forEach(b => b.classList.remove('active'));
+  const card = document.getElementById(`module_${idx}`);
+  if (card) { card.classList.add('active'); card.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+  const btn = document.getElementById(`sidebarBtn_${idx}`);
+  if (btn) btn.classList.add('active');
+  currentModule = idx;
+  updateProgress();
+}
+
+function submitQuiz(modIdx) {
+  const mod = modules[modIdx];
+  let correct = 0;
+  let allAnswered = true;
+
+  mod.questions.forEach((q, qi) => {
+    const selected = document.querySelector(`input[name="q_${modIdx}_${qi}"]:checked`);
+    if (!selected) { allAnswered = false; return; }
+    const selVal = parseInt(selected.value);
+    const fb = document.getElementById(`feedback_${modIdx}_${qi}`);
+
+    // Disable all options
+    document.querySelectorAll(`input[name="q_${modIdx}_${qi}"]`).forEach(r => r.disabled = true);
+    q.options.forEach((opt, oi) => {
+      const lbl = document.getElementById(`opt_${modIdx}_${qi}_${oi}`);
+      if (oi === q.correct) lbl.classList.add('correct');
+      else if (oi === selVal && selVal !== q.correct) lbl.classList.add('incorrect');
+    });
+
+    if (selVal === q.correct) {
+      correct++;
+      fb.className = 'feedback-box correct';
+      fb.textContent = '✓ ' + q.feedback;
+    } else {
+      fb.className = 'feedback-box incorrect';
+      fb.textContent = '✗ ' + q.feedback;
+      // Mark the correct answer
+      const correctLbl = document.getElementById(`opt_${modIdx}_${qi}_${q.correct}`);
+      if (correctLbl) correctLbl.classList.add('missed');
+    }
+  });
+
+  if (!allAnswered) { alert('Please answer all questions before submitting.'); return; }
+
+  const score = Math.round((correct / mod.questions.length) * 100);
+  const passed = score >= 70;
+  moduleScores[modIdx] = score;
+
+  const scoreEl = document.getElementById(`scoreDisplay_${modIdx}`);
+  scoreEl.textContent = `Score: ${correct}/${mod.questions.length} (${score}%)`;
+  scoreEl.style.color = passed ? 'var(--green)' : 'var(--red)';
+
+  const resultBox = document.getElementById(`resultBox_${modIdx}`);
+  resultBox.style.display = 'block';
+  if (passed) {
+    resultBox.className = 'result-box pass';
+    resultBox.innerHTML = `<h4>✅ Passed! (${score}%)</h4><p>Great work! You've completed this module. Continue to the next module.</p>`;
+    completedModules.add(modIdx);
+    document.getElementById(`nextBtn_${modIdx}`).disabled = false;
+    const statusEl = document.getElementById(`sidebarStatus_${modIdx}`);
+    if (statusEl) { statusEl.textContent = '✓'; document.getElementById(`sidebarBtn_${modIdx}`).classList.add('completed'); }
+  } else {
+    resultBox.className = 'result-box fail';
+    resultBox.innerHTML = `<h4>❌ Not Passed (${score}%)</h4><p>You need 70% to pass. Review the content above and try again. You may retake as many times as needed.</p>`;
+    document.getElementById(`retryBtn_${modIdx}`).style.display = 'inline-flex';
+  }
+
+  // Hide submit button
+  document.querySelector(`#quiz_${modIdx} .btn-primary`).style.display = 'none';
+  updateProgress();
+}
+
+function retryQuiz(modIdx) {
+  const mod = modules[modIdx];
+  mod.questions.forEach((q, qi) => {
+    document.querySelectorAll(`input[name="q_${modIdx}_${qi}"]`).forEach(r => { r.disabled = false; r.checked = false; });
+    q.options.forEach((opt, oi) => {
+      const lbl = document.getElementById(`opt_${modIdx}_${qi}_${oi}`);
+      lbl.className = 'option-label';
+    });
+    const fb = document.getElementById(`feedback_${modIdx}_${qi}`);
+    fb.className = 'feedback-box';
+    fb.textContent = '';
+  });
+  document.getElementById(`scoreDisplay_${modIdx}`).textContent = '';
+  document.getElementById(`resultBox_${modIdx}`).style.display = 'none';
+  document.getElementById(`retryBtn_${modIdx}`).style.display = 'none';
+  document.querySelector(`#quiz_${modIdx} .btn-primary`).style.display = 'inline-flex';
+}
+
+function nextModule(modIdx) {
+  if (modIdx < modules.length - 1) {
+    showModule(modIdx + 1);
+  } else {
+    showCertificate();
+  }
+}
+
+function showCertificate() {
+  document.querySelectorAll('.module-card').forEach(c => c.classList.remove('active'));
+  const cert = document.getElementById('certScreen');
+  cert.classList.add('visible');
+  cert.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  document.getElementById('certName').textContent = workerName;
+  const today = new Date();
+  document.getElementById('certDate').textContent = `Completed: ${today.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}`;
+}
+
+function updateProgress() {
+  const total = modules.length;
+  const done = completedModules.size;
+  const pct = Math.round((done / total) * 100);
+  document.getElementById('progressFill').style.width = pct + '%';
+  document.getElementById('progressLabel').textContent = `${done} / ${total} Complete`;
+}
+
+function restartCourse() {
+  completedModules = new Set();
+  moduleScores = {};
+  currentModule = -1;
+  document.getElementById('certScreen').classList.remove('visible');
+  document.getElementById('welcomeScreen').classList.remove('hidden');
+  document.getElementById('moduleCards').innerHTML = '';
+  document.getElementById('sidebarNav').innerHTML = '';
+  updateProgress();
+  window.scrollTo(0, 0);
+}
+</script>
+
+</body>
+</html>
