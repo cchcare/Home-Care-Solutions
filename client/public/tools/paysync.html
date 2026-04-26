@@ -636,6 +636,61 @@ input.finput::placeholder { color: var(--text3); }
 .le.w .msg { color: var(--gold); }
 .le.e .msg { color: var(--red); }
 
+/* ── PROGRESS INDICATOR ── */
+#processingIndicator {
+  display: none;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 20px 24px;
+  align-items: center;
+  gap: 18px;
+}
+#processingIndicator.visible {
+  display: flex;
+}
+.proc-spinner {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border: 3px solid var(--border2);
+  border-top-color: var(--teal);
+  border-radius: 50%;
+  animation: proc-spin 0.75s linear infinite;
+}
+@keyframes proc-spin {
+  to { transform: rotate(360deg); }
+}
+.proc-info {
+  flex: 1;
+  min-width: 0;
+}
+.proc-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 8px;
+}
+.proc-bar-track {
+  height: 5px;
+  background: var(--border);
+  border-radius: 99px;
+  overflow: hidden;
+}
+.proc-bar-fill {
+  height: 100%;
+  border-radius: 99px;
+  background: linear-gradient(90deg, var(--teal), var(--teal2));
+  width: 30%;
+  animation: proc-sweep 1.4s ease-in-out infinite;
+  transform-origin: left;
+}
+@keyframes proc-sweep {
+  0%   { margin-left: 0%;   width: 30%; }
+  50%  { margin-left: 55%;  width: 35%; }
+  100% { margin-left: 0%;   width: 30%; }
+}
+
 /* ── WARN BOX ── */
 .warn-alert {
   background: rgba(255,77,106,0.06);
@@ -1188,6 +1243,17 @@ td.status-ssn {
       </div>
     </div>
 
+    <!-- Progress Indicator -->
+    <div id="processingIndicator">
+      <div class="proc-spinner"></div>
+      <div class="proc-info">
+        <div class="proc-label" id="procLabel">Processing payroll data…</div>
+        <div class="proc-bar-track">
+          <div class="proc-bar-fill"></div>
+        </div>
+      </div>
+    </div>
+
     <!-- Log -->
     <div class="log-panel">
       <div class="log-head">
@@ -1578,6 +1644,15 @@ function loadHHA(input, slot) {
 
 // ═══════════════════ PROCESS ═══════════════════
 function runProcess() {
+  const _pi = document.getElementById('processingIndicator');
+  if (!_pi.classList.contains('visible')) {
+    _pi.classList.add('visible');
+    document.getElementById('genBtn').disabled = true;
+    setTimeout(runProcess, 32);
+    return;
+  }
+
+  try {
   lg('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'i');
   lg('Starting payroll processing...', 'i');
 
@@ -1977,6 +2052,10 @@ function runProcess() {
       lg('  ℹ No CM Pay column detected — CM Pay Sheet will be empty', 'w');
     }
     lg('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'i');
+  }
+  } finally {
+    _pi.classList.remove('visible');
+    tick();
   }
 }
 
