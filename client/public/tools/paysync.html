@@ -566,6 +566,14 @@ input.finput::placeholder { color: var(--text3); }
     transform: translateY(0);
   }
 }
+.stat-card.card-animate {
+  animation: summaryCardIn 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.stat-card.card-animate:nth-child(1) { animation-delay: 0ms; }
+.stat-card.card-animate:nth-child(2) { animation-delay: 80ms; }
+.stat-card.card-animate:nth-child(3) { animation-delay: 160ms; }
+.stat-card.card-animate:nth-child(4) { animation-delay: 240ms; }
+.stat-card.card-animate:nth-child(5) { animation-delay: 320ms; }
 .summary-stat-card.card-animate {
   animation: summaryCardIn 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
@@ -1275,6 +1283,21 @@ td.status-ssn {
 </div>
 
 <script>
+// ═══════════════════ HELPERS ═══════════════════
+function animateCount(el, target, suffix, duration, decimals) {
+  const start = performance.now();
+  const precision = (decimals !== undefined) ? decimals : (Number.isInteger(target) ? 0 : 1);
+  function step(now) {
+    const elapsed = now - start;
+    const progress = Math.min(elapsed / duration, 1);
+    const eased = 1 - Math.pow(1 - progress, 3);
+    const current = eased * target;
+    el.textContent = current.toFixed(precision) + suffix;
+    if (progress < 1) requestAnimationFrame(step);
+  }
+  requestAnimationFrame(step);
+}
+
 // ═══════════════════ STATE ═══════════════════
 const S = {
   mode: 'single',
@@ -1685,22 +1708,21 @@ function runProcess() {
   const totOT  = output.reduce((s, r) => s + r.otHrs, 0);
   const totReg = output.reduce((s, r) => s + r.regHrs, 0);
 
-  // Stats
-  const updateStat = (id, val) => {
-    const el = document.getElementById(id);
-    if (el) el.textContent = val;
-  };
-  updateStat('st-total',     Object.keys(grouped).length);
-  updateStat('st-matched',   output.length);
-  updateStat('st-unmatched', unmatched.size);
-  updateStat('st-reg',       totReg.toFixed(1));
-  updateStat('st-ot',        totOT.toFixed(1));
-
-  // Animate stat cards
+  // Stats — animate cards in and count up values
   ['sc1','sc2','sc3','sc4','sc5'].forEach(id => {
     const el = document.getElementById(id);
-    if (el) el.classList.add('has-data');
+    if (el) {
+      el.classList.remove('card-animate');
+      void el.offsetWidth;
+      el.classList.add('has-data', 'card-animate');
+    }
   });
+  const countDuration = 600;
+  animateCount(document.getElementById('st-total'),     Object.keys(grouped).length, '', countDuration);
+  animateCount(document.getElementById('st-matched'),   output.length,               '', countDuration);
+  animateCount(document.getElementById('st-unmatched'), unmatched.size,              '', countDuration);
+  animateCount(document.getElementById('st-reg'),       totReg,                      '', countDuration, 1);
+  animateCount(document.getElementById('st-ot'),        totOT,                       '', countDuration, 1);
 
   // Unmatched warning
   const wb2 = document.getElementById('warnBox');
@@ -1910,21 +1932,6 @@ function runProcess() {
         el.classList.add('has-data', 'card-animate');
       });
       sumRow.style.display = 'grid';
-
-      // Counter animation helper
-      function animateCount(el, target, suffix, duration) {
-        const start = performance.now();
-        function step(now) {
-          const elapsed = now - start;
-          const progress = Math.min(elapsed / duration, 1);
-          // ease-out cubic
-          const eased = 1 - Math.pow(1 - progress, 3);
-          const current = Math.round(eased * target);
-          el.textContent = current + suffix;
-          if (progress < 1) requestAnimationFrame(step);
-        }
-        requestAnimationFrame(step);
-      }
 
       const countDuration = 600;
       animateCount(document.getElementById('st-sum-matched'),   sumMatched,   '', countDuration);
