@@ -1247,12 +1247,18 @@ td.status-ssn {
     </div>
 
     <!-- Summary Sheet Downloads (shown only when summary was uploaded & processed) -->
-    <div id="summaryDlOptions" style="display:none;margin-top:12px;align-items:center;gap:10px;font-size:12px;color:var(--text2)">
+    <div id="summaryDlOptions" style="display:none;margin-top:12px;align-items:center;gap:16px;flex-wrap:wrap;font-size:12px;color:var(--text2)">
       <label for="statusColPosition" style="font-weight:500;white-space:nowrap;color:var(--text2)">Match Status column:</label>
       <select id="statusColPosition" style="font-size:12px;padding:4px 8px;border:1px solid var(--border2);border-radius:6px;background:var(--card);color:var(--text);font-family:'Inter',sans-serif;cursor:pointer;outline:none">
         <option value="last">Last column (default)</option>
         <option value="first">First column</option>
         <option value="hidden">Hidden (exclude)</option>
+      </select>
+      <label for="rowHighlightStyle" style="font-weight:500;white-space:nowrap;color:var(--text2)">Row highlight:</label>
+      <select id="rowHighlightStyle" style="font-size:12px;padding:4px 8px;border:1px solid var(--border2);border-radius:6px;background:var(--card);color:var(--text);font-family:'Inter',sans-serif;cursor:pointer;outline:none">
+        <option value="colored">Color coded (default)</option>
+        <option value="grey">Neutral grey</option>
+        <option value="none">No highlight</option>
       </select>
     </div>
     <div class="dl-row" id="summaryDlRow" style="display:none;margin-top:8px">
@@ -2229,15 +2235,25 @@ function downloadSummarySheet() {
         t: 's', v: isUnmatched ? 'Unmatched' : 'Matched'
       };
     }
-    const fillRgb = isUnmatched ? 'FFC7CE' : 'C6EFCE';
-    const fontRgb = isUnmatched ? '9C0006' : '276221';
-    for (let c = range.s.c; c <= range.e.c; c++) {
-      const addr = XLSX.utils.encode_cell({ r: rowIdx, c });
-      if (!ws[addr]) ws[addr] = { t: 's', v: '' };
-      ws[addr].s = {
-        fill: { patternType: 'solid', fgColor: { rgb: fillRgb } },
-        font: { color: { rgb: fontRgb } }
-      };
+
+    const highlightStyle = (document.getElementById('rowHighlightStyle') || {}).value || 'colored';
+    if (highlightStyle !== 'none') {
+      let fillRgb, fontRgb;
+      if (highlightStyle === 'grey') {
+        fillRgb = 'D9D9D9';
+        fontRgb = '404040';
+      } else {
+        fillRgb = isUnmatched ? 'FFC7CE' : 'C6EFCE';
+        fontRgb = isUnmatched ? '9C0006' : '276221';
+      }
+      for (let c = range.s.c; c <= range.e.c; c++) {
+        const addr = XLSX.utils.encode_cell({ r: rowIdx, c });
+        if (!ws[addr]) ws[addr] = { t: 's', v: '' };
+        ws[addr].s = {
+          fill: { patternType: 'solid', fgColor: { rgb: fillRgb } },
+          font: { color: { rgb: fontRgb } }
+        };
+      }
     }
   });
 
@@ -2295,6 +2311,8 @@ function resetAll() {
   if (statNoteEl) statNoteEl.style.display = 'none';
   const statusSel = document.getElementById('statusColPosition');
   if (statusSel) statusSel.value = 'last';
+  const highlightSel = document.getElementById('rowHighlightStyle');
+  if (highlightSel) highlightSel.value = 'colored';
   const sumRowEl = document.getElementById('summaryStatsRow');
   if (sumRowEl) {
     sumRowEl.style.display = 'none';
