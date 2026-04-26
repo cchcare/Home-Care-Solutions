@@ -2425,19 +2425,35 @@ function downloadSummarySheet() {
     const addr1 = XLSX.utils.encode_cell({ r: rowIdx, c: wk1ColIdx });
     const addr2 = XLSX.utils.encode_cell({ r: rowIdx, c: wk2ColIdx });
 
-    // Skip cells that already contain formulas — preserve them as-is
+    const wkDataStyle = {
+      fill: { patternType: 'solid', fgColor: { rgb: 'E2EFDA' } }
+    };
+
+    // Write values; skip formula cells to preserve their formula
     if (w1 !== '' && w1 !== undefined && w1 !== null) {
       const existing1 = ws[addr1];
       if (!existing1 || existing1.f === undefined) {
-        ws[addr1] = { t: 'n', v: w1 };
+        ws[addr1] = { t: 'n', v: w1, s: wkDataStyle };
       }
+    } else if (!ws[addr1]) {
+      ws[addr1] = { t: 'z', s: wkDataStyle };
     }
     if (w2 !== '' && w2 !== undefined && w2 !== null) {
       const existing2 = ws[addr2];
       if (!existing2 || existing2.f === undefined) {
-        ws[addr2] = { t: 'n', v: w2 };
+        ws[addr2] = { t: 'n', v: w2, s: wkDataStyle };
       }
+    } else if (!ws[addr2]) {
+      ws[addr2] = { t: 'z', s: wkDataStyle };
     }
+    // Always apply the tint to wk1/wk2 cells (including formula cells and
+    // pre-existing cells) so the column is visually consistent regardless
+    // of row highlight mode; preserve any existing font/border/etc styling
+    [addr1, addr2].forEach(addr => {
+      if (ws[addr]) {
+        ws[addr].s = Object.assign({}, ws[addr].s || {}, { fill: wkDataStyle.fill });
+      }
+    });
 
     // Write match status value (when not hidden) and apply row highlighting
     const isUnmatched = row['Summary Match Status'] === 'Unmatched';
@@ -2460,8 +2476,9 @@ function downloadSummarySheet() {
       for (let c = range.s.c; c <= range.e.c; c++) {
         const addr = XLSX.utils.encode_cell({ r: rowIdx, c });
         if (!ws[addr]) ws[addr] = { t: 's', v: '' };
+        const isWkCol = (c === wk1ColIdx || c === wk2ColIdx);
         ws[addr].s = {
-          fill: { patternType: 'solid', fgColor: { rgb: fillRgb } },
+          fill: { patternType: 'solid', fgColor: { rgb: isWkCol ? 'E2EFDA' : fillRgb } },
           font: { color: { rgb: fontRgb } }
         };
       }
