@@ -2373,6 +2373,19 @@ function setupDragDrop() {
 // Init
 tick();
 setupDragDrop();
+
+// Restore Match Status column preference from localStorage
+(function () {
+  const sel = document.getElementById('statusColPosition');
+  if (!sel) return;
+  const saved = localStorage.getItem('paysync_statusColPosition');
+  if (saved && ['last', 'first', 'hidden'].includes(saved)) {
+    sel.value = saved;
+  }
+  sel.addEventListener('change', function () {
+    localStorage.setItem('paysync_statusColPosition', sel.value);
+  });
+}());
 </script>
 </body>
 </html>
