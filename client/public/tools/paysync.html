@@ -645,6 +645,58 @@ input.finput::placeholder { color: var(--text3); }
   align-items: center;
   gap: 8px;
 }
+.sum-warn-box {
+  background: rgba(255,77,106,0.06);
+  border: 1px solid rgba(255,77,106,0.2);
+  border-radius: 12px;
+  display: none;
+  overflow: hidden;
+}
+.sum-warn-toggle {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--red);
+  padding: 12px 18px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+}
+.sum-warn-toggle:hover { background: rgba(255,77,106,0.06); }
+.sum-warn-chevron {
+  margin-left: auto;
+  transition: transform 0.2s;
+  font-style: normal;
+}
+.sum-warn-box.expanded .sum-warn-chevron { transform: rotate(180deg); }
+.sum-warn-body {
+  display: none;
+  padding: 0 18px 14px;
+}
+.sum-warn-box.expanded .sum-warn-body { display: block; }
+.sum-warn-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.sum-utag {
+  background: rgba(255,77,106,0.1);
+  border: 1px solid rgba(255,77,106,0.25);
+  color: var(--red);
+  font-size: 11px;
+  font-family: 'DM Mono', monospace;
+  padding: 3px 9px;
+  border-radius: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-width: 220px;
+}
+.sum-utag-id { font-weight: 700; }
+.sum-utag-reason { opacity: 0.75; font-size: 10px; white-space: normal; word-break: break-word; }
+#sc-sum-unmatched { cursor: pointer; }
+#sc-sum-unmatched:hover { filter: brightness(1.05); }
 .tag-cloud { display: flex; flex-wrap: wrap; gap: 6px; }
 .utag {
   background: rgba(255,77,106,0.1);
@@ -1116,6 +1168,18 @@ td.status-ssn {
       </div>
     </div>
 
+    <!-- Summary Unmatched Breakdown -->
+    <div class="sum-warn-box" id="sumWarnBox">
+      <div class="sum-warn-toggle" id="sumWarnToggle">
+        <span>⚠</span>
+        <span id="sumWarnTitle">Unmatched Summary Rows — click to see details</span>
+        <i class="sum-warn-chevron">▾</i>
+      </div>
+      <div class="sum-warn-body">
+        <div class="sum-warn-grid" id="sumWarnTags"></div>
+      </div>
+    </div>
+
     <!-- Log -->
     <div class="log-panel">
       <div class="log-head">
@@ -1502,6 +1566,8 @@ function runProcess() {
   if (statNotePre)  statNotePre.style.display  = 'none';
   const sumRowPre = document.getElementById('summaryStatsRow');
   if (sumRowPre) sumRowPre.style.display = 'none';
+  const swBoxPre = document.getElementById('sumWarnBox');
+  if (swBoxPre) { swBoxPre.style.display = 'none'; swBoxPre.classList.remove('expanded'); }
 
   const coCode  = document.getElementById('coCode').value.trim();
   const batchId = document.getElementById('batchId').value.trim() || 'DCW';
@@ -1706,6 +1772,7 @@ function runProcess() {
 
     // Fill summary rows
     let sumMatched = 0, sumUnmatched = 0;
+    const sumUnmatchedItems = [];
     const filled = S.summaryRows.map(row => {
       const clone = { ...row };
 
@@ -1757,6 +1824,21 @@ function runProcess() {
 
       if (!hhaKey || !hoursMap[hhaKey]) {
         sumUnmatched++;
+        // Collect identifier and reason for breakdown display
+        const sumHHAId  = scm.hhaCode ? String(row[scm.hhaCode] ?? '').trim() : '';
+        const sumSSNVal = scm.ssn     ? String(row[scm.ssn]     ?? '').trim() : '';
+        const unmatchedId = sumAdp || sumHHAId || sumSSNVal || `Row ${sumMatched + sumUnmatched}`;
+        let unmatchedReason;
+        if (!hhaKey) {
+          if (sumAdp && !adpToHHA[sumAdp]) unmatchedReason = 'ADP code not in master';
+          else if (sumAdp)                 unmatchedReason = 'No matching hours found';
+          else if (sumHHAId)               unmatchedReason = 'HHA ID not in hours file';
+          else if (sumSSNVal)              unmatchedReason = 'SSN not found in master or HHA file';
+          else                             unmatchedReason = 'No identifier found in row';
+        } else {
+          unmatchedReason = 'Aide not in HHA hours file';
+        }
+        sumUnmatchedItems.push({ id: unmatchedId, reason: unmatchedReason });
         if (sumAdp) lg(`  ⚠ "${sumAdp}" — no match via ADP/SSN/HHA code, row preserved as-is`, 'w');
         return clone;
       }
@@ -1842,6 +1924,37 @@ function runProcess() {
       animateCount(document.getElementById('st-sum-matched'),   sumMatched,   '', countDuration);
       animateCount(document.getElementById('st-sum-unmatched'), sumUnmatched, '', countDuration);
       animateCount(document.getElementById('st-sum-pct'),       pct,          '%', countDuration);
+    }
+
+    // Populate and show/hide the Summary unmatched breakdown box
+    const swBox   = document.getElementById('sumWarnBox');
+    const swTags  = document.getElementById('sumWarnTags');
+    const swTitle = document.getElementById('sumWarnTitle');
+    function escHtml(s) {
+      return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+    if (sumUnmatchedItems.length > 0) {
+      swTitle.textContent = `${sumUnmatchedItems.length} Unmatched Summary Row${sumUnmatchedItems.length !== 1 ? 's' : ''} — click to see details`;
+      swTags.innerHTML = sumUnmatchedItems.map(item =>
+        `<span class="sum-utag"><span class="sum-utag-id">${escHtml(item.id)}</span><span class="sum-utag-reason">${escHtml(item.reason)}</span></span>`
+      ).join('');
+      swBox.style.display = 'block';
+      // Wire up toggle using onclick to avoid stacking listeners
+      document.getElementById('sumWarnToggle').onclick = () => swBox.classList.toggle('expanded');
+      // Wire up the stat card to scroll to and expand the box
+      document.getElementById('sc-sum-unmatched').onclick = () => {
+        swBox.classList.add('expanded');
+        swBox.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      };
+      // Update sub text to hint the card is clickable
+      const sumUnmatchedSub = document.querySelector('#sc-sum-unmatched .stat-sub');
+      if (sumUnmatchedSub) sumUnmatchedSub.textContent = 'Click for details';
+    } else {
+      swBox.style.display = 'none';
+      swBox.classList.remove('expanded');
+      document.getElementById('sc-sum-unmatched').onclick = null;
+      const sumUnmatchedSub = document.querySelector('#sc-sum-unmatched .stat-sub');
+      if (sumUnmatchedSub) sumUnmatchedSub.textContent = 'Flagged in export';
     }
 
     lg(`✓ Summary Sheet done — ${sumMatched} matched · ${sumUnmatched} unmatched`, 's');
@@ -2183,6 +2296,13 @@ function resetAll() {
     });
     const sub = document.getElementById('st-sum-matched-sub');
     if (sub) sub.textContent = 'of — Summary rows';
+  }
+  const swBoxReset = document.getElementById('sumWarnBox');
+  if (swBoxReset) {
+    swBoxReset.style.display = 'none';
+    swBoxReset.classList.remove('expanded');
+    const tagsEl = document.getElementById('sumWarnTags');
+    if (tagsEl) tagsEl.innerHTML = '';
   }
   document.getElementById('logBody').innerHTML = '<div class="le i"><span class="ts">00:00</span><span class="msg">Workspace cleared — ready for new files.</span></div>';
   document.getElementById('logCount').textContent = '0 events';
