@@ -2620,17 +2620,29 @@ function setupDragDrop() {
 tick();
 setupDragDrop();
 
-// Restore Match Status column preference from localStorage
+// Restore export settings from localStorage
 (function () {
-  const sel = document.getElementById('statusColPosition');
-  if (!sel) return;
-  const saved = localStorage.getItem('paysync_statusColPosition');
-  if (saved && ['last', 'first', 'hidden'].includes(saved)) {
-    sel.value = saved;
+  const statusSel = document.getElementById('statusColPosition');
+  if (statusSel) {
+    const saved = localStorage.getItem('paysync_statusColPosition');
+    if (saved && ['last', 'first', 'hidden'].includes(saved)) {
+      statusSel.value = saved;
+    }
+    statusSel.addEventListener('change', function () {
+      localStorage.setItem('paysync_statusColPosition', statusSel.value);
+    });
   }
-  sel.addEventListener('change', function () {
-    localStorage.setItem('paysync_statusColPosition', sel.value);
-  });
+
+  const highlightSel = document.getElementById('rowHighlightStyle');
+  if (highlightSel) {
+    const saved = localStorage.getItem('paysync_rowHighlightStyle');
+    if (saved && ['colored', 'grey', 'none'].includes(saved)) {
+      highlightSel.value = saved;
+    }
+    highlightSel.addEventListener('change', function () {
+      localStorage.setItem('paysync_rowHighlightStyle', highlightSel.value);
+    });
+  }
 }());
 </script>
 </body>
