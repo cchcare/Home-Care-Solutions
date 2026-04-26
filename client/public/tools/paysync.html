@@ -728,10 +728,11 @@ input.finput::placeholder { color: var(--text3); }
 }
 .sum-warn-toggle:hover { background: rgba(255,77,106,0.06); }
 .sum-warn-chevron {
-  margin-left: auto;
   transition: transform 0.2s;
   font-style: normal;
+  flex-shrink: 0;
 }
+#sumWarnTitle { flex: 1; }
 .sum-warn-box.expanded .sum-warn-chevron { transform: rotate(180deg); }
 .sum-warn-body {
   display: none;
@@ -758,6 +759,22 @@ input.finput::placeholder { color: var(--text3); }
 }
 .sum-utag-id { font-weight: 700; }
 .sum-utag-reason { opacity: 0.75; font-size: 10px; white-space: normal; word-break: break-word; }
+.sum-warn-copy-btn {
+  margin-right: 4px;
+  padding: 3px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  font-family: inherit;
+  color: var(--red);
+  background: rgba(255,77,106,0.12);
+  border: 1px solid rgba(255,77,106,0.35);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  flex-shrink: 0;
+}
+.sum-warn-copy-btn:hover { background: rgba(255,77,106,0.22); }
+.sum-warn-copy-btn.copied { color: var(--green); background: rgba(40,200,120,0.12); border-color: rgba(40,200,120,0.35); }
 #sc-sum-unmatched { cursor: pointer; }
 #sc-sum-unmatched:hover { filter: brightness(1.05); }
 .tag-cloud { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -1236,6 +1253,7 @@ td.status-ssn {
       <div class="sum-warn-toggle" id="sumWarnToggle">
         <span>⚠</span>
         <span id="sumWarnTitle">Unmatched Summary Rows — click to see details</span>
+        <button id="sumWarnCopyBtn" class="sum-warn-copy-btn" style="display:none" onclick="event.stopPropagation()">Copy</button>
         <i class="sum-warn-chevron">▾</i>
       </div>
       <div class="sum-warn-body">
@@ -2015,9 +2033,10 @@ function runProcess() {
     }
 
     // Populate and show/hide the Summary unmatched breakdown box
-    const swBox   = document.getElementById('sumWarnBox');
-    const swTags  = document.getElementById('sumWarnTags');
-    const swTitle = document.getElementById('sumWarnTitle');
+    const swBox     = document.getElementById('sumWarnBox');
+    const swTags    = document.getElementById('sumWarnTags');
+    const swTitle   = document.getElementById('sumWarnTitle');
+    const swCopyBtn = document.getElementById('sumWarnCopyBtn');
     function escHtml(s) {
       return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
     }
@@ -2027,11 +2046,38 @@ function runProcess() {
         `<span class="sum-utag"><span class="sum-utag-id">${escHtml(item.id)}</span><span class="sum-utag-reason">${escHtml(item.reason)}</span></span>`
       ).join('');
       swBox.style.display = 'block';
+      // Reset copy button state from any previous run
+      swCopyBtn.textContent = 'Copy';
+      swCopyBtn.classList.remove('copied');
+      swCopyBtn.style.display = 'none';
       // Wire up toggle using onclick to avoid stacking listeners
-      document.getElementById('sumWarnToggle').onclick = () => swBox.classList.toggle('expanded');
+      document.getElementById('sumWarnToggle').onclick = () => {
+        swBox.classList.toggle('expanded');
+        swCopyBtn.style.display = swBox.classList.contains('expanded') ? '' : 'none';
+      };
+      // Wire up copy button
+      let _copyTimer;
+      swCopyBtn.onclick = (e) => {
+        e.stopPropagation();
+        const text = sumUnmatchedItems.map(item => `${item.id} — ${item.reason}`).join('\n');
+        navigator.clipboard.writeText(text).then(() => {
+          swCopyBtn.textContent = 'Copied!';
+          swCopyBtn.classList.add('copied');
+          clearTimeout(_copyTimer);
+          _copyTimer = setTimeout(() => {
+            swCopyBtn.textContent = 'Copy';
+            swCopyBtn.classList.remove('copied');
+          }, 2000);
+        }).catch(() => {
+          swCopyBtn.textContent = 'Failed';
+          clearTimeout(_copyTimer);
+          _copyTimer = setTimeout(() => { swCopyBtn.textContent = 'Copy'; }, 2000);
+        });
+      };
       // Wire up the stat card to scroll to and expand the box
       document.getElementById('sc-sum-unmatched').onclick = () => {
         swBox.classList.add('expanded');
+        swCopyBtn.style.display = '';
         swBox.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
       };
       // Update sub text to hint the card is clickable
@@ -2040,6 +2086,7 @@ function runProcess() {
     } else {
       swBox.style.display = 'none';
       swBox.classList.remove('expanded');
+      swCopyBtn.style.display = 'none';
       document.getElementById('sc-sum-unmatched').onclick = null;
       const sumUnmatchedSub = document.querySelector('#sc-sum-unmatched .stat-sub');
       if (sumUnmatchedSub) sumUnmatchedSub.textContent = 'Flagged in export';
