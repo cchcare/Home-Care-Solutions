@@ -2123,16 +2123,28 @@ function downloadSummarySheet() {
   let wk1ColIdx = findIdx(wk1Aliases);
   let wk2ColIdx = findIdx(wk2Aliases);
 
+  const wkHeaderStyle = {
+    fill: { patternType: 'solid', fgColor: { rgb: '375623' } },
+    font: { bold: true, color: { rgb: 'FFFFFF' } },
+    alignment: { horizontal: 'center' }
+  };
+
   // If a column isn't found, append it as a new header at the end
   if (wk1ColIdx === null) {
     wk1ColIdx = range.e.c + 1;
-    ws[XLSX.utils.encode_cell({ r: headerRowIdx, c: wk1ColIdx })] = { t: 's', v: 'Week 1 Hours' };
+    ws[XLSX.utils.encode_cell({ r: headerRowIdx, c: wk1ColIdx })] = { t: 's', v: 'Week 1 Hours', s: wkHeaderStyle };
     range.e.c = wk1ColIdx;
+  } else {
+    const wk1HdrCell = ws[XLSX.utils.encode_cell({ r: headerRowIdx, c: wk1ColIdx })];
+    if (wk1HdrCell) wk1HdrCell.s = wkHeaderStyle;
   }
   if (wk2ColIdx === null) {
     wk2ColIdx = range.e.c + 1;
-    ws[XLSX.utils.encode_cell({ r: headerRowIdx, c: wk2ColIdx })] = { t: 's', v: 'Week 2 Hours' };
+    ws[XLSX.utils.encode_cell({ r: headerRowIdx, c: wk2ColIdx })] = { t: 's', v: 'Week 2 Hours', s: wkHeaderStyle };
     range.e.c = wk2ColIdx;
+  } else {
+    const wk2HdrCell = ws[XLSX.utils.encode_cell({ r: headerRowIdx, c: wk2ColIdx })];
+    if (wk2HdrCell) wk2HdrCell.s = wkHeaderStyle;
   }
 
   // Determine where the "Summary Match Status" column goes
