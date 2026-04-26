@@ -866,6 +866,28 @@ td.status-ssn {
   font-size: 11px;
   font-weight: 600;
 }
+td.status-unmatched {
+  color: var(--red);
+  font-size: 11px;
+  font-weight: 600;
+}
+tr.unmatched-summary-row {
+  background: rgba(220, 38, 38, 0.06);
+  cursor: pointer;
+  border-left: 3px solid var(--red);
+  transition: background 0.15s;
+}
+tr.unmatched-summary-row:hover {
+  background: rgba(220, 38, 38, 0.13);
+}
+tr.unmatched-detail-row td {
+  background: rgba(220, 38, 38, 0.1);
+  color: var(--red);
+  font-size: 12px;
+  padding: 5px 16px 8px 22px;
+  font-style: italic;
+  border-top: none;
+}
 .empty-state {
   padding: 48px 20px;
   text-align: center;
@@ -2003,7 +2025,7 @@ function runProcess() {
     if (statNote) {
       const total = sumMatched + sumUnmatched;
       const pct   = total > 0 ? Math.round((sumMatched / total) * 100) : 0;
-      statNote.innerHTML = `📊 Summary Sheet — <strong style="color:var(--green)">${sumMatched} matched</strong> · <strong style="color:var(--red)">${sumUnmatched} unmatched</strong> of ${total} rows (${pct}%)${sumUnmatched > 0 ? ' — unmatched rows flagged with "Unmatched" in the export' : ''}`;
+      statNote.innerHTML = `📊 Summary Sheet — <strong style="color:var(--green)">${sumMatched} matched</strong> · <strong style="color:var(--red)">${sumUnmatched} unmatched</strong> of ${total} rows (${pct}%)${sumUnmatched > 0 ? ' — unmatched rows shown below in the Export Preview table (click to see reason)' : ''}`;
       statNote.style.display = 'block';
     }
 
@@ -2099,6 +2121,9 @@ function runProcess() {
       lg('  ℹ No CM Pay column detected — CM Pay Sheet will be empty', 'w');
     }
     lg('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'i');
+
+    // Append unmatched summary rows to the export preview table
+    appendUnmatchedSummaryRows(sumUnmatchedItems);
   }
   } finally {
     _pi.classList.remove('visible');
@@ -2130,6 +2155,59 @@ function renderTable(rows) {
       <td class="${r.matchMethod === 'SSN' ? 'status-ssn' : 'status-ok'}">${r.matchMethod === 'SSN' ? '🔑 SSN Match' : '✓ Matched'}</td>
     </tr>
   `).join('');
+}
+
+// ═══════════════════ UNMATCHED SUMMARY ROWS ═══════════════════
+function appendUnmatchedSummaryRows(items) {
+  if (!items || !items.length) return;
+  const tb = document.getElementById('tBody');
+  const rc = document.getElementById('rowCount');
+  const baseCount = S.output ? S.output.length : 0;
+  rc.textContent = `${baseCount} rows · ${items.length} unmatched`;
+
+  function escHtml(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  // Add a separator row before the unmatched block
+  const sepTr = document.createElement('tr');
+  sepTr.innerHTML = `<td colspan="10" style="background:rgba(220,38,38,0.04);color:var(--red);font-size:11px;font-weight:600;padding:6px 16px;letter-spacing:0.04em;border-top:1px solid rgba(220,38,38,0.25);">▼ UNMATCHED SUMMARY ROWS — click a row to see reason</td>`;
+  tb.appendChild(sepTr);
+
+  items.forEach(({ id, reason }, idx) => {
+    const detailId = `unmatched-sum-detail-${idx}`;
+
+    const tr = document.createElement('tr');
+    tr.className = 'unmatched-summary-row';
+    tr.title = `Unmatched: ${reason}`;
+    tr.innerHTML = `
+      <td><span style="font-family:'DM Mono',monospace;color:var(--text3)">—</span></td>
+      <td><span style="font-family:'DM Mono',monospace;color:var(--text3)">—</span></td>
+      <td class="emp-name" style="color:var(--text2)">${escHtml(id)}</td>
+      <td class="adp-code" style="color:var(--text3);font-weight:400">—</td>
+      <td style="color:var(--text3);font-family:'DM Mono',monospace">—</td>
+      <td class="reg-hrs" style="color:var(--text3);font-weight:400">—</td>
+      <td class="ot-hrs" style="color:var(--text3);font-weight:400">—</td>
+      <td style="color:var(--text3);font-family:'DM Mono',monospace">—</td>
+      <td style="font-family:'DM Mono',monospace;color:var(--text3)">—</td>
+      <td class="status-unmatched">⚠ Unmatched</td>
+    `;
+
+    const detailTr = document.createElement('tr');
+    detailTr.className = 'unmatched-detail-row';
+    detailTr.id = detailId;
+    detailTr.style.display = 'none';
+    detailTr.innerHTML = `<td colspan="10">⚠ ${escHtml(reason)}</td>`;
+
+    tr.addEventListener('click', () => {
+      const isVisible = detailTr.style.display !== 'none';
+      detailTr.style.display = isVisible ? 'none' : '';
+      tr.classList.toggle('expanded', !isVisible);
+    });
+
+    tb.appendChild(tr);
+    tb.appendChild(detailTr);
+  });
 }
 
 // ═══════════════════ DOWNLOADS ═══════════════════
