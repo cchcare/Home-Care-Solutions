@@ -748,6 +748,7 @@ input.finput::placeholder { color: var(--text3); }
   flex-shrink: 0;
 }
 #sumWarnTitle { flex: 1; }
+#warnTitle { flex: 1; }
 .sum-warn-box.expanded .sum-warn-chevron { transform: rotate(180deg); }
 .sum-warn-body {
   display: none;
@@ -1333,9 +1334,17 @@ tr.unmatched-detail-row td {
     </div>
 
     <!-- Unmatched Warning -->
-    <div class="warn-alert" id="warnBox">
-      <div class="warn-alert-head">⚠ Unmatched Aide Codes — these will not appear in the export</div>
-      <div class="tag-cloud" id="warnTags"></div>
+    <div class="sum-warn-box" id="warnBox">
+      <div class="sum-warn-toggle" id="warnToggle">
+        <span>⚠</span>
+        <span id="warnTitle">Unmatched Aide Codes — click to see details</span>
+        <button id="warnCopyBtn" class="sum-warn-copy-btn" style="display:none" onclick="event.stopPropagation()">Copy</button>
+        <button id="warnDlBtn" class="sum-warn-dl-btn" style="display:none" onclick="event.stopPropagation()">↓ CSV</button>
+        <i class="sum-warn-chevron">▾</i>
+      </div>
+      <div class="sum-warn-body">
+        <div class="tag-cloud sum-warn-grid" id="warnTags"></div>
+      </div>
     </div>
 
     <!-- Table -->
@@ -1888,13 +1897,72 @@ async function runProcess() {
   animateCount(document.getElementById('st-ot'),        totOT,                       '', countDuration, 1);
 
   // Unmatched warning
-  const wb2 = document.getElementById('warnBox');
-  const wt  = document.getElementById('warnTags');
+  const wb2        = document.getElementById('warnBox');
+  const wt         = document.getElementById('warnTags');
+  const warnTitle  = document.getElementById('warnTitle');
+  const warnCopyBtn = document.getElementById('warnCopyBtn');
+  const warnDlBtn  = document.getElementById('warnDlBtn');
   if (S.unmatched.length > 0) {
-    wb2.style.display = 'block';
+    warnTitle.textContent = `${S.unmatched.length} Unmatched Aide Code${S.unmatched.length !== 1 ? 's' : ''} — click to see details`;
     wt.innerHTML = S.unmatched.map(c => `<span class="utag">${c}</span>`).join('');
+    wb2.style.display = 'block';
+    // Reset collapsed state and button states from any previous run
+    wb2.classList.remove('expanded');
+    warnCopyBtn.textContent = 'Copy';
+    warnCopyBtn.classList.remove('copied');
+    warnCopyBtn.style.display = 'none';
+    warnDlBtn.style.display = 'none';
+    const _setWarnBtns = (visible) => {
+      warnCopyBtn.style.display = visible ? '' : 'none';
+      warnDlBtn.style.display   = visible ? '' : 'none';
+    };
+    document.getElementById('warnToggle').onclick = () => {
+      wb2.classList.toggle('expanded');
+      _setWarnBtns(wb2.classList.contains('expanded'));
+    };
+    // Wire up copy button
+    let _warnCopyTimer;
+    warnCopyBtn.onclick = (e) => {
+      e.stopPropagation();
+      navigator.clipboard.writeText(S.unmatched.join('\n')).then(() => {
+        warnCopyBtn.textContent = 'Copied!';
+        warnCopyBtn.classList.add('copied');
+        clearTimeout(_warnCopyTimer);
+        _warnCopyTimer = setTimeout(() => {
+          warnCopyBtn.textContent = 'Copy';
+          warnCopyBtn.classList.remove('copied');
+        }, 2000);
+      }).catch(() => {
+        warnCopyBtn.textContent = 'Failed';
+        clearTimeout(_warnCopyTimer);
+        _warnCopyTimer = setTimeout(() => { warnCopyBtn.textContent = 'Copy'; }, 2000);
+      });
+    };
+    // Wire up download CSV button
+    warnDlBtn.onclick = (e) => {
+      e.stopPropagation();
+      const escCsv = (v) => {
+        const s = String(v ?? '');
+        return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+      };
+      const rows = [['Aide Code'], ...S.unmatched.map(c => [c])];
+      const csv  = rows.map(r => r.map(escCsv).join(',')).join('\r\n');
+      const _d   = new Date();
+      const date = `${_d.getFullYear()}-${String(_d.getMonth()+1).padStart(2,'0')}-${String(_d.getDate()).padStart(2,'0')}`;
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href     = url;
+      a.download = `unmatched-hha-${date}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => { URL.revokeObjectURL(url); document.body.removeChild(a); }, 1000);
+    };
   } else {
     wb2.style.display = 'none';
+    wb2.classList.remove('expanded');
+    warnCopyBtn.style.display = 'none';
+    warnDlBtn.style.display = 'none';
   }
 
   renderTable(output);
@@ -2612,7 +2680,11 @@ function resetAll() {
   ['st-total','st-matched','st-unmatched','st-reg','st-ot'].forEach(id => { document.getElementById(id).textContent = '—'; });
   document.getElementById('tBody').innerHTML = `<tr><td colspan="10"><div class="empty-state"><div class="empty-icon">📊</div><div class="empty-text">No data yet — upload your files and click Generate to see a preview.</div></div></td></tr>`;
   document.getElementById('rowCount').textContent = '0 rows';
-  document.getElementById('warnBox').style.display = 'none';
+  const _wb = document.getElementById('warnBox');
+  _wb.style.display = 'none';
+  _wb.classList.remove('expanded');
+  document.getElementById('warnCopyBtn').style.display = 'none';
+  document.getElementById('warnDlBtn').style.display = 'none';
   document.getElementById('dlCsv').disabled  = true;
   document.getElementById('dlXlsx').disabled = true;
   const dlSumBtn   = document.getElementById('dlSummary');
