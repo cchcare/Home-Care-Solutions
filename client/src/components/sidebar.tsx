@@ -56,7 +56,8 @@ import {
   Stethoscope,
   Briefcase,
   Wrench,
-  LifeBuoy
+  LifeBuoy,
+  ClipboardCheck,
 } from "lucide-react";
 
 interface NavItem {
@@ -116,6 +117,7 @@ export function Sidebar() {
       { name: "Super Admin", href: "/super-admin", icon: ShieldCheck },
       { name: "Role & Access Control", href: "/role-wizard", icon: Key },
       { name: "Office Management", href: "/offices", icon: Building2 },
+      { name: "DOH Audit Assessment", href: "/audit-assessment", icon: ClipboardCheck },
       { name: "MCO Setup", href: "/admin-settings", icon: Settings },
       { name: "Letter Templates", href: "/letter-templates", icon: FileSignature },
       { name: "E-Signature Templates", href: "/esignature-templates", icon: PenTool },
@@ -175,6 +177,7 @@ export function Sidebar() {
           { name: "Compliance", href: "/compliance", icon: Shield },
           { name: "Incident Reports", href: "/incidents", icon: AlertTriangle },
           { name: "Training & Resources", href: "/training", icon: GraduationCap },
+          { name: "DOH Audit Assessment", href: "/audit-assessment", icon: ClipboardCheck },
         ]
       },
       {

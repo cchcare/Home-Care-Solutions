@@ -57,6 +57,8 @@ import {
   CheckCircle,
   Clock,
   Receipt,
+  ClipboardCheck,
+  ChevronRight,
 } from "lucide-react";
 import type { Office, User as UserType, Document, OfficeLicense, OfficeStaff, OfficeExpense } from "@shared/schema";
 
@@ -433,6 +435,25 @@ export default function OfficeProfile() {
           </CardContent>
         </Card>
       </div>
+
+      <Card className="border-blue-200 bg-blue-50/50 dark:bg-blue-900/10 dark:border-blue-800">
+        <CardContent className="py-4 px-5 flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <ClipboardCheck className="h-8 w-8 text-blue-600 shrink-0" />
+            <div>
+              <p className="font-semibold text-blue-900 dark:text-blue-100">DOH Audit Assessment</p>
+              <p className="text-sm text-blue-700 dark:text-blue-300">
+                PA Department of Health survey readiness checklist for this office
+              </p>
+            </div>
+          </div>
+          <Link href="/audit-assessment">
+            <Button variant="outline" className="shrink-0 gap-1.5 border-blue-300 text-blue-700 hover:bg-blue-100 dark:border-blue-700 dark:text-blue-300">
+              Open Audit <ChevronRight size={15} />
+            </Button>
+          </Link>
+        </CardContent>
+      </Card>
     </div>
   );
 

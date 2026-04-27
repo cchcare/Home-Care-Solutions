@@ -3870,3 +3870,55 @@ export const staffTimeAuditLogsRelations = relations(staffTimeAuditLogs, ({ one 
 
 export type StaffTimeAuditLog = typeof staffTimeAuditLogs.$inferSelect;
 export type InsertStaffTimeAuditLog = typeof staffTimeAuditLogs.$inferInsert;
+
+// ─── PA DOH Audit Assessment Tool ───────────────────────────────────────────
+
+export const dohAuditStatusEnum = pgEnum("doh_audit_status", ["in_progress", "completed", "archived"]);
+export const dohAuditItemStatusEnum = pgEnum("doh_audit_item_status", ["pending", "pass", "fail", "na"]);
+
+export const dohAuditAssessments = pgTable("doh_audit_assessments", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  officeId: varchar("office_id").references(() => offices.id).notNull(),
+  title: varchar("title").notNull(),
+  surveyPeriod: varchar("survey_period"),
+  status: dohAuditStatusEnum("status").default("in_progress").notNull(),
+  createdBy: varchar("created_by").references(() => users.id),
+  completedAt: timestamp("completed_at"),
+  overallNotes: text("overall_notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_doh_audit_office").on(table.officeId),
+  index("idx_doh_audit_status").on(table.status),
+]);
+
+export const dohAuditResponses = pgTable("doh_audit_responses", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  auditId: varchar("audit_id").references(() => dohAuditAssessments.id, { onDelete: "cascade" }).notNull(),
+  itemKey: varchar("item_key").notNull(),
+  category: varchar("category").notNull(),
+  status: dohAuditItemStatusEnum("status").default("pending").notNull(),
+  notes: text("notes"),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_doh_audit_responses_audit").on(table.auditId),
+  uniqueIndex("idx_doh_audit_responses_unique").on(table.auditId, table.itemKey),
+]);
+
+export const dohAuditAssessmentsRelations = relations(dohAuditAssessments, ({ one, many }) => ({
+  office: one(offices, { fields: [dohAuditAssessments.officeId], references: [offices.id] }),
+  creator: one(users, { fields: [dohAuditAssessments.createdBy], references: [users.id] }),
+  responses: many(dohAuditResponses),
+}));
+
+export const dohAuditResponsesRelations = relations(dohAuditResponses, ({ one }) => ({
+  audit: one(dohAuditAssessments, { fields: [dohAuditResponses.auditId], references: [dohAuditAssessments.id] }),
+}));
+
+export type DohAuditAssessment = typeof dohAuditAssessments.$inferSelect;
+export type InsertDohAuditAssessment = typeof dohAuditAssessments.$inferInsert;
+export const insertDohAuditAssessmentSchema = createInsertSchema(dohAuditAssessments).omit({ id: true, createdAt: true, updatedAt: true });
+
+export type DohAuditResponse = typeof dohAuditResponses.$inferSelect;
+export type InsertDohAuditResponse = typeof dohAuditResponses.$inferInsert;
+export const insertDohAuditResponseSchema = createInsertSchema(dohAuditResponses).omit({ id: true, updatedAt: true });

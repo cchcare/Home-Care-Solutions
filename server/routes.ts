@@ -16877,6 +16877,79 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ─── DOH Audit Assessment Routes ─────────────────────────────────────────
+
+  // GET /api/doh-audits?officeId=xxx
+  app.get("/api/doh-audits", isAuthenticated, async (req: any, res) => {
+    try {
+      const { officeId } = req.query;
+      if (!officeId) return res.status(400).json({ message: "officeId is required" });
+      const audits = await storage.getDohAuditAssessments(officeId as string);
+      res.json(audits);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to fetch audits" });
+    }
+  });
+
+  // GET /api/doh-audits/:id
+  app.get("/api/doh-audits/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const audit = await storage.getDohAuditAssessment(req.params.id);
+      if (!audit) return res.status(404).json({ message: "Audit not found" });
+      const responses = await storage.getDohAuditResponses(req.params.id);
+      res.json({ ...audit, responses });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to fetch audit" });
+    }
+  });
+
+  // POST /api/doh-audits
+  app.post("/api/doh-audits", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session.user;
+      const audit = await storage.createDohAuditAssessment({
+        ...req.body,
+        createdBy: user.id,
+        status: "in_progress",
+      });
+      res.status(201).json(audit);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to create audit" });
+    }
+  });
+
+  // PATCH /api/doh-audits/:id
+  app.patch("/api/doh-audits/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const audit = await storage.updateDohAuditAssessment(req.params.id, req.body);
+      res.json(audit);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to update audit" });
+    }
+  });
+
+  // DELETE /api/doh-audits/:id
+  app.delete("/api/doh-audits/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      await storage.deleteDohAuditAssessment(req.params.id);
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to delete audit" });
+    }
+  });
+
+  // PUT /api/doh-audits/:id/responses  (upsert a single item response)
+  app.put("/api/doh-audits/:id/responses", isAuthenticated, async (req: any, res) => {
+    try {
+      const { itemKey, category, status, notes } = req.body;
+      if (!itemKey || !category || !status) return res.status(400).json({ message: "itemKey, category, status required" });
+      const response = await storage.upsertDohAuditResponse(req.params.id, itemKey, category, status, notes ?? null);
+      res.json(response);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to save response" });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }

@@ -347,6 +347,11 @@ import {
   helpArticles,
   type HelpArticle,
   type InsertHelpArticle,
+  dohAuditAssessments,
+  dohAuditResponses,
+  type DohAuditAssessment,
+  type InsertDohAuditAssessment,
+  type DohAuditResponse,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, asc, and, or, count, sql, like, gte, lte, inArray } from "drizzle-orm";
@@ -1179,6 +1184,15 @@ export interface IStorage {
   updateHelpArticle(id: string, article: Partial<InsertHelpArticle>): Promise<HelpArticle>;
   deleteHelpArticle(id: string): Promise<void>;
   incrementHelpArticleViewCount(id: string): Promise<void>;
+
+  // DOH Audit Assessment operations
+  getDohAuditAssessments(officeId: string): Promise<DohAuditAssessment[]>;
+  getDohAuditAssessment(id: string): Promise<DohAuditAssessment | undefined>;
+  createDohAuditAssessment(assessment: InsertDohAuditAssessment): Promise<DohAuditAssessment>;
+  updateDohAuditAssessment(id: string, assessment: Partial<InsertDohAuditAssessment>): Promise<DohAuditAssessment>;
+  deleteDohAuditAssessment(id: string): Promise<void>;
+  getDohAuditResponses(auditId: string): Promise<DohAuditResponse[]>;
+  upsertDohAuditResponse(auditId: string, itemKey: string, category: string, status: string, notes: string | null): Promise<DohAuditResponse>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -7298,6 +7312,50 @@ export class DatabaseStorage implements IStorage {
     await db.update(helpArticles)
       .set({ viewCount: sql`${helpArticles.viewCount} + 1` })
       .where(eq(helpArticles.id, id));
+  }
+
+  // DOH Audit Assessment operations
+  async getDohAuditAssessments(officeId: string): Promise<DohAuditAssessment[]> {
+    return db.select().from(dohAuditAssessments)
+      .where(eq(dohAuditAssessments.officeId, officeId))
+      .orderBy(desc(dohAuditAssessments.createdAt));
+  }
+
+  async getDohAuditAssessment(id: string): Promise<DohAuditAssessment | undefined> {
+    const [row] = await db.select().from(dohAuditAssessments).where(eq(dohAuditAssessments.id, id));
+    return row;
+  }
+
+  async createDohAuditAssessment(assessment: InsertDohAuditAssessment): Promise<DohAuditAssessment> {
+    const [row] = await db.insert(dohAuditAssessments).values(assessment).returning();
+    return row;
+  }
+
+  async updateDohAuditAssessment(id: string, assessment: Partial<InsertDohAuditAssessment>): Promise<DohAuditAssessment> {
+    const [row] = await db.update(dohAuditAssessments)
+      .set({ ...assessment, updatedAt: new Date() })
+      .where(eq(dohAuditAssessments.id, id))
+      .returning();
+    return row;
+  }
+
+  async deleteDohAuditAssessment(id: string): Promise<void> {
+    await db.delete(dohAuditAssessments).where(eq(dohAuditAssessments.id, id));
+  }
+
+  async getDohAuditResponses(auditId: string): Promise<DohAuditResponse[]> {
+    return db.select().from(dohAuditResponses).where(eq(dohAuditResponses.auditId, auditId));
+  }
+
+  async upsertDohAuditResponse(auditId: string, itemKey: string, category: string, status: string, notes: string | null): Promise<DohAuditResponse> {
+    const [row] = await db.insert(dohAuditResponses)
+      .values({ auditId, itemKey, category, status: status as any, notes, updatedAt: new Date() })
+      .onConflictDoUpdate({
+        target: [dohAuditResponses.auditId, dohAuditResponses.itemKey],
+        set: { status: status as any, notes, updatedAt: new Date() },
+      })
+      .returning();
+    return row;
   }
 }
 

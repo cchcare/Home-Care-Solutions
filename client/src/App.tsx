@@ -69,6 +69,7 @@ import VisitHoursDifference from "@/pages/visit-hours-difference";
 import PaySync from "@/pages/paysync";
 import DcwTraining from "@/pages/dcw-training";
 import StaffTraining from "@/pages/staff-training";
+import AuditAssessment from "@/pages/audit-assessment";
 import MyProfile from "@/pages/my-profile";
 import MyCompliance from "@/pages/my-compliance";
 import MyDocuments from "@/pages/my-documents";
@@ -195,6 +196,7 @@ function Router() {
           <Route path="/my-support-tickets" component={MySupportTickets} />
           <Route path="/error-log" component={ErrorLog} />
           <Route path="/help-center-admin" component={HelpCenterAdmin} />
+          <Route path="/audit-assessment" component={AuditAssessment} />
         </>
       )}
       <Route component={NotFound} />
