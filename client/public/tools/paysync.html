@@ -2540,7 +2540,10 @@ function resetAll() {
   const statusSel = document.getElementById('statusColPosition');
   if (statusSel) statusSel.value = 'last';
   const highlightSel = document.getElementById('rowHighlightStyle');
-  if (highlightSel) highlightSel.value = 'colored';
+  if (highlightSel) {
+    highlightSel.value = 'colored';
+    localStorage.removeItem('paysync_rowHighlightStyle');
+  }
   const sumRowEl = document.getElementById('summaryStatsRow');
   if (sumRowEl) {
     sumRowEl.style.display = 'none';
