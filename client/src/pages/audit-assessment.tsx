@@ -190,6 +190,7 @@ interface AuditDocument {
   mimeType: string | null;
   fileSize: number | null;
   uploadedBy: string | null;
+  itemKey: string | null;
   notes: string | null;
   createdAt: string;
 }
@@ -383,11 +384,14 @@ export default function AuditAssessment() {
     onError: () => toast({ title: "Error", description: "Failed to remove item.", variant: "destructive" }),
   });
 
+  const [uploadingItemKey, setUploadingItemKey] = useState<string | null>(null);
+
   const uploadDocMutation = useMutation({
-    mutationFn: async ({ auditId, file, notes }: { auditId: string; file: File; notes?: string }) => {
+    mutationFn: async ({ auditId, file, notes, itemKey }: { auditId: string; file: File; notes?: string; itemKey?: string | null }) => {
       const formData = new FormData();
       formData.append("file", file);
       if (notes) formData.append("notes", notes);
+      if (itemKey) formData.append("itemKey", itemKey);
       const res = await fetch(`/api/doh-audits/${auditId}/documents/upload`, {
         method: "POST",
         body: formData,
@@ -398,10 +402,20 @@ export default function AuditAssessment() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/doh-audits", activeAuditId] });
-      toast({ title: "File uploaded successfully" });
+      setUploadingItemKey(null);
+      toast({ title: "File attached successfully" });
     },
-    onError: () => toast({ title: "Upload failed", description: "Unable to upload file. Check size and format.", variant: "destructive" }),
+    onError: () => {
+      setUploadingItemKey(null);
+      toast({ title: "Upload failed", description: "Unable to upload file. Check size and format.", variant: "destructive" });
+    },
   });
+
+  const attachToItem = useCallback((itemKey: string, file: File) => {
+    if (!activeAuditId) return;
+    setUploadingItemKey(itemKey);
+    uploadDocMutation.mutate({ auditId: activeAuditId, file, itemKey });
+  }, [activeAuditId]);
 
   const deleteDocMutation = useMutation({
     mutationFn: ({ auditId, docId }: { auditId: string; docId: string }) =>
@@ -712,10 +726,14 @@ export default function AuditAssessment() {
                     responsesMap={responsesMap}
                     notesMap={notesMap}
                     customItems={customItems.filter(i => i.category === cat.id)}
+                    auditDocuments={auditDocuments}
                     onSave={saveResponse}
                     disabled={isCompleted}
                     onAddCustomItem={label => addCustomItemMutation.mutate({ auditId: activeAuditId!, category: cat.id, label })}
                     onDeleteCustomItem={itemId => deleteCustomItemMutation.mutate({ auditId: activeAuditId!, itemId })}
+                    onAttachToItem={attachToItem}
+                    onDeleteDoc={docId => deleteDocMutation.mutate({ auditId: activeAuditId!, docId })}
+                    uploadingItemKey={uploadingItemKey}
                   />
                 </TabsContent>
               ))}
@@ -724,6 +742,7 @@ export default function AuditAssessment() {
                 <DocumentsSection
                   auditId={activeAuditId!}
                   documents={auditDocuments}
+                  customItems={customItems}
                   disabled={isCompleted}
                   onUpload={(file, notes) => uploadDocMutation.mutate({ auditId: activeAuditId!, file, notes })}
                   onDelete={docId => deleteDocMutation.mutate({ auditId: activeAuditId!, docId })}
@@ -758,16 +777,21 @@ export default function AuditAssessment() {
 // ─── Category Section ─────────────────────────────────────────────────────────
 
 function CategorySection({
-  category, responsesMap, notesMap, customItems, onSave, disabled, onAddCustomItem, onDeleteCustomItem,
+  category, responsesMap, notesMap, customItems, auditDocuments, onSave, disabled,
+  onAddCustomItem, onDeleteCustomItem, onAttachToItem, onDeleteDoc, uploadingItemKey,
 }: {
   category: ChecklistCategory;
   responsesMap: Record<string, ItemStatus>;
   notesMap: Record<string, string>;
   customItems: AuditCustomItem[];
+  auditDocuments: AuditDocument[];
   onSave: (itemKey: string, catId: string, status: ItemStatus, notes: string) => void;
   disabled: boolean;
   onAddCustomItem: (label: string) => void;
   onDeleteCustomItem: (itemId: string) => void;
+  onAttachToItem: (itemKey: string, file: File) => void;
+  onDeleteDoc: (docId: string) => void;
+  uploadingItemKey: string | null;
 }) {
   const cs = categoryStats(category.id, responsesMap, customItems);
   const Icon = category.icon;
@@ -811,6 +835,10 @@ function CategorySection({
             notes={notesMap[item.key] || ""}
             onSave={onSave}
             disabled={disabled}
+            itemDocs={auditDocuments.filter(d => d.itemKey === item.key)}
+            onAttach={file => onAttachToItem(item.key, file)}
+            onDeleteDoc={onDeleteDoc}
+            uploading={uploadingItemKey === item.key}
           />
         ))}
 
@@ -826,6 +854,10 @@ function CategorySection({
             disabled={disabled}
             isCustom
             onDelete={() => onDeleteCustomItem(item.id)}
+            itemDocs={auditDocuments.filter(d => d.itemKey === item.id)}
+            onAttach={file => onAttachToItem(item.id, file)}
+            onDeleteDoc={onDeleteDoc}
+            uploading={uploadingItemKey === item.id}
           />
         ))}
 
@@ -867,6 +899,7 @@ function CategorySection({
 
 function AuditItem({
   itemKey, label, reference, catId, status, notes, onSave, disabled, isCustom, onDelete,
+  itemDocs, onAttach, onDeleteDoc, uploading,
 }: {
   itemKey: string;
   label: string;
@@ -878,9 +911,15 @@ function AuditItem({
   disabled: boolean;
   isCustom?: boolean;
   onDelete?: () => void;
+  itemDocs?: AuditDocument[];
+  onAttach?: (file: File) => void;
+  onDeleteDoc?: (docId: string) => void;
+  uploading?: boolean;
 }) {
   const [localNotes, setLocalNotes] = useState(notes);
   const [expanded, setExpanded] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const docs = itemDocs || [];
 
   const handleStatus = (newStatus: ItemStatus) => {
     if (disabled) return;
@@ -935,6 +974,42 @@ function AuditItem({
                <MinusCircle size={14} className="text-gray-400" />}
             </button>
           ))}
+
+          {/* Attach button */}
+          {onAttach && (
+            <>
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                accept=".jpg,.jpeg,.png,.gif,.webp,.pdf,.doc,.docx,.xls,.xlsx"
+                className="hidden"
+                onChange={e => {
+                  if (!e.target.files) return;
+                  Array.from(e.target.files).forEach(f => onAttach(f));
+                  e.target.value = "";
+                }}
+              />
+              <button
+                onClick={() => !uploading && fileInputRef.current?.click()}
+                title={docs.length > 0 ? `${docs.length} file${docs.length > 1 ? "s" : ""} attached — click to add more` : "Attach file"}
+                className={`relative w-7 h-7 rounded flex items-center justify-center border transition-all
+                  ${docs.length > 0 ? "border-blue-300 bg-blue-50 text-blue-500 dark:bg-blue-900/20" : "border-gray-200 bg-muted/50 text-muted-foreground hover:text-foreground hover:bg-muted"}
+                  ${uploading ? "opacity-60 cursor-not-allowed" : "cursor-pointer"}`}
+              >
+                {uploading
+                  ? <div className="w-3 h-3 border border-current border-t-transparent rounded-full animate-spin" />
+                  : <Paperclip size={13} />
+                }
+                {docs.length > 0 && !uploading && (
+                  <span className="absolute -top-1.5 -right-1.5 bg-blue-500 text-white text-[9px] font-bold rounded-full w-3.5 h-3.5 flex items-center justify-center leading-none">
+                    {docs.length}
+                  </span>
+                )}
+              </button>
+            </>
+          )}
+
           <button
             onClick={() => setExpanded(p => !p)}
             className="w-7 h-7 rounded flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
@@ -952,8 +1027,10 @@ function AuditItem({
           )}
         </div>
       </div>
+
+      {/* Expanded: notes + attached files */}
       {expanded && (
-        <div className="mt-2 pl-6">
+        <div className="mt-2 pl-6 space-y-2">
           <Textarea
             value={localNotes}
             onChange={e => setLocalNotes(e.target.value)}
@@ -963,10 +1040,51 @@ function AuditItem({
             placeholder="Add notes, documentation references, or corrective action…"
             className="text-sm resize-none"
           />
+          {docs.length > 0 && (
+            <div className="space-y-1">
+              <p className="text-xs font-medium text-muted-foreground">Attached files:</p>
+              {docs.map(doc => (
+                <div key={doc.id} className="flex items-center gap-2 text-xs bg-background border rounded px-2 py-1">
+                  <span className="shrink-0">{getFileIcon(doc.mimeType)}</span>
+                  <span className="flex-1 truncate text-foreground">{doc.originalName}</span>
+                  <span className="text-muted-foreground shrink-0">{formatFileSize(doc.fileSize)}</span>
+                  <a
+                    href={`/api/doh-audits/${doc.auditId}/documents/${doc.id}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-muted-foreground hover:text-foreground shrink-0"
+                    title="View / Download"
+                  >
+                    <Download size={13} />
+                  </a>
+                  {!disabled && onDeleteDoc && (
+                    <button
+                      onClick={() => onDeleteDoc(doc.id)}
+                      className="text-muted-foreground hover:text-destructive shrink-0"
+                      title="Remove file"
+                    >
+                      <X size={13} />
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
-      {!expanded && localNotes && (
-        <p className="mt-1 pl-6 text-xs text-muted-foreground truncate italic">"{localNotes}"</p>
+
+      {/* Collapsed preview: notes snippet + file count */}
+      {!expanded && (localNotes || docs.length > 0) && (
+        <div className="mt-1 pl-6 flex items-center gap-3">
+          {localNotes && (
+            <p className="text-xs text-muted-foreground truncate italic flex-1">"{localNotes}"</p>
+          )}
+          {docs.length > 0 && (
+            <span className="text-xs text-blue-500 shrink-0 flex items-center gap-0.5">
+              <Paperclip size={11} /> {docs.length}
+            </span>
+          )}
+        </div>
       )}
     </div>
   );
@@ -974,11 +1092,23 @@ function AuditItem({
 
 // ─── Documents Section ────────────────────────────────────────────────────────
 
+function resolveItemLabel(itemKey: string | null, customItems: AuditCustomItem[]): string | null {
+  if (!itemKey) return null;
+  for (const cat of CHECKLIST) {
+    const found = cat.items.find(i => i.key === itemKey);
+    if (found) return found.label;
+  }
+  const custom = customItems.find(i => i.id === itemKey);
+  if (custom) return custom.label;
+  return null;
+}
+
 function DocumentsSection({
-  auditId, documents, disabled, onUpload, onDelete, uploading,
+  auditId, documents, customItems, disabled, onUpload, onDelete, uploading,
 }: {
   auditId: string;
   documents: AuditDocument[];
+  customItems: AuditCustomItem[];
   disabled: boolean;
   onUpload: (file: File, notes?: string) => void;
   onDelete: (docId: string) => void;
@@ -1048,7 +1178,9 @@ function DocumentsSection({
           <p className="text-sm text-muted-foreground text-center py-4">No documents attached yet</p>
         ) : (
           <div className="space-y-2">
-            {documents.map(doc => (
+            {documents.map(doc => {
+              const linkedLabel = resolveItemLabel(doc.itemKey, customItems);
+              return (
               <div
                 key={doc.id}
                 className="flex items-center gap-3 p-3 rounded-lg border bg-muted/20 hover:bg-muted/40 transition-colors"
@@ -1060,6 +1192,12 @@ function DocumentsSection({
                     {formatFileSize(doc.fileSize)}
                     {doc.createdAt && ` · ${new Date(doc.createdAt).toLocaleDateString()}`}
                   </p>
+                  {linkedLabel && (
+                    <p className="text-xs text-blue-600 dark:text-blue-400 mt-0.5 flex items-center gap-1 truncate">
+                      <Paperclip size={10} className="shrink-0" />
+                      <span className="truncate">{linkedLabel}</span>
+                    </p>
+                  )}
                   {doc.notes && <p className="text-xs text-muted-foreground italic mt-0.5">"{doc.notes}"</p>}
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
@@ -1083,7 +1221,8 @@ function DocumentsSection({
                   )}
                 </div>
               </div>
-            ))}
+            );
+            })}
           </div>
         )}
       </CardContent>

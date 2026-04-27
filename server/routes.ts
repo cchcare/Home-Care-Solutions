@@ -17000,6 +17000,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         mimeType: req.file.mimetype,
         fileSize: req.file.size,
         uploadedBy: req.session?.user?.id,
+        itemKey: req.body.itemKey || null,
         notes: req.body.notes || null,
       });
       res.status(201).json(doc);

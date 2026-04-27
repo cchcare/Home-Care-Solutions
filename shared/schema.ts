@@ -3931,6 +3931,7 @@ export const dohAuditDocuments = pgTable("doh_audit_documents", {
   mimeType: varchar("mime_type"),
   fileSize: integer("file_size"),
   uploadedBy: varchar("uploaded_by").references(() => users.id),
+  itemKey: varchar("item_key"),
   notes: text("notes"),
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => [index("idx_doh_audit_docs_audit").on(table.auditId)]);
