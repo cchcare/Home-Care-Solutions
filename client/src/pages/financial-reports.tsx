@@ -108,7 +108,7 @@ export default function FinancialReports() {
 
   const { data: reportData, isLoading, error } = useQuery<FinancialReportData>({
     queryKey: ["/api/admin/financial-reports", selectedOfficeId, selectedMcoId, startDate, endDate],
-    queryFn: () => fetch(`/api/admin/financial-reports?${queryParams}`, { credentials: "include" }).then(r => r.json()),
+    queryFn: () => fetch(`/api/admin/financial-reports?${queryParams}`, { credentials: "include" }).then(r => { if (!r.ok) throw new Error(r.statusText); return r.json(); }),
   });
 
   const { data: offices = [] } = useQuery<any[]>({
@@ -288,10 +288,10 @@ export default function FinancialReports() {
                     </CardHeader>
                     <CardContent>
                       <div className="text-2xl font-bold text-green-600" data-testid="text-total-revenue">
-                        {formatCurrency(reportData?.revenueSummary.totalRevenueCurrentMonth || 0)}
+                        {formatCurrency(reportData?.revenueSummary?.totalRevenueCurrentMonth || 0)}
                       </div>
                       <p className="text-xs text-muted-foreground mt-1">
-                        {reportData?.revenueSummary.totalClaims || 0} claims processed
+                        {reportData?.revenueSummary?.totalClaims || 0} claims processed
                       </p>
                     </CardContent>
                   </Card>
@@ -299,7 +299,7 @@ export default function FinancialReports() {
                   <Card data-testid="card-yoy-comparison">
                     <CardHeader className="pb-2">
                       <CardTitle className="text-sm font-medium flex items-center gap-2">
-                        {(reportData?.revenueSummary.yoyChange || 0) >= 0 ? (
+                        {(reportData?.revenueSummary?.yoyChange || 0) >= 0 ? (
                           <TrendingUp className="h-4 w-4 text-green-500" />
                         ) : (
                           <TrendingDown className="h-4 w-4 text-red-500" />
@@ -308,11 +308,11 @@ export default function FinancialReports() {
                       </CardTitle>
                     </CardHeader>
                     <CardContent>
-                      <div className={`text-2xl font-bold ${(reportData?.revenueSummary.yoyChange || 0) >= 0 ? 'text-green-600' : 'text-red-600'}`} data-testid="text-yoy-change">
-                        {(reportData?.revenueSummary.yoyChange || 0) >= 0 ? '+' : ''}{(reportData?.revenueSummary.yoyChange || 0).toFixed(1)}%
+                      <div className={`text-2xl font-bold ${(reportData?.revenueSummary?.yoyChange || 0) >= 0 ? 'text-green-600' : 'text-red-600'}`} data-testid="text-yoy-change">
+                        {(reportData?.revenueSummary?.yoyChange || 0) >= 0 ? '+' : ''}{(reportData?.revenueSummary?.yoyChange || 0).toFixed(1)}%
                       </div>
                       <p className="text-xs text-muted-foreground mt-1">
-                        vs. {formatCurrency(reportData?.revenueSummary.lastYearRevenue || 0)} last year
+                        vs. {formatCurrency(reportData?.revenueSummary?.lastYearRevenue || 0)} last year
                       </p>
                     </CardContent>
                   </Card>
@@ -326,10 +326,10 @@ export default function FinancialReports() {
                     </CardHeader>
                     <CardContent>
                       <div className="text-2xl font-bold text-blue-600" data-testid="text-total-billed">
-                        {formatCurrency(reportData?.revenueSummary.totalBilled || 0)}
+                        {formatCurrency(reportData?.revenueSummary?.totalBilled || 0)}
                       </div>
                       <p className="text-xs text-muted-foreground mt-1">
-                        {formatCurrency(reportData?.revenueSummary.totalApproved || 0)} approved
+                        {formatCurrency(reportData?.revenueSummary?.totalApproved || 0)} approved
                       </p>
                     </CardContent>
                   </Card>
@@ -384,10 +384,10 @@ export default function FinancialReports() {
                         </CardHeader>
                         <CardContent>
                           <div className="space-y-3">
-                            {reportData?.revenueByMco.length === 0 ? (
+                            {reportData?.revenueByMco?.length === 0 ? (
                               <p className="text-muted-foreground text-center py-4">No revenue data available</p>
                             ) : (
-                              reportData?.revenueByMco.map((mco, index) => (
+                              reportData?.revenueByMco?.map((mco, index) => (
                                 <div key={mco.mcoId} className="flex justify-between items-center p-3 bg-muted/50 rounded-lg" data-testid={`row-mco-revenue-${index}`}>
                                   <div>
                                     <p className="font-medium">{mco.mcoName}</p>
@@ -424,10 +424,10 @@ export default function FinancialReports() {
                         </CardHeader>
                         <CardContent>
                           <div className="space-y-3">
-                            {reportData?.revenueByOffice.length === 0 ? (
+                            {reportData?.revenueByOffice?.length === 0 ? (
                               <p className="text-muted-foreground text-center py-4">No revenue data available</p>
                             ) : (
-                              reportData?.revenueByOffice.map((office, index) => (
+                              reportData?.revenueByOffice?.map((office, index) => (
                                 <div key={office.officeId} className="flex justify-between items-center p-3 bg-muted/50 rounded-lg" data-testid={`row-office-revenue-${index}`}>
                                   <div>
                                     <p className="font-medium">{office.officeName}</p>
@@ -466,28 +466,28 @@ export default function FinancialReports() {
                         <div className="grid grid-cols-5 gap-4">
                           <div className="text-center p-4 rounded-lg bg-green-50 dark:bg-green-950">
                             <p className="text-sm text-muted-foreground">Current</p>
-                            <p className="text-xl font-bold text-green-600" data-testid="text-ar-current">{formatCurrency(reportData?.arAging.current.amount || 0)}</p>
-                            <Badge variant="outline" className="mt-1 bg-green-100 text-green-800">{reportData?.arAging.current.count || 0} claims</Badge>
+                            <p className="text-xl font-bold text-green-600" data-testid="text-ar-current">{formatCurrency(reportData?.arAging?.current.amount || 0)}</p>
+                            <Badge variant="outline" className="mt-1 bg-green-100 text-green-800">{reportData?.arAging?.current.count || 0} claims</Badge>
                           </div>
                           <div className="text-center p-4 rounded-lg bg-yellow-50 dark:bg-yellow-950">
                             <p className="text-sm text-muted-foreground">1-30 Days</p>
-                            <p className="text-xl font-bold text-yellow-600" data-testid="text-ar-30">{formatCurrency(reportData?.arAging.days30.amount || 0)}</p>
-                            <Badge variant="outline" className="mt-1 bg-yellow-100 text-yellow-800">{reportData?.arAging.days30.count || 0} claims</Badge>
+                            <p className="text-xl font-bold text-yellow-600" data-testid="text-ar-30">{formatCurrency(reportData?.arAging?.days30.amount || 0)}</p>
+                            <Badge variant="outline" className="mt-1 bg-yellow-100 text-yellow-800">{reportData?.arAging?.days30.count || 0} claims</Badge>
                           </div>
                           <div className="text-center p-4 rounded-lg bg-orange-50 dark:bg-orange-950">
                             <p className="text-sm text-muted-foreground">31-60 Days</p>
-                            <p className="text-xl font-bold text-orange-600" data-testid="text-ar-60">{formatCurrency(reportData?.arAging.days60.amount || 0)}</p>
-                            <Badge variant="outline" className="mt-1 bg-orange-100 text-orange-800">{reportData?.arAging.days60.count || 0} claims</Badge>
+                            <p className="text-xl font-bold text-orange-600" data-testid="text-ar-60">{formatCurrency(reportData?.arAging?.days60.amount || 0)}</p>
+                            <Badge variant="outline" className="mt-1 bg-orange-100 text-orange-800">{reportData?.arAging?.days60.count || 0} claims</Badge>
                           </div>
                           <div className="text-center p-4 rounded-lg bg-red-50 dark:bg-red-950">
                             <p className="text-sm text-muted-foreground">61-90 Days</p>
-                            <p className="text-xl font-bold text-red-600" data-testid="text-ar-90">{formatCurrency(reportData?.arAging.days90.amount || 0)}</p>
-                            <Badge variant="outline" className="mt-1 bg-red-100 text-red-800">{reportData?.arAging.days90.count || 0} claims</Badge>
+                            <p className="text-xl font-bold text-red-600" data-testid="text-ar-90">{formatCurrency(reportData?.arAging?.days90.amount || 0)}</p>
+                            <Badge variant="outline" className="mt-1 bg-red-100 text-red-800">{reportData?.arAging?.days90.count || 0} claims</Badge>
                           </div>
                           <div className="text-center p-4 rounded-lg bg-red-100 dark:bg-red-900">
                             <p className="text-sm text-muted-foreground">90+ Days</p>
-                            <p className="text-xl font-bold text-red-800" data-testid="text-ar-over90">{formatCurrency(reportData?.arAging.over90.amount || 0)}</p>
-                            <Badge variant="destructive" className="mt-1">{reportData?.arAging.over90.count || 0} claims</Badge>
+                            <p className="text-xl font-bold text-red-800" data-testid="text-ar-over90">{formatCurrency(reportData?.arAging?.over90.amount || 0)}</p>
+                            <Badge variant="destructive" className="mt-1">{reportData?.arAging?.over90.count || 0} claims</Badge>
                           </div>
                         </div>
                       </CardContent>
@@ -701,7 +701,7 @@ export default function FinancialReports() {
                         </CardHeader>
                         <CardContent>
                           <div className="h-80">
-                            {reportData?.revenueByMco.length === 0 ? (
+                            {reportData?.revenueByMco?.length === 0 ? (
                               <div className="flex items-center justify-center h-full text-muted-foreground">
                                 No data available
                               </div>
@@ -719,7 +719,7 @@ export default function FinancialReports() {
                                     nameKey="mcoName"
                                     label={({ mcoName, percent }) => `${mcoName}: ${(percent * 100).toFixed(0)}%`}
                                   >
-                                    {reportData?.revenueByMco.map((entry, index) => (
+                                    {reportData?.revenueByMco?.map((entry, index) => (
                                       <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                                     ))}
                                   </Pie>
