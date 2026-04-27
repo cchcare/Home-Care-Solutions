@@ -774,22 +774,30 @@ input.finput::placeholder { color: var(--text3); }
 }
 .sum-utag-id { font-weight: 700; }
 .sum-utag-reason { opacity: 0.75; font-size: 10px; white-space: normal; word-break: break-word; }
-.sum-warn-copy-btn {
+.sum-warn-copy-btn, .sum-warn-dl-btn {
   margin-right: 4px;
   padding: 3px 10px;
   font-size: 11px;
   font-weight: 600;
   font-family: inherit;
-  color: var(--red);
-  background: rgba(255,77,106,0.12);
-  border: 1px solid rgba(255,77,106,0.35);
   border-radius: 6px;
   cursor: pointer;
   transition: background 0.15s, color 0.15s;
   flex-shrink: 0;
 }
+.sum-warn-copy-btn {
+  color: var(--red);
+  background: rgba(255,77,106,0.12);
+  border: 1px solid rgba(255,77,106,0.35);
+}
 .sum-warn-copy-btn:hover { background: rgba(255,77,106,0.22); }
 .sum-warn-copy-btn.copied { color: var(--green); background: rgba(40,200,120,0.12); border-color: rgba(40,200,120,0.35); }
+.sum-warn-dl-btn {
+  color: var(--blue);
+  background: rgba(82,148,255,0.12);
+  border: 1px solid rgba(82,148,255,0.35);
+}
+.sum-warn-dl-btn:hover { background: rgba(82,148,255,0.22); }
 #sc-sum-unmatched { cursor: pointer; }
 #sc-sum-unmatched:hover { filter: brightness(1.05); }
 .tag-cloud { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -1291,6 +1299,7 @@ tr.unmatched-detail-row td {
         <span>⚠</span>
         <span id="sumWarnTitle">Unmatched Summary Rows — click to see details</span>
         <button id="sumWarnCopyBtn" class="sum-warn-copy-btn" style="display:none" onclick="event.stopPropagation()">Copy</button>
+        <button id="sumWarnDlBtn" class="sum-warn-dl-btn" style="display:none" onclick="event.stopPropagation()">↓ CSV</button>
         <i class="sum-warn-chevron">▾</i>
       </div>
       <div class="sum-warn-body">
@@ -2099,6 +2108,7 @@ async function runProcess() {
     const swTags    = document.getElementById('sumWarnTags');
     const swTitle   = document.getElementById('sumWarnTitle');
     const swCopyBtn = document.getElementById('sumWarnCopyBtn');
+    const swDlBtn   = document.getElementById('sumWarnDlBtn');
     function escHtml(s) {
       return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
     }
@@ -2108,14 +2118,19 @@ async function runProcess() {
         `<span class="sum-utag"><span class="sum-utag-id">${escHtml(item.id)}</span><span class="sum-utag-reason">${escHtml(item.reason)}</span></span>`
       ).join('');
       swBox.style.display = 'block';
-      // Reset copy button state from any previous run
+      // Reset copy + download button state from any previous run
       swCopyBtn.textContent = 'Copy';
       swCopyBtn.classList.remove('copied');
       swCopyBtn.style.display = 'none';
+      swDlBtn.style.display = 'none';
       // Wire up toggle using onclick to avoid stacking listeners
+      const _setHeaderBtns = (visible) => {
+        swCopyBtn.style.display = visible ? '' : 'none';
+        swDlBtn.style.display   = visible ? '' : 'none';
+      };
       document.getElementById('sumWarnToggle').onclick = () => {
         swBox.classList.toggle('expanded');
-        swCopyBtn.style.display = swBox.classList.contains('expanded') ? '' : 'none';
+        _setHeaderBtns(swBox.classList.contains('expanded'));
       };
       // Wire up copy button
       let _copyTimer;
@@ -2136,10 +2151,29 @@ async function runProcess() {
           _copyTimer = setTimeout(() => { swCopyBtn.textContent = 'Copy'; }, 2000);
         });
       };
+      // Wire up download CSV button
+      swDlBtn.onclick = (e) => {
+        e.stopPropagation();
+        const escCsv = (v) => {
+          const s = String(v ?? '');
+          return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+        };
+        const rows = [['ID', 'Reason'], ...sumUnmatchedItems.map(i => [i.id, i.reason])];
+        const csv  = rows.map(r => r.map(escCsv).join(',')).join('\r\n');
+        const date = new Date().toISOString().slice(0, 10);
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const url  = URL.createObjectURL(blob);
+        const a    = document.createElement('a');
+        a.href     = url;
+        a.download = `unmatched-summary-${date}.csv`;
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => { URL.revokeObjectURL(url); document.body.removeChild(a); }, 1000);
+      };
       // Wire up the stat card to scroll to and expand the box
       document.getElementById('sc-sum-unmatched').onclick = () => {
         swBox.classList.add('expanded');
-        swCopyBtn.style.display = '';
+        _setHeaderBtns(true);
         swBox.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
       };
       // Update sub text to hint the card is clickable
@@ -2149,6 +2183,7 @@ async function runProcess() {
       swBox.style.display = 'none';
       swBox.classList.remove('expanded');
       swCopyBtn.style.display = 'none';
+      swDlBtn.style.display = 'none';
       document.getElementById('sc-sum-unmatched').onclick = null;
       const sumUnmatchedSub = document.querySelector('#sc-sum-unmatched .stat-sub');
       if (sumUnmatchedSub) sumUnmatchedSub.textContent = 'Flagged in export';
