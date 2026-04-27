@@ -1693,7 +1693,7 @@ function loadHHA(input, slot) {
 }
 
 // ═══════════════════ PROCESS ═══════════════════
-function runProcess() {
+async function runProcess() {
   const _pi = document.getElementById('processingIndicator');
   if (!_pi.classList.contains('visible')) {
     _pi.classList.add('visible');
@@ -1705,7 +1705,11 @@ function runProcess() {
   }
 
   const _lbl = document.getElementById('procLabel');
-  const setLabel = (text) => { if (_lbl) _lbl.textContent = text; };
+  // Set label then yield so browser can repaint before heavy work begins
+  const setLabel = (text) => new Promise(resolve => {
+    if (_lbl) _lbl.textContent = text;
+    requestAnimationFrame(() => requestAnimationFrame(resolve));
+  });
   let _processedOk = false;
 
   try {
@@ -1742,7 +1746,7 @@ function runProcess() {
     return d.length >= 4 ? d : '';
   }
 
-  setLabel('Building master lookup…');
+  await setLabel('Building master lookup…');
   // Build lookup from master — primary by HHA code, secondary by SSN
   const lookup = {};
   const ssnLookup = {};
@@ -1765,7 +1769,7 @@ function runProcess() {
   if (ssnEntries > 0) lg(`  SSN fallback enabled — will try Social Security match if aide code not found`, 'i');
   lg(`HHA rows to process — ${S.hhaRows.length} total`, 'i');
 
-  setLabel('Grouping HHA rows…');
+  await setLabel('Grouping HHA rows…');
   // Group by aide+week (also capture SSN from HHA file if present)
   const grouped = {};
   const hMap = S.hhaMap || {};
@@ -1793,7 +1797,7 @@ function runProcess() {
   });
   lg(`Grouped — ${Object.keys(grouped).length} unique aide-week combinations`, 'i');
 
-  setLabel('Matching employees…');
+  await setLabel('Matching employees…');
   const output = [];
   const unmatched = new Set();
   let ssnMatches = 0;
@@ -1839,7 +1843,7 @@ function runProcess() {
   S.output    = output;
   S.unmatched = [...unmatched];
 
-  setLabel('Building output…');
+  await setLabel('Building output…');
   const totOT  = output.reduce((s, r) => s + r.otHrs, 0);
   const totReg = output.reduce((s, r) => s + r.regHrs, 0);
 
@@ -1882,7 +1886,7 @@ function runProcess() {
 
   // ─── Optional: Summary Sheet filling ───
   if (S.summaryRows.length > 0) {
-    setLabel('Filling summary sheet…');
+    await setLabel('Filling summary sheet…');
     lg('', 'i');
     lg('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'i');
     lg('📊 Processing Summary Sheet...', 'i');
@@ -2149,8 +2153,8 @@ function runProcess() {
   _processedOk = true;
   } finally {
     if (_processedOk) {
-      setLabel('✓ Complete');
-      setTimeout(() => { _pi.classList.remove('visible'); tick(); }, 600);
+      if (_lbl) _lbl.textContent = '✓ Complete';
+      setTimeout(() => { _pi.classList.remove('visible'); tick(); }, 700);
     } else {
       _pi.classList.remove('visible');
       tick();
