@@ -1374,6 +1374,16 @@ tr.unmatched-detail-row td {
         <option value="grey">Neutral grey</option>
         <option value="none">No highlight</option>
       </select>
+      <span id="customColorPickers" style="display:inline-flex;align-items:center;gap:10px">
+        <label style="font-weight:500;white-space:nowrap;color:var(--text2);display:flex;align-items:center;gap:4px">
+          Matched:
+          <input type="color" id="matchedColor" value="#C6EFCE" title="Matched row color" style="width:28px;height:24px;padding:1px;border:1px solid var(--border2);border-radius:4px;cursor:pointer;background:none">
+        </label>
+        <label style="font-weight:500;white-space:nowrap;color:var(--text2);display:flex;align-items:center;gap:4px">
+          Unmatched:
+          <input type="color" id="unmatchedColor" value="#FFC7CE" title="Unmatched row color" style="width:28px;height:24px;padding:1px;border:1px solid var(--border2);border-radius:4px;cursor:pointer;background:none">
+        </label>
+      </span>
     </div>
     <div class="dl-row" id="summaryDlRow" style="display:none;margin-top:8px">
       <button class="btn-dl-primary" id="dlSummary" onclick="downloadSummarySheet()" disabled style="background:var(--green)">
@@ -2470,7 +2480,9 @@ function downloadSummarySheet() {
         fillRgb = 'D9D9D9';
         fontRgb = '404040';
       } else {
-        fillRgb = isUnmatched ? 'FFC7CE' : 'C6EFCE';
+        const matchedHex   = ((document.getElementById('matchedColor')   || {}).value   || '#C6EFCE').replace('#', '');
+        const unmatchedHex = ((document.getElementById('unmatchedColor') || {}).value || '#FFC7CE').replace('#', '');
+        fillRgb = isUnmatched ? unmatchedHex : matchedHex;
         fontRgb = isUnmatched ? '9C0006' : '276221';
       }
       for (let c = range.s.c; c <= range.e.c; c++) {
@@ -2544,6 +2556,8 @@ function resetAll() {
     highlightSel.value = 'colored';
     localStorage.removeItem('paysync_rowHighlightStyle');
   }
+  const colorPickersReset = document.getElementById('customColorPickers');
+  if (colorPickersReset) colorPickersReset.style.display = 'inline-flex';
   const sumRowEl = document.getElementById('summaryStatsRow');
   if (sumRowEl) {
     sumRowEl.style.display = 'none';
@@ -2636,14 +2650,41 @@ setupDragDrop();
     });
   }
 
-  const highlightSel = document.getElementById('rowHighlightStyle');
+  const highlightSel     = document.getElementById('rowHighlightStyle');
+  const colorPickersEl   = document.getElementById('customColorPickers');
+  const matchedColorEl   = document.getElementById('matchedColor');
+  const unmatchedColorEl = document.getElementById('unmatchedColor');
+
+  function syncColorPickerVisibility() {
+    if (!colorPickersEl) return;
+    colorPickersEl.style.display = (highlightSel && highlightSel.value === 'colored') ? 'inline-flex' : 'none';
+  }
+
   if (highlightSel) {
     const saved = localStorage.getItem('paysync_rowHighlightStyle');
     if (saved && ['colored', 'grey', 'none'].includes(saved)) {
       highlightSel.value = saved;
     }
+    syncColorPickerVisibility();
     highlightSel.addEventListener('change', function () {
       localStorage.setItem('paysync_rowHighlightStyle', highlightSel.value);
+      syncColorPickerVisibility();
+    });
+  }
+
+  if (matchedColorEl) {
+    const saved = localStorage.getItem('paysync_matchedColor');
+    if (saved) matchedColorEl.value = saved;
+    matchedColorEl.addEventListener('change', function () {
+      localStorage.setItem('paysync_matchedColor', matchedColorEl.value);
+    });
+  }
+
+  if (unmatchedColorEl) {
+    const saved = localStorage.getItem('paysync_unmatchedColor');
+    if (saved) unmatchedColorEl.value = saved;
+    unmatchedColorEl.addEventListener('change', function () {
+      localStorage.setItem('paysync_unmatchedColor', unmatchedColorEl.value);
     });
   }
 }());
