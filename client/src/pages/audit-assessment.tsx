@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useRef, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useOffice } from "@/context/office-context";
@@ -30,7 +30,7 @@ import {
   ClipboardCheck, Plus, ArrowLeft, CheckCircle2, XCircle,
   MinusCircle, Clock, Building2, Trash2, FileText,
   Users, UserCheck, AlertTriangle, ShieldCheck, ChevronDown, ChevronUp,
-  Printer,
+  Printer, Upload, Paperclip, Download, X, File, Image, Sheet, FileBadge2,
 } from "lucide-react";
 import type { Office } from "@shared/schema";
 
@@ -182,6 +182,26 @@ interface AuditResponse {
   updatedAt: string;
 }
 
+interface AuditDocument {
+  id: string;
+  auditId: string;
+  fileName: string;
+  originalName: string;
+  mimeType: string | null;
+  fileSize: number | null;
+  uploadedBy: string | null;
+  notes: string | null;
+  createdAt: string;
+}
+
+interface AuditCustomItem {
+  id: string;
+  auditId: string;
+  category: string;
+  label: string;
+  createdAt: string;
+}
+
 interface AuditAssessment {
   id: string;
   officeId: string;
@@ -194,6 +214,8 @@ interface AuditAssessment {
   createdAt: string;
   updatedAt: string;
   responses?: AuditResponse[];
+  documents?: AuditDocument[];
+  customItems?: AuditCustomItem[];
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -213,27 +235,44 @@ function getStatusBadge(status: ItemStatus) {
   return <Badge className="bg-yellow-100 text-yellow-800 border-yellow-200 dark:bg-yellow-900/30 dark:text-yellow-300">Pending</Badge>;
 }
 
-function computeStats(responses: Record<string, ItemStatus>) {
-  const total = Object.keys(responses).length;
+function computeStats(responses: Record<string, ItemStatus>, customItems: AuditCustomItem[]) {
+  const builtInTotal = CHECKLIST.reduce((a, c) => a + c.items.length, 0);
+  const totalItems = builtInTotal + customItems.length;
   const pass = Object.values(responses).filter(s => s === "pass").length;
   const fail = Object.values(responses).filter(s => s === "fail").length;
   const na = Object.values(responses).filter(s => s === "na").length;
   const reviewed = pass + fail + na;
-  const totalItems = CHECKLIST.reduce((a, c) => a + c.items.length, 0);
   const pct = totalItems > 0 ? Math.round((reviewed / totalItems) * 100) : 0;
-  const scorePct = (pass + na) > 0 && (pass + fail) > 0
-    ? Math.round((pass / (pass + fail)) * 100) : 0;
-  return { total, pass, fail, na, reviewed, totalItems, pct, scorePct };
+  const scorePct = (pass + fail) > 0 ? Math.round((pass / (pass + fail)) * 100) : 0;
+  return { pass, fail, na, reviewed, totalItems, pct, scorePct };
 }
 
-function categoryStats(catId: string, responses: Record<string, ItemStatus>) {
+function categoryStats(catId: string, responsesMap: Record<string, ItemStatus>, customItems: AuditCustomItem[]) {
   const cat = CHECKLIST.find(c => c.id === catId)!;
-  const items = cat.items;
-  const pass = items.filter(i => responses[i.key] === "pass").length;
-  const fail = items.filter(i => responses[i.key] === "fail").length;
-  const na = items.filter(i => responses[i.key] === "na").length;
+  const builtInItems = cat.items;
+  const customCatItems = customItems.filter(i => i.category === catId);
+  const allKeys = [...builtInItems.map(i => i.key), ...customCatItems.map(i => i.id)];
+  const pass = allKeys.filter(k => responsesMap[k] === "pass").length;
+  const fail = allKeys.filter(k => responsesMap[k] === "fail").length;
+  const na = allKeys.filter(k => responsesMap[k] === "na").length;
   const reviewed = pass + fail + na;
-  return { pass, fail, na, reviewed, total: items.length };
+  return { pass, fail, na, reviewed, total: allKeys.length };
+}
+
+function formatFileSize(bytes: number | null): string {
+  if (!bytes) return "";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function getFileIcon(mimeType: string | null) {
+  if (!mimeType) return <File size={16} className="text-gray-400" />;
+  if (mimeType.startsWith("image/")) return <Image size={16} className="text-blue-400" />;
+  if (mimeType === "application/pdf") return <FileText size={16} className="text-red-400" />;
+  if (mimeType.includes("word")) return <FileText size={16} className="text-blue-600" />;
+  if (mimeType.includes("excel") || mimeType.includes("spreadsheet")) return <Sheet size={16} className="text-green-600" />;
+  return <File size={16} className="text-gray-400" />;
 }
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
@@ -254,13 +293,10 @@ export default function AuditAssessment() {
   const officeId = selectedOfficeId && selectedOfficeId !== "all"
     ? selectedOfficeId : (user as any)?.primaryOfficeId || "";
 
-  // Fetch offices for selector
   const { data: offices = [] } = useQuery<Office[]>({ queryKey: ["/api/offices"] });
 
-  // Effective office for list (admin may pick, others use their own)
   const effectiveOfficeId = newOfficeId || officeId;
 
-  // Fetch audit list
   const { data: audits = [], isLoading: listLoading } = useQuery<AuditAssessment[]>({
     queryKey: ["/api/doh-audits", officeId],
     queryFn: async () => {
@@ -271,21 +307,20 @@ export default function AuditAssessment() {
     enabled: !!officeId,
   });
 
-  // Fetch active audit detail
-  const { data: activeAudit, isLoading: auditLoading } = useQuery<AuditAssessment & { responses: AuditResponse[] }>({
+  const { data: activeAudit, isLoading: auditLoading } = useQuery<AuditAssessment & { responses: AuditResponse[]; documents: AuditDocument[]; customItems: AuditCustomItem[] }>({
     queryKey: ["/api/doh-audits", activeAuditId],
     enabled: !!activeAuditId,
   });
 
-  // Build local responses map
   const responsesMap: Record<string, ItemStatus> = {};
   const notesMap: Record<string, string> = {};
   (activeAudit?.responses || []).forEach(r => {
     responsesMap[r.itemKey] = r.status;
     notesMap[r.itemKey] = r.notes || "";
   });
+  const customItems: AuditCustomItem[] = activeAudit?.customItems || [];
+  const auditDocuments: AuditDocument[] = activeAudit?.documents || [];
 
-  // Create audit
   const createMutation = useMutation({
     mutationFn: (data: any) => apiRequest("POST", "/api/doh-audits", data),
     onSuccess: async (newAudit: any) => {
@@ -299,228 +334,251 @@ export default function AuditAssessment() {
     onError: () => toast({ title: "Error", description: "Failed to create audit.", variant: "destructive" }),
   });
 
-  // Delete audit
   const deleteMutation = useMutation({
     mutationFn: (id: string) => apiRequest("DELETE", `/api/doh-audits/${id}`),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/doh-audits", officeId] });
-      if (activeAuditId === deleteAuditId) setActiveAuditId(null);
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["/api/doh-audits", officeId] });
       setDeleteAuditId(null);
+      if (activeAuditId === deleteAuditId) setActiveAuditId(null);
       toast({ title: "Audit deleted" });
     },
+    onError: () => toast({ title: "Error", description: "Failed to delete audit.", variant: "destructive" }),
   });
 
-  // Mark complete / reopen
   const statusMutation = useMutation({
     mutationFn: ({ id, status }: { id: string; status: string }) =>
-      apiRequest("PATCH", `/api/doh-audits/${id}`, {
-        status,
-        completedAt: status === "completed" ? new Date().toISOString() : null,
-      }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/doh-audits", officeId] });
-      queryClient.invalidateQueries({ queryKey: ["/api/doh-audits", activeAuditId] });
-    },
+      apiRequest("PATCH", `/api/doh-audits/${id}`, { status }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/doh-audits", activeAuditId] }),
+    onError: () => toast({ title: "Error", description: "Failed to update status.", variant: "destructive" }),
   });
 
-  // Update notes
   const notesMutation = useMutation({
     mutationFn: ({ id, notes }: { id: string; notes: string }) =>
       apiRequest("PATCH", `/api/doh-audits/${id}`, { overallNotes: notes }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/doh-audits", activeAuditId] }),
   });
 
-  // Save item response
   const responseMutation = useMutation({
-    mutationFn: (data: { itemKey: string; category: string; status: string; notes: string }) =>
-      apiRequest("PUT", `/api/doh-audits/${activeAuditId}/responses`, data),
+    mutationFn: ({ auditId, itemKey, category, status, notes }: any) =>
+      apiRequest("PUT", `/api/doh-audits/${auditId}/responses`, { itemKey, category, status, notes }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/doh-audits", activeAuditId] }),
   });
 
-  const saveResponse = useCallback((item: ChecklistItem, catId: string, status: ItemStatus, notes: string) => {
-    responseMutation.mutate({ itemKey: item.key, category: catId, status, notes });
+  const addCustomItemMutation = useMutation({
+    mutationFn: ({ auditId, category, label }: { auditId: string; category: string; label: string }) =>
+      apiRequest("POST", `/api/doh-audits/${auditId}/custom-items`, { category, label }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/doh-audits", activeAuditId] });
+      toast({ title: "Custom item added" });
+    },
+    onError: () => toast({ title: "Error", description: "Failed to add custom item.", variant: "destructive" }),
+  });
+
+  const deleteCustomItemMutation = useMutation({
+    mutationFn: ({ auditId, itemId }: { auditId: string; itemId: string }) =>
+      apiRequest("DELETE", `/api/doh-audits/${auditId}/custom-items/${itemId}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/doh-audits", activeAuditId] });
+    },
+    onError: () => toast({ title: "Error", description: "Failed to remove item.", variant: "destructive" }),
+  });
+
+  const uploadDocMutation = useMutation({
+    mutationFn: async ({ auditId, file, notes }: { auditId: string; file: File; notes?: string }) => {
+      const formData = new FormData();
+      formData.append("file", file);
+      if (notes) formData.append("notes", notes);
+      const res = await fetch(`/api/doh-audits/${auditId}/documents/upload`, {
+        method: "POST",
+        body: formData,
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error("Upload failed");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/doh-audits", activeAuditId] });
+      toast({ title: "File uploaded successfully" });
+    },
+    onError: () => toast({ title: "Upload failed", description: "Unable to upload file. Check size and format.", variant: "destructive" }),
+  });
+
+  const deleteDocMutation = useMutation({
+    mutationFn: ({ auditId, docId }: { auditId: string; docId: string }) =>
+      apiRequest("DELETE", `/api/doh-audits/${auditId}/documents/${docId}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/doh-audits", activeAuditId] });
+      toast({ title: "File deleted" });
+    },
+    onError: () => toast({ title: "Error", description: "Failed to delete file.", variant: "destructive" }),
+  });
+
+  const saveResponse = useCallback((itemKey: string, category: string, status: ItemStatus, notes: string) => {
+    if (!activeAuditId) return;
+    responseMutation.mutate({ auditId: activeAuditId, itemKey, category, status, notes });
   }, [activeAuditId]);
 
-  const handleCreate = () => {
-    if (!newTitle.trim()) return;
-    const targetOffice = newOfficeId || officeId;
-    if (!targetOffice) {
-      toast({ title: "Select an office first", variant: "destructive" });
-      return;
-    }
-    createMutation.mutate({ title: newTitle.trim(), surveyPeriod: newPeriod.trim() || null, officeId: targetOffice });
-  };
-
-  const stats = computeStats(responsesMap);
   const isCompleted = activeAudit?.status === "completed";
+  const stats = computeStats(responsesMap, customItems);
 
-  // ─── List View ─────────────────────────────────────────────────────────────
+  // ─── List view ────────────────────────────────────────────────────────────
 
   if (!activeAuditId) {
     return (
-      <div className="flex min-h-screen bg-background">
+      <div className="flex h-screen bg-background">
         <Sidebar />
-        <div className="flex-1 p-6 max-w-5xl mx-auto">
-          <div className="flex items-center justify-between mb-6">
-            <div>
-              <h1 className="text-2xl font-bold flex items-center gap-2">
-                <ClipboardCheck className="text-blue-600" size={26} />
-                DOH Audit Assessment
-              </h1>
-              <p className="text-muted-foreground text-sm mt-1">
-                PA Department of Health — Home Care Agency Survey Preparation
-              </p>
+        <div className="flex-1 overflow-auto">
+          <div className="p-6 max-w-5xl mx-auto">
+            <div className="flex items-center justify-between mb-6">
+              <div>
+                <h1 className="text-2xl font-bold flex items-center gap-2">
+                  <ClipboardCheck size={24} /> DOH Audit Assessment
+                </h1>
+                <p className="text-muted-foreground text-sm mt-1">
+                  Manage DOH home care audit readiness checklists for your agency
+                </p>
+              </div>
+              <Button onClick={() => setCreateDialogOpen(true)} className="gap-2">
+                <Plus size={16} /> New Audit
+              </Button>
             </div>
-            <Button onClick={() => setCreateDialogOpen(true)} className="gap-2">
-              <Plus size={16} /> New Audit
-            </Button>
-          </div>
 
-          {!officeId && (
-            <Card className="mb-6 border-yellow-200 bg-yellow-50 dark:bg-yellow-900/20">
-              <CardContent className="pt-4 pb-4 flex items-center gap-3 text-yellow-800 dark:text-yellow-300">
-                <Building2 size={18} />
-                <span className="text-sm">Please select an office from the top bar to view and manage audits for that location.</span>
-              </CardContent>
-            </Card>
-          )}
-
-          {listLoading ? (
-            <div className="grid gap-4">
-              {[1, 2, 3].map(i => (
-                <Card key={i} className="animate-pulse">
-                  <CardContent className="py-6">
-                    <div className="h-4 bg-muted rounded w-1/3 mb-2" />
-                    <div className="h-3 bg-muted rounded w-1/4" />
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          ) : audits.length === 0 ? (
-            <Card className="text-center py-16 border-dashed">
-              <CardContent>
-                <ClipboardCheck size={40} className="mx-auto mb-3 text-muted-foreground" />
-                <p className="font-medium text-muted-foreground">No audits yet for this office</p>
-                <p className="text-sm text-muted-foreground mt-1">Create a new audit assessment to get started.</p>
-                <Button className="mt-4 gap-2" onClick={() => setCreateDialogOpen(true)}>
-                  <Plus size={16} /> Create First Audit
-                </Button>
-              </CardContent>
-            </Card>
-          ) : (
-            <div className="grid gap-4">
-              {audits.map(audit => {
-                const auditResponses: Record<string, ItemStatus> = {};
-                return (
+            {listLoading ? (
+              <div className="space-y-3">
+                {[1, 2, 3].map(i => <Card key={i} className="animate-pulse h-24" />)}
+              </div>
+            ) : audits.length === 0 ? (
+              <Card>
+                <CardContent className="py-16 text-center">
+                  <ClipboardCheck size={40} className="mx-auto mb-3 text-muted-foreground opacity-40" />
+                  <p className="text-muted-foreground">No audits yet. Create your first audit to get started.</p>
+                  <Button className="mt-4 gap-2" onClick={() => setCreateDialogOpen(true)}>
+                    <Plus size={15} /> Create First Audit
+                  </Button>
+                </CardContent>
+              </Card>
+            ) : (
+              <div className="space-y-3">
+                {audits.map(audit => (
                   <Card
                     key={audit.id}
-                    className="cursor-pointer hover:shadow-md transition-shadow border"
+                    className="cursor-pointer hover:shadow-md transition-all hover:border-primary/30"
                     onClick={() => setActiveAuditId(audit.id)}
                   >
-                    <CardContent className="py-4 px-5">
-                      <div className="flex items-start justify-between gap-4">
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <h2 className="font-semibold text-base truncate">{audit.title}</h2>
-                            {audit.status === "completed" ? (
-                              <Badge className="bg-green-100 text-green-800 border-green-200 dark:bg-green-900/30 dark:text-green-300">
-                                <CheckCircle2 size={11} className="mr-1" /> Completed
-                              </Badge>
-                            ) : audit.status === "archived" ? (
-                              <Badge variant="secondary">Archived</Badge>
-                            ) : (
-                              <Badge className="bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-900/30 dark:text-blue-300">
-                                <Clock size={11} className="mr-1" /> In Progress
-                              </Badge>
-                            )}
+                    <CardContent className="p-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex items-start gap-3 flex-1 min-w-0">
+                          <div className="bg-blue-50 dark:bg-blue-900/20 p-2.5 rounded-lg shrink-0">
+                            <ClipboardCheck size={20} className="text-blue-600 dark:text-blue-400" />
                           </div>
-                          {audit.surveyPeriod && (
-                            <p className="text-sm text-muted-foreground mt-0.5">Survey Period: {audit.surveyPeriod}</p>
-                          )}
-                          <p className="text-xs text-muted-foreground mt-1">
-                            Started {new Date(audit.createdAt).toLocaleDateString()}
-                            {audit.completedAt && ` · Completed ${new Date(audit.completedAt).toLocaleDateString()}`}
-                          </p>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <h3 className="font-semibold truncate">{audit.title}</h3>
+                              {audit.status === "completed" ? (
+                                <Badge className="bg-green-100 text-green-800 border-green-200 dark:bg-green-900/30 dark:text-green-300">
+                                  <CheckCircle2 size={11} className="mr-1" /> Completed
+                                </Badge>
+                              ) : (
+                                <Badge className="bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-900/30 dark:text-blue-300">
+                                  <Clock size={11} className="mr-1" /> In Progress
+                                </Badge>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-3 text-xs text-muted-foreground mt-1">
+                              {audit.surveyPeriod && <span>Period: {audit.surveyPeriod}</span>}
+                              <span>Created: {new Date(audit.createdAt).toLocaleDateString()}</span>
+                            </div>
+                          </div>
                         </div>
-                        <div className="flex items-center gap-2">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="text-red-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20"
-                            onClick={e => { e.stopPropagation(); setDeleteAuditId(audit.id); }}
-                          >
-                            <Trash2 size={15} />
-                          </Button>
-                        </div>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="shrink-0 text-muted-foreground hover:text-destructive"
+                          onClick={e => { e.stopPropagation(); setDeleteAuditId(audit.id); }}
+                        >
+                          <Trash2 size={15} />
+                        </Button>
                       </div>
                     </CardContent>
                   </Card>
-                );
-              })}
-            </div>
-          )}
+                ))}
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Create Dialog */}
         <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
-          <DialogContent className="sm:max-w-md">
+          <DialogContent>
             <DialogHeader>
               <DialogTitle>New DOH Audit Assessment</DialogTitle>
             </DialogHeader>
             <div className="space-y-4 py-2">
+              <div>
+                <Label>Audit Title</Label>
+                <Input
+                  value={newTitle}
+                  onChange={e => setNewTitle(e.target.value)}
+                  placeholder="e.g. 2025 Annual DOH Survey Prep"
+                  className="mt-1"
+                />
+              </div>
+              <div>
+                <Label>Survey Period <span className="text-muted-foreground">(optional)</span></Label>
+                <Input
+                  value={newPeriod}
+                  onChange={e => setNewPeriod(e.target.value)}
+                  placeholder="e.g. Q1 2025 or Jan–Mar 2025"
+                  className="mt-1"
+                />
+              </div>
               {offices.length > 1 && (
-                <div className="space-y-1.5">
+                <div>
                   <Label>Office</Label>
                   <Select value={newOfficeId || officeId} onValueChange={setNewOfficeId}>
-                    <SelectTrigger>
+                    <SelectTrigger className="mt-1">
                       <SelectValue placeholder="Select office" />
                     </SelectTrigger>
                     <SelectContent>
                       {offices.map(o => (
-                        <SelectItem key={o.id} value={o.id}>{o.name}</SelectItem>
+                        <SelectItem key={o.id} value={String(o.id)}>{o.name}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
                 </div>
               )}
-              <div className="space-y-1.5">
-                <Label>Audit Title *</Label>
-                <Input
-                  value={newTitle}
-                  onChange={e => setNewTitle(e.target.value)}
-                  placeholder="e.g., 2025 Annual DOH Survey Prep"
-                  onKeyDown={e => e.key === "Enter" && handleCreate()}
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Survey Period (optional)</Label>
-                <Input
-                  value={newPeriod}
-                  onChange={e => setNewPeriod(e.target.value)}
-                  placeholder="e.g., Q1 2025 or January–March 2025"
-                />
-              </div>
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setCreateDialogOpen(false)}>Cancel</Button>
-              <Button onClick={handleCreate} disabled={!newTitle.trim() || createMutation.isPending}>
+              <Button
+                disabled={!newTitle.trim() || createMutation.isPending}
+                onClick={() => createMutation.mutate({
+                  title: newTitle.trim(),
+                  surveyPeriod: newPeriod.trim() || null,
+                  officeId: effectiveOfficeId,
+                  status: "in_progress",
+                  createdBy: (user as any)?.id,
+                })}
+              >
                 {createMutation.isPending ? "Creating…" : "Create Audit"}
               </Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
 
-        {/* Delete Confirm */}
-        <AlertDialog open={!!deleteAuditId} onOpenChange={open => !open && setDeleteAuditId(null)}>
+        {/* Delete confirm */}
+        <AlertDialog open={!!deleteAuditId} onOpenChange={() => setDeleteAuditId(null)}>
           <AlertDialogContent>
             <AlertDialogHeader>
               <AlertDialogTitle>Delete this audit?</AlertDialogTitle>
-              <AlertDialogDescription>This will permanently delete the audit and all its responses. This cannot be undone.</AlertDialogDescription>
+              <AlertDialogDescription>
+                This will permanently remove the audit and all its responses. This cannot be undone.
+              </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
               <AlertDialogCancel>Cancel</AlertDialogCancel>
               <AlertDialogAction
-                className="bg-red-600 hover:bg-red-700"
+                className="bg-destructive hover:bg-destructive/90"
                 onClick={() => deleteAuditId && deleteMutation.mutate(deleteAuditId)}
               >
                 Delete
@@ -532,21 +590,21 @@ export default function AuditAssessment() {
     );
   }
 
-  // ─── Detail / Checklist View ───────────────────────────────────────────────
+  // ─── Detail view ──────────────────────────────────────────────────────────
 
   return (
-    <div className="flex min-h-screen bg-background">
+    <div className="flex h-screen bg-background">
       <Sidebar />
-      <div className="flex-1 p-6">
+      <div className="flex-1 overflow-auto p-6 max-w-5xl mx-auto">
         {/* Header */}
-        <div className="flex items-center justify-between mb-5 flex-wrap gap-3">
-          <div className="flex items-center gap-3">
-            <Button variant="ghost" size="icon" onClick={() => setActiveAuditId(null)}>
+        <div className="flex items-start justify-between gap-3 mb-6 flex-wrap">
+          <div className="flex items-start gap-3 min-w-0">
+            <Button variant="ghost" size="icon" onClick={() => setActiveAuditId(null)} className="mt-0.5 shrink-0">
               <ArrowLeft size={18} />
             </Button>
-            <div>
+            <div className="min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
-                <h1 className="text-xl font-bold">{activeAudit?.title || "Loading…"}</h1>
+                <h1 className="text-xl font-bold truncate">{activeAudit?.title || "Loading…"}</h1>
                 {isCompleted ? (
                   <Badge className="bg-green-100 text-green-800 border-green-200 dark:bg-green-900/30 dark:text-green-300">
                     <CheckCircle2 size={11} className="mr-1" /> Completed
@@ -619,11 +677,11 @@ export default function AuditAssessment() {
               </Card>
             </div>
 
-            {/* Category Tabs */}
+            {/* Category Tabs + Documents tab */}
             <Tabs defaultValue={CHECKLIST[0].id}>
               <TabsList className="flex flex-wrap h-auto gap-1 mb-4 bg-muted p-1">
                 {CHECKLIST.map(cat => {
-                  const cs = categoryStats(cat.id, responsesMap);
+                  const cs = categoryStats(cat.id, responsesMap, customItems);
                   const Icon = cat.icon;
                   return (
                     <TabsTrigger key={cat.id} value={cat.id} className="gap-1.5 text-xs py-1.5 px-3">
@@ -638,6 +696,13 @@ export default function AuditAssessment() {
                     </TabsTrigger>
                   );
                 })}
+                <TabsTrigger value="documents" className="gap-1.5 text-xs py-1.5 px-3">
+                  <Paperclip size={13} />
+                  <span className="hidden sm:inline">Documents</span>
+                  {auditDocuments.length > 0 && (
+                    <Badge className="bg-gray-100 text-gray-600 text-xs px-1 py-0 ml-1">{auditDocuments.length}</Badge>
+                  )}
+                </TabsTrigger>
               </TabsList>
 
               {CHECKLIST.map(cat => (
@@ -646,11 +711,25 @@ export default function AuditAssessment() {
                     category={cat}
                     responsesMap={responsesMap}
                     notesMap={notesMap}
+                    customItems={customItems.filter(i => i.category === cat.id)}
                     onSave={saveResponse}
                     disabled={isCompleted}
+                    onAddCustomItem={label => addCustomItemMutation.mutate({ auditId: activeAuditId!, category: cat.id, label })}
+                    onDeleteCustomItem={itemId => deleteCustomItemMutation.mutate({ auditId: activeAuditId!, itemId })}
                   />
                 </TabsContent>
               ))}
+
+              <TabsContent value="documents">
+                <DocumentsSection
+                  auditId={activeAuditId!}
+                  documents={auditDocuments}
+                  disabled={isCompleted}
+                  onUpload={(file, notes) => uploadDocMutation.mutate({ auditId: activeAuditId!, file, notes })}
+                  onDelete={docId => deleteDocMutation.mutate({ auditId: activeAuditId!, docId })}
+                  uploading={uploadDocMutation.isPending}
+                />
+              </TabsContent>
             </Tabs>
 
             {/* Overall Notes */}
@@ -679,16 +758,28 @@ export default function AuditAssessment() {
 // ─── Category Section ─────────────────────────────────────────────────────────
 
 function CategorySection({
-  category, responsesMap, notesMap, onSave, disabled,
+  category, responsesMap, notesMap, customItems, onSave, disabled, onAddCustomItem, onDeleteCustomItem,
 }: {
   category: ChecklistCategory;
   responsesMap: Record<string, ItemStatus>;
   notesMap: Record<string, string>;
-  onSave: (item: ChecklistItem, catId: string, status: ItemStatus, notes: string) => void;
+  customItems: AuditCustomItem[];
+  onSave: (itemKey: string, catId: string, status: ItemStatus, notes: string) => void;
   disabled: boolean;
+  onAddCustomItem: (label: string) => void;
+  onDeleteCustomItem: (itemId: string) => void;
 }) {
-  const cs = categoryStats(category.id, responsesMap);
+  const cs = categoryStats(category.id, responsesMap, customItems);
   const Icon = category.icon;
+  const [addOpen, setAddOpen] = useState(false);
+  const [newLabel, setNewLabel] = useState("");
+
+  const handleAdd = () => {
+    if (!newLabel.trim()) return;
+    onAddCustomItem(newLabel.trim());
+    setNewLabel("");
+    setAddOpen(false);
+  };
 
   return (
     <Card>
@@ -712,7 +803,9 @@ function CategorySection({
         {category.items.map(item => (
           <AuditItem
             key={item.key}
-            item={item}
+            itemKey={item.key}
+            label={item.label}
+            reference={item.reference}
             catId={category.id}
             status={responsesMap[item.key] || "pending"}
             notes={notesMap[item.key] || ""}
@@ -720,6 +813,51 @@ function CategorySection({
             disabled={disabled}
           />
         ))}
+
+        {customItems.map(item => (
+          <AuditItem
+            key={item.id}
+            itemKey={item.id}
+            label={item.label}
+            catId={category.id}
+            status={responsesMap[item.id] || "pending"}
+            notes={notesMap[item.id] || ""}
+            onSave={onSave}
+            disabled={disabled}
+            isCustom
+            onDelete={() => onDeleteCustomItem(item.id)}
+          />
+        ))}
+
+        {!disabled && (
+          <div className="pt-2">
+            {addOpen ? (
+              <div className="flex items-center gap-2 p-2 border rounded-lg bg-muted/30">
+                <Input
+                  autoFocus
+                  value={newLabel}
+                  onChange={e => setNewLabel(e.target.value)}
+                  placeholder="Enter custom checklist item…"
+                  className="flex-1 h-8 text-sm"
+                  onKeyDown={e => { if (e.key === "Enter") handleAdd(); if (e.key === "Escape") { setAddOpen(false); setNewLabel(""); } }}
+                />
+                <Button size="sm" className="h-8 px-3" onClick={handleAdd} disabled={!newLabel.trim()}>Add</Button>
+                <Button size="sm" variant="ghost" className="h-8 px-2" onClick={() => { setAddOpen(false); setNewLabel(""); }}>
+                  <X size={14} />
+                </Button>
+              </div>
+            ) : (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="gap-1.5 text-muted-foreground hover:text-foreground w-full justify-start border border-dashed"
+                onClick={() => setAddOpen(true)}
+              >
+                <Plus size={14} /> Add custom item
+              </Button>
+            )}
+          </div>
+        )}
       </CardContent>
     </Card>
   );
@@ -728,30 +866,31 @@ function CategorySection({
 // ─── Audit Item ───────────────────────────────────────────────────────────────
 
 function AuditItem({
-  item, catId, status, notes, onSave, disabled,
+  itemKey, label, reference, catId, status, notes, onSave, disabled, isCustom, onDelete,
 }: {
-  item: ChecklistItem;
+  itemKey: string;
+  label: string;
+  reference?: string;
   catId: string;
   status: ItemStatus;
   notes: string;
-  onSave: (item: ChecklistItem, catId: string, status: ItemStatus, notes: string) => void;
+  onSave: (itemKey: string, catId: string, status: ItemStatus, notes: string) => void;
   disabled: boolean;
+  isCustom?: boolean;
+  onDelete?: () => void;
 }) {
   const [localNotes, setLocalNotes] = useState(notes);
   const [expanded, setExpanded] = useState(false);
 
-  // sync notes from parent
-  useState(() => { setLocalNotes(notes); });
-
   const handleStatus = (newStatus: ItemStatus) => {
     if (disabled) return;
-    onSave(item, catId, newStatus, localNotes);
+    onSave(itemKey, catId, newStatus, localNotes);
     if (newStatus === "fail" && !expanded) setExpanded(true);
   };
 
   const handleNotesBlur = () => {
     if (disabled) return;
-    onSave(item, catId, status, localNotes);
+    onSave(itemKey, catId, status, localNotes);
   };
 
   const borderColor = status === "pass" ? "border-l-green-400" :
@@ -764,9 +903,16 @@ function AuditItem({
         <div className="flex items-start gap-2 flex-1 min-w-0">
           <div className="mt-0.5 shrink-0">{getStatusIcon(status)}</div>
           <div className="flex-1 min-w-0">
-            <p className="text-sm leading-snug">{item.label}</p>
-            {item.reference && (
-              <p className="text-xs text-muted-foreground mt-0.5">Reg. § {item.reference}</p>
+            <p className="text-sm leading-snug">
+              {label}
+              {isCustom && (
+                <Badge className="ml-1.5 text-xs px-1 py-0 bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-900/20 dark:text-amber-400">
+                  custom
+                </Badge>
+              )}
+            </p>
+            {reference && (
+              <p className="text-xs text-muted-foreground mt-0.5">Reg. § {reference}</p>
             )}
           </div>
         </div>
@@ -795,6 +941,15 @@ function AuditItem({
           >
             {expanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
           </button>
+          {isCustom && onDelete && !disabled && (
+            <button
+              onClick={onDelete}
+              className="w-7 h-7 rounded flex items-center justify-center text-muted-foreground hover:text-destructive hover:bg-muted transition-colors"
+              title="Remove custom item"
+            >
+              <Trash2 size={13} />
+            </button>
+          )}
         </div>
       </div>
       {expanded && (
@@ -814,5 +969,144 @@ function AuditItem({
         <p className="mt-1 pl-6 text-xs text-muted-foreground truncate italic">"{localNotes}"</p>
       )}
     </div>
+  );
+}
+
+// ─── Documents Section ────────────────────────────────────────────────────────
+
+function DocumentsSection({
+  auditId, documents, disabled, onUpload, onDelete, uploading,
+}: {
+  auditId: string;
+  documents: AuditDocument[];
+  disabled: boolean;
+  onUpload: (file: File, notes?: string) => void;
+  onDelete: (docId: string) => void;
+  uploading: boolean;
+}) {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [deleteDocId, setDeleteDocId] = useState<string | null>(null);
+  const [dragOver, setDragOver] = useState(false);
+
+  const handleFiles = (files: FileList | null) => {
+    if (!files) return;
+    Array.from(files).forEach(f => onUpload(f));
+  };
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Paperclip size={18} className="text-muted-foreground" />
+            <CardTitle className="text-base">Supporting Documents</CardTitle>
+          </div>
+          <Badge variant="outline" className="text-muted-foreground">
+            {documents.length} {documents.length === 1 ? "file" : "files"}
+          </Badge>
+        </div>
+        <CardDescription>
+          Upload photos, PDFs, Word documents, or Excel files as supporting evidence for this audit
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {/* Drop zone */}
+        {!disabled && (
+          <div
+            className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors cursor-pointer
+              ${dragOver ? "border-primary bg-primary/5" : "border-muted-foreground/25 hover:border-primary/50 hover:bg-muted/30"}`}
+            onClick={() => fileInputRef.current?.click()}
+            onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={e => { e.preventDefault(); setDragOver(false); handleFiles(e.dataTransfer.files); }}
+          >
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              accept=".jpg,.jpeg,.png,.gif,.webp,.pdf,.doc,.docx,.xls,.xlsx"
+              className="hidden"
+              onChange={e => handleFiles(e.target.files)}
+            />
+            {uploading ? (
+              <div className="flex flex-col items-center gap-2 text-muted-foreground">
+                <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                <p className="text-sm">Uploading…</p>
+              </div>
+            ) : (
+              <div className="flex flex-col items-center gap-2 text-muted-foreground">
+                <Upload size={28} className="opacity-50" />
+                <p className="text-sm font-medium">Drop files here or click to browse</p>
+                <p className="text-xs">Photos, PDF, Word, Excel · Max 25 MB each</p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* File list */}
+        {documents.length === 0 ? (
+          <p className="text-sm text-muted-foreground text-center py-4">No documents attached yet</p>
+        ) : (
+          <div className="space-y-2">
+            {documents.map(doc => (
+              <div
+                key={doc.id}
+                className="flex items-center gap-3 p-3 rounded-lg border bg-muted/20 hover:bg-muted/40 transition-colors"
+              >
+                <div className="shrink-0">{getFileIcon(doc.mimeType)}</div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium truncate">{doc.originalName}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {formatFileSize(doc.fileSize)}
+                    {doc.createdAt && ` · ${new Date(doc.createdAt).toLocaleDateString()}`}
+                  </p>
+                  {doc.notes && <p className="text-xs text-muted-foreground italic mt-0.5">"{doc.notes}"</p>}
+                </div>
+                <div className="flex items-center gap-1 shrink-0">
+                  <a
+                    href={`/api/doh-audits/${auditId}/documents/${doc.id}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="w-8 h-8 rounded flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                    title="View / Download"
+                  >
+                    <Download size={15} />
+                  </a>
+                  {!disabled && (
+                    <button
+                      onClick={() => setDeleteDocId(doc.id)}
+                      className="w-8 h-8 rounded flex items-center justify-center text-muted-foreground hover:text-destructive hover:bg-muted transition-colors"
+                      title="Delete file"
+                    >
+                      <Trash2 size={15} />
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+
+      <AlertDialog open={!!deleteDocId} onOpenChange={() => setDeleteDocId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this file?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently remove the file. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive hover:bg-destructive/90"
+              onClick={() => { if (deleteDocId) { onDelete(deleteDocId); setDeleteDocId(null); } }}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </Card>
   );
 }

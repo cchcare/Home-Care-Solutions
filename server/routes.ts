@@ -177,6 +177,27 @@ const upload = multer({
   },
 });
 
+// Configure multer for audit document uploads (photos, PDF, Excel, Word)
+const auditDocUpload = multer({
+  dest: "uploads/",
+  limits: { fileSize: 25 * 1024 * 1024 }, // 25 MB
+  fileFilter: (_req, file, cb) => {
+    const allowedExts = /jpeg|jpg|png|gif|webp|pdf|doc|docx|xls|xlsx/;
+    const extname = allowedExts.test(path.extname(file.originalname).toLowerCase());
+    const allowedMimes = [
+      'image/jpeg','image/jpg','image/png','image/gif','image/webp',
+      'application/pdf',
+      'application/msword',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'application/vnd.ms-excel',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'application/octet-stream',
+    ];
+    if (extname || allowedMimes.includes(file.mimetype)) return cb(null, true);
+    cb(new Error("Unsupported file type. Allowed: images, PDF, Word, Excel."));
+  },
+});
+
 // Configure multer for Excel file uploads (memory storage for direct buffer access)
 const excelUpload = multer({
   storage: multer.memoryStorage(),
@@ -16896,8 +16917,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const audit = await storage.getDohAuditAssessment(req.params.id);
       if (!audit) return res.status(404).json({ message: "Audit not found" });
-      const responses = await storage.getDohAuditResponses(req.params.id);
-      res.json({ ...audit, responses });
+      const [responses, documents, customItems] = await Promise.all([
+        storage.getDohAuditResponses(req.params.id),
+        storage.getDohAuditDocuments(req.params.id),
+        storage.getDohAuditCustomItems(req.params.id),
+      ]);
+      res.json({ ...audit, responses, documents, customItems });
     } catch (error: any) {
       res.status(500).json({ message: error.message || "Failed to fetch audit" });
     }
@@ -16947,6 +16972,107 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(response);
     } catch (error: any) {
       res.status(500).json({ message: error.message || "Failed to save response" });
+    }
+  });
+
+  // POST /api/doh-audits/:id/documents/upload
+  app.post("/api/doh-audits/:id/documents/upload", isAuthenticated, auditDocUpload.single("file"), async (req: any, res) => {
+    try {
+      if (!req.file) return res.status(400).json({ message: "No file uploaded" });
+      const auditId = req.params.id;
+
+      // S3 upload if configured
+      if (isS3Enabled()) {
+        try {
+          const s3Key = getS3KeyForFile(req.file.filename, "uploads");
+          await uploadFileToS3(req.file.path, s3Key, req.file.mimetype);
+          fs.unlinkSync(req.file.path);
+        } catch (s3Err) {
+          console.error("S3 upload failed for audit doc:", s3Err);
+          return res.status(500).json({ message: "Failed to store file" });
+        }
+      }
+
+      const doc = await storage.createDohAuditDocument({
+        auditId,
+        fileName: req.file.filename,
+        originalName: req.file.originalname,
+        mimeType: req.file.mimetype,
+        fileSize: req.file.size,
+        uploadedBy: req.session?.user?.id,
+        notes: req.body.notes || null,
+      });
+      res.status(201).json(doc);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to upload document" });
+    }
+  });
+
+  // GET /api/doh-audits/:id/documents
+  app.get("/api/doh-audits/:id/documents", isAuthenticated, async (req: any, res) => {
+    try {
+      const docs = await storage.getDohAuditDocuments(req.params.id);
+      res.json(docs);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to fetch documents" });
+    }
+  });
+
+  // GET /api/doh-audits/:id/documents/:docId  (serve/download file)
+  app.get("/api/doh-audits/:id/documents/:docId", isAuthenticated, async (req: any, res) => {
+    try {
+      const docs = await storage.getDohAuditDocuments(req.params.id);
+      const doc = docs.find(d => d.id === req.params.docId);
+      if (!doc) return res.status(404).json({ message: "Document not found" });
+      await serveOrRedirectS3File(res, doc.fileName, doc.originalName, doc.mimeType || undefined, "uploads");
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to serve document" });
+    }
+  });
+
+  // DELETE /api/doh-audits/:id/documents/:docId
+  app.delete("/api/doh-audits/:id/documents/:docId", isAuthenticated, async (req: any, res) => {
+    try {
+      const doc = await storage.deleteDohAuditDocument(req.params.docId);
+      if (doc) {
+        const localPath = path.join("uploads", doc.fileName);
+        if (fs.existsSync(localPath)) fs.unlinkSync(localPath);
+      }
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to delete document" });
+    }
+  });
+
+  // GET /api/doh-audits/:id/custom-items
+  app.get("/api/doh-audits/:id/custom-items", isAuthenticated, async (req: any, res) => {
+    try {
+      const items = await storage.getDohAuditCustomItems(req.params.id);
+      res.json(items);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to fetch custom items" });
+    }
+  });
+
+  // POST /api/doh-audits/:id/custom-items
+  app.post("/api/doh-audits/:id/custom-items", isAuthenticated, async (req: any, res) => {
+    try {
+      const { category, label } = req.body;
+      if (!category || !label?.trim()) return res.status(400).json({ message: "category and label required" });
+      const item = await storage.createDohAuditCustomItem({ auditId: req.params.id, category, label: label.trim() });
+      res.status(201).json(item);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to create custom item" });
+    }
+  });
+
+  // DELETE /api/doh-audits/:id/custom-items/:itemId
+  app.delete("/api/doh-audits/:id/custom-items/:itemId", isAuthenticated, async (req: any, res) => {
+    try {
+      await storage.deleteDohAuditCustomItem(req.params.itemId);
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to delete custom item" });
     }
   });
 

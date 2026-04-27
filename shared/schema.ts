@@ -3922,3 +3922,29 @@ export const insertDohAuditAssessmentSchema = createInsertSchema(dohAuditAssessm
 export type DohAuditResponse = typeof dohAuditResponses.$inferSelect;
 export type InsertDohAuditResponse = typeof dohAuditResponses.$inferInsert;
 export const insertDohAuditResponseSchema = createInsertSchema(dohAuditResponses).omit({ id: true, updatedAt: true });
+
+export const dohAuditDocuments = pgTable("doh_audit_documents", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  auditId: varchar("audit_id").references(() => dohAuditAssessments.id, { onDelete: "cascade" }).notNull(),
+  fileName: varchar("file_name").notNull(),
+  originalName: varchar("original_name").notNull(),
+  mimeType: varchar("mime_type"),
+  fileSize: integer("file_size"),
+  uploadedBy: varchar("uploaded_by").references(() => users.id),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [index("idx_doh_audit_docs_audit").on(table.auditId)]);
+
+export const dohAuditCustomItems = pgTable("doh_audit_custom_items", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  auditId: varchar("audit_id").references(() => dohAuditAssessments.id, { onDelete: "cascade" }).notNull(),
+  category: varchar("category").notNull(),
+  label: text("label").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [index("idx_doh_audit_custom_audit").on(table.auditId)]);
+
+export type DohAuditDocument = typeof dohAuditDocuments.$inferSelect;
+export type InsertDohAuditDocument = typeof dohAuditDocuments.$inferInsert;
+
+export type DohAuditCustomItem = typeof dohAuditCustomItems.$inferSelect;
+export type InsertDohAuditCustomItem = typeof dohAuditCustomItems.$inferInsert;

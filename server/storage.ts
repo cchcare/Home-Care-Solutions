@@ -349,9 +349,15 @@ import {
   type InsertHelpArticle,
   dohAuditAssessments,
   dohAuditResponses,
+  dohAuditDocuments,
+  dohAuditCustomItems,
   type DohAuditAssessment,
   type InsertDohAuditAssessment,
   type DohAuditResponse,
+  type DohAuditDocument,
+  type InsertDohAuditDocument,
+  type DohAuditCustomItem,
+  type InsertDohAuditCustomItem,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, asc, and, or, count, sql, like, gte, lte, inArray } from "drizzle-orm";
@@ -1193,6 +1199,12 @@ export interface IStorage {
   deleteDohAuditAssessment(id: string): Promise<void>;
   getDohAuditResponses(auditId: string): Promise<DohAuditResponse[]>;
   upsertDohAuditResponse(auditId: string, itemKey: string, category: string, status: string, notes: string | null): Promise<DohAuditResponse>;
+  getDohAuditDocuments(auditId: string): Promise<DohAuditDocument[]>;
+  createDohAuditDocument(doc: InsertDohAuditDocument): Promise<DohAuditDocument>;
+  deleteDohAuditDocument(id: string): Promise<DohAuditDocument | undefined>;
+  getDohAuditCustomItems(auditId: string): Promise<DohAuditCustomItem[]>;
+  createDohAuditCustomItem(item: InsertDohAuditCustomItem): Promise<DohAuditCustomItem>;
+  deleteDohAuditCustomItem(id: string): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -7356,6 +7368,38 @@ export class DatabaseStorage implements IStorage {
       })
       .returning();
     return row;
+  }
+
+  async getDohAuditDocuments(auditId: string): Promise<DohAuditDocument[]> {
+    return db.select().from(dohAuditDocuments)
+      .where(eq(dohAuditDocuments.auditId, auditId))
+      .orderBy(desc(dohAuditDocuments.createdAt));
+  }
+
+  async createDohAuditDocument(doc: InsertDohAuditDocument): Promise<DohAuditDocument> {
+    const [row] = await db.insert(dohAuditDocuments).values(doc).returning();
+    return row;
+  }
+
+  async deleteDohAuditDocument(id: string): Promise<DohAuditDocument | undefined> {
+    const [row] = await db.delete(dohAuditDocuments).where(eq(dohAuditDocuments.id, id)).returning();
+    return row;
+  }
+
+  async getDohAuditCustomItems(auditId: string): Promise<DohAuditCustomItem[]> {
+    return db.select().from(dohAuditCustomItems)
+      .where(eq(dohAuditCustomItems.auditId, auditId))
+      .orderBy(asc(dohAuditCustomItems.createdAt));
+  }
+
+  async createDohAuditCustomItem(item: InsertDohAuditCustomItem): Promise<DohAuditCustomItem> {
+    const [row] = await db.insert(dohAuditCustomItems).values(item).returning();
+    return row;
+  }
+
+  async deleteDohAuditCustomItem(id: string): Promise<void> {
+    await db.delete(dohAuditCustomItems).where(eq(dohAuditCustomItems.id, id));
+    await db.delete(dohAuditResponses).where(eq(dohAuditResponses.itemKey, id));
   }
 }
 
