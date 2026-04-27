@@ -581,6 +581,21 @@ input.finput::placeholder { color: var(--text3); }
 .summary-stat-card.card-animate:nth-child(2) { animation-delay: 80ms; }
 .summary-stat-card.card-animate:nth-child(3) { animation-delay: 160ms; }
 
+/* ── TABLE ROW ANIMATION ── */
+@keyframes tableRowIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.table-row-animate {
+  animation: tableRowIn 0.35s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
 /* ── LOG PANEL ── */
 .log-panel {
   background: var(--card);
@@ -2172,8 +2187,11 @@ function renderTable(rows) {
     return;
   }
 
-  tb.innerHTML = rows.map(r => `
-    <tr>
+  const ANIM_CAP = 10;
+  tb.innerHTML = rows.map((r, i) => {
+    const delay = Math.min(i, ANIM_CAP - 1) * 40;
+    return `
+    <tr class="table-row-animate" style="animation-delay:${delay}ms">
       <td><span style="font-family:'DM Mono',monospace;color:var(--text3)">${r.coCode}</span></td>
       <td><span style="font-family:'DM Mono',monospace;color:var(--text3)">${r.batchId}</span></td>
       <td class="emp-name">${r.name || '—'}</td>
@@ -2185,7 +2203,8 @@ function renderTable(rows) {
       <td style="font-family:'DM Mono',monospace;color:var(--text2)">${r.aide}</td>
       <td class="${r.matchMethod === 'SSN' ? 'status-ssn' : 'status-ok'}">${r.matchMethod === 'SSN' ? '🔑 SSN Match' : '✓ Matched'}</td>
     </tr>
-  `).join('');
+  `;
+  }).join('');
 }
 
 // ═══════════════════ UNMATCHED SUMMARY ROWS ═══════════════════
