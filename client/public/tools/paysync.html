@@ -713,6 +713,21 @@ input.finput::placeholder { color: var(--text3); }
   width: 0%;
   transition: width 400ms ease-out;
 }
+.proc-cancel-btn {
+  flex-shrink: 0;
+  padding: 6px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: inherit;
+  color: var(--red);
+  background: rgba(255,77,106,0.10);
+  border: 1px solid rgba(255,77,106,0.32);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, opacity 0.15s;
+}
+.proc-cancel-btn:hover:not(:disabled) { background: rgba(255,77,106,0.20); }
+.proc-cancel-btn:disabled { opacity: 0.55; cursor: default; }
 
 /* ── WARN BOX ── */
 .warn-alert {
@@ -1364,6 +1379,7 @@ tr.unmatched-separator-row > td {
           <div class="proc-bar-fill" id="procBarFill"></div>
         </div>
       </div>
+      <button id="procCancelBtn" type="button" class="proc-cancel-btn" onclick="cancelProcess()">Cancel</button>
     </div>
 
     <!-- Log -->
@@ -1788,10 +1804,25 @@ function loadHHA(input, slot) {
 }
 
 // ═══════════════════ PROCESS ═══════════════════
+let _processingCancelled = false;
+const _PROC_CANCEL_SENTINEL = Symbol('paysync.processCancelled');
+
+function cancelProcess() {
+  if (_processingCancelled) return;
+  _processingCancelled = true;
+  const cb = document.getElementById('procCancelBtn');
+  if (cb) { cb.disabled = true; cb.textContent = 'Cancelling…'; }
+  const _lbl = document.getElementById('procLabel');
+  if (_lbl) _lbl.textContent = 'Cancelling…';
+}
+
 async function runProcess() {
   const _pi = document.getElementById('processingIndicator');
   const _barReset = document.getElementById('procBarFill');
   if (!_pi.classList.contains('visible')) {
+    _processingCancelled = false;
+    const _cbReset = document.getElementById('procCancelBtn');
+    if (_cbReset) { _cbReset.disabled = false; _cbReset.textContent = 'Cancel'; _cbReset.style.display = ''; }
     _pi.classList.add('visible');
     const _lblReset = document.getElementById('procLabel');
     if (_lblReset) _lblReset.textContent = 'Processing payroll data…';
@@ -1803,11 +1834,15 @@ async function runProcess() {
 
   const _lbl = document.getElementById('procLabel');
   const _bar = document.getElementById('procBarFill');
-  // Set label (and optionally advance progress bar) then yield so browser can repaint before heavy work begins
-  const setLabel = (text, pct) => new Promise(resolve => {
+  // Set label (and optionally advance progress bar) then yield so browser can repaint before heavy work begins.
+  // Also acts as a cancellation checkpoint between processing stages.
+  const setLabel = (text, pct) => new Promise((resolve, reject) => {
     if (_lbl) _lbl.textContent = text;
     if (_bar && typeof pct === 'number') _bar.style.width = pct + '%';
-    requestAnimationFrame(() => requestAnimationFrame(resolve));
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      if (_processingCancelled) reject(_PROC_CANCEL_SENTINEL);
+      else resolve();
+    }));
   });
   let _processedOk = false;
 
@@ -2338,15 +2373,26 @@ async function runProcess() {
   // Ensure bar reaches ~90% before the completion jump (covers the no-summary path)
   if (_bar) _bar.style.width = '90%';
   _processedOk = true;
+  } catch (err) {
+    if (err === _PROC_CANCEL_SENTINEL) {
+      lg('⏹ Processing cancelled by user — loaded files preserved, click Generate to retry.', 'w');
+      console.log('PaySync: processing cancelled by user');
+    } else {
+      throw err;
+    }
   } finally {
+    const _cb = document.getElementById('procCancelBtn');
     if (_processedOk) {
       if (_lbl) _lbl.textContent = '✓ Complete';
       if (_bar) _bar.style.width = '100%';
+      if (_cb) _cb.style.display = 'none';
       setTimeout(() => { _pi.classList.remove('visible'); tick(); }, 700);
     } else {
       _pi.classList.remove('visible');
+      if (_cb) { _cb.disabled = false; _cb.textContent = 'Cancel'; _cb.style.display = ''; }
       tick();
     }
+    _processingCancelled = false;
   }
 }
 
