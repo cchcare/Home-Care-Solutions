@@ -226,6 +226,7 @@ interface AuditAssessment {
   updatedAt: string;
   reviewedCount?: number;
   failCount?: number;
+  customItemCount?: number;
   responses?: AuditResponse[];
   documents?: AuditDocument[];
   customItems?: AuditCustomItem[];
@@ -788,7 +789,8 @@ export default function AuditAssessment() {
                 {visibleAudits.map(audit => {
                   const reviewed = audit.reviewedCount ?? 0;
                   const fails = audit.failCount ?? 0;
-                  const pct = Math.round((reviewed / BUILTIN_TOTAL) * 100);
+                  const totalItems = BUILTIN_TOTAL + (audit.customItemCount ?? 0);
+                  const pct = Math.round((reviewed / totalItems) * 100);
                   return (
                     <Card
                       key={audit.id}
@@ -838,7 +840,7 @@ export default function AuditAssessment() {
                               <div className="mt-2 flex items-center gap-2">
                                 <Progress value={pct} className="h-1.5 flex-1" />
                                 <span className="text-xs text-muted-foreground whitespace-nowrap shrink-0">
-                                  {reviewed}/{BUILTIN_TOTAL} reviewed
+                                  {reviewed}/{totalItems} reviewed
                                 </span>
                               </div>
                             </div>
@@ -1430,17 +1432,17 @@ function AuditItem({
             </button>
           ))}
 
-          {/* Attach button — single file only per item to avoid race conditions */}
           {onAttach && (
             <>
               <input
                 ref={fileInputRef}
                 type="file"
+                multiple
                 accept=".jpg,.jpeg,.png,.gif,.webp,.pdf,.doc,.docx,.xls,.xlsx"
                 className="hidden"
                 onChange={e => {
-                  const file = e.target.files?.[0];
-                  if (file) onAttach(file);
+                  if (!e.target.files) return;
+                  Array.from(e.target.files).forEach(file => onAttach(file));
                   e.target.value = "";
                 }}
               />

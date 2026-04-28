@@ -1192,7 +1192,7 @@ export interface IStorage {
   incrementHelpArticleViewCount(id: string): Promise<void>;
 
   // DOH Audit Assessment operations
-  getDohAuditAssessments(officeId: string): Promise<(DohAuditAssessment & { reviewedCount: number; failCount: number })[]>;
+  getDohAuditAssessments(officeId: string): Promise<(DohAuditAssessment & { reviewedCount: number; failCount: number; customItemCount: number })[]>;
   getDohAuditAssessment(id: string): Promise<DohAuditAssessment | undefined>;
   createDohAuditAssessment(assessment: InsertDohAuditAssessment): Promise<DohAuditAssessment>;
   updateDohAuditAssessment(id: string, assessment: Partial<InsertDohAuditAssessment>): Promise<DohAuditAssessment>;
@@ -7327,24 +7327,34 @@ export class DatabaseStorage implements IStorage {
   }
 
   // DOH Audit Assessment operations
-  async getDohAuditAssessments(officeId: string): Promise<(DohAuditAssessment & { reviewedCount: number; failCount: number })[]> {
+  async getDohAuditAssessments(officeId: string): Promise<(DohAuditAssessment & { reviewedCount: number; failCount: number; customItemCount: number })[]> {
     const rows = await db.select().from(dohAuditAssessments)
       .where(eq(dohAuditAssessments.officeId, officeId))
       .orderBy(desc(dohAuditAssessments.createdAt));
     if (!rows.length) return [];
     const auditIds = rows.map(r => r.id);
-    const responseCounts = await db.select({
-      auditId: dohAuditResponses.auditId,
-      reviewedCount: sql<number>`cast(count(*) filter (where ${dohAuditResponses.status} != 'pending') as int)`,
-      failCount: sql<number>`cast(count(*) filter (where ${dohAuditResponses.status} = 'fail') as int)`,
-    }).from(dohAuditResponses)
-      .where(inArray(dohAuditResponses.auditId, auditIds))
-      .groupBy(dohAuditResponses.auditId);
+    const [responseCounts, customCounts] = await Promise.all([
+      db.select({
+        auditId: dohAuditResponses.auditId,
+        reviewedCount: sql<number>`cast(count(*) filter (where ${dohAuditResponses.status} != 'pending') as int)`,
+        failCount: sql<number>`cast(count(*) filter (where ${dohAuditResponses.status} = 'fail') as int)`,
+      }).from(dohAuditResponses)
+        .where(inArray(dohAuditResponses.auditId, auditIds))
+        .groupBy(dohAuditResponses.auditId),
+      db.select({
+        auditId: dohAuditCustomItems.auditId,
+        customItemCount: sql<number>`cast(count(*) as int)`,
+      }).from(dohAuditCustomItems)
+        .where(inArray(dohAuditCustomItems.auditId, auditIds))
+        .groupBy(dohAuditCustomItems.auditId),
+    ]);
     const countMap = new Map(responseCounts.map(r => [r.auditId, r]));
+    const customMap = new Map(customCounts.map(r => [r.auditId, r.customItemCount]));
     return rows.map(r => ({
       ...r,
       reviewedCount: countMap.get(r.id)?.reviewedCount ?? 0,
       failCount: countMap.get(r.id)?.failCount ?? 0,
+      customItemCount: customMap.get(r.id) ?? 0,
     }));
   }
 

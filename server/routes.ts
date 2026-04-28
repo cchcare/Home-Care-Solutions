@@ -52,6 +52,7 @@ import {
   insertCaregiverNoteSchema,
   insertCaregiverPreferenceSchema,
   insertCaregiverAbsenceSchema,
+  insertDohAuditAssessmentSchema,
   insertCaregiverAvailabilitySchema,
   insertCaregiverAvailabilityExceptionSchema,
   insertCaregiverPayrollInfoSchema,
@@ -16932,14 +16933,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/doh-audits", isAuthenticated, async (req: any, res) => {
     try {
       const user = req.session.user;
+      const parsed = insertDohAuditAssessmentSchema.partial().parse(req.body);
       const audit = await storage.createDohAuditAssessment({
-        ...req.body,
+        ...parsed,
+        officeId: parsed.officeId || req.body.officeId,
+        title: parsed.title || req.body.title,
         createdBy: user.id,
         status: "in_progress",
       });
       res.status(201).json(audit);
     } catch (error: any) {
-      res.status(500).json({ message: error.message || "Failed to create audit" });
+      res.status(400).json({ message: error.message || "Failed to create audit" });
     }
   });
 
