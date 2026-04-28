@@ -806,6 +806,7 @@ export default function ClientProfile() {
         city: client.city || "",
         state: client.state || "",
         zipCode: client.zipCode || "",
+        county: client.county || "",
         hhaxAdmissionId: client.hhaxAdmissionId || "",
         dateOfBirth: client.dateOfBirth,
         memberId: client.memberId || "",
@@ -1300,6 +1301,7 @@ export default function ClientProfile() {
                             city={editFormData.city || ""}
                             state={editFormData.state || ""}
                             zipCode={editFormData.zipCode || ""}
+                            county={editFormData.county || ""}
                             onChange={(field, value) => setEditFormData({ ...editFormData, [field]: value })}
                           />
                         ) : (
@@ -1309,6 +1311,9 @@ export default function ClientProfile() {
                             <p className="font-medium">
                               {[client.city, client.state, client.zipCode].filter(Boolean).join(", ") || ""}
                             </p>
+                            {client.county && (
+                              <p className="text-sm text-muted-foreground">{client.county} County</p>
+                            )}
                           </div>
                         )}
                       </div>
@@ -2321,6 +2326,7 @@ export default function ClientProfile() {
                             city={editFormData.city || ""}
                             state={editFormData.state || ""}
                             zipCode={editFormData.zipCode || ""}
+                            county={editFormData.county || ""}
                             onChange={(field, value) => setEditFormData({ ...editFormData, [field]: value })}
                           />
                         ) : (
@@ -2328,6 +2334,9 @@ export default function ClientProfile() {
                             <p className="font-medium">{client?.address || "N/A"}</p>
                             {client?.address2 && <p className="font-medium">{client.address2}</p>}
                             <p className="font-medium text-muted-foreground">{[client?.city, client?.state, client?.zipCode].filter(Boolean).join(", ")}</p>
+                            {client?.county && (
+                              <p className="text-sm text-muted-foreground">{client.county} County</p>
+                            )}
                           </div>
                         )}
                       </div>

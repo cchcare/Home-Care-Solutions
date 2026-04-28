@@ -136,6 +136,11 @@ import {
   type DateRange,
 } from "./analytics-service";
 import { apiKeyAuth, formatApiResponse, requireScope, type ApiAuthRequest } from "./api-auth";
+import {
+  checkGeocodingRate,
+  searchAddresses,
+  lookupZip,
+} from "./geocoding-service";
 import { expirationAlertService } from './expiration-alert-service';
 import { runExpirationAlertsNow } from './scheduler';
 
@@ -1467,6 +1472,63 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error deleting coordinator:", error);
       res.status(500).json({ message: "Failed to delete coordinator" });
+    }
+  });
+
+  // ---------------------------------------------------------------------
+  // Geocoding proxy (server-side) — protects PII by NOT calling third-party
+  // geocoders directly from the browser. Authenticated + per-user rate
+  // limited per OpenStreetMap Nominatim usage policy.
+  // ---------------------------------------------------------------------
+  app.get("/api/geocoding/search", isAuthenticated, async (req: any, res) => {
+    try {
+      const q = (req.query.q as string | undefined)?.trim() || "";
+      if (q.length < 4) {
+        return res.json([]);
+      }
+      const userId = req.user?.id || req.user?.claims?.sub || req.ip || "anon";
+      const rate = checkGeocodingRate(`addr:${userId}`);
+      if (!rate.ok) {
+        res.setHeader("Retry-After", Math.ceil(rate.retryAfterMs / 1000));
+        return res.status(429).json({
+          message: "Too many address lookups — please slow down.",
+          retryAfterMs: rate.retryAfterMs,
+        });
+      }
+      const suggestions = await searchAddresses(q);
+      return res.json(suggestions);
+    } catch (error: any) {
+      // Intentionally do NOT log the user's query (HIPAA — could be PHI).
+      console.error("[geocoding/search] upstream error:", error?.message || error);
+      return res
+        .status(502)
+        .json({ message: "Address lookup is temporarily unavailable." });
+    }
+  });
+
+  app.get("/api/geocoding/zip", isAuthenticated, async (req: any, res) => {
+    try {
+      const zip = (req.query.zip as string | undefined)?.trim() || "";
+      if (!/^\d{5}$/.test(zip)) {
+        return res.status(400).json({ message: "ZIP must be exactly 5 digits." });
+      }
+      const userId = req.user?.id || req.user?.claims?.sub || req.ip || "anon";
+      const rate = checkGeocodingRate(`zip:${userId}`);
+      if (!rate.ok) {
+        res.setHeader("Retry-After", Math.ceil(rate.retryAfterMs / 1000));
+        return res.status(429).json({
+          message: "Too many ZIP lookups — please slow down.",
+          retryAfterMs: rate.retryAfterMs,
+        });
+      }
+      const result = await lookupZip(zip);
+      if (!result) return res.status(404).json({ message: "ZIP not found." });
+      return res.json(result);
+    } catch (error: any) {
+      console.error("[geocoding/zip] upstream error:", error?.message || error);
+      return res
+        .status(502)
+        .json({ message: "ZIP lookup is temporarily unavailable." });
     }
   });
 

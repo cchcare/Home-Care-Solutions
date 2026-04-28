@@ -30,6 +30,7 @@ import {
 } from "@/components/ui/select";
 import { Save, X } from "lucide-react";
 import { insertClientSchema, type Office } from "@shared/schema";
+import { AddressInput, type AddressField } from "@/components/address-input";
 
 interface Mco {
   id: string;
@@ -41,7 +42,12 @@ const clientFormSchema = insertClientSchema.extend({
   firstName: z.string().min(1, "First name is required"),
   lastName: z.string().min(1, "Last name is required"),
   phone: z.string().optional(),
-  address: z.string().min(1, "Address is required"),
+  address: z.string().min(1, "Street address is required"),
+  address2: z.string().optional().nullable(),
+  city: z.string().min(1, "City is required"),
+  state: z.string().min(2, "State is required"),
+  zipCode: z.string().min(5, "Valid ZIP code is required"),
+  county: z.string().optional().nullable(),
   emergencyContactName: z.string().optional(),
   emergencyContactPhone: z.string().optional(),
   emergencyContactRelation: z.string().optional(),
@@ -49,7 +55,6 @@ const clientFormSchema = insertClientSchema.extend({
   mcoId: z.string().optional().nullable(),
   serviceStartDate: z.union([z.date(), z.string(), z.null()]).optional(),
   hhaxAdmissionId: z.string().optional().nullable(),
-  county: z.string().optional().nullable(),
   hipaaAcknowledged: z.boolean().refine(val => val === true, {
     message: "HIPAA acknowledgment is required"
   }),
@@ -78,6 +83,11 @@ export function AddClientModal({ isOpen, onClose, onSubmit, isLoading, initialDa
       lastName: "",
       phone: "",
       address: "",
+      address2: "",
+      city: "",
+      state: "",
+      zipCode: "",
+      county: "",
       emergencyContactName: "",
       emergencyContactPhone: "",
       emergencyContactRelation: "",
@@ -89,7 +99,6 @@ export function AddClientModal({ isOpen, onClose, onSubmit, isLoading, initialDa
       mcoId: "",
       serviceStartDate: null,
       hhaxAdmissionId: "",
-      county: "",
       hipaaAcknowledged: false,
     },
   });
@@ -121,6 +130,11 @@ export function AddClientModal({ isOpen, onClose, onSubmit, isLoading, initialDa
         lastName: initialData.lastName || "",
         phone: initialData.phone || "",
         address: initialData.address || "",
+        address2: initialData.address2 || "",
+        city: initialData.city || "",
+        state: initialData.state || "",
+        zipCode: initialData.zipCode || "",
+        county: initialData.county || "",
         emergencyContactName: initialData.emergencyContactName || "",
         emergencyContactPhone: initialData.emergencyContactPhone || "",
         emergencyContactRelation: initialData.emergencyContactRelation || "",
@@ -132,7 +146,6 @@ export function AddClientModal({ isOpen, onClose, onSubmit, isLoading, initialDa
         mcoId: initialData.mcoId || "",
         serviceStartDate: initialData.serviceStartDate || null,
         hhaxAdmissionId: initialData.hhaxAdmissionId || "",
-        county: initialData.county || "",
         hipaaAcknowledged: false,
       });
     }
@@ -269,19 +282,6 @@ export function AddClientModal({ isOpen, onClose, onSubmit, isLoading, initialDa
                     </FormItem>
                   )}
                 />
-                <FormField
-                  control={form.control}
-                  name="county"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>County</FormLabel>
-                      <FormControl>
-                        <Input placeholder="Enter county" {...field} value={field.value || ""} data-testid="input-county" />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
               </div>
             </div>
 
@@ -353,24 +353,36 @@ export function AddClientModal({ isOpen, onClose, onSubmit, isLoading, initialDa
                 />
               </div>
 
-              <FormField
-                control={form.control}
-                name="address"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Address *</FormLabel>
-                    <FormControl>
-                      <Textarea 
-                        placeholder="Enter complete address" 
-                        rows={3}
-                        {...field} 
-                        data-testid="textarea-address"
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
+              <FormItem>
+                <FormLabel>Address *</FormLabel>
+                <FormControl>
+                  <AddressInput
+                    streetAddress={form.watch("address") || ""}
+                    streetAddress2={form.watch("address2") || ""}
+                    city={form.watch("city") || ""}
+                    state={form.watch("state") || ""}
+                    zipCode={form.watch("zipCode") || ""}
+                    county={form.watch("county") || ""}
+                    onChange={(field: AddressField, value: string) => {
+                      form.setValue(field, value, {
+                        shouldValidate: true,
+                        shouldDirty: true,
+                      });
+                    }}
+                  />
+                </FormControl>
+                {(form.formState.errors.address ||
+                  form.formState.errors.city ||
+                  form.formState.errors.state ||
+                  form.formState.errors.zipCode) && (
+                  <p className="text-sm font-medium text-destructive">
+                    {form.formState.errors.address?.message ||
+                      form.formState.errors.city?.message ||
+                      form.formState.errors.state?.message ||
+                      form.formState.errors.zipCode?.message}
+                  </p>
                 )}
-              />
+              </FormItem>
             </div>
 
             {/* Medical Information Section */}
