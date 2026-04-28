@@ -153,6 +153,17 @@ export default function ExclusionVerification() {
       queryClient.invalidateQueries({ queryKey: ["/api/exclusions/sources"] });
       queryClient.invalidateQueries({ queryKey: ["/api/exclusions/dashboard"] });
       queryClient.invalidateQueries({ queryKey: ["/api/exclusions/records", { sourceType: "medicheck" }] });
+      // Defensive: a 2xx response with success=false should still be shown as
+      // an error (the server should never do this, but guard so a future
+      // regression cannot silently mask a failed import).
+      if (result?.success === false) {
+        toast({
+          title: "Failed to upload Medicheck CSV",
+          description: result.errors?.[0] || "Unknown error",
+          variant: "destructive",
+        });
+        return;
+      }
       const warnings = result?.warnings ?? [];
       const desc =
         `Imported ${result?.recordCount ?? 0} record${result?.recordCount === 1 ? "" : "s"}.` +

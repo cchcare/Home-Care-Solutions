@@ -13190,11 +13190,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const csvContent = req.file.buffer.toString('utf-8');
       const { exclusionService } = await import('./exclusion-service');
       const result = await exclusionService.importMedicheckCsv(csvContent);
-      // If the importer rejected the file because the headers are unrecognized,
-      // bubble that up as 400 so the UI shows a clear error toast.
-      if (!result.success && result.errors.some(e => /unrecognized medicheck csv format/i.test(e))) {
-        return res.status(400).json({
-          message: result.errors[0],
+      // Any importer-rejected file should surface as a non-2xx so the UI
+      // shows an error toast, not a success one. Validation failures
+      // (unrecognized headers, no data rows) → 400; anything else → 500.
+      if (!result.success) {
+        const firstErr = result.errors[0] || "MediCheck CSV import failed";
+        const isValidationError =
+          /unrecognized medicheck csv format/i.test(firstErr) ||
+          /no data rows/i.test(firstErr) ||
+          /refusing to replace/i.test(firstErr);
+        return res.status(isValidationError ? 400 : 500).json({
+          message: firstErr,
           ...result,
         });
       }
