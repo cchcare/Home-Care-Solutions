@@ -13188,23 +13188,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       if (!req.file) return res.status(400).json({ message: "No file uploaded" });
       const csvContent = req.file.buffer.toString('utf-8');
-      const { exclusionService } = await import('./exclusion-service');
-      const result = await exclusionService.importMedicheckCsv(csvContent);
-      // Any importer-rejected file should surface as a non-2xx so the UI
-      // shows an error toast, not a success one. Validation failures
-      // (unrecognized headers, no data rows) → 400; anything else → 500.
-      if (!result.success) {
-        const firstErr = result.errors[0] || "MediCheck CSV import failed";
-        const isValidationError =
-          /unrecognized medicheck csv format/i.test(firstErr) ||
-          /no data rows/i.test(firstErr) ||
-          /refusing to replace/i.test(firstErr);
-        return res.status(isValidationError ? 400 : 500).json({
-          message: firstErr,
-          ...result,
-        });
+      const { exclusionService, MedicheckImportValidationError } = await import('./exclusion-service');
+      try {
+        const result = await exclusionService.importMedicheckCsv(csvContent);
+        // Any importer-rejected file should surface as a non-2xx so the UI
+        // shows an error toast, not a success one.
+        if (!result.success) {
+          return res.status(500).json({
+            message: result.errors[0] || "MediCheck CSV import failed",
+            ...result,
+          });
+        }
+        res.json(result);
+      } catch (importErr: unknown) {
+        if (importErr instanceof MedicheckImportValidationError) {
+          return res.status(importErr.statusCode).json({
+            success: false,
+            recordCount: 0,
+            errors: [importErr.message],
+            warnings: [],
+            message: importErr.message,
+          });
+        }
+        throw importErr;
       }
-      res.json(result);
     } catch (error: any) {
       res.status(500).json({ message: error.message || "Failed to upload Medicheck data" });
     }

@@ -4,6 +4,20 @@ import { Readable } from 'stream';
 import * as fs from 'fs';
 import * as path from 'path';
 
+/**
+ * Thrown when a MediCheck CSV upload is rejected because of bad input
+ * (unrecognized headers, no data rows, etc). Routes catch this to return a
+ * 4xx HTTP status without falling back to message-string regex matching.
+ */
+export class MedicheckImportValidationError extends Error {
+  readonly statusCode: number;
+  constructor(message: string, statusCode = 400) {
+    super(message);
+    this.name = 'MedicheckImportValidationError';
+    this.statusCode = statusCode;
+  }
+}
+
 interface OigRecord {
   LASTNAME: string;
   FIRSTNAME: string;
@@ -644,22 +658,18 @@ export class ExclusionService {
       const headerSet = new Set<string>(headers);
       const hasAnyRecognizedHeader = RECOGNIZED_HEADERS.some(h => headerSet.has(h));
       if (!hasAnyRecognizedHeader) {
-        const err = new Error(
+        throw new MedicheckImportValidationError(
           'Unrecognized MediCheck CSV format. Expected columns like ' +
           'NAM_FIRST_PROVR / NAM_LAST_PROVR / IDN_NPI / LicenseNumber (PA OMIG) ' +
           'or FirstName / LastName / NPI / ExclusionDate (legacy). ' +
           `Got: ${headers.slice(0, 12).join(', ') || '(no headers parsed)'}`
         );
-        (err as any).statusCode = 400;
-        throw err;
       }
       if (records.length === 0) {
-        const err = new Error(
+        throw new MedicheckImportValidationError(
           'MediCheck CSV had recognized headers but no data rows; refusing to ' +
           'replace existing records.'
         );
-        (err as any).statusCode = 400;
-        throw err;
       }
 
       const mapped = records.map(r => this.mapMedicheckRow(r as Record<string, unknown>, medicheckSource.id));
