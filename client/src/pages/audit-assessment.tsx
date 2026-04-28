@@ -36,6 +36,7 @@ import {
   Printer, Upload, Paperclip, Download, X, File, Image, Sheet,
   MoreVertical, Archive, ArchiveRestore, FileSpreadsheet, User,
   ArrowLeftRight, TrendingUp, TrendingDown, Minus, Link2,
+  Bookmark, BookmarkPlus,
 } from "lucide-react";
 import ExcelJS from "exceljs";
 import jsPDF from "jspdf";
@@ -255,6 +256,16 @@ interface AuditAssessment {
   responses?: AuditResponse[];
   documents?: AuditDocument[];
   customItems?: AuditCustomItem[];
+}
+
+interface SavedComparison {
+  id: string;
+  officeId: string;
+  name: string;
+  auditId1: string;
+  auditId2: string;
+  createdBy: string | null;
+  createdAt: string;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -1095,6 +1106,28 @@ export default function AuditAssessment() {
     enabled: !!officeId,
   });
 
+  const { data: savedComparisons = [] } = useQuery<SavedComparison[]>({
+    queryKey: ["/api/doh-saved-comparisons", officeId],
+    queryFn: async () => {
+      if (!officeId) return [];
+      const res = await fetch(`/api/doh-saved-comparisons?officeId=${officeId}`, { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: !!officeId,
+  });
+
+  const deleteSavedComparisonMutation = useMutation({
+    mutationFn: (id: string) => apiRequest("DELETE", `/api/doh-saved-comparisons/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/doh-saved-comparisons", officeId] });
+      toast({ title: "Saved comparison removed" });
+    },
+    onError: () => toast({ title: "Error", description: "Failed to remove saved comparison.", variant: "destructive" }),
+  });
+
+  const [deleteSavedId, setDeleteSavedId] = useState<string | null>(null);
+
   const { data: activeAudit, isLoading: auditLoading } = useQuery<AuditAssessment & { responses: AuditResponse[]; documents: AuditDocument[]; customItems: AuditCustomItem[] }>({
     queryKey: ["/api/doh-audits", activeAuditId],
     enabled: !!activeAuditId,
@@ -1411,6 +1444,77 @@ export default function AuditAssessment() {
               </div>
             )}
 
+            {/* Saved comparisons */}
+            {!compareMode && savedComparisons.length > 0 && (
+              <Card className="mb-4 border-blue-100 dark:border-blue-900/40 bg-blue-50/40 dark:bg-blue-950/10" data-testid="card-saved-comparisons">
+                <CardHeader className="pb-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <Bookmark size={15} className="text-blue-600 dark:text-blue-400 fill-current" />
+                      <CardTitle className="text-sm">Saved Comparisons</CardTitle>
+                      <Badge variant="outline" className="text-xs">{savedComparisons.length}</Badge>
+                    </div>
+                  </div>
+                  <CardDescription className="text-xs">
+                    Quick links to your saved before/after audit comparisons
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="pt-0">
+                  <div className="space-y-1.5">
+                    {savedComparisons.map(sc => {
+                      const a1 = audits.find(a => a.id === sc.auditId1);
+                      const a2 = audits.find(a => a.id === sc.auditId2);
+                      const auditsExist = !!a1 && !!a2;
+                      return (
+                        <div
+                          key={sc.id}
+                          className="flex items-center justify-between gap-2 p-2 rounded-md bg-background border border-border hover:border-blue-300 dark:hover:border-blue-700 transition-colors"
+                          data-testid={`saved-comparison-${sc.id}`}
+                        >
+                          <button
+                            type="button"
+                            onClick={() => auditsExist && enterCompareView(sc.auditId1, sc.auditId2)}
+                            disabled={!auditsExist}
+                            className="flex-1 min-w-0 text-left disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            <p className="text-sm font-medium truncate">{sc.name}</p>
+                            <p className="text-xs text-muted-foreground truncate">
+                              {auditsExist
+                                ? <>{a1!.title} <ArrowLeftRight size={10} className="inline mx-1" /> {a2!.title}</>
+                                : <span className="italic">One or both audits no longer available</span>}
+                            </p>
+                          </button>
+                          <div className="flex items-center gap-1 shrink-0">
+                            {auditsExist && (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-7 gap-1 text-blue-600 dark:text-blue-400 hover:text-blue-700"
+                                onClick={() => enterCompareView(sc.auditId1, sc.auditId2)}
+                                data-testid={`button-open-saved-comparison-${sc.id}`}
+                              >
+                                <ArrowLeftRight size={12} /> Open
+                              </Button>
+                            )}
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                              onClick={() => setDeleteSavedId(sc.id)}
+                              title="Remove saved comparison"
+                              data-testid={`button-delete-saved-comparison-${sc.id}`}
+                            >
+                              <Trash2 size={13} />
+                            </Button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
             {/* Archived toggle */}
             <div className="flex items-center gap-2 mb-4">
               <button
@@ -1689,6 +1793,32 @@ export default function AuditAssessment() {
                 onClick={() => deleteAuditId && deleteMutation.mutate(deleteAuditId)}
               >
                 Delete
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
+        <AlertDialog open={!!deleteSavedId} onOpenChange={() => setDeleteSavedId(null)}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Remove saved comparison?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This will only remove the saved name. The two underlying audits stay intact.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                className="bg-destructive hover:bg-destructive/90"
+                onClick={() => {
+                  if (deleteSavedId) {
+                    deleteSavedComparisonMutation.mutate(deleteSavedId);
+                    setDeleteSavedId(null);
+                  }
+                }}
+                data-testid="button-confirm-delete-saved-comparison"
+              >
+                Remove
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
@@ -3094,6 +3224,8 @@ function CompareView({
   auditId2: string;
   onBack: () => void;
 }) {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
   const { data: audit1, isLoading: loading1 } = useQuery<AuditAssessment & { responses: AuditResponse[]; customItems: AuditCustomItem[] }>({
     queryKey: ["/api/doh-audits", auditId1],
     enabled: !!auditId1,
@@ -3114,10 +3246,56 @@ function CompareView({
     },
   });
 
+  const officeIdForList = audit1?.officeId || "";
+  const { data: savedComparisons = [] } = useQuery<SavedComparison[]>({
+    queryKey: ["/api/doh-saved-comparisons", officeIdForList],
+    queryFn: async () => {
+      if (!officeIdForList) return [];
+      const res = await fetch(`/api/doh-saved-comparisons?officeId=${officeIdForList}`, { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: !!officeIdForList,
+  });
+
+  const existingSaved = savedComparisons.find(c =>
+    (c.auditId1 === auditId1 && c.auditId2 === auditId2) ||
+    (c.auditId1 === auditId2 && c.auditId2 === auditId1)
+  );
+
+  const [saveDialogOpen, setSaveDialogOpen] = useState(false);
+  const [saveName, setSaveName] = useState("");
+
+  const saveMutation = useMutation({
+    mutationFn: (name: string) =>
+      apiRequest("POST", "/api/doh-saved-comparisons", { name, auditId1, auditId2 }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/doh-saved-comparisons", officeIdForList] });
+      setSaveDialogOpen(false);
+      setSaveName("");
+      toast({ title: "Comparison saved", description: "You can find it on the audit list." });
+    },
+    onError: (err: any) => {
+      toast({ title: "Save failed", description: err?.message || "Could not save the comparison.", variant: "destructive" });
+    },
+  });
+
+  function handleSave() {
+    const name = saveName.trim();
+    if (!name) return;
+    saveMutation.mutate(name);
+  }
+
+  function openSaveDialog() {
+    if (audit1 && audit2) {
+      setSaveName(`${audit1.title} → ${audit2.title}`.slice(0, 200));
+    }
+    setSaveDialogOpen(true);
+  }
+
   const loading = loading1 || loading2;
   const [exporting, setExporting] = useState(false);
   const [copyingLink, setCopyingLink] = useState(false);
-  const { toast } = useToast();
 
   function handleCopyLink() {
     const url = `${window.location.origin}/audit-assessment?compare=${auditId1},${auditId2}`;
@@ -3208,6 +3386,18 @@ function CompareView({
               variant="outline"
               size="sm"
               className="gap-1.5"
+              onClick={openSaveDialog}
+              disabled={!!existingSaved || saveMutation.isPending}
+              data-testid="button-save-comparison"
+              title={existingSaved ? `Already saved as "${existingSaved.name}"` : "Save this comparison with a name"}
+            >
+              {existingSaved ? <Bookmark size={15} className="fill-current" /> : <BookmarkPlus size={15} />}
+              {existingSaved ? "Saved" : "Save comparison"}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5"
               onClick={handleCopyLink}
               disabled={copyingLink}
             >
@@ -3227,6 +3417,46 @@ function CompareView({
           </div>
         )}
       </div>
+
+      {/* Save Comparison Dialog */}
+      <Dialog open={saveDialogOpen} onOpenChange={setSaveDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Save this comparison</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <p className="text-sm text-muted-foreground">
+              Give this comparison a name so you can quickly find it later from the audit list.
+            </p>
+            <div>
+              <Label htmlFor="save-comparison-name">Name <span className="text-destructive">*</span></Label>
+              <Input
+                id="save-comparison-name"
+                data-testid="input-save-comparison-name"
+                value={saveName}
+                onChange={e => setSaveName(e.target.value)}
+                placeholder="e.g. Pre-survey vs Post-corrective-action"
+                maxLength={200}
+                className="mt-1"
+                autoFocus
+                onKeyDown={e => { if (e.key === "Enter" && saveName.trim() && !saveMutation.isPending) handleSave(); }}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSaveDialogOpen(false)} disabled={saveMutation.isPending}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleSave}
+              disabled={!saveName.trim() || saveMutation.isPending}
+              data-testid="button-confirm-save-comparison"
+            >
+              {saveMutation.isPending ? "Saving…" : "Save"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {loading ? (
         <div className="space-y-4">

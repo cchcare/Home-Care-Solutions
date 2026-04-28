@@ -360,6 +360,9 @@ import {
   type InsertDohAuditCustomItem,
   dohAuditCorrectiveActions,
   type DohAuditCorrectiveAction,
+  dohSavedComparisons,
+  type DohSavedComparison,
+  type InsertDohSavedComparison,
   supervisoryVisits,
   type SupervisoryVisit,
   type InsertSupervisoryVisit,
@@ -1235,6 +1238,10 @@ export interface IStorage {
   getDohAuditCorrectiveActions(auditId: string): Promise<DohAuditCorrectiveAction[]>;
   upsertDohAuditCorrectiveAction(auditId: string, itemKey: string, data: { responsibleParty?: string | null; targetDate?: string | null; completionDate?: string | null; actionSteps?: string | null; status?: string }): Promise<DohAuditCorrectiveAction>;
   deleteDohAuditCorrectiveAction(id: string, auditId: string): Promise<void>;
+  getDohSavedComparisons(officeId: string): Promise<DohSavedComparison[]>;
+  getDohSavedComparison(id: string): Promise<DohSavedComparison | undefined>;
+  createDohSavedComparison(comparison: InsertDohSavedComparison): Promise<DohSavedComparison>;
+  deleteDohSavedComparison(id: string): Promise<void>;
 
   // Supervisory Visits
   getSupervisoryVisits(officeId: string, filters?: { caregiverId?: string }): Promise<SupervisoryVisit[]>;
@@ -7550,6 +7557,26 @@ export class DatabaseStorage implements IStorage {
   async deleteDohAuditCorrectiveAction(id: string, auditId: string): Promise<void> {
     await db.delete(dohAuditCorrectiveActions)
       .where(and(eq(dohAuditCorrectiveActions.id, id), eq(dohAuditCorrectiveActions.auditId, auditId)));
+  }
+
+  async getDohSavedComparisons(officeId: string): Promise<DohSavedComparison[]> {
+    return db.select().from(dohSavedComparisons)
+      .where(eq(dohSavedComparisons.officeId, officeId))
+      .orderBy(desc(dohSavedComparisons.createdAt));
+  }
+
+  async getDohSavedComparison(id: string): Promise<DohSavedComparison | undefined> {
+    const [row] = await db.select().from(dohSavedComparisons).where(eq(dohSavedComparisons.id, id));
+    return row;
+  }
+
+  async createDohSavedComparison(comparison: InsertDohSavedComparison): Promise<DohSavedComparison> {
+    const [row] = await db.insert(dohSavedComparisons).values(comparison).returning();
+    return row;
+  }
+
+  async deleteDohSavedComparison(id: string): Promise<void> {
+    await db.delete(dohSavedComparisons).where(eq(dohSavedComparisons.id, id));
   }
 
   // ─── Supervisory Visits ─────────────────────────────────────────────────────

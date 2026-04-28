@@ -3990,6 +3990,23 @@ export type DohAuditCorrectiveAction = typeof dohAuditCorrectiveActions.$inferSe
 export type InsertDohAuditCorrectiveAction = typeof dohAuditCorrectiveActions.$inferInsert;
 export const insertDohAuditCorrectiveActionSchema = createInsertSchema(dohAuditCorrectiveActions).omit({ id: true, createdAt: true, updatedAt: true });
 
+// ─── Saved Audit Comparisons ──────────────────────────────────────────────────
+export const dohSavedComparisons = pgTable("doh_saved_comparisons", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  officeId: varchar("office_id").references(() => offices.id, { onDelete: "cascade" }).notNull(),
+  name: varchar("name").notNull(),
+  auditId1: varchar("audit_id_1").references(() => dohAuditAssessments.id, { onDelete: "cascade" }).notNull(),
+  auditId2: varchar("audit_id_2").references(() => dohAuditAssessments.id, { onDelete: "cascade" }).notNull(),
+  createdBy: varchar("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_doh_saved_comparisons_office").on(table.officeId),
+]);
+
+export type DohSavedComparison = typeof dohSavedComparisons.$inferSelect;
+export type InsertDohSavedComparison = typeof dohSavedComparisons.$inferInsert;
+export const insertDohSavedComparisonSchema = createInsertSchema(dohSavedComparisons).omit({ id: true, createdAt: true });
+
 // ─── Supervisory Visits ───────────────────────────────────────────────────────
 export const supervisoryVisitTypeEnum = pgEnum("supervisory_visit_type", ["in_person", "phone", "virtual", "written"]);
 export const supervisoryVisitStatusEnum = pgEnum("supervisory_visit_status", ["scheduled", "completed", "cancelled"]);

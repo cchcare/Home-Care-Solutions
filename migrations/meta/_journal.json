@@ -36,6 +36,13 @@
       "when": 1777345177849,
       "tag": "0004_overconfident_puff_adder",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1777387454536,
+      "tag": "0005_military_thundra",
+      "breakpoints": true
     }
   ]
 }
