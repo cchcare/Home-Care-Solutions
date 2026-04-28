@@ -42,6 +42,7 @@ import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { format } from "date-fns";
 import type { Office } from "@shared/schema";
+import cchcLogo from "@assets/15A8EB0D-1FA3-4805-BF3C-7810910EC966_1767496211498.png";
 
 declare module "jspdf" {
   interface jsPDF {
@@ -605,6 +606,33 @@ function statusLabel(s: ItemStatus) {
   return "Pending";
 }
 
+async function loadImageForPdf(
+  url: string,
+): Promise<{ dataUrl: string; width: number; height: number; format: "PNG" | "JPEG" } | null> {
+  try {
+    const res = await fetch(url, { credentials: "include" });
+    if (!res.ok) return null;
+    const blob = await res.blob();
+    const dataUrl: string = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+    const dims = await new Promise<{ width: number; height: number }>((resolve, reject) => {
+      const img = new window.Image();
+      img.onload = () => resolve({ width: img.naturalWidth, height: img.naturalHeight });
+      img.onerror = reject;
+      img.src = dataUrl;
+    });
+    const mime = (blob.type || "").toLowerCase();
+    const format: "PNG" | "JPEG" = mime.includes("jpeg") || mime.includes("jpg") ? "JPEG" : "PNG";
+    return { dataUrl, width: dims.width, height: dims.height, format };
+  } catch {
+    return null;
+  }
+}
+
 async function exportAuditToPDF(
   audit: AuditAssessment,
   responsesMap: Record<string, ItemStatus>,
@@ -612,6 +640,8 @@ async function exportAuditToPDF(
   customItems: AuditCustomItem[],
   correctiveActions: AuditCorrectiveAction[],
   officeName: string,
+  officeLogoUrl?: string,
+  fallbackLogoUrl?: string,
 ) {
   const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "letter" });
   const W = doc.internal.pageSize.getWidth();
@@ -631,10 +661,43 @@ async function exportAuditToPDF(
   const auditDateStr = audit.auditDate ? format(new Date(audit.auditDate), "MMMM d, yyyy") : "";
   const generatedStr = format(new Date(), "MMMM d, yyyy 'at' h:mm a");
 
+  // Try to load the agency logo (fallback to CCHC wordmark) for the cover header.
+  // We collect candidates and try each one through addImage too, so that an
+  // unsupported image format (e.g. SVG) for the office logo still falls back
+  // to the bundled CCHC wordmark instead of leaving the header logo-less.
+  const logoCandidates: string[] = [];
+  if (officeLogoUrl) logoCandidates.push(officeLogoUrl);
+  if (fallbackLogoUrl && fallbackLogoUrl !== officeLogoUrl) logoCandidates.push(fallbackLogoUrl);
+
   // ── Page 1: Cover ──────────────────────────────────────────────────────────
   // Header band
   doc.setFillColor(...NAVY);
   doc.rect(0, 0, W, 48, "F");
+
+  // Logo (upper-left, on a white pad so dark logos remain readable on the navy band)
+  for (const url of logoCandidates) {
+    const logo = await loadImageForPdf(url);
+    if (!logo) continue;
+    const maxW = 28;
+    const maxH = 20;
+    const ratio = logo.width / logo.height;
+    let lw = maxW;
+    let lh = lw / ratio;
+    if (lh > maxH) { lh = maxH; lw = lh * ratio; }
+    const pad = 1.5;
+    const lx = margin;
+    const ly = (48 - lh) / 2;
+    doc.setFillColor(...WHITE);
+    doc.roundedRect(lx - pad, ly - pad, lw + pad * 2, lh + pad * 2, 1.5, 1.5, "F");
+    try {
+      doc.addImage(logo.dataUrl, logo.format, lx, ly, lw, lh);
+      break;
+    } catch {
+      // Cover the white pad back with navy and try the next candidate.
+      doc.setFillColor(...NAVY);
+      doc.rect(lx - pad, ly - pad, lw + pad * 2, lh + pad * 2, "F");
+    }
+  }
 
   doc.setTextColor(...WHITE);
   doc.setFont("helvetica", "bold");
@@ -1235,8 +1298,19 @@ export default function AuditAssessment() {
     if (!activeAudit || !activeAuditId) return;
     setExportingPdfId(activeAuditId);
     try {
-      const currentOfficeName = offices.find((o: Office) => o.id === (activeAudit.officeId || officeId))?.name || "";
-      await exportAuditToPDF(activeAudit, responsesMap, notesMap, customItems, correctiveActions, currentOfficeName);
+      const currentOffice = offices.find((o: Office) => o.id === (activeAudit.officeId || officeId));
+      const currentOfficeName = currentOffice?.name || "";
+      const officeLogoUrl = currentOffice?.logoFileName ? `/uploads/${currentOffice.logoFileName}` : undefined;
+      await exportAuditToPDF(
+        activeAudit,
+        responsesMap,
+        notesMap,
+        customItems,
+        correctiveActions,
+        currentOfficeName,
+        officeLogoUrl,
+        cchcLogo,
+      );
       toast({ title: "PDF exported" });
     } catch {
       toast({ title: "PDF export failed", variant: "destructive" });
