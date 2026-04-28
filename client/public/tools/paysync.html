@@ -895,22 +895,42 @@ td.status-unmatched {
   font-size: 11px;
   font-weight: 600;
 }
+/* Live-tunable preview highlight colors. Defaults match the Excel
+   export defaults; overridden at runtime by the color pickers. */
+:root {
+  --preview-matched-bg:         rgba(198, 239, 206, 0.55);
+  --preview-unmatched-bg:       rgba(255, 199, 206, 0.55);
+  --preview-unmatched-bg-hover: rgba(255, 199, 206, 0.80);
+  --preview-unmatched-border:   var(--red);
+}
+tr.preview-matched-row > td {
+  background: var(--preview-matched-bg);
+}
 tr.unmatched-summary-row {
-  background: rgba(220, 38, 38, 0.06);
+  background: var(--preview-unmatched-bg);
   cursor: pointer;
-  border-left: 3px solid var(--red);
+  border-left: 3px solid var(--preview-unmatched-border);
   transition: background 0.15s;
 }
 tr.unmatched-summary-row:hover {
-  background: rgba(220, 38, 38, 0.13);
+  background: var(--preview-unmatched-bg-hover);
 }
 tr.unmatched-detail-row td {
-  background: rgba(220, 38, 38, 0.1);
+  background: var(--preview-unmatched-bg);
   color: var(--red);
   font-size: 12px;
   padding: 5px 16px 8px 22px;
   font-style: italic;
   border-top: none;
+}
+tr.unmatched-separator-row > td {
+  background: var(--preview-unmatched-bg);
+  color: var(--preview-unmatched-border);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 6px 16px;
+  letter-spacing: 0.04em;
+  border-top: 1px solid var(--preview-unmatched-border);
 }
 .empty-state {
   padding: 48px 20px;
@@ -2298,7 +2318,7 @@ function renderTable(rows) {
   tb.innerHTML = rows.map((r, i) => {
     const delay = Math.min(i, ANIM_CAP - 1) * 40;
     return `
-    <tr class="table-row-animate" style="animation-delay:${delay}ms">
+    <tr class="table-row-animate preview-matched-row" style="animation-delay:${delay}ms">
       <td><span style="font-family:'DM Mono',monospace;color:var(--text3)">${r.coCode}</span></td>
       <td><span style="font-family:'DM Mono',monospace;color:var(--text3)">${r.batchId}</span></td>
       <td class="emp-name">${r.name || '—'}</td>
@@ -2326,9 +2346,12 @@ function appendUnmatchedSummaryRows(items) {
     return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   }
 
-  // Add a separator row before the unmatched block
+  // Add a separator row before the unmatched block. Styling lives in the
+  // .unmatched-separator-row CSS class so it picks up the live highlight
+  // colors via the same CSS variables as the rest of the unmatched rows.
   const sepTr = document.createElement('tr');
-  sepTr.innerHTML = `<td colspan="10" style="background:rgba(220,38,38,0.04);color:var(--red);font-size:11px;font-weight:600;padding:6px 16px;letter-spacing:0.04em;border-top:1px solid rgba(220,38,38,0.25);">▼ UNMATCHED SUMMARY ROWS — click a row to see reason</td>`;
+  sepTr.className = 'unmatched-separator-row';
+  sepTr.innerHTML = `<td colspan="10">▼ UNMATCHED SUMMARY ROWS — click a row to see reason</td>`;
   tb.appendChild(sepTr);
 
   items.forEach(({ id, reason }, idx) => {
@@ -2811,6 +2834,60 @@ setupDragDrop();
     colorPickersEl.style.display = (highlightSel && highlightSel.value === 'colored') ? 'inline-flex' : 'none';
   }
 
+  // Convert "#RRGGBB" → "r, g, b" so we can build rgba() values dynamically.
+  function hexToRgbTriplet(hex) {
+    const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(String(hex || ''));
+    if (!m) return null;
+    return parseInt(m[1], 16) + ', ' + parseInt(m[2], 16) + ', ' + parseInt(m[3], 16);
+  }
+
+  // Apply current highlight settings to the preview table via CSS variables.
+  // Mirrors the logic used when writing the Excel export so the in-page
+  // preview is WYSIWYG with the user's color choices.
+  function applyPreviewHighlight() {
+    const root = document.documentElement.style;
+    const mode = (highlightSel && highlightSel.value) || 'colored';
+
+    let matchedHex   = (matchedColorEl   && matchedColorEl.value)   || '#C6EFCE';
+    let unmatchedHex = (unmatchedColorEl && unmatchedColorEl.value) || '#FFC7CE';
+
+    if (mode === 'none') {
+      root.setProperty('--preview-matched-bg',         'transparent');
+      root.setProperty('--preview-unmatched-bg',       'transparent');
+      root.setProperty('--preview-unmatched-bg-hover', 'rgba(0,0,0,0.04)');
+      root.setProperty('--preview-unmatched-border',   'transparent');
+      return;
+    }
+
+    if (mode === 'grey') {
+      // Neutral grey export style — matched rows get no tint, unmatched
+      // rows get a soft grey tint with no red accent.
+      root.setProperty('--preview-matched-bg',         'transparent');
+      root.setProperty('--preview-unmatched-bg',       'rgba(120, 120, 120, 0.12)');
+      root.setProperty('--preview-unmatched-bg-hover', 'rgba(120, 120, 120, 0.20)');
+      root.setProperty('--preview-unmatched-border',   'rgba(120, 120, 120, 0.55)');
+      return;
+    }
+
+    // mode === 'colored'
+    const matchedRgb   = hexToRgbTriplet(matchedHex);
+    const unmatchedRgb = hexToRgbTriplet(unmatchedHex);
+
+    root.setProperty(
+      '--preview-matched-bg',
+      matchedRgb ? `rgba(${matchedRgb}, 0.55)` : matchedHex
+    );
+    root.setProperty(
+      '--preview-unmatched-bg',
+      unmatchedRgb ? `rgba(${unmatchedRgb}, 0.55)` : unmatchedHex
+    );
+    root.setProperty(
+      '--preview-unmatched-bg-hover',
+      unmatchedRgb ? `rgba(${unmatchedRgb}, 0.80)` : unmatchedHex
+    );
+    root.setProperty('--preview-unmatched-border', unmatchedHex);
+  }
+
   if (highlightSel) {
     const saved = localStorage.getItem('paysync_rowHighlightStyle');
     if (saved && ['colored', 'grey', 'none'].includes(saved)) {
@@ -2820,22 +2897,27 @@ setupDragDrop();
     highlightSel.addEventListener('change', function () {
       localStorage.setItem('paysync_rowHighlightStyle', highlightSel.value);
       syncColorPickerVisibility();
+      applyPreviewHighlight();
     });
   }
 
   if (matchedColorEl) {
     const saved = localStorage.getItem('paysync_matchedColor');
     if (saved) matchedColorEl.value = saved;
+    matchedColorEl.addEventListener('input', applyPreviewHighlight);
     matchedColorEl.addEventListener('change', function () {
       localStorage.setItem('paysync_matchedColor', matchedColorEl.value);
+      applyPreviewHighlight();
     });
   }
 
   if (unmatchedColorEl) {
     const saved = localStorage.getItem('paysync_unmatchedColor');
     if (saved) unmatchedColorEl.value = saved;
+    unmatchedColorEl.addEventListener('input', applyPreviewHighlight);
     unmatchedColorEl.addEventListener('change', function () {
       localStorage.setItem('paysync_unmatchedColor', unmatchedColorEl.value);
+      applyPreviewHighlight();
     });
   }
 
@@ -2854,8 +2936,12 @@ setupDragDrop();
       }
       localStorage.removeItem('paysync_matchedColor');
       localStorage.removeItem('paysync_unmatchedColor');
+      applyPreviewHighlight();
     });
   }
+
+  // Apply once on load so the preview reflects any saved choices immediately.
+  applyPreviewHighlight();
 }());
 </script>
 </body>
