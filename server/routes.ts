@@ -1837,10 +1837,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
             results.createdRecords++;
           }
         } catch (error: any) {
-          // Sanitize error message to avoid exposing sensitive data
-          const sanitizedError = error.message?.includes('duplicate') ? 'Record already exists' : 
-                                error.message?.includes('validation') ? 'Invalid data format' :
-                                'Failed to import record';
+          // Build a useful, non-PHI error message so the user can fix their file.
+          // Zod validation errors expose field paths + issue codes (no row data).
+          let sanitizedError = "Failed to import record";
+          if (error?.name === "ZodError" && Array.isArray(error.issues)) {
+            const fieldLabels: Record<string, string> = {
+              firstName: "First Name",
+              lastName: "Last Name",
+              dateOfBirth: "Date of Birth",
+              serviceStartDate: "Service Start Date",
+              hhaxAdmissionId: "HHA Admission ID",
+              memberId: "Member ID",
+              officeId: "Office",
+              mcoId: "MCO",
+            };
+            const parts = error.issues.slice(0, 3).map((iss: any) => {
+              const rawField = Array.isArray(iss.path) && iss.path.length > 0 ? String(iss.path[0]) : "field";
+              const field = fieldLabels[rawField] || rawField;
+              if (iss.code === "invalid_type" && iss.received === "undefined") {
+                return `Missing required field: ${field}`;
+              }
+              if (iss.code === "invalid_type") {
+                return `Invalid type for ${field} (expected ${iss.expected})`;
+              }
+              return `${field}: ${iss.message}`;
+            });
+            sanitizedError = parts.join("; ");
+          } else if (error?.message?.includes("duplicate")) {
+            sanitizedError = "Record already exists";
+          } else if (error?.message?.includes("Identifier conflict")) {
+            sanitizedError = error.message;
+          } else if (error?.message?.startsWith('MCO "')) {
+            sanitizedError = error.message;
+          } else if (typeof error?.message === "string" && error.message.length > 0 && error.message.length < 200) {
+            sanitizedError = error.message;
+          }
           results.errors.push({
             row: i + 1,
             error: sanitizedError
