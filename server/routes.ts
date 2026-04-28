@@ -13310,6 +13310,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // On-demand exclusion check for a single caregiver — used by the
+  // "Run exclusion check" button on the Caregiver Profile.
+  app.post("/api/caregivers/:id/exclusion-check", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      if (!user || (user.role !== "admin" && user.role !== "supervisor" && user.role !== "super_admin")) {
+        return res.status(403).json({ message: "Unauthorized: Admin role required" });
+      }
+      const caregiver = await storage.getCaregiver(req.params.id);
+      if (!caregiver) {
+        return res.status(404).json({ message: "Caregiver not found" });
+      }
+      const { exclusionService } = await import('./exclusion-service');
+      const result = await exclusionService.runCaregiverExclusionCheck(req.params.id);
+      res.json(result);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to run exclusion check" });
+    }
+  });
+
   app.get("/api/exclusions/checks", isAuthenticated, async (req: any, res) => {
     try {
       const user = req.session?.user;

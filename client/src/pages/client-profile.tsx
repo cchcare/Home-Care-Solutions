@@ -1229,14 +1229,14 @@ export default function ClientProfile() {
                         <Label className="text-muted-foreground text-sm">MCO</Label>
                         {isEditing ? (
                           <Select
-                            value={editFormData.mcoId || ""}
-                            onValueChange={(value) => setEditFormData({ ...editFormData, mcoId: value })}
+                            value={editFormData.mcoId || "__none__"}
+                            onValueChange={(value) => setEditFormData({ ...editFormData, mcoId: value === "__none__" ? "" : value })}
                           >
                             <SelectTrigger data-testid="select-client-mco">
                               <SelectValue placeholder="Select MCO" />
                             </SelectTrigger>
                             <SelectContent>
-                              <SelectItem value="">None</SelectItem>
+                              <SelectItem value="__none__">None</SelectItem>
                               {allMcos.map((m) => (
                                 <SelectItem key={m.id} value={m.id}>
                                   {m.name}
@@ -2389,10 +2389,10 @@ export default function ClientProfile() {
                         <div className="space-y-1">
                           <Label className="text-muted-foreground text-sm">MCO / Insurance</Label>
                           {isEditing ? (
-                            <Select value={editFormData.mcoId || ""} onValueChange={(v) => setEditFormData({ ...editFormData, mcoId: v })}>
+                            <Select value={editFormData.mcoId || "__none__"} onValueChange={(v) => setEditFormData({ ...editFormData, mcoId: v === "__none__" ? "" : v })}>
                               <SelectTrigger><SelectValue placeholder="Select MCO" /></SelectTrigger>
                               <SelectContent>
-                                <SelectItem value="">None</SelectItem>
+                                <SelectItem value="__none__">None</SelectItem>
                                 {allMcos.map((m) => <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>)}
                               </SelectContent>
                             </Select>

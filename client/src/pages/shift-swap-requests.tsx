@@ -380,14 +380,14 @@ function CreateRequestDialog({
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>Request Swap With (Optional)</FormLabel>
-                  <Select onValueChange={field.onChange} value={field.value}>
+                  <Select onValueChange={(v) => field.onChange(v === "__none__" ? "" : v)} value={field.value || "__none__"}>
                     <FormControl>
                       <SelectTrigger data-testid="target-caregiver-select">
                         <SelectValue placeholder="Leave empty for open swap request..." />
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
-                      <SelectItem value="">Open Request (Any Caregiver)</SelectItem>
+                      <SelectItem value="__none__">Open Request (Any Caregiver)</SelectItem>
                       {otherCaregivers.map((caregiver) => (
                         <SelectItem key={caregiver.id} value={caregiver.id} data-testid={`caregiver-option-${caregiver.id}`}>
                           {caregiver.firstName} {caregiver.lastName}

@@ -244,12 +244,12 @@ export default function HhaxIntegration() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <Select value={fallbackOfficeId} onValueChange={setFallbackOfficeId}>
+              <Select value={fallbackOfficeId || "__none__"} onValueChange={(v) => setFallbackOfficeId(v === "__none__" ? "" : v)}>
                 <SelectTrigger className="w-full md:w-[300px]" data-testid="select-fallback-office">
                   <SelectValue placeholder="Select fallback office (optional)" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">No fallback (skip unmatched)</SelectItem>
+                  <SelectItem value="__none__">No fallback (skip unmatched)</SelectItem>
                   {offices.map((office) => (
                     <SelectItem key={office.id} value={office.id}>
                       {office.name}

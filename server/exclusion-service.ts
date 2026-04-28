@@ -429,6 +429,110 @@ export class ExclusionService {
     return matches;
   }
 
+  async runCaregiverExclusionCheck(caregiverId: string): Promise<{
+    caregiverId: string;
+    status: 'clear' | 'possible_match';
+    totalMatches: number;
+    matches: Array<{
+      exclusionRecordId: string;
+      sourceId: string;
+      sourceName: string;
+      matchType: string;
+      matchScore: number;
+      matchReason: 'npi' | 'license_number' | 'name_exact' | 'name_fuzzy' | null;
+      matchedIdentifier: string | null;
+      matchedFirstName: string;
+      matchedLastName: string;
+    }>;
+  }> {
+    const caregiver = await storage.getCaregiver(caregiverId);
+    if (!caregiver) {
+      throw new Error(`Caregiver ${caregiverId} not found`);
+    }
+
+    const sources = await storage.getExclusionSources();
+    const sourceById = new Map(sources.map((s) => [s.id, s]));
+
+    const licenseNumbers = await storage.getCertificateNumbersByCaregiver(caregiverId);
+    const matches = await this.checkCaregiverAgainstExclusions(
+      caregiverId,
+      caregiver.firstName || '',
+      caregiver.lastName || '',
+      caregiver.dateOfBirth ?? null,
+      caregiver.npi ?? null,
+      licenseNumbers,
+    );
+
+    // Persist results using the same convention as runFullExclusionCheck:
+    // - Caregiver fully clear → write a `clear` row per source.
+    // - Any match → write only the matching `possible_match` rows; do not
+    //   overwrite the status of unrelated sources.
+    if (matches.length === 0) {
+      for (const source of sources) {
+        await storage.createCaregiverExclusionCheck({
+          caregiverId,
+          sourceId: source.id,
+          status: 'clear',
+          checkedAt: new Date(),
+          autoFlag: true,
+        });
+      }
+      return {
+        caregiverId,
+        status: 'clear',
+        totalMatches: 0,
+        matches: [],
+      };
+    }
+
+    const enriched: Array<{
+      exclusionRecordId: string;
+      sourceId: string;
+      sourceName: string;
+      matchType: string;
+      matchScore: number;
+      matchReason: 'npi' | 'license_number' | 'name_exact' | 'name_fuzzy' | null;
+      matchedIdentifier: string | null;
+      matchedFirstName: string;
+      matchedLastName: string;
+    }> = [];
+
+    for (const match of matches) {
+      await storage.createCaregiverExclusionCheck({
+        caregiverId,
+        sourceId: match.sourceId,
+        exclusionRecordId: match.exclusionRecordId,
+        status: 'possible_match',
+        matchType: match.matchType,
+        matchScore: match.matchScore.toString(),
+        matchReason: match.matchReason,
+        matchedIdentifier: match.matchedIdentifier,
+        matchedFirstName: match.matchedFirstName,
+        matchedLastName: match.matchedLastName,
+        checkedAt: new Date(),
+        autoFlag: true,
+      });
+      enriched.push({
+        exclusionRecordId: match.exclusionRecordId,
+        sourceId: match.sourceId,
+        sourceName: sourceById.get(match.sourceId)?.name || '',
+        matchType: match.matchType,
+        matchScore: match.matchScore,
+        matchReason: match.matchReason,
+        matchedIdentifier: match.matchedIdentifier,
+        matchedFirstName: match.matchedFirstName,
+        matchedLastName: match.matchedLastName,
+      });
+    }
+
+    return {
+      caregiverId,
+      status: 'possible_match',
+      totalMatches: enriched.length,
+      matches: enriched,
+    };
+  }
+
   async runFullExclusionCheck(userId?: string): Promise<{
     totalCaregivers: number;
     totalClear: number;

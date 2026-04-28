@@ -88,7 +88,9 @@ import {
   MessageSquare,
   ArrowRightLeft,
   Search,
-  FileSignature
+  FileSignature,
+  Loader2,
+  Play
 } from "lucide-react";
 import type { Caregiver, User as UserType, Document, Office, Client, ComplianceItem, Coordinator, CaregiverCompliance, LetterTemplate } from "@shared/schema";
 import { AddressInput } from "@/components/address-input";
@@ -478,6 +480,96 @@ export default function CaregiverProfile() {
   });
 
   const canDeleteCaregiver = currentUser && ["super_admin", "admin", "office_admin"].includes(currentUser.role);
+  const canRunExclusionCheck = !!currentUser && ["super_admin", "admin", "supervisor"].includes(currentUser.role);
+
+  type ExclusionMatch = {
+    exclusionRecordId: string;
+    sourceId: string;
+    sourceName: string;
+    matchType: string;
+    matchScore: number;
+    matchReason: "npi" | "license_number" | "name_exact" | "name_fuzzy" | null;
+    matchedIdentifier: string | null;
+    matchedFirstName: string;
+    matchedLastName: string;
+  };
+  type ExclusionRunResult = {
+    caregiverId: string;
+    status: "clear" | "possible_match";
+    totalMatches: number;
+    matches: ExclusionMatch[];
+    ranAt: string;
+  };
+  const [exclusionRunResult, setExclusionRunResult] = useState<ExclusionRunResult | null>(null);
+
+  const runExclusionCheckMutation = useMutation({
+    mutationFn: async () => {
+      return await apiRequest(
+        "POST",
+        `/api/caregivers/${caregiverId}/exclusion-check`,
+        {},
+      );
+    },
+    onSuccess: async (response: any) => {
+      const data = (typeof response?.json === "function"
+        ? await response.json()
+        : response) as Omit<ExclusionRunResult, "ranAt">;
+      setExclusionRunResult({ ...data, ranAt: new Date().toISOString() });
+      qc.invalidateQueries({ queryKey: ["/api/exclusions/caregiver", caregiverId] });
+      toast({
+        title: data.status === "clear" ? "Caregiver is clear" : "Possible matches found",
+        description:
+          data.status === "clear"
+            ? "No matches were found in any exclusion source."
+            : `Found ${data.totalMatches} possible match${data.totalMatches === 1 ? "" : "es"}. Review on the Pending Reviews tab.`,
+        variant: data.status === "clear" ? "default" : "destructive",
+      });
+    },
+    onError: (err: any) => {
+      toast({
+        title: "Exclusion check failed",
+        description: err?.message || "Unable to run exclusion check.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const renderMatchReasonBadge = (m: ExclusionMatch, idx: number) => {
+    const id = m.matchedIdentifier || "";
+    const score = typeof m.matchScore === "number" ? Math.round(m.matchScore) : 0;
+    switch (m.matchReason) {
+      case "npi":
+        return (
+          <Badge className="bg-red-100 text-red-800" data-testid={`badge-run-reason-npi-${idx}`}>
+            NPI {id || "match"} (exact)
+          </Badge>
+        );
+      case "license_number":
+        return (
+          <Badge className="bg-red-100 text-red-800" data-testid={`badge-run-reason-license-${idx}`}>
+            License {id || "match"} (exact)
+          </Badge>
+        );
+      case "name_exact":
+        return (
+          <Badge className="bg-amber-100 text-amber-800" data-testid={`badge-run-reason-name-exact-${idx}`}>
+            Name match — exact
+          </Badge>
+        );
+      case "name_fuzzy":
+        return (
+          <Badge variant="outline" data-testid={`badge-run-reason-name-fuzzy-${idx}`}>
+            Name match — {score}%
+          </Badge>
+        );
+      default:
+        return (
+          <Badge variant="outline" data-testid={`badge-run-reason-unknown-${idx}`}>
+            {score ? `Name match — ${score}%` : "Match"}
+          </Badge>
+        );
+    }
+  };
 
   const assignClientMutation = useMutation({
     mutationFn: async (clientId: string) => {
@@ -2357,27 +2449,103 @@ export default function CaregiverProfile() {
                 <div className="space-y-6">
                   <Card>
                     <CardHeader>
-                      <div className="flex items-center justify-between">
+                      <div className="flex items-center justify-between gap-4">
                         <CardTitle className="flex items-center gap-2">
                           <AlertTriangle className="w-5 h-5" />
                           Exclusion Verification Status
                         </CardTitle>
-                        {exclusionChecks.length > 0 && (
-                          <Badge 
-                            variant={exclusionChecks.some(c => c.status === 'confirmed_excluded') ? 'destructive' : 
-                                    exclusionChecks.some(c => c.status === 'possible_match') ? 'outline' : 'secondary'}
-                            data-testid="badge-exclusion-status"
-                          >
-                            {exclusionChecks.some(c => c.status === 'confirmed_excluded') ? 'Excluded' : 
-                             exclusionChecks.some(c => c.status === 'possible_match') ? 'Pending Review' : 'Cleared'}
-                          </Badge>
-                        )}
+                        <div className="flex items-center gap-2">
+                          {exclusionChecks.length > 0 && (
+                            <Badge
+                              variant={exclusionChecks.some(c => c.status === 'confirmed_excluded') ? 'destructive' :
+                                      exclusionChecks.some(c => c.status === 'possible_match') ? 'outline' : 'secondary'}
+                              data-testid="badge-exclusion-status"
+                            >
+                              {exclusionChecks.some(c => c.status === 'confirmed_excluded') ? 'Excluded' :
+                               exclusionChecks.some(c => c.status === 'possible_match') ? 'Pending Review' : 'Cleared'}
+                            </Badge>
+                          )}
+                          {canRunExclusionCheck && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => runExclusionCheckMutation.mutate()}
+                              disabled={runExclusionCheckMutation.isPending}
+                              data-testid="button-run-exclusion-check"
+                            >
+                              {runExclusionCheckMutation.isPending ? (
+                                <>
+                                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                  Running...
+                                </>
+                              ) : (
+                                <>
+                                  <Play className="w-4 h-4 mr-2" />
+                                  Run exclusion check
+                                </>
+                              )}
+                            </Button>
+                          )}
+                        </div>
                       </div>
                       <CardDescription>
                         Checks against OIG, PA Medicheck, and SAM.gov exclusion databases
                       </CardDescription>
                     </CardHeader>
                     <CardContent>
+                      {exclusionRunResult && (
+                        <div
+                          className={`mb-4 rounded-lg border p-4 ${
+                            exclusionRunResult.status === 'clear'
+                              ? 'border-green-200 bg-green-50'
+                              : 'border-red-200 bg-red-50'
+                          }`}
+                          data-testid="panel-exclusion-run-result"
+                        >
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              {exclusionRunResult.status === 'clear' ? (
+                                <Shield className="w-5 h-5 text-green-700" />
+                              ) : (
+                                <AlertTriangle className="w-5 h-5 text-red-700" />
+                              )}
+                              <span
+                                className={`font-medium ${
+                                  exclusionRunResult.status === 'clear' ? 'text-green-900' : 'text-red-900'
+                                }`}
+                                data-testid="text-exclusion-run-status"
+                              >
+                                {exclusionRunResult.status === 'clear'
+                                  ? 'Clear — no matches found'
+                                  : `${exclusionRunResult.totalMatches} possible match${exclusionRunResult.totalMatches === 1 ? '' : 'es'} found`}
+                              </span>
+                            </div>
+                            <span className="text-xs text-muted-foreground">
+                              Ran {format(new Date(exclusionRunResult.ranAt), "MMM d, yyyy 'at' h:mm a")}
+                            </span>
+                          </div>
+                          {exclusionRunResult.matches.length > 0 && (
+                            <div className="mt-3 space-y-2">
+                              {exclusionRunResult.matches.map((m, idx) => (
+                                <div
+                                  key={`${m.exclusionRecordId}-${idx}`}
+                                  className="flex flex-wrap items-center gap-2 rounded border border-red-100 bg-white px-3 py-2 text-sm"
+                                  data-testid={`row-exclusion-run-match-${idx}`}
+                                >
+                                  <Badge variant="outline">{m.sourceName}</Badge>
+                                  {renderMatchReasonBadge(m, idx)}
+                                  <span className="text-muted-foreground">
+                                    {`${m.matchedFirstName || ''} ${m.matchedLastName || ''}`.trim() || '—'}
+                                  </span>
+                                </div>
+                              ))}
+                              <p className="text-xs text-muted-foreground mt-1">
+                                These results have been recorded. Use the Pending Reviews tab in Exclusion Verification to mark each as a confirmed match or false positive.
+                              </p>
+                            </div>
+                          )}
+                        </div>
+                      )}
                       {exclusionLoading ? (
                         <p className="text-muted-foreground">Loading exclusion status...</p>
                       ) : exclusionChecks.length === 0 ? (
