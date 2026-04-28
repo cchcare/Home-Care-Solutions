@@ -212,6 +212,21 @@ interface AuditCustomItem {
   createdAt: string;
 }
 
+type CorrectiveActionStatus = "open" | "in_progress" | "resolved";
+
+interface AuditCorrectiveAction {
+  id: string;
+  auditId: string;
+  itemKey: string;
+  responsibleParty: string | null;
+  targetDate: string | null;
+  completionDate: string | null;
+  actionSteps: string | null;
+  status: CorrectiveActionStatus;
+  createdAt: string;
+  updatedAt: string;
+}
+
 interface AuditAssessment {
   id: string;
   officeId: string;
@@ -322,6 +337,7 @@ async function exportAuditToExcel(
   notesMap: Record<string, string>,
   customItems: AuditCustomItem[],
   documents: AuditDocument[],
+  correctiveActions: AuditCorrectiveAction[] = [],
 ) {
   const workbook = new ExcelJS.Workbook();
   workbook.creator = "CCHC Solutions";
@@ -481,6 +497,73 @@ async function exportAuditToExcel(
     ws2.addRow({ category: "No deficiencies found", item: "", ref: "", notes: "", files: "" });
   }
 
+  // ── Sheet 3: Corrective Actions ─────────────────────────────────────────
+  const ws3 = workbook.addWorksheet("Corrective Actions");
+  ws3.columns = [
+    { header: "Category", key: "category", width: 22 },
+    { header: "Deficient Item", key: "item", width: 45 },
+    { header: "Responsible Party", key: "responsible", width: 22 },
+    { header: "Target Date", key: "targetDate", width: 14 },
+    { header: "Completion Date", key: "completionDate", width: 16 },
+    { header: "Status", key: "status", width: 14 },
+    { header: "Action Steps", key: "steps", width: 50 },
+  ];
+
+  const h3Row = ws3.getRow(1);
+  h3Row.eachCell(cell => {
+    cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF1e3a5f" } };
+    cell.font = headerFont;
+    cell.alignment = { vertical: "middle" };
+  });
+  h3Row.height = 20;
+
+  const caStatusLabel: Record<string, string> = { open: "Open", in_progress: "In Progress", resolved: "Resolved" };
+
+  const caMap = new Map(correctiveActions.map(ca => [ca.itemKey, ca]));
+
+  let hasCaRows = false;
+  for (const cat of CHECKLIST) {
+    for (const item of cat.items) {
+      if ((responsesMap[item.key] || "pending") !== "fail") continue;
+      const ca = caMap.get(item.key);
+      hasCaRows = true;
+      ws3.addRow({
+        category: cat.label,
+        item: item.label,
+        responsible: ca?.responsibleParty || "",
+        targetDate: ca?.targetDate || "",
+        completionDate: ca?.completionDate || "",
+        status: ca ? caStatusLabel[ca.status] || ca.status : "Open",
+        steps: ca?.actionSteps || "",
+      }).eachCell(cell => {
+        cell.font = { size: 10 };
+        cell.alignment = { wrapText: true, vertical: "top" };
+      });
+    }
+    const customCatItems = customItems.filter(i => i.category === cat.id);
+    for (const item of customCatItems) {
+      if ((responsesMap[item.id] || "pending") !== "fail") continue;
+      const ca = caMap.get(item.id);
+      hasCaRows = true;
+      ws3.addRow({
+        category: `${cat.label} (custom)`,
+        item: item.label,
+        responsible: ca?.responsibleParty || "",
+        targetDate: ca?.targetDate || "",
+        completionDate: ca?.completionDate || "",
+        status: ca ? caStatusLabel[ca.status] || ca.status : "Open",
+        steps: ca?.actionSteps || "",
+      }).eachCell(cell => {
+        cell.font = { size: 10 };
+        cell.alignment = { wrapText: true, vertical: "top" };
+      });
+    }
+  }
+
+  if (!hasCaRows) {
+    ws3.addRow({ category: "No deficiencies requiring corrective action", item: "", responsible: "", targetDate: "", completionDate: "", status: "", steps: "" });
+  }
+
   // Metadata header above sheet 1 data — prepend rows
   ws1.spliceRows(1, 0,
     [`DOH Audit Assessment — ${audit.title}`],
@@ -593,6 +676,35 @@ export default function AuditAssessment() {
   });
   const customItems: AuditCustomItem[] = activeAudit?.customItems || [];
   const auditDocuments: AuditDocument[] = activeAudit?.documents || [];
+
+  const { data: correctiveActions = [] } = useQuery<AuditCorrectiveAction[]>({
+    queryKey: ["/api/doh-audits", activeAuditId, "corrective-actions"],
+    queryFn: async () => {
+      if (!activeAuditId) return [];
+      const res = await fetch(`/api/doh-audits/${activeAuditId}/corrective-actions`, { credentials: "include" });
+      if (!res.ok) throw new Error(res.statusText);
+      return res.json();
+    },
+    enabled: !!activeAuditId,
+  });
+
+  const correctiveActionMutation = useMutation({
+    mutationFn: (data: { itemKey: string; responsibleParty?: string; targetDate?: string; completionDate?: string; actionSteps?: string; status?: string }) =>
+      apiRequest("PUT", `/api/doh-audits/${activeAuditId}/corrective-actions`, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/doh-audits", activeAuditId, "corrective-actions"] });
+    },
+    onError: () => toast({ title: "Error", description: "Failed to save corrective action.", variant: "destructive" }),
+  });
+
+  const deleteCorrectiveActionMutation = useMutation({
+    mutationFn: (actionId: string) =>
+      apiRequest("DELETE", `/api/doh-audits/${activeAuditId}/corrective-actions/${actionId}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/doh-audits", activeAuditId, "corrective-actions"] });
+    },
+    onError: () => toast({ title: "Error", description: "Failed to delete corrective action.", variant: "destructive" }),
+  });
 
   const createMutation = useMutation({
     mutationFn: (data: any) => apiRequest("POST", "/api/doh-audits", data),
@@ -741,7 +853,7 @@ export default function AuditAssessment() {
     if (!activeAudit || !activeAuditId) return;
     setExportingId(activeAuditId);
     try {
-      await exportAuditToExcel(activeAudit, responsesMap, notesMap, customItems, auditDocuments);
+      await exportAuditToExcel(activeAudit, responsesMap, notesMap, customItems, auditDocuments, correctiveActions);
       toast({ title: "Export complete" });
     } catch {
       toast({ title: "Export failed", variant: "destructive" });
@@ -1325,6 +1437,10 @@ export default function AuditAssessment() {
                   customItems={customItems}
                   auditDocuments={auditDocuments}
                   auditId={activeAuditId!}
+                  correctiveActions={correctiveActions}
+                  onSaveCorrectiveAction={(data) => correctiveActionMutation.mutate(data)}
+                  onDeleteCorrectiveAction={(actionId) => deleteCorrectiveActionMutation.mutate(actionId)}
+                  isSaving={correctiveActionMutation.isPending}
                 />
               </TabsContent>
 
@@ -1681,14 +1797,165 @@ function AuditItem({
 
 // ─── Deficiencies Section ─────────────────────────────────────────────────────
 
+function CorrectiveActionPanel({
+  itemKey,
+  existingAction,
+  onSave,
+  onDelete,
+  isSaving,
+}: {
+  itemKey: string;
+  existingAction: AuditCorrectiveAction | null;
+  onSave: (data: { itemKey: string; responsibleParty?: string; targetDate?: string; completionDate?: string; actionSteps?: string; status?: string }) => void;
+  onDelete: (actionId: string) => void;
+  isSaving: boolean;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const [responsibleParty, setResponsibleParty] = useState(existingAction?.responsibleParty || "");
+  const [targetDate, setTargetDate] = useState(existingAction?.targetDate || "");
+  const [completionDate, setCompletionDate] = useState(existingAction?.completionDate || "");
+  const [actionSteps, setActionSteps] = useState(existingAction?.actionSteps || "");
+  const [status, setStatus] = useState<CorrectiveActionStatus>(existingAction?.status || "open");
+
+  useEffect(() => {
+    setResponsibleParty(existingAction?.responsibleParty || "");
+    setTargetDate(existingAction?.targetDate || "");
+    setCompletionDate(existingAction?.completionDate || "");
+    setActionSteps(existingAction?.actionSteps || "");
+    setStatus(existingAction?.status || "open");
+  }, [existingAction]);
+
+  const hasAction = !!existingAction;
+
+  const statusColor: Record<CorrectiveActionStatus, string> = {
+    open: "bg-red-100 text-red-700 border-red-200 dark:bg-red-900/30 dark:text-red-400",
+    in_progress: "bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-900/30 dark:text-amber-400",
+    resolved: "bg-green-100 text-green-700 border-green-200 dark:bg-green-900/30 dark:text-green-400",
+  };
+  const statusLabel: Record<CorrectiveActionStatus, string> = {
+    open: "Open",
+    in_progress: "In Progress",
+    resolved: "Resolved",
+  };
+
+  const handleSave = () => {
+    onSave({ itemKey, responsibleParty: responsibleParty || undefined, targetDate: targetDate || undefined, completionDate: completionDate || undefined, actionSteps: actionSteps || undefined, status });
+    setExpanded(false);
+  };
+
+  return (
+    <div className="mt-2">
+      <button
+        type="button"
+        onClick={() => setExpanded(e => !e)}
+        className="flex items-center gap-1.5 text-xs font-medium text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-200 transition-colors"
+      >
+        {expanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+        {hasAction ? (
+          <>
+            Corrective Action
+            <span className={`inline-flex items-center border rounded px-1.5 py-0 text-[10px] font-semibold ${statusColor[existingAction!.status]}`}>
+              {statusLabel[existingAction!.status]}
+            </span>
+            {existingAction?.responsibleParty && (
+              <span className="text-muted-foreground font-normal">— {existingAction.responsibleParty}</span>
+            )}
+          </>
+        ) : (
+          <>+ Add Corrective Action</>
+        )}
+      </button>
+
+      {expanded && (
+        <div className="mt-2 p-3 bg-blue-50/50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 rounded-lg space-y-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <Label className="text-xs">Responsible Party</Label>
+              <Input
+                value={responsibleParty}
+                onChange={e => setResponsibleParty(e.target.value)}
+                placeholder="Name or role"
+                className="h-7 text-xs"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Status</Label>
+              <Select value={status} onValueChange={(v) => setStatus(v as CorrectiveActionStatus)}>
+                <SelectTrigger className="h-7 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="open">Open</SelectItem>
+                  <SelectItem value="in_progress">In Progress</SelectItem>
+                  <SelectItem value="resolved">Resolved</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Target Date</Label>
+              <Input
+                type="date"
+                value={targetDate}
+                onChange={e => setTargetDate(e.target.value)}
+                className="h-7 text-xs"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Completion Date</Label>
+              <Input
+                type="date"
+                value={completionDate}
+                onChange={e => setCompletionDate(e.target.value)}
+                className="h-7 text-xs"
+              />
+            </div>
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">Action Steps</Label>
+            <Textarea
+              value={actionSteps}
+              onChange={e => setActionSteps(e.target.value)}
+              placeholder="Describe the steps to correct this deficiency..."
+              className="text-xs min-h-[70px] resize-none"
+            />
+          </div>
+          <div className="flex items-center gap-2 pt-1">
+            <Button size="sm" className="h-7 text-xs" onClick={handleSave} disabled={isSaving}>
+              {isSaving ? "Saving…" : "Save"}
+            </Button>
+            <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setExpanded(false)}>
+              Cancel
+            </Button>
+            {hasAction && (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 text-xs text-red-500 hover:text-red-700 ml-auto"
+                onClick={() => { onDelete(existingAction!.id); setExpanded(false); }}
+              >
+                <Trash2 size={12} className="mr-1" /> Remove
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function DeficienciesSection({
   responsesMap, notesMap, customItems, auditDocuments, auditId,
+  correctiveActions, onSaveCorrectiveAction, onDeleteCorrectiveAction, isSaving,
 }: {
   responsesMap: Record<string, ItemStatus>;
   notesMap: Record<string, string>;
   customItems: AuditCustomItem[];
   auditDocuments: AuditDocument[];
   auditId: string;
+  correctiveActions: AuditCorrectiveAction[];
+  onSaveCorrectiveAction: (data: { itemKey: string; responsibleParty?: string; targetDate?: string; completionDate?: string; actionSteps?: string; status?: string }) => void;
+  onDeleteCorrectiveAction: (actionId: string) => void;
+  isSaving: boolean;
 }) {
   const deficientItems: Array<{
     key: string;
@@ -1737,66 +2004,101 @@ function DeficienciesSection({
     );
   }
 
+  const deficientKeys = new Set(deficientItems.map(i => i.key));
+  const caMap = new Map(correctiveActions.map(ca => [ca.itemKey, ca]));
+
+  // Only count corrective actions that still correspond to a current deficiency
+  const relevantCAs = correctiveActions.filter(ca => deficientKeys.has(ca.itemKey));
+  const inProgressCount = relevantCAs.filter(ca => ca.status === "in_progress").length;
+  const resolvedCount = relevantCAs.filter(ca => ca.status === "resolved").length;
+  const openOrUnaddressedCount = deficientItems.length - inProgressCount - resolvedCount;
+
   return (
-    <Card>
-      <CardHeader className="pb-3">
-        <div className="flex items-center gap-2">
-          <XCircle size={18} className="text-red-500" />
-          <CardTitle className="text-base">Deficiencies — {deficientItems.length} item{deficientItems.length !== 1 ? "s" : ""}</CardTitle>
+    <div className="space-y-3">
+      {/* Summary counts */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div className="bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-lg px-4 py-3 text-center">
+          <p className="text-2xl font-bold text-red-600 dark:text-red-400">{openOrUnaddressedCount}</p>
+          <p className="text-xs text-red-600/80 dark:text-red-400/80 font-medium mt-0.5">Open / Unaddressed</p>
         </div>
-        <CardDescription>All items marked deficient across all categories. Use notes fields to document corrective actions.</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        {deficientItems.map((item, idx) => (
-          <div key={item.key} className="border-l-4 border-l-red-400 bg-red-50/40 dark:bg-red-950/20 rounded-r-lg px-3 py-3">
-            <div className="flex items-start gap-2">
-              <span className="text-xs font-bold text-red-500 bg-red-100 dark:bg-red-900/30 rounded px-1.5 py-0.5 shrink-0 mt-0.5">{idx + 1}</span>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-start justify-between gap-2 flex-wrap">
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium leading-snug">{item.label}</p>
-                    <div className="flex items-center gap-2 flex-wrap mt-0.5">
-                      <Badge className="text-xs px-1.5 py-0 bg-gray-100 text-gray-600 border-gray-200 dark:bg-gray-800 dark:text-gray-400">
-                        {item.category}
-                      </Badge>
-                      {item.reference && (
-                        <span className="text-xs text-muted-foreground">§ {item.reference}</span>
-                      )}
+        <div className="bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg px-4 py-3 text-center">
+          <p className="text-2xl font-bold text-amber-600 dark:text-amber-400">{inProgressCount}</p>
+          <p className="text-xs text-amber-600/80 dark:text-amber-400/80 font-medium mt-0.5">In Progress</p>
+        </div>
+        <div className="bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-800 rounded-lg px-4 py-3 text-center">
+          <p className="text-2xl font-bold text-green-600 dark:text-green-400">{resolvedCount}</p>
+          <p className="text-xs text-green-600/80 dark:text-green-400/80 font-medium mt-0.5">Resolved</p>
+        </div>
+        <div className="bg-muted border rounded-lg px-4 py-3 text-center">
+          <p className="text-2xl font-bold text-muted-foreground">{deficientItems.length}</p>
+          <p className="text-xs text-muted-foreground font-medium mt-0.5">Total Deficiencies</p>
+        </div>
+      </div>
+
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex items-center gap-2">
+            <XCircle size={18} className="text-red-500" />
+            <CardTitle className="text-base">Deficiencies — {deficientItems.length} item{deficientItems.length !== 1 ? "s" : ""}</CardTitle>
+          </div>
+          <CardDescription>Expand each deficiency to add or update a corrective action plan.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {deficientItems.map((item, idx) => (
+            <div key={item.key} className="border-l-4 border-l-red-400 bg-red-50/40 dark:bg-red-950/20 rounded-r-lg px-3 py-3">
+              <div className="flex items-start gap-2">
+                <span className="text-xs font-bold text-red-500 bg-red-100 dark:bg-red-900/30 rounded px-1.5 py-0.5 shrink-0 mt-0.5">{idx + 1}</span>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-start justify-between gap-2 flex-wrap">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium leading-snug">{item.label}</p>
+                      <div className="flex items-center gap-2 flex-wrap mt-0.5">
+                        <Badge className="text-xs px-1.5 py-0 bg-gray-100 text-gray-600 border-gray-200 dark:bg-gray-800 dark:text-gray-400">
+                          {item.category}
+                        </Badge>
+                        {item.reference && (
+                          <span className="text-xs text-muted-foreground">§ {item.reference}</span>
+                        )}
+                      </div>
                     </div>
                   </div>
+                  {item.notes && (
+                    <div className="mt-2 p-2 bg-white dark:bg-background border rounded text-xs text-muted-foreground italic">
+                      "{item.notes}"
+                    </div>
+                  )}
+                  {item.docs.length > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {item.docs.map(doc => (
+                        <a
+                          key={doc.id}
+                          href={`/api/doh-audits/${auditId}/documents/${doc.id}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-1 text-xs bg-white dark:bg-background border rounded px-2 py-1 hover:bg-muted transition-colors"
+                          title="View / Download"
+                        >
+                          {getFileIcon(doc.mimeType)}
+                          <span className="truncate max-w-[140px]">{doc.originalName}</span>
+                          <Download size={11} className="text-muted-foreground shrink-0" />
+                        </a>
+                      ))}
+                    </div>
+                  )}
+                  <CorrectiveActionPanel
+                    itemKey={item.key}
+                    existingAction={caMap.get(item.key) || null}
+                    onSave={onSaveCorrectiveAction}
+                    onDelete={onDeleteCorrectiveAction}
+                    isSaving={isSaving}
+                  />
                 </div>
-                {item.notes && (
-                  <div className="mt-2 p-2 bg-white dark:bg-background border rounded text-xs text-muted-foreground italic">
-                    "{item.notes}"
-                  </div>
-                )}
-                {!item.notes && (
-                  <p className="mt-1 text-xs text-muted-foreground/60 italic">No notes — open the checklist item to add corrective action notes.</p>
-                )}
-                {item.docs.length > 0 && (
-                  <div className="mt-2 flex flex-wrap gap-1.5">
-                    {item.docs.map(doc => (
-                      <a
-                        key={doc.id}
-                        href={`/api/doh-audits/${auditId}/documents/${doc.id}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex items-center gap-1 text-xs bg-white dark:bg-background border rounded px-2 py-1 hover:bg-muted transition-colors"
-                        title="View / Download"
-                      >
-                        {getFileIcon(doc.mimeType)}
-                        <span className="truncate max-w-[140px]">{doc.originalName}</span>
-                        <Download size={11} className="text-muted-foreground shrink-0" />
-                      </a>
-                    ))}
-                  </div>
-                )}
               </div>
             </div>
-          </div>
-        ))}
-      </CardContent>
-    </Card>
+          ))}
+        </CardContent>
+      </Card>
+    </div>
   );
 }
 

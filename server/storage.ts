@@ -358,6 +358,8 @@ import {
   type InsertDohAuditDocument,
   type DohAuditCustomItem,
   type InsertDohAuditCustomItem,
+  dohAuditCorrectiveActions,
+  type DohAuditCorrectiveAction,
   supervisoryVisits,
   type SupervisoryVisit,
   type InsertSupervisoryVisit,
@@ -1229,6 +1231,9 @@ export interface IStorage {
   getDohAuditCustomItems(auditId: string): Promise<DohAuditCustomItem[]>;
   createDohAuditCustomItem(item: InsertDohAuditCustomItem): Promise<DohAuditCustomItem>;
   deleteDohAuditCustomItem(id: string): Promise<void>;
+  getDohAuditCorrectiveActions(auditId: string): Promise<DohAuditCorrectiveAction[]>;
+  upsertDohAuditCorrectiveAction(auditId: string, itemKey: string, data: { responsibleParty?: string | null; targetDate?: string | null; completionDate?: string | null; actionSteps?: string | null; status?: string }): Promise<DohAuditCorrectiveAction>;
+  deleteDohAuditCorrectiveAction(id: string, auditId: string): Promise<void>;
 
   // Supervisory Visits
   getSupervisoryVisits(officeId: string, filters?: { caregiverId?: string }): Promise<SupervisoryVisit[]>;
@@ -7494,6 +7499,50 @@ export class DatabaseStorage implements IStorage {
   async deleteDohAuditCustomItem(id: string): Promise<void> {
     await db.delete(dohAuditCustomItems).where(eq(dohAuditCustomItems.id, id));
     await db.delete(dohAuditResponses).where(eq(dohAuditResponses.itemKey, id));
+  }
+
+  async getDohAuditCorrectiveActions(auditId: string): Promise<DohAuditCorrectiveAction[]> {
+    return db.select().from(dohAuditCorrectiveActions)
+      .where(eq(dohAuditCorrectiveActions.auditId, auditId))
+      .orderBy(asc(dohAuditCorrectiveActions.createdAt));
+  }
+
+  async upsertDohAuditCorrectiveAction(auditId: string, itemKey: string, data: { responsibleParty?: string | null; targetDate?: string | null; completionDate?: string | null; actionSteps?: string | null; status?: string }): Promise<DohAuditCorrectiveAction> {
+    const validStatuses = ["open", "in_progress", "resolved"] as const;
+    type CAStatus = typeof validStatuses[number];
+    const status: CAStatus = validStatuses.includes(data.status as CAStatus)
+      ? (data.status as CAStatus)
+      : "open";
+
+    const [row] = await db.insert(dohAuditCorrectiveActions)
+      .values({
+        auditId,
+        itemKey,
+        responsibleParty: data.responsibleParty ?? null,
+        targetDate: data.targetDate ?? null,
+        completionDate: data.completionDate ?? null,
+        actionSteps: data.actionSteps ?? null,
+        status,
+        updatedAt: new Date(),
+      })
+      .onConflictDoUpdate({
+        target: [dohAuditCorrectiveActions.auditId, dohAuditCorrectiveActions.itemKey],
+        set: {
+          responsibleParty: data.responsibleParty ?? null,
+          targetDate: data.targetDate ?? null,
+          completionDate: data.completionDate ?? null,
+          actionSteps: data.actionSteps ?? null,
+          status,
+          updatedAt: new Date(),
+        },
+      })
+      .returning();
+    return row;
+  }
+
+  async deleteDohAuditCorrectiveAction(id: string, auditId: string): Promise<void> {
+    await db.delete(dohAuditCorrectiveActions)
+      .where(and(eq(dohAuditCorrectiveActions.id, id), eq(dohAuditCorrectiveActions.auditId, auditId)));
   }
 
   // ─── Supervisory Visits ─────────────────────────────────────────────────────

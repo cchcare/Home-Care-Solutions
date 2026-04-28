@@ -17085,6 +17085,77 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Authorization helper for corrective-action sub-resources
+  async function authorizeAuditAccess(req: any, res: any): Promise<boolean> {
+    const audit = await storage.getDohAuditAssessment(req.params.id);
+    if (!audit) {
+      res.status(404).json({ message: "Audit not found" });
+      return false;
+    }
+    const user = req.session?.user;
+    const userOfficeId = user?.primaryOfficeId || user?.officeId;
+    const isPrivileged = user?.role === "super_admin" || user?.role === "admin";
+    if (!isPrivileged && audit.officeId !== userOfficeId) {
+      res.status(403).json({ message: "Access denied: audit belongs to a different office" });
+      return false;
+    }
+    return true;
+  }
+
+  // GET /api/doh-audits/:id/corrective-actions
+  app.get("/api/doh-audits/:id/corrective-actions", isAuthenticated, async (req: any, res) => {
+    try {
+      if (!await authorizeAuditAccess(req, res)) return;
+      const actions = await storage.getDohAuditCorrectiveActions(req.params.id);
+      res.json(actions);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to fetch corrective actions" });
+    }
+  });
+
+  // PUT /api/doh-audits/:id/corrective-actions  (upsert by itemKey)
+  app.put("/api/doh-audits/:id/corrective-actions", isAuthenticated, async (req: any, res) => {
+    try {
+      if (!await authorizeAuditAccess(req, res)) return;
+      const { itemKey, responsibleParty, targetDate, completionDate, actionSteps, status } = req.body;
+      if (!itemKey || typeof itemKey !== "string") {
+        return res.status(400).json({ message: "itemKey is required and must be a string" });
+      }
+      const validStatuses = ["open", "in_progress", "resolved"];
+      if (status && !validStatuses.includes(status)) {
+        return res.status(400).json({ message: `status must be one of: ${validStatuses.join(", ")}` });
+      }
+      const dateRe = /^\d{4}-\d{2}-\d{2}$/;
+      if (targetDate && !dateRe.test(targetDate)) {
+        return res.status(400).json({ message: "targetDate must be in YYYY-MM-DD format" });
+      }
+      if (completionDate && !dateRe.test(completionDate)) {
+        return res.status(400).json({ message: "completionDate must be in YYYY-MM-DD format" });
+      }
+      const action = await storage.upsertDohAuditCorrectiveAction(req.params.id, itemKey, {
+        responsibleParty: responsibleParty || null,
+        targetDate: targetDate || null,
+        completionDate: completionDate || null,
+        actionSteps: actionSteps || null,
+        status: status || "open",
+      });
+      res.json(action);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to save corrective action" });
+    }
+  });
+
+  // DELETE /api/doh-audits/:id/corrective-actions/:actionId
+  app.delete("/api/doh-audits/:id/corrective-actions/:actionId", isAuthenticated, async (req: any, res) => {
+    try {
+      if (!await authorizeAuditAccess(req, res)) return;
+      await storage.deleteDohAuditCorrectiveAction(req.params.actionId, req.params.id);
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to delete corrective action" });
+    }
+  });
+
   // ─── Supervisory Visits ─────────────────────────────────────────────────────
   app.get("/api/supervisory-visits", isAuthenticated, async (req: any, res) => {
     try {

@@ -2,6 +2,7 @@ import { sql } from 'drizzle-orm';
 import {
   index,
   uniqueIndex,
+  foreignKey,
   jsonb,
   pgTable,
   timestamp,
@@ -3960,6 +3961,33 @@ export type InsertDohAuditDocument = typeof dohAuditDocuments.$inferInsert;
 
 export type DohAuditCustomItem = typeof dohAuditCustomItems.$inferSelect;
 export type InsertDohAuditCustomItem = typeof dohAuditCustomItems.$inferInsert;
+
+export const dohAuditCorrectiveActionStatusEnum = pgEnum("doh_audit_corrective_action_status", ["open", "in_progress", "resolved"]);
+
+export const dohAuditCorrectiveActions = pgTable("doh_audit_corrective_actions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  auditId: varchar("audit_id").references(() => dohAuditAssessments.id, { onDelete: "cascade" }).notNull(),
+  itemKey: varchar("item_key").notNull(),
+  responsibleParty: varchar("responsible_party"),
+  targetDate: date("target_date"),
+  completionDate: date("completion_date"),
+  actionSteps: text("action_steps"),
+  status: dohAuditCorrectiveActionStatusEnum("status").default("open").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_doh_audit_ca_audit").on(table.auditId),
+  uniqueIndex("idx_doh_audit_ca_unique").on(table.auditId, table.itemKey),
+  foreignKey({
+    name: "fk_ca_response",
+    columns: [table.auditId, table.itemKey],
+    foreignColumns: [dohAuditResponses.auditId, dohAuditResponses.itemKey],
+  }).onDelete("cascade"),
+]);
+
+export type DohAuditCorrectiveAction = typeof dohAuditCorrectiveActions.$inferSelect;
+export type InsertDohAuditCorrectiveAction = typeof dohAuditCorrectiveActions.$inferInsert;
+export const insertDohAuditCorrectiveActionSchema = createInsertSchema(dohAuditCorrectiveActions).omit({ id: true, createdAt: true, updatedAt: true });
 
 // ─── Supervisory Visits ───────────────────────────────────────────────────────
 export const supervisoryVisitTypeEnum = pgEnum("supervisory_visit_type", ["in_person", "phone", "virtual", "written"]);
