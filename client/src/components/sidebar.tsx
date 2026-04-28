@@ -365,7 +365,7 @@ export function Sidebar() {
         <Button
           variant="ghost"
           size="sm"
-          className="fixed top-4 left-4 z-50 lg:hidden"
+          className="fixed top-4 left-4 z-50 lg:hidden print:hidden"
           onClick={() => setIsOpen(true)}
           data-testid="button-open-sidebar"
         >
@@ -375,14 +375,14 @@ export function Sidebar() {
 
       {isMobile && isOpen && (
         <div
-          className="fixed inset-0 bg-foreground/50 backdrop-blur-sm z-40 lg:hidden"
+          className="fixed inset-0 bg-foreground/50 backdrop-blur-sm z-40 lg:hidden print:hidden"
           onClick={() => setIsOpen(false)}
         />
       )}
 
       <aside
         className={`
-          bg-sidebar border-r border-sidebar-border w-64 flex-shrink-0 sidebar-transition
+          bg-sidebar border-r border-sidebar-border w-64 flex-shrink-0 sidebar-transition print:hidden
           ${isMobile ? "fixed inset-y-0 left-0 z-50" : ""}
           ${isMobile && !isOpen ? "sidebar-closed" : ""}
         `}

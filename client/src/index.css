@@ -86,3 +86,57 @@
     @apply font-sans antialiased bg-background text-foreground;
   }
 }
+
+@media print {
+  @page {
+    margin: 0.5in;
+  }
+
+  html,
+  body {
+    background: #ffffff !important;
+    color: #000000 !important;
+    height: auto !important;
+    overflow: visible !important;
+  }
+
+  /* Force light theme variables in print so dark-mode users still get a
+     clean white report. Tailwind `dark:` utility classes that use these
+     CSS variables (background, foreground, card, muted, border, etc.)
+     will fall back to light values. */
+  .dark {
+    --background: hsl(210, 40%, 98%);
+    --foreground: hsl(210, 40%, 8%);
+    --card: hsl(0, 0%, 100%);
+    --card-foreground: hsl(210, 40%, 8%);
+    --popover: hsl(0, 0%, 100%);
+    --popover-foreground: hsl(210, 40%, 8%);
+    --secondary: hsl(210, 10%, 85%);
+    --secondary-foreground: hsl(210, 40%, 8%);
+    --muted: hsl(210, 40%, 96%);
+    --muted-foreground: hsl(210, 25%, 45%);
+    --border: hsl(214, 32%, 91%);
+    --input: hsl(214, 32%, 91%);
+  }
+
+  body * {
+    box-shadow: none !important;
+  }
+
+  .print\:h-auto {
+    height: auto !important;
+  }
+
+  .print\:overflow-visible {
+    overflow: visible !important;
+  }
+
+  .print-page-break-before {
+    page-break-before: always;
+  }
+
+  .print-avoid-break {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+}

@@ -1830,13 +1830,13 @@ export default function AuditAssessment() {
   // ─── Detail view ──────────────────────────────────────────────────────────
 
   return (
-    <div className="flex h-screen bg-background">
+    <div className="flex h-screen bg-background print:block print:h-auto print:overflow-visible">
       <Sidebar />
-      <div className="flex-1 overflow-auto p-6 max-w-5xl mx-auto">
+      <div className="flex-1 overflow-auto p-6 max-w-5xl mx-auto print:overflow-visible print:p-0 print:max-w-full">
         {/* Header */}
-        <div className="flex items-start justify-between gap-3 mb-6 flex-wrap">
+        <div className="flex items-start justify-between gap-3 mb-6 flex-wrap print-avoid-break">
           <div className="flex items-start gap-3 min-w-0">
-            <Button variant="ghost" size="icon" onClick={() => setActiveAuditId(null)} className="mt-0.5 shrink-0">
+            <Button variant="ghost" size="icon" onClick={() => setActiveAuditId(null)} className="mt-0.5 shrink-0 print:hidden">
               <ArrowLeft size={18} />
             </Button>
             <div className="min-w-0">
@@ -1867,7 +1867,7 @@ export default function AuditAssessment() {
               </div>
             </div>
           </div>
-          <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-2 flex-wrap print:hidden">
             <Button
               variant="outline"
               size="sm"
@@ -1943,7 +1943,7 @@ export default function AuditAssessment() {
         ) : (
           <>
             {/* Summary Stats */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6 print-avoid-break">
               <Card className="bg-blue-50 dark:bg-blue-900/20 border-blue-100 dark:border-blue-800">
                 <CardContent className="pt-3 pb-3 text-center">
                   <p className="text-2xl font-bold text-blue-700 dark:text-blue-300">{stats.reviewed}/{stats.totalItems}</p>
@@ -1975,7 +1975,7 @@ export default function AuditAssessment() {
 
             {/* Category Tabs + Deficiencies + Documents tab */}
             <Tabs defaultValue={CHECKLIST[0].id}>
-              <TabsList className="flex flex-wrap h-auto gap-1 mb-4 bg-muted p-1">
+              <TabsList className="flex flex-wrap h-auto gap-1 mb-4 bg-muted p-1 print:hidden">
                 {CHECKLIST.map(cat => {
                   const cs = categoryStats(cat.id, responsesMap, customItems);
                   const Icon = cat.icon;
@@ -2055,7 +2055,7 @@ export default function AuditAssessment() {
             </Tabs>
 
             {/* Overall Notes */}
-            <Card className="mt-6">
+            <Card className="mt-6 print-page-break-before print-avoid-break">
               <CardHeader className="pb-2">
                 <CardTitle className="text-base">Overall Audit Notes</CardTitle>
                 <CardDescription>General observations, surveyor feedback, or corrective action summary</CardDescription>
@@ -2165,7 +2165,7 @@ function CategorySection({
         ))}
 
         {!disabled && (
-          <div className="pt-2">
+          <div className="pt-2 print:hidden">
             {addOpen ? (
               <div className="flex items-center gap-2 p-2 border rounded-lg bg-muted/30">
                 <Input
@@ -2240,7 +2240,7 @@ function AuditItem({
     status === "na" ? "border-l-gray-300" : "border-l-yellow-300";
 
   return (
-    <div className={`border-l-4 ${borderColor} bg-muted/30 rounded-r-lg px-3 py-2.5 transition-colors`}>
+    <div className={`border-l-4 ${borderColor} bg-muted/30 rounded-r-lg px-3 py-2.5 transition-colors print-avoid-break`}>
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-start gap-2 flex-1 min-w-0">
           <div className="mt-0.5 shrink-0">{getStatusIcon(status)}</div>
@@ -2258,7 +2258,7 @@ function AuditItem({
             )}
           </div>
         </div>
-        <div className="flex items-center gap-1 shrink-0">
+        <div className="flex items-center gap-1 shrink-0 print:hidden">
           {(["pass", "fail", "na"] as ItemStatus[]).map(s => (
             <button
               key={s}
@@ -2377,7 +2377,7 @@ function AuditItem({
 
       {/* Collapsed preview: notes snippet + file count */}
       {!expanded && (localNotes || docs.length > 0) && (
-        <div className="mt-1 pl-6 flex items-center gap-3">
+        <div className="mt-1 pl-6 flex items-center gap-3 print:hidden">
           {localNotes && (
             <p className="text-xs text-muted-foreground truncate italic flex-1">"{localNotes}"</p>
           )}
@@ -2386,6 +2386,13 @@ function AuditItem({
               <Paperclip size={11} /> {docs.length}
             </span>
           )}
+        </div>
+      )}
+
+      {/* Print-only full notes (always shown, never truncated) */}
+      {localNotes && (
+        <div className="hidden print:block mt-1 pl-6">
+          <p className="text-xs text-gray-700 italic whitespace-pre-wrap">"{localNotes}"</p>
         </div>
       )}
     </div>
@@ -2670,7 +2677,7 @@ function DeficienciesSection({
   return (
     <div className="space-y-3">
       {/* Summary counts */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 print-avoid-break">
         <div className="bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-lg px-4 py-3 text-center">
           <p className="text-2xl font-bold text-red-600 dark:text-red-400">{openOrUnaddressedCount}</p>
           <p className="text-xs text-red-600/80 dark:text-red-400/80 font-medium mt-0.5">Open / Unaddressed</p>
@@ -2697,7 +2704,7 @@ function DeficienciesSection({
           </div>
           <CardDescription>Expand each deficiency to add or update a corrective action plan.</CardDescription>
           {/* Filter toggles */}
-          <div className="flex flex-wrap gap-1.5 pt-1">
+          <div className="flex flex-wrap gap-1.5 pt-1 print:hidden">
             {([
               { value: "all", label: "All", count: deficientItems.length },
               { value: "open", label: "Open / Unaddressed", count: openOrUnaddressedCount },
@@ -2736,7 +2743,7 @@ function DeficienciesSection({
             <p className="text-sm text-muted-foreground text-center py-6">No deficiencies match the selected filter.</p>
           )}
           {filteredItems.map((item, idx) => (
-            <div key={item.key} className="border-l-4 border-l-red-400 bg-red-50/40 dark:bg-red-950/20 rounded-r-lg px-3 py-3">
+            <div key={item.key} className="border-l-4 border-l-red-400 bg-red-50/40 dark:bg-red-950/20 rounded-r-lg px-3 py-3 print-avoid-break">
               <div className="flex items-start gap-2">
                 <span className="text-xs font-bold text-red-500 bg-red-100 dark:bg-red-900/30 rounded px-1.5 py-0.5 shrink-0 mt-0.5">{idx + 1}</span>
                 <div className="flex-1 min-w-0">
