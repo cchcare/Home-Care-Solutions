@@ -100,6 +100,7 @@ export default function ExclusionVerification() {
   const [reviewStatus, setReviewStatus] = useState<string>("");
   const medicheckFileRef = useRef<HTMLInputElement>(null);
   const samFileRef = useRef<HTMLInputElement>(null);
+  const [medicheckRecordsOpen, setMedicheckRecordsOpen] = useState(false);
 
   const { data: dashboardStats, isLoading: loadingStats } = useQuery<DashboardStats>({
     queryKey: ["/api/exclusions/dashboard"],
@@ -141,15 +142,29 @@ export default function ExclusionVerification() {
       const formData = new FormData();
       formData.append("file", file);
       const response = await apiRequest("POST", "/api/exclusions/upload/medicheck", formData);
-      return response.json();
+      return response.json() as Promise<{
+        success: boolean;
+        recordCount: number;
+        errors: string[];
+        warnings?: string[];
+      }>;
     },
-    onSuccess: () => {
+    onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ["/api/exclusions/sources"] });
       queryClient.invalidateQueries({ queryKey: ["/api/exclusions/dashboard"] });
-      toast({ title: "Success", description: "Medicheck CSV uploaded successfully" });
+      queryClient.invalidateQueries({ queryKey: ["/api/exclusions/records", { sourceType: "medicheck" }] });
+      const warnings = result?.warnings ?? [];
+      const desc =
+        `Imported ${result?.recordCount ?? 0} record${result?.recordCount === 1 ? "" : "s"}.` +
+        (warnings.length ? ` ${warnings.join(" ")}` : "");
+      toast({ title: "Medicheck CSV uploaded", description: desc });
     },
-    onError: () => {
-      toast({ title: "Error", description: "Failed to upload Medicheck CSV", variant: "destructive" });
+    onError: (err: any) => {
+      toast({
+        title: "Failed to upload Medicheck CSV",
+        description: err?.message || "Unknown error",
+        variant: "destructive",
+      });
     },
   });
 
@@ -520,6 +535,16 @@ export default function ExclusionVerification() {
                         {uploadMedicheckMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Upload className="w-4 h-4 mr-2" />}
                         Upload CSV
                       </Button>
+                      <Button
+                        className="w-full"
+                        variant="outline"
+                        onClick={() => setMedicheckRecordsOpen(true)}
+                        disabled={(dataSources.find(s => s.type === "medicheck")?.recordCount || 0) === 0}
+                        data-testid="button-view-medicheck-records"
+                      >
+                        <Eye className="w-4 h-4 mr-2" />
+                        View Records
+                      </Button>
                     </CardContent>
                   </Card>
 
@@ -825,6 +850,113 @@ export default function ExclusionVerification() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <MedicheckRecordsDialog
+        open={medicheckRecordsOpen}
+        onOpenChange={setMedicheckRecordsOpen}
+      />
     </div>
+  );
+}
+
+interface MedicheckRecord {
+  id: string;
+  firstName: string | null;
+  lastName: string | null;
+  middleName: string | null;
+  businessName: string | null;
+  npi: string | null;
+  licenseNumber: string | null;
+  fein: string | null;
+  exclusionStatus: string | null;
+  exclusionDate: string | null;
+  reinstateDate: string | null;
+}
+
+function MedicheckRecordsDialog({
+  open,
+  onOpenChange,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const { data: records = [], isLoading } = useQuery<MedicheckRecord[]>({
+    queryKey: ["/api/exclusions/records", { sourceType: "medicheck" }],
+    queryFn: async () => {
+      const res = await fetch("/api/exclusions/records?sourceType=medicheck&limit=200", {
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error("Failed to load Medicheck records");
+      return res.json();
+    },
+    enabled: open,
+  });
+
+  const formatPersonOrEntity = (r: MedicheckRecord) => {
+    const parts = [r.lastName, r.firstName].filter(Boolean).join(", ");
+    if (parts) return parts;
+    if (r.businessName) return r.businessName;
+    return "—";
+  };
+
+  const formatDate = (d: string | null) => (d ? format(new Date(d), "MMM d, yyyy") : "—");
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-[1000px] max-h-[80vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Medicheck Records</DialogTitle>
+          <DialogDescription>
+            Most recent {records.length} record{records.length === 1 ? "" : "s"} imported from
+            the Medicheck CSV.
+          </DialogDescription>
+        </DialogHeader>
+        {isLoading ? (
+          <div className="flex items-center justify-center p-8">
+            <Loader2 className="w-8 h-8 animate-spin" />
+          </div>
+        ) : records.length === 0 ? (
+          <div className="text-center py-8 text-muted-foreground">
+            No records yet. Upload a Medicheck CSV to populate this list.
+          </div>
+        ) : (
+          <Table data-testid="table-medicheck-records">
+            <TableHeader>
+              <TableRow>
+                <TableHead>Name / Business</TableHead>
+                <TableHead>License Number</TableHead>
+                <TableHead>NPI</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Begin Date</TableHead>
+                <TableHead>End Date</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {records.map((r) => (
+                <TableRow key={r.id} data-testid={`row-medicheck-${r.id}`}>
+                  <TableCell className="font-medium">{formatPersonOrEntity(r)}</TableCell>
+                  <TableCell>{r.licenseNumber || "—"}</TableCell>
+                  <TableCell>{r.npi || "—"}</TableCell>
+                  <TableCell>
+                    {r.exclusionStatus ? (
+                      <Badge variant="outline">{r.exclusionStatus}</Badge>
+                    ) : (
+                      "—"
+                    )}
+                  </TableCell>
+                  <TableCell>{formatDate(r.exclusionDate)}</TableCell>
+                  <TableCell>{formatDate(r.reinstateDate)}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Close
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

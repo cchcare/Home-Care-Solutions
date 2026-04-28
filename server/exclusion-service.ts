@@ -505,8 +505,120 @@ export class ExclusionService {
     }
   }
 
-  async importMedicheckCsv(csvContent: string): Promise<{ success: boolean; recordCount: number; errors: string[] }> {
+  /**
+   * Map a single MediCheck CSV row (raw column values) to an exclusion-record
+   * insert payload. Recognizes both the legacy FirstName/LastName/NPI/ExclusionDate
+   * layout and the PA OMIG layout (NAM_FIRST_PROVR / IDN_NPI / BeginDate / etc).
+   *
+   * Exposed (not private) so it can be unit-tested without a database.
+   */
+  mapMedicheckRow(record: Record<string, unknown>, sourceId: string): {
+    payload: {
+      sourceId: string;
+      externalIdentifier: string | null;
+      firstName: string | null;
+      lastName: string | null;
+      middleName: string | null;
+      title: string | null;
+      suffix: string | null;
+      aliasName: string | null;
+      businessName: string | null;
+      npi: string | null;
+      licenseNumber: string | null;
+      fein: string | null;
+      state: string;
+      exclusionType: string | null;
+      exclusionStatus: string | null;
+      exclusionDate: Date | null;
+      reinstateDate: Date | null;
+      rawPayload: Record<string, unknown>;
+      isActive: boolean;
+    };
+    isEntityOnly: boolean;
+    hasAnyData: boolean;
+  } {
+    const cell = (key: string): string | null => {
+      const v = record[key];
+      if (v === undefined || v === null) return null;
+      const s = String(v).trim();
+      if (!s) return null;
+      // PA OMIG exports use the literal string "NULL" for empty cells
+      if (s.toUpperCase() === 'NULL') return null;
+      return s;
+    };
+    const firstNonEmpty = (...keys: string[]): string | null => {
+      for (const k of keys) {
+        const v = cell(k);
+        if (v !== null) return v;
+      }
+      return null;
+    };
+
+    // Person name parts (legacy + PA OMIG)
+    const firstName = firstNonEmpty('FirstName', 'FIRSTNAME', 'First Name', 'NAM_FIRST_PROVR');
+    const lastName = firstNonEmpty('LastName', 'LASTNAME', 'Last Name', 'NAM_LAST_PROVR');
+    const middleName = firstNonEmpty('MiddleName', 'MIDNAME', 'Middle Name', 'NAM_MIDDLE_PROVR');
+    const title = firstNonEmpty('Title', 'NAM_TITLE_PROVR');
+    const suffix = firstNonEmpty('Suffix', 'NAM_SUFFIX_PROVR');
+    const aliasName = firstNonEmpty('Alias', 'AliasName', 'NAM_PROVR_ALT');
+
+    // Identifiers
+    const npi = firstNonEmpty('NPI', 'IDN_NPI');
+    const licenseNumber = firstNonEmpty('LicenseNumber', 'License Number', 'License');
+    const fein = firstNonEmpty('FEIN', 'NBR_FEIN');
+
+    // Business / org name. ProviderName is also used as an entity name when
+    // there is no person name; otherwise it usually mirrors "LAST, FIRST MID".
+    const businessNameDirect = firstNonEmpty('BusinessName', 'Business Name', 'NAM_BUSNS_MP');
+    const providerName = firstNonEmpty('ProviderName', 'Provider Name');
+    const hasPersonName = !!(firstName || lastName);
+    const businessName =
+      businessNameDirect || (!hasPersonName && providerName ? providerName : null);
+
+    // Status / dates
+    const exclusionStatus = firstNonEmpty('Status', 'ExclusionStatus');
+    const exclusionDateRaw = firstNonEmpty('ExclusionDate', 'Exclusion Date', 'BeginDate', 'Begin Date');
+    const reinstateDateRaw = firstNonEmpty('ReinstateDate', 'Reinstate Date', 'EndDate', 'End Date');
+    const exclusionType = firstNonEmpty('ExclusionType', 'Type');
+
+    // Address (legacy parser supported it; keep working if those columns appear).
+    const state = firstNonEmpty('State', 'STATE') || 'PA';
+
+    const isEntityOnly = !hasPersonName && !!businessName;
+    const hasAnyData = !!(
+      firstName || lastName || businessName || npi || licenseNumber || fein
+    );
+
+    return {
+      payload: {
+        sourceId,
+        externalIdentifier: licenseNumber, // license # is the natural per-record id in PA OMIG
+        firstName,
+        lastName,
+        middleName,
+        title,
+        suffix,
+        aliasName,
+        businessName,
+        npi,
+        licenseNumber,
+        fein,
+        state,
+        exclusionType,
+        exclusionStatus,
+        exclusionDate: exclusionDateRaw ? this.parseDate(exclusionDateRaw) : null,
+        reinstateDate: reinstateDateRaw ? this.parseDate(reinstateDateRaw) : null,
+        rawPayload: record,
+        isActive: true,
+      },
+      isEntityOnly,
+      hasAnyData,
+    };
+  }
+
+  async importMedicheckCsv(csvContent: string): Promise<{ success: boolean; recordCount: number; errors: string[]; warnings: string[] }> {
     const errors: string[] = [];
+    const warnings: string[] = [];
     let recordCount = 0;
 
     try {
@@ -516,26 +628,55 @@ export class ExclusionService {
         throw new Error('Medicheck exclusion source not found in database');
       }
 
-      const records = await this.parseMedicheckCsv(csvContent);
+      const { records, headers } = await this.parseMedicheckCsv(csvContent);
       console.log(`[Exclusion Service] Parsed ${records.length} Medicheck records`);
 
-      await storage.deleteExclusionRecordsBySource(medicheckSource.id);
+      // Validate the file actually has at least one column we recognize, BEFORE
+      // any destructive operation. Run this check whether or not data rows are
+      // present, so that header-only/empty files do not wipe existing records.
+      const RECOGNIZED_HEADERS = [
+        'FirstName', 'FIRSTNAME', 'First Name', 'NAM_FIRST_PROVR',
+        'LastName', 'LASTNAME', 'Last Name', 'NAM_LAST_PROVR',
+        'NPI', 'IDN_NPI',
+        'LicenseNumber', 'License Number',
+        'NAM_BUSNS_MP', 'BusinessName', 'ProviderName',
+      ];
+      const headerSet = new Set<string>(headers);
+      const hasAnyRecognizedHeader = RECOGNIZED_HEADERS.some(h => headerSet.has(h));
+      if (!hasAnyRecognizedHeader) {
+        const err = new Error(
+          'Unrecognized MediCheck CSV format. Expected columns like ' +
+          'NAM_FIRST_PROVR / NAM_LAST_PROVR / IDN_NPI / LicenseNumber (PA OMIG) ' +
+          'or FirstName / LastName / NPI / ExclusionDate (legacy). ' +
+          `Got: ${headers.slice(0, 12).join(', ') || '(no headers parsed)'}`
+        );
+        (err as any).statusCode = 400;
+        throw err;
+      }
+      if (records.length === 0) {
+        const err = new Error(
+          'MediCheck CSV had recognized headers but no data rows; refusing to ' +
+          'replace existing records.'
+        );
+        (err as any).statusCode = 400;
+        throw err;
+      }
 
-      const exclusionRecords = records.map((record: any) => ({
-        sourceId: medicheckSource.id,
-        firstName: record.FirstName || record.FIRSTNAME || record['First Name'] || null,
-        lastName: record.LastName || record.LASTNAME || record['Last Name'] || null,
-        middleName: record.MiddleName || record.MIDNAME || record['Middle Name'] || null,
-        npi: record.NPI || null,
-        address: record.Address || record.ADDRESS || null,
-        city: record.City || record.CITY || null,
-        state: record.State || record.STATE || 'PA',
-        zipCode: record.Zip || record.ZIP || null,
-        exclusionType: record.ExclusionType || record.Type || null,
-        exclusionDate: record.ExclusionDate ? this.parseDate(record.ExclusionDate) : null,
-        rawPayload: record as unknown as Record<string, unknown>,
-        isActive: true,
-      }));
+      const mapped = records.map(r => this.mapMedicheckRow(r as Record<string, unknown>, medicheckSource.id));
+      const exclusionRecords = mapped
+        .filter(m => m.hasAnyData)
+        .map(m => m.payload);
+
+      const droppedEmpty = mapped.length - exclusionRecords.length;
+      const entityOnly = mapped.filter(m => m.hasAnyData && m.isEntityOnly).length;
+      if (droppedEmpty > 0) {
+        warnings.push(`${droppedEmpty} row(s) had no recognizable identifying data and were skipped.`);
+      }
+      if (entityOnly > 0) {
+        warnings.push(`${entityOnly} row(s) had no person name and were stored as entity (business) records.`);
+      }
+
+      await storage.deleteExclusionRecordsBySource(medicheckSource.id);
 
       recordCount = await storage.createExclusionRecordsBulk(exclusionRecords);
 
@@ -544,13 +685,13 @@ export class ExclusionService {
         lastRecordCount: recordCount,
       });
 
-      console.log(`[Exclusion Service] Successfully imported ${recordCount} Medicheck records`);
+      console.log(`[Exclusion Service] Successfully imported ${recordCount} Medicheck records (${entityOnly} entity-only, ${droppedEmpty} skipped)`);
     } catch (error: any) {
       console.error('[Exclusion Service] Error importing Medicheck CSV:', error);
       errors.push(error.message);
     }
 
-    return { success: errors.length === 0, recordCount, errors };
+    return { success: errors.length === 0, recordCount, errors, warnings };
   }
 
   async importSamCsv(csvContent: string): Promise<{ success: boolean; recordCount: number; errors: string[] }> {
@@ -603,11 +744,18 @@ export class ExclusionService {
     return { success: errors.length === 0, recordCount, errors };
   }
 
-  private async parseMedicheckCsv(csvText: string): Promise<any[]> {
+  private async parseMedicheckCsv(
+    csvText: string
+  ): Promise<{ records: any[]; headers: string[] }> {
     return new Promise((resolve, reject) => {
       const records: any[] = [];
+      let headers: string[] = [];
       const parser = parse({
-        columns: true,
+        columns: (header: string[]) => {
+          headers = header.map(h => (h ?? '').replace(/^\uFEFF/, '').trim());
+          return headers;
+        },
+        bom: true,
         skip_empty_lines: true,
         trim: true,
         relax_column_count: true,
@@ -621,7 +769,7 @@ export class ExclusionService {
       });
 
       parser.on('error', (err) => reject(err));
-      parser.on('end', () => resolve(records));
+      parser.on('end', () => resolve({ records, headers }));
 
       const stream = Readable.from(csvText);
       stream.pipe(parser);

@@ -222,6 +222,30 @@ const excelUpload = multer({
   },
 });
 
+// Configure multer for CSV file uploads (used by exclusion-list importers that
+// always receive plain CSV, not Excel).
+const csvUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 25 * 1024 * 1024, // 25MB — exclusion lists can be large
+  },
+  fileFilter: (_req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    const allowedExt = ext === '.csv' || ext === '.txt' || ext === '';
+    const allowedMime = [
+      'text/csv',
+      'application/csv',
+      'text/plain',
+      'application/vnd.ms-excel', // Excel often labels CSVs with this mime
+      'application/octet-stream',
+    ].includes(file.mimetype);
+    if (allowedExt || allowedMime) {
+      return cb(null, true);
+    }
+    cb(new Error("Invalid file type. Only CSV files (.csv) are allowed."));
+  },
+});
+
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Health check endpoint for AWS load balancers / Elastic Beanstalk
@@ -13115,7 +13139,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ message: "Unauthorized: Admin role required" });
       }
       const sources = await storage.getExclusionSources();
-      res.json(sources);
+      // Reshape to the field names the frontend expects, and derive a freshness
+      // status so the data-sources tab shows accurate counts/refresh dates.
+      const STALE_AFTER_DAYS = 35; // monthly refresh + grace
+      const now = Date.now();
+      const reshaped = await Promise.all(sources.map(async (s) => {
+        const liveCount = await storage.getExclusionRecordsCount(s.id);
+        const lastRefreshDate = s.lastFetchedAt ?? null;
+        let status: "active" | "stale" | "error" = "stale";
+        if (lastRefreshDate) {
+          const ageDays = (now - new Date(lastRefreshDate).getTime()) / (1000 * 60 * 60 * 24);
+          status = ageDays <= STALE_AFTER_DAYS ? "active" : "stale";
+        }
+        return {
+          id: s.id,
+          name: s.name,
+          type: s.type,
+          recordCount: liveCount,
+          lastRefreshDate,
+          status,
+        };
+      }));
+      res.json(reshaped);
     } catch (error: any) {
       res.status(500).json({ message: error.message || "Failed to fetch exclusion sources" });
     }
@@ -13135,7 +13180,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/exclusions/upload/medicheck", isAuthenticated, excelUpload.single('file'), async (req: any, res) => {
+  app.post("/api/exclusions/upload/medicheck", isAuthenticated, csvUpload.single('file'), async (req: any, res) => {
     try {
       const user = req.session?.user;
       if (!user || (user.role !== "admin" && user.role !== "supervisor" && user.role !== "super_admin")) {
@@ -13145,6 +13190,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const csvContent = req.file.buffer.toString('utf-8');
       const { exclusionService } = await import('./exclusion-service');
       const result = await exclusionService.importMedicheckCsv(csvContent);
+      // If the importer rejected the file because the headers are unrecognized,
+      // bubble that up as 400 so the UI shows a clear error toast.
+      if (!result.success && result.errors.some(e => /unrecognized medicheck csv format/i.test(e))) {
+        return res.status(400).json({
+          message: result.errors[0],
+          ...result,
+        });
+      }
       res.json(result);
     } catch (error: any) {
       res.status(500).json({ message: error.message || "Failed to upload Medicheck data" });
@@ -13318,6 +13371,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(report);
     } catch (error: any) {
       res.status(500).json({ message: error.message || "Failed to fetch exclusion report" });
+    }
+  });
+
+  app.get("/api/exclusions/records", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      if (!user || (user.role !== "admin" && user.role !== "supervisor" && user.role !== "super_admin")) {
+        return res.status(403).json({ message: "Unauthorized: Admin role required" });
+      }
+      const { sourceId, sourceType } = req.query as { sourceId?: string; sourceType?: string };
+      const limit = Math.min(parseInt((req.query.limit as string) || '100', 10) || 100, 500);
+      const offset = parseInt((req.query.offset as string) || '0', 10) || 0;
+
+      let resolvedSourceId = sourceId;
+      if (!resolvedSourceId && sourceType) {
+        const src = await storage.getExclusionSourceByType(sourceType);
+        resolvedSourceId = src?.id;
+      }
+
+      const records = await storage.getExclusionRecords(resolvedSourceId, limit, offset);
+      res.json(records);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to fetch exclusion records" });
     }
   });
 

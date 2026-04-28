@@ -3071,9 +3071,15 @@ export const exclusionRecords = pgTable("exclusion_records", {
   firstName: varchar("first_name"),
   lastName: varchar("last_name"),
   middleName: varchar("middle_name"),
+  title: varchar("title"),
+  suffix: varchar("suffix"),
+  aliasName: varchar("alias_name"),
   aliasNames: jsonb("alias_names"),
+  businessName: text("business_name"),
   dateOfBirth: timestamp("date_of_birth"),
   npi: varchar("npi"),
+  licenseNumber: varchar("license_number"),
+  fein: varchar("fein"),
   ssn: varchar("ssn"),
   upin: varchar("upin"),
   address: text("address"),
@@ -3081,6 +3087,7 @@ export const exclusionRecords = pgTable("exclusion_records", {
   state: varchar("state"),
   zipCode: varchar("zip_code"),
   exclusionType: varchar("exclusion_type"),
+  exclusionStatus: varchar("exclusion_status"),
   exclusionDate: timestamp("exclusion_date"),
   reinstateDate: timestamp("reinstate_date"),
   waiverDate: timestamp("waiver_date"),
@@ -3094,6 +3101,8 @@ export const exclusionRecords = pgTable("exclusion_records", {
 }, (table) => [
   index("idx_exclusion_records_name").on(table.lastName, table.firstName),
   index("idx_exclusion_records_source").on(table.sourceId),
+  index("idx_exclusion_records_license").on(table.licenseNumber),
+  index("idx_exclusion_records_npi").on(table.npi),
 ]);
 
 export const exclusionRecordsRelations = relations(exclusionRecords, ({ one }) => ({
