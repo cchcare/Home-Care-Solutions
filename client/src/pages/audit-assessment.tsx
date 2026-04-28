@@ -1357,6 +1357,19 @@ export default function AuditAssessment() {
   const isLocked = isCompleted || isArchived;
   const stats = computeStats(responsesMap, customItems);
 
+  // Office + branded logo for the print/PDF header. Falls back to the bundled
+  // CCHC Solutions wordmark when the office hasn't uploaded its own logo (or
+  // when its uploaded file fails to load — see onError on the <img> below).
+  const currentOffice = offices.find(
+    (o: Office) => o.id === (activeAudit?.officeId || officeId),
+  );
+  const printLogoSrc = currentOffice?.logoFileName
+    ? `/uploads/${currentOffice.logoFileName}`
+    : cchcLogo;
+  const printLogoAlt = currentOffice?.name
+    ? `${currentOffice.name} logo`
+    : "CCHC Solutions";
+
   const visibleAudits = audits.filter(a => showArchived ? a.status === "archived" : a.status !== "archived");
 
   // ─── Compare view ─────────────────────────────────────────────────────────
@@ -1833,6 +1846,27 @@ export default function AuditAssessment() {
     <div className="flex h-screen bg-background print:block print:h-auto print:overflow-visible">
       <Sidebar />
       <div className="flex-1 overflow-auto p-6 max-w-5xl mx-auto print:overflow-visible print:p-0 print:max-w-full">
+        {/* Print-only branded logo header — mirrors the agency logo placement
+            on the PDF export's cover page. Falls back to the CCHC Solutions
+            wordmark when the office has no logo uploaded or the file fails to
+            load. */}
+        <div className="hidden print:flex items-center mb-4 print-avoid-break">
+          <img
+            key={printLogoSrc}
+            src={printLogoSrc}
+            alt={printLogoAlt}
+            onError={(e) => {
+              const img = e.currentTarget;
+              if (!img.dataset.fallback && img.src !== cchcLogo) {
+                img.dataset.fallback = "1";
+                img.src = cchcLogo;
+                img.alt = "CCHC Solutions";
+              }
+            }}
+            className="h-16 w-auto max-w-[260px] object-contain object-left"
+          />
+        </div>
+
         {/* Header */}
         <div className="flex items-start justify-between gap-3 mb-6 flex-wrap print-avoid-break">
           <div className="flex items-start gap-3 min-w-0">
