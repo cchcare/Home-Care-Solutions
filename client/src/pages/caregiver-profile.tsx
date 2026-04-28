@@ -692,6 +692,7 @@ export default function CaregiverProfile() {
         zipCode: caregiver.zipCode || "",
         county: caregiver.county || "",
         hhaxCaregiverCode: caregiver.hhaxCaregiverCode || "",
+        npi: (caregiver as any).npi || "",
         adpCode: caregiver.adpCode || "",
       });
       setIsEditing(true);
@@ -919,6 +920,20 @@ export default function CaregiverProfile() {
                             />
                           ) : (
                             <p className="font-medium" data-testid="text-employee-id">{caregiver.employeeId || "N/A"}</p>
+                          )}
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-muted-foreground text-sm">NPI</Label>
+                          {isEditing ? (
+                            <Input
+                              value={(editFormData as any).npi || ""}
+                              onChange={(e) => setEditFormData({ ...editFormData, npi: e.target.value } as any)}
+                              placeholder="10-digit NPI (optional)"
+                              maxLength={20}
+                              data-testid="input-npi"
+                            />
+                          ) : (
+                            <p className="font-medium" data-testid="text-npi">{(caregiver as any).npi || "N/A"}</p>
                           )}
                         </div>
                         <div className="space-y-1">

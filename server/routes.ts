@@ -13254,12 +13254,87 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ message: "Unauthorized: Admin role required" });
       }
       const { caregiverId, status } = req.query;
-      if (status) {
-        const checks = await storage.getCaregiverExclusionChecksByStatus(status as any);
-        return res.json(checks);
+      const rawChecks = status
+        ? await storage.getCaregiverExclusionChecksByStatus(status as any)
+        : await storage.getCaregiverExclusionChecks(caregiverId as string | undefined);
+
+      // Enrich with caregiverName, source short-name, matchedName, matchedRecord
+      // identifier fields so the UI can render "Match reason" badges without
+      // making N additional requests.
+      const sourceList = await storage.getExclusionSources();
+      const sourceById = new Map(sourceList.map((s) => [s.id, s]));
+      const sourceTypeFromName = (src: any): 'oig' | 'medicheck' | 'sam' | string => {
+        if (!src) return '';
+        if (src.sourceType) return src.sourceType;
+        const n = (src.name || '').toLowerCase();
+        if (n.includes('oig')) return 'oig';
+        if (n.includes('sam')) return 'sam';
+        if (n.includes('medi') || n.includes('omig')) return 'medicheck';
+        return src.name || '';
+      };
+
+      const caregiverIds = Array.from(new Set(rawChecks.map(c => c.caregiverId)));
+      const caregiverInfoById = new Map<string, { name: string; npi: string | null }>();
+      for (const cid of caregiverIds) {
+        const cg = await storage.getCaregiver(cid).catch(() => null);
+        if (cg) {
+          const name = `${cg.firstName || ''} ${cg.lastName || ''}`.trim();
+          caregiverInfoById.set(cid, { name: name || 'Unknown', npi: (cg as any).npi ?? null });
+        }
       }
-      const checks = await storage.getCaregiverExclusionChecks(caregiverId as string | undefined);
-      res.json(checks);
+
+      const recordIds = Array.from(new Set(
+        rawChecks.map(c => c.exclusionRecordId).filter((x): x is string => !!x)
+      ));
+      const recordById = new Map<string, any>();
+      for (const rid of recordIds) {
+        const rec = await storage.getExclusionRecord(rid).catch(() => null);
+        if (rec) recordById.set(rid, rec);
+      }
+
+      const enriched = rawChecks.map((c) => {
+        const cgInfo = caregiverInfoById.get(c.caregiverId);
+        const src = sourceById.get(c.sourceId);
+        const rec = c.exclusionRecordId ? recordById.get(c.exclusionRecordId) : null;
+        const matchedName = `${c.matchedFirstName || ''} ${c.matchedLastName || ''}`.trim();
+        return {
+          id: c.id,
+          caregiverId: c.caregiverId,
+          caregiverName: cgInfo?.name || 'Unknown',
+          source: sourceTypeFromName(src),
+          sourceName: src?.name || '',
+          sourceId: c.sourceId,
+          exclusionRecordId: c.exclusionRecordId,
+          matchedName: matchedName || (rec?.businessName || rec?.lastName || ''),
+          matchScore: c.matchScore ? Number(c.matchScore) : 0,
+          matchType: c.matchType,
+          matchReason: (c as any).matchReason ?? null,
+          matchedIdentifier: (c as any).matchedIdentifier ?? null,
+          status: c.status,
+          createdAt: c.createdAt || c.checkedAt,
+          checkedAt: c.checkedAt,
+          reviewedAt: c.reviewedAt,
+          reviewedBy: c.reviewedBy,
+          notes: c.reviewNotes,
+        };
+      });
+
+      // Identifier matches first, then by score desc, then by date desc
+      const reasonRank: Record<string, number> = {
+        npi: 0,
+        license_number: 1,
+        name_exact: 2,
+        name_fuzzy: 3,
+      };
+      enriched.sort((a, b) => {
+        const ra = reasonRank[a.matchReason || ''] ?? 4;
+        const rb = reasonRank[b.matchReason || ''] ?? 4;
+        if (ra !== rb) return ra - rb;
+        if (a.matchScore !== b.matchScore) return b.matchScore - a.matchScore;
+        return (new Date(b.checkedAt || 0).getTime()) - (new Date(a.checkedAt || 0).getTime());
+      });
+
+      res.json(enriched);
     } catch (error: any) {
       res.status(500).json({ message: error.message || "Failed to fetch exclusion checks" });
     }

@@ -6772,13 +6772,52 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Get all active caregivers for exclusion checking
-  async getActiveCaregiversForExclusionCheck(): Promise<{ id: string; firstName: string | null; lastName: string | null; dateOfBirth: Date | null }[]> {
+  async getActiveCaregiversForExclusionCheck(): Promise<{ id: string; firstName: string | null; lastName: string | null; dateOfBirth: Date | null; npi: string | null }[]> {
     return db.select({
       id: caregivers.id,
       firstName: caregivers.firstName,
       lastName: caregivers.lastName,
       dateOfBirth: caregivers.dateOfBirth,
+      npi: caregivers.npi,
     }).from(caregivers).where(eq(caregivers.isActive, true));
+  }
+
+  async getCertificateNumbersByCaregiver(caregiverId: string): Promise<string[]> {
+    const rows = await db.select({ certificateNumber: certifications.certificateNumber })
+      .from(certifications)
+      .where(eq(certifications.caregiverId, caregiverId));
+    return rows
+      .map((r) => (r.certificateNumber || "").trim())
+      .filter((n) => n.length > 0);
+  }
+
+  async getExclusionRecord(id: string): Promise<ExclusionRecord | undefined> {
+    const [rec] = await db.select().from(exclusionRecords).where(eq(exclusionRecords.id, id));
+    return rec;
+  }
+
+  async getExclusionRecordsByNpi(npi: string): Promise<ExclusionRecord[]> {
+    const digits = (npi || "").replace(/\D/g, "");
+    if (!digits) return [];
+    return db.select().from(exclusionRecords)
+      .where(and(
+        sql`regexp_replace(COALESCE(${exclusionRecords.npi}, ''), '\\D', '', 'g') = ${digits}`,
+        eq(exclusionRecords.isActive, true)
+      ));
+  }
+
+  async getExclusionRecordsByLicenseNumbers(licenseNumbers: string[]): Promise<ExclusionRecord[]> {
+    const normalized = Array.from(new Set(
+      licenseNumbers
+        .map((n) => (n || "").trim().toLowerCase())
+        .filter((n) => n.length > 0)
+    ));
+    if (normalized.length === 0) return [];
+    return db.select().from(exclusionRecords)
+      .where(and(
+        sql`LOWER(TRIM(${exclusionRecords.licenseNumber})) = ANY(${normalized})`,
+        eq(exclusionRecords.isActive, true)
+      ));
   }
 
   // ============================================

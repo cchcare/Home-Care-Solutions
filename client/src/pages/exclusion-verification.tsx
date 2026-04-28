@@ -61,6 +61,8 @@ interface ExclusionCheck {
   source: "oig" | "medicheck" | "sam";
   matchedName: string;
   matchScore: number;
+  matchReason: "npi" | "license_number" | "name_exact" | "name_fuzzy" | null;
+  matchedIdentifier: string | null;
   status: "possible_match" | "confirmed" | "false_positive" | "cleared";
   createdAt: string;
   reviewedAt: string | null;
@@ -288,6 +290,43 @@ export default function ExclusionVerification() {
         status: reviewStatus,
         notes: reviewNotes,
       });
+    }
+  };
+
+  const getMatchReasonBadge = (check: ExclusionCheck) => {
+    const id = check.matchedIdentifier || "";
+    const score = typeof check.matchScore === "number" ? Math.round(check.matchScore) : 0;
+    switch (check.matchReason) {
+      case "npi":
+        return (
+          <Badge className="bg-red-100 text-red-800" data-testid={`badge-reason-npi-${check.id}`}>
+            NPI {id || "match"} (exact)
+          </Badge>
+        );
+      case "license_number":
+        return (
+          <Badge className="bg-red-100 text-red-800" data-testid={`badge-reason-license-${check.id}`}>
+            License {id || "match"} (exact)
+          </Badge>
+        );
+      case "name_exact":
+        return (
+          <Badge className="bg-amber-100 text-amber-800" data-testid={`badge-reason-name-exact-${check.id}`}>
+            Name match — exact
+          </Badge>
+        );
+      case "name_fuzzy":
+        return (
+          <Badge variant="outline" data-testid={`badge-reason-name-fuzzy-${check.id}`}>
+            Name match — {score}%
+          </Badge>
+        );
+      default:
+        return (
+          <Badge variant="outline" data-testid={`badge-reason-unknown-${check.id}`}>
+            {score ? `Name match — ${score}%` : "Match"}
+          </Badge>
+        );
     }
   };
 
@@ -626,7 +665,7 @@ export default function ExclusionVerification() {
                             <TableHead>Caregiver</TableHead>
                             <TableHead>Source</TableHead>
                             <TableHead>Matched Name</TableHead>
-                            <TableHead>Match Score</TableHead>
+                            <TableHead>Match Reason</TableHead>
                             <TableHead>Date Found</TableHead>
                             <TableHead>Actions</TableHead>
                           </TableRow>
@@ -637,12 +676,8 @@ export default function ExclusionVerification() {
                               <TableCell className="font-medium">{check.caregiverName}</TableCell>
                               <TableCell>{getSourceBadge(check.source)}</TableCell>
                               <TableCell>{check.matchedName}</TableCell>
-                              <TableCell>
-                                <Badge variant={check.matchScore >= 90 ? "destructive" : "outline"}>
-                                  {check.matchScore}%
-                                </Badge>
-                              </TableCell>
-                              <TableCell>{format(new Date(check.createdAt), "MMM d, yyyy")}</TableCell>
+                              <TableCell>{getMatchReasonBadge(check)}</TableCell>
+                              <TableCell>{check.createdAt ? format(new Date(check.createdAt), "MMM d, yyyy") : ""}</TableCell>
                               <TableCell>
                                 <Button
                                   size="sm"

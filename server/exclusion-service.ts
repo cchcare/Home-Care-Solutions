@@ -65,6 +65,8 @@ interface SamRecord {
   NPI?: string;
 }
 
+export type MatchReason = 'npi' | 'license_number' | 'name_exact' | 'name_fuzzy';
+
 interface MatchResult {
   exclusionRecordId: string;
   matchType: 'exact' | 'fuzzy';
@@ -72,6 +74,8 @@ interface MatchResult {
   matchedFirstName: string;
   matchedLastName: string;
   sourceId: string;
+  matchReason: MatchReason;
+  matchedIdentifier: string | null;
 }
 
 export class ExclusionService {
@@ -121,8 +125,41 @@ export class ExclusionService {
     return Math.round((1 - distance / maxLen) * 100);
   }
 
-  generateMatchSignature(caregiverId: string, sourceId: string, firstName: string, lastName: string): string {
+  generateMatchSignature(
+    caregiverId: string,
+    sourceId: string,
+    firstName: string,
+    lastName: string,
+    matchReason: MatchReason | null = null,
+    matchedIdentifier: string | null = null,
+  ): string {
+    const reasonPart = matchReason
+      ? `${matchReason}:${(matchedIdentifier || '').toLowerCase().trim()}`
+      : 'name:';
+    return `${caregiverId}:${sourceId}:${firstName.toLowerCase().trim()}:${lastName.toLowerCase().trim()}:${reasonPart}`;
+  }
+
+  /**
+   * Pre-Task #71 signature format used by historical false-positive rows.
+   * Only name-based dismissals existed before identifier matching, so we
+   * honor a legacy signature only when checking name_exact / name_fuzzy
+   * results — never for npi or license_number identifier hits.
+   */
+  generateLegacyMatchSignature(
+    caregiverId: string,
+    sourceId: string,
+    firstName: string,
+    lastName: string,
+  ): string {
     return `${caregiverId}:${sourceId}:${firstName.toLowerCase().trim()}:${lastName.toLowerCase().trim()}`;
+  }
+
+  private normalizeNpi(value: string | null | undefined): string {
+    return (value || '').replace(/\D/g, '');
+  }
+
+  private normalizeLicense(value: string | null | undefined): string {
+    return (value || '').trim().toLowerCase();
   }
 
   async fetchOigData(): Promise<{ success: boolean; recordCount: number; errors: string[] }> {
@@ -247,27 +284,96 @@ export class ExclusionService {
     caregiverId: string,
     firstName: string,
     lastName: string,
-    dateOfBirth?: Date | null
+    dateOfBirth?: Date | null,
+    npi?: string | null,
+    licenseNumbers?: string[],
   ): Promise<MatchResult[]> {
     const matches: MatchResult[] = [];
-    
+
     const falsePositives = await storage.getCaregiverFalsePositives(caregiverId);
     const fpSignatures = new Set(falsePositives.map(fp => fp.matchSignature));
 
+    // ---------- 1. NPI match (strongest identifier) ----------
+    const cgNpi = this.normalizeNpi(npi);
+    if (cgNpi) {
+      const npiHits = await storage.getExclusionRecordsByNpi(cgNpi);
+      for (const record of npiHits) {
+        const signature = this.generateMatchSignature(
+          caregiverId,
+          record.sourceId,
+          record.firstName || '',
+          record.lastName || '',
+          'npi',
+          cgNpi,
+        );
+        if (fpSignatures.has(signature)) continue;
+        matches.push({
+          exclusionRecordId: record.id,
+          matchType: 'exact',
+          matchScore: 100,
+          matchedFirstName: record.firstName || '',
+          matchedLastName: record.lastName || '',
+          sourceId: record.sourceId,
+          matchReason: 'npi',
+          matchedIdentifier: cgNpi,
+        });
+      }
+    }
+
+    // ---------- 2. License number match ----------
+    const normalizedLicenses = (licenseNumbers || [])
+      .map((n) => this.normalizeLicense(n))
+      .filter((n) => n.length > 0);
+    if (normalizedLicenses.length > 0) {
+      const licenseHits = await storage.getExclusionRecordsByLicenseNumbers(normalizedLicenses);
+      for (const record of licenseHits) {
+        if (matches.some(m => m.exclusionRecordId === record.id)) continue;
+        const recordLicense = this.normalizeLicense(record.licenseNumber);
+        const matchedIdentifier = record.licenseNumber || recordLicense;
+        const signature = this.generateMatchSignature(
+          caregiverId,
+          record.sourceId,
+          record.firstName || '',
+          record.lastName || '',
+          'license_number',
+          recordLicense,
+        );
+        if (fpSignatures.has(signature)) continue;
+        matches.push({
+          exclusionRecordId: record.id,
+          matchType: 'exact',
+          matchScore: 100,
+          matchedFirstName: record.firstName || '',
+          matchedLastName: record.lastName || '',
+          sourceId: record.sourceId,
+          matchReason: 'license_number',
+          matchedIdentifier,
+        });
+      }
+    }
+
+    // ---------- 3. Exact name match ----------
     const exactMatches = await storage.getExclusionRecordsByName(lastName, firstName);
-    
+
     for (const record of exactMatches) {
+      if (matches.some(m => m.exclusionRecordId === record.id)) continue;
       const signature = this.generateMatchSignature(
         caregiverId,
         record.sourceId,
         record.firstName || '',
-        record.lastName || ''
+        record.lastName || '',
+        'name_exact',
+        null,
       );
-      
-      if (fpSignatures.has(signature)) {
-        continue;
-      }
-
+      // Honor pre-Task-#71 (legacy) signature for name dismissals only — old
+      // FP rows had no reason suffix; resurrecting them would re-pester users.
+      const legacySignature = this.generateLegacyMatchSignature(
+        caregiverId,
+        record.sourceId,
+        record.firstName || '',
+        record.lastName || '',
+      );
+      if (fpSignatures.has(signature) || fpSignatures.has(legacySignature)) continue;
       matches.push({
         exclusionRecordId: record.id,
         matchType: 'exact',
@@ -275,25 +381,32 @@ export class ExclusionService {
         matchedFirstName: record.firstName || '',
         matchedLastName: record.lastName || '',
         sourceId: record.sourceId,
+        matchReason: 'name_exact',
+        matchedIdentifier: null,
       });
     }
 
+    // ---------- 4. Fuzzy name match ----------
     const fuzzyMatches = await storage.searchExclusionRecords(lastName, firstName);
-    
-    for (const record of fuzzyMatches) {
-      const alreadyMatched = matches.some(m => m.exclusionRecordId === record.id);
-      if (alreadyMatched) continue;
 
+    for (const record of fuzzyMatches) {
+      if (matches.some(m => m.exclusionRecordId === record.id)) continue;
       const signature = this.generateMatchSignature(
         caregiverId,
         record.sourceId,
         record.firstName || '',
-        record.lastName || ''
+        record.lastName || '',
+        'name_fuzzy',
+        null,
       );
-      
-      if (fpSignatures.has(signature)) {
-        continue;
-      }
+      // Honor pre-Task-#71 (legacy) signature for name dismissals only.
+      const legacySignature = this.generateLegacyMatchSignature(
+        caregiverId,
+        record.sourceId,
+        record.firstName || '',
+        record.lastName || '',
+      );
+      if (fpSignatures.has(signature) || fpSignatures.has(legacySignature)) continue;
 
       const lastNameScore = this.calculateSimilarity(lastName, record.lastName || '');
       const firstNameScore = this.calculateSimilarity(firstName, record.firstName || '');
@@ -307,6 +420,8 @@ export class ExclusionService {
           matchedFirstName: record.firstName || '',
           matchedLastName: record.lastName || '',
           sourceId: record.sourceId,
+          matchReason: 'name_fuzzy',
+          matchedIdentifier: null,
         });
       }
     }
@@ -338,11 +453,14 @@ export class ExclusionService {
 
       for (const caregiver of caregivers) {
         try {
+          const licenseNumbers = await storage.getCertificateNumbersByCaregiver(caregiver.id);
           const matches = await this.checkCaregiverAgainstExclusions(
             caregiver.id,
             caregiver.firstName || "",
             caregiver.lastName || "",
-            caregiver.dateOfBirth ?? null
+            caregiver.dateOfBirth ?? null,
+            caregiver.npi ?? null,
+            licenseNumbers,
           );
 
           if (matches.length === 0) {
@@ -375,6 +493,8 @@ export class ExclusionService {
                 status: 'possible_match',
                 matchType: match.matchType,
                 matchScore: match.matchScore.toString(),
+                matchReason: match.matchReason,
+                matchedIdentifier: match.matchedIdentifier,
                 matchedFirstName: match.matchedFirstName,
                 matchedLastName: match.matchedLastName,
                 checkedAt: new Date(),
