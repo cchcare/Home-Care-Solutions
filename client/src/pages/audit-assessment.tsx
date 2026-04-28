@@ -2499,6 +2499,249 @@ function DeficienciesSection({
 
 type DiffResult = "improved" | "regressed" | "unchanged_pass" | "unchanged_fail" | "unchanged_other";
 
+async function exportComparisonToExcel(
+  audit1: AuditAssessment,
+  audit2: AuditAssessment,
+  map1: Record<string, ItemStatus>,
+  map2: Record<string, ItemStatus>,
+  customItems1: AuditCustomItem[],
+  customItems2: AuditCustomItem[],
+  stats1: { pass: number; fail: number; scorePct: number },
+  stats2: { pass: number; fail: number; scorePct: number },
+  diffCounts: { improved: number; regressed: number; unchangedFail: number; unchangedPass: number },
+  passRateDiff: number,
+) {
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = "CCHC Solutions";
+  workbook.created = new Date();
+
+  const headerFill: ExcelJS.FillPattern = {
+    type: "pattern", pattern: "solid", fgColor: { argb: "FF1E40AF" },
+  };
+  const audit1HeaderFill: ExcelJS.FillPattern = {
+    type: "pattern", pattern: "solid", fgColor: { argb: "FF1D4ED8" },
+  };
+  const audit2HeaderFill: ExcelJS.FillPattern = {
+    type: "pattern", pattern: "solid", fgColor: { argb: "FF7C3AED" },
+  };
+  const improvedFill: ExcelJS.FillPattern = {
+    type: "pattern", pattern: "solid", fgColor: { argb: "FFD1FAE5" },
+  };
+  const regressedFill: ExcelJS.FillPattern = {
+    type: "pattern", pattern: "solid", fgColor: { argb: "FFFEE2E2" },
+  };
+  const stillFailFill: ExcelJS.FillPattern = {
+    type: "pattern", pattern: "solid", fgColor: { argb: "FFFEF3C7" },
+  };
+  const unchangedPassFill: ExcelJS.FillPattern = {
+    type: "pattern", pattern: "solid", fgColor: { argb: "FFF0FDF4" },
+  };
+  const grayFill: ExcelJS.FillPattern = {
+    type: "pattern", pattern: "solid", fgColor: { argb: "FFF9FAFB" },
+  };
+  const headerFont = { bold: true, color: { argb: "FFFFFFFF" }, size: 11 };
+
+  function statusLabel(s: ItemStatus) {
+    if (s === "pass") return "Pass";
+    if (s === "fail") return "Deficient";
+    if (s === "na") return "N/A";
+    return "Pending";
+  }
+
+  function diffLabel(diff: DiffResult) {
+    if (diff === "improved") return "Improved";
+    if (diff === "regressed") return "Regressed";
+    if (diff === "unchanged_fail") return "Still Deficient";
+    if (diff === "unchanged_pass") return "Unchanged (Pass)";
+    return "—";
+  }
+
+  function diffFill(diff: DiffResult): ExcelJS.FillPattern {
+    if (diff === "improved") return improvedFill;
+    if (diff === "regressed") return regressedFill;
+    if (diff === "unchanged_fail") return stillFailFill;
+    if (diff === "unchanged_pass") return unchangedPassFill;
+    return grayFill;
+  }
+
+  // ── Sheet 1: Summary ────────────────────────────────────────────────────────
+  const wsSummary = workbook.addWorksheet("Summary");
+  wsSummary.columns = [
+    { key: "label", width: 30 },
+    { key: "audit1", width: 28 },
+    { key: "audit2", width: 28 },
+  ];
+
+  const titleRow = wsSummary.addRow(["Audit Comparison Report", "", ""]);
+  titleRow.getCell(1).font = { bold: true, size: 14, color: { argb: "FF1E40AF" } };
+  titleRow.getCell(1).alignment = { horizontal: "left" };
+  wsSummary.mergeCells(`A1:C1`);
+
+  wsSummary.addRow([]);
+
+  const headerRow = wsSummary.addRow(["", "Audit 1", "Audit 2"]);
+  headerRow.getCell(1).fill = headerFill;
+  headerRow.getCell(1).font = headerFont;
+  headerRow.getCell(2).fill = audit1HeaderFill;
+  headerRow.getCell(2).font = headerFont;
+  headerRow.getCell(3).fill = audit2HeaderFill;
+  headerRow.getCell(3).font = headerFont;
+  headerRow.height = 20;
+
+  const metaRows: [string, string, string][] = [
+    ["Title", audit1.title, audit2.title],
+    ["Date", audit1.auditDate || "—", audit2.auditDate || "—"],
+    ["Survey Period", audit1.surveyPeriod || "—", audit2.surveyPeriod || "—"],
+    ["Surveyor", audit1.surveyorName || "—", audit2.surveyorName || "—"],
+    ["Status", audit1.status === "completed" ? "Completed" : "In Progress", audit2.status === "completed" ? "Completed" : "In Progress"],
+  ];
+  for (const [label, v1, v2] of metaRows) {
+    const r = wsSummary.addRow([label, v1, v2]);
+    r.getCell(1).font = { bold: true, size: 10 };
+    r.getCell(2).font = { size: 10 };
+    r.getCell(3).font = { size: 10 };
+    r.eachCell(cell => { cell.alignment = { wrapText: true, vertical: "top" }; });
+  }
+
+  wsSummary.addRow([]);
+
+  const statsHeaderRow = wsSummary.addRow(["Score Summary", "Audit 1", "Audit 2"]);
+  statsHeaderRow.getCell(1).fill = headerFill;
+  statsHeaderRow.getCell(1).font = headerFont;
+  statsHeaderRow.getCell(2).fill = audit1HeaderFill;
+  statsHeaderRow.getCell(2).font = headerFont;
+  statsHeaderRow.getCell(3).fill = audit2HeaderFill;
+  statsHeaderRow.getCell(3).font = headerFont;
+  statsHeaderRow.height = 18;
+
+  const scoreRow = wsSummary.addRow([
+    "Pass Rate",
+    stats1.pass + stats1.fail > 0 ? `${stats1.scorePct}%` : "—",
+    stats2.pass + stats2.fail > 0 ? `${stats2.scorePct}%` : "—",
+  ]);
+  scoreRow.getCell(1).font = { bold: true, size: 10 };
+  scoreRow.getCell(2).font = { size: 10 };
+  scoreRow.getCell(3).font = { size: 10 };
+  scoreRow.getCell(3).font = {
+    size: 10,
+    color: { argb: passRateDiff > 0 ? "FF15803D" : passRateDiff < 0 ? "FFDC2626" : "FF6B7280" },
+  };
+
+  const trendRow = wsSummary.addRow([
+    "Pass Rate Trend",
+    "",
+    passRateDiff > 0 ? `+${passRateDiff}%` : passRateDiff < 0 ? `${passRateDiff}%` : "No change",
+  ]);
+  trendRow.getCell(1).font = { bold: true, size: 10 };
+  trendRow.getCell(3).font = {
+    bold: true, size: 10,
+    color: { argb: passRateDiff > 0 ? "FF15803D" : passRateDiff < 0 ? "FFDC2626" : "FF6B7280" },
+  };
+
+  wsSummary.addRow([]);
+
+  const changesHeaderRow = wsSummary.addRow(["Change Summary", "Count", ""]);
+  changesHeaderRow.getCell(1).fill = headerFill;
+  changesHeaderRow.getCell(1).font = headerFont;
+  changesHeaderRow.getCell(2).fill = headerFill;
+  changesHeaderRow.getCell(2).font = headerFont;
+  changesHeaderRow.height = 18;
+
+  const changeRows: [string, number, ExcelJS.FillPattern][] = [
+    ["Items Improved", diffCounts.improved, improvedFill],
+    ["Items Regressed", diffCounts.regressed, regressedFill],
+    ["Still Deficient", diffCounts.unchangedFail, stillFailFill],
+    ["Unchanged (Pass)", diffCounts.unchangedPass, unchangedPassFill],
+  ];
+  for (const [label, count, fill] of changeRows) {
+    const r = wsSummary.addRow([label, count, ""]);
+    r.getCell(1).fill = fill;
+    r.getCell(1).font = { bold: true, size: 10 };
+    r.getCell(2).fill = fill;
+    r.getCell(2).font = { size: 10 };
+  }
+
+  // ── Sheet 2: Full Comparison ─────────────────────────────────────────────────
+  const wsComp = workbook.addWorksheet("Full Comparison");
+  wsComp.columns = [
+    { header: "Category", key: "category", width: 22 },
+    { header: "Item", key: "item", width: 50 },
+    { header: "Regulation", key: "ref", width: 13 },
+    { header: "Audit 1 Status", key: "status1", width: 14 },
+    { header: "Audit 2 Status", key: "status2", width: 14 },
+    { header: "Change", key: "change", width: 16 },
+  ];
+
+  const compHeader = wsComp.getRow(1);
+  compHeader.getCell(1).fill = headerFill;
+  compHeader.getCell(1).font = headerFont;
+  compHeader.getCell(2).fill = headerFill;
+  compHeader.getCell(2).font = headerFont;
+  compHeader.getCell(3).fill = headerFill;
+  compHeader.getCell(3).font = headerFont;
+  compHeader.getCell(4).fill = audit1HeaderFill;
+  compHeader.getCell(4).font = headerFont;
+  compHeader.getCell(5).fill = audit2HeaderFill;
+  compHeader.getCell(5).font = headerFont;
+  compHeader.getCell(6).fill = headerFill;
+  compHeader.getCell(6).font = headerFont;
+  compHeader.height = 20;
+
+  for (const cat of CHECKLIST) {
+    for (const item of cat.items) {
+      const s1 = map1[item.key] || "pending";
+      const s2 = map2[item.key] || "pending";
+      const diff = getDiff(s1, s2);
+      const fill = diffFill(diff);
+      const row = wsComp.addRow({
+        category: cat.label,
+        item: item.label,
+        ref: item.reference ? `§ ${item.reference}` : "",
+        status1: statusLabel(s1),
+        status2: statusLabel(s2),
+        change: diffLabel(diff),
+      });
+      row.eachCell(cell => {
+        cell.fill = fill;
+        cell.font = { size: 10 };
+        cell.alignment = { wrapText: true, vertical: "top" };
+      });
+    }
+    const customRows = getCustomCompareItems(cat.id, customItems1, customItems2, map1, map2);
+    for (const cr of customRows) {
+      const diff = getDiff(cr.s1, cr.s2);
+      const fill = diffFill(diff);
+      const row = wsComp.addRow({
+        category: `${cat.label} (custom)`,
+        item: cr.label,
+        ref: "",
+        status1: statusLabel(cr.s1),
+        status2: statusLabel(cr.s2),
+        change: diffLabel(diff),
+      });
+      row.eachCell(cell => {
+        cell.fill = fill;
+        cell.font = { size: 10 };
+        cell.alignment = { wrapText: true, vertical: "top" };
+      });
+    }
+  }
+
+  // ── Download ─────────────────────────────────────────────────────────────────
+  const buffer = await workbook.xlsx.writeBuffer();
+  const blob = new Blob([buffer], {
+    type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  const title1 = audit1.title.replace(/[^a-z0-9]/gi, "_").slice(0, 30);
+  const title2 = audit2.title.replace(/[^a-z0-9]/gi, "_").slice(0, 30);
+  a.href = url;
+  a.download = `Comparison_${title1}_vs_${title2}.xlsx`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 function getDiff(s1: ItemStatus, s2: ItemStatus): DiffResult {
   if (s2 === "pass" && s1 !== "pass") return "improved";
   if (s2 === "fail" && s1 !== "fail") return "regressed";
@@ -2611,6 +2854,8 @@ function CompareView({
   });
 
   const loading = loading1 || loading2;
+  const [exporting, setExporting] = useState(false);
+  const { toast } = useToast();
 
   const map1: Record<string, ItemStatus> = {};
   const map2: Record<string, ItemStatus> = {};
@@ -2646,6 +2891,19 @@ function CompareView({
     }
   }
 
+  async function handleExport() {
+    if (!audit1 || !audit2) return;
+    setExporting(true);
+    try {
+      await exportComparisonToExcel(audit1, audit2, map1, map2, customItems1, customItems2, stats1, stats2, diffCounts, passRateDiff);
+      toast({ title: "Export complete", description: "Comparison report downloaded successfully." });
+    } catch {
+      toast({ title: "Export failed", description: "Could not generate the comparison report.", variant: "destructive" });
+    } finally {
+      setExporting(false);
+    }
+  }
+
   return (
     <div className="flex-1 overflow-auto p-6 max-w-6xl mx-auto">
       {/* Header */}
@@ -2663,6 +2921,18 @@ function CompareView({
             </p>
           )}
         </div>
+        {!loading && audit1 && audit2 && (
+          <Button
+            variant="outline"
+            size="sm"
+            className="shrink-0 gap-1.5"
+            onClick={handleExport}
+            disabled={exporting}
+          >
+            <FileSpreadsheet size={15} />
+            {exporting ? "Exporting…" : "Export Excel"}
+          </Button>
+        )}
       </div>
 
       {loading ? (
