@@ -31,6 +31,12 @@ import {
 import { Save, X } from "lucide-react";
 import { insertClientSchema, type Office } from "@shared/schema";
 
+interface Mco {
+  id: string;
+  name: string;
+  officeId: string | null;
+}
+
 const clientFormSchema = insertClientSchema.extend({
   firstName: z.string().min(1, "First name is required"),
   lastName: z.string().min(1, "Last name is required"),
@@ -40,6 +46,10 @@ const clientFormSchema = insertClientSchema.extend({
   emergencyContactPhone: z.string().optional(),
   emergencyContactRelation: z.string().optional(),
   officeId: z.string().min(1, "Office assignment is required"),
+  mcoId: z.string().optional().nullable(),
+  serviceStartDate: z.union([z.date(), z.string(), z.null()]).optional(),
+  hhaxAdmissionId: z.string().optional().nullable(),
+  county: z.string().optional().nullable(),
   hipaaAcknowledged: z.boolean().refine(val => val === true, {
     message: "HIPAA acknowledgment is required"
   }),
@@ -76,9 +86,33 @@ export function AddClientModal({ isOpen, onClose, onSubmit, isLoading, initialDa
       primaryPhysician: "",
       officeId: "",
       memberId: "",
+      mcoId: "",
+      serviceStartDate: null,
+      hhaxAdmissionId: "",
+      county: "",
       hipaaAcknowledged: false,
     },
   });
+
+  const selectedOfficeId = form.watch("officeId");
+  const currentMcoId = form.watch("mcoId");
+
+  const { data: officeMcos = [] } = useQuery<Mco[]>({
+    queryKey: ["/api/offices", selectedOfficeId, "mcos"],
+    enabled: !!selectedOfficeId,
+    retry: false,
+  });
+
+  // Clear stale MCO selection if it doesn't belong to the currently selected office
+  useEffect(() => {
+    if (!selectedOfficeId) return;
+    if (currentMcoId && officeMcos.length > 0) {
+      const stillValid = officeMcos.some((m) => m.id === currentMcoId);
+      if (!stillValid) {
+        form.setValue("mcoId", "");
+      }
+    }
+  }, [selectedOfficeId, officeMcos, currentMcoId, form]);
 
   useEffect(() => {
     if (initialData && isOpen) {
@@ -95,6 +129,10 @@ export function AddClientModal({ isOpen, onClose, onSubmit, isLoading, initialDa
         primaryPhysician: initialData.primaryPhysician || "",
         officeId: initialData.officeId || "",
         memberId: initialData.memberId || "",
+        mcoId: initialData.mcoId || "",
+        serviceStartDate: initialData.serviceStartDate || null,
+        hhaxAdmissionId: initialData.hhaxAdmissionId || "",
+        county: initialData.county || "",
         hipaaAcknowledged: false,
       });
     }
@@ -160,6 +198,85 @@ export function AddClientModal({ isOpen, onClose, onSubmit, isLoading, initialDa
                       <FormLabel>Member ID</FormLabel>
                       <FormControl>
                         <Input placeholder="Enter member ID" {...field} value={field.value || ""} data-testid="input-member-id" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <FormField
+                  control={form.control}
+                  name="mcoId"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>MCO</FormLabel>
+                      <Select
+                        onValueChange={(v) => field.onChange(v === "__none__" ? "" : v)}
+                        value={field.value || ""}
+                        disabled={!selectedOfficeId}
+                      >
+                        <FormControl>
+                          <SelectTrigger data-testid="select-mco">
+                            <SelectValue placeholder={selectedOfficeId ? "Select MCO" : "Select office first"} />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="__none__">— None —</SelectItem>
+                          {officeMcos.map((mco) => (
+                            <SelectItem key={mco.id} value={mco.id}>
+                              {mco.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="hhaxAdmissionId"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>HHA Admission ID</FormLabel>
+                      <FormControl>
+                        <Input placeholder="Enter HHA admission ID" {...field} value={field.value || ""} data-testid="input-hhax-admission-id" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <FormField
+                  control={form.control}
+                  name="serviceStartDate"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Service Start Date</FormLabel>
+                      <FormControl>
+                        <Input
+                          type="date"
+                          value={field.value ? new Date(field.value as any).toISOString().split('T')[0] : ''}
+                          onChange={(e) => field.onChange(e.target.value ? new Date(e.target.value) : null)}
+                          data-testid="input-service-start-date"
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="county"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>County</FormLabel>
+                      <FormControl>
+                        <Input placeholder="Enter county" {...field} value={field.value || ""} data-testid="input-county" />
                       </FormControl>
                       <FormMessage />
                     </FormItem>

@@ -1653,7 +1653,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Client bulk import
   app.post("/api/clients/bulk-import", isAuthenticated, async (req: any, res) => {
     try {
-      const { data: clientData, rows: excelRows } = req.body;
+      const { data: clientData, rows: excelRows, officeId: importOfficeId } = req.body;
       const data = clientData || excelRows;
       
       if (!Array.isArray(data) || data.length === 0) {
@@ -1676,16 +1676,72 @@ export async function registerRoutes(app: Express): Promise<Server> {
         errors: []
       };
 
+      // Pre-fetch MCOs once per import for name → id lookup (case-insensitive)
+      const allMcos = await storage.getAllMcos();
+      const mcosByOfficeAndName = new Map<string, string>();
+      for (const mco of allMcos) {
+        if (mco.officeId && mco.name) {
+          mcosByOfficeAndName.set(`${mco.officeId}::${mco.name.trim().toLowerCase()}`, mco.id);
+        }
+      }
+
+      const parseImportDate = (val: any): Date | null | undefined => {
+        if (val === undefined) return undefined;
+        if (val === null || val === "") return null;
+        if (val instanceof Date) return isNaN(val.getTime()) ? null : val;
+        // Excel serial dates arrive as numbers (days since 1899-12-30)
+        if (typeof val === "number" && isFinite(val)) {
+          const base = new Date(Date.UTC(1899, 11, 30));
+          return new Date(base.getTime() + val * 86400000);
+        }
+        // Date-only strings (YYYY-MM-DD or MM/DD/YYYY) — anchor to UTC noon to avoid TZ shift
+        if (typeof val === "string") {
+          const trimmed = val.trim();
+          const isoMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(trimmed);
+          if (isoMatch) {
+            const [, y, m, day] = isoMatch;
+            return new Date(Date.UTC(Number(y), Number(m) - 1, Number(day), 12));
+          }
+          const usMatch = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(trimmed);
+          if (usMatch) {
+            const [, m, day, y] = usMatch;
+            return new Date(Date.UTC(Number(y), Number(m) - 1, Number(day), 12));
+          }
+        }
+        const d = new Date(val);
+        return isNaN(d.getTime()) ? null : d;
+      };
+
       for (let i = 0; i < data.length; i++) {
         try {
-          const clientData = data[i];
-          
+          const rawRow = data[i];
+          const { mco: mcoNameRaw, ...rest } = rawRow;
+
+          // Resolve MCO by name within the row's office (or import-level office)
+          const rowOfficeId: string | undefined = rest.officeId || importOfficeId;
+          let resolvedMcoId: string | undefined = rest.mcoId;
+          if (!resolvedMcoId && mcoNameRaw && typeof mcoNameRaw === "string" && rowOfficeId) {
+            const key = `${rowOfficeId}::${mcoNameRaw.trim().toLowerCase()}`;
+            resolvedMcoId = mcosByOfficeAndName.get(key);
+            if (!resolvedMcoId) {
+              throw new Error(`MCO "${mcoNameRaw}" not found for the selected office`);
+            }
+          }
+
           // Convert date strings to Date objects
-          const processedClientData = {
-            ...clientData,
-            dateOfBirth: clientData.dateOfBirth && typeof clientData.dateOfBirth === 'string' ? new Date(clientData.dateOfBirth) : clientData.dateOfBirth,
+          const processedClientData: any = {
+            ...rest,
+            ...(rowOfficeId ? { officeId: rowOfficeId } : {}),
+            ...(resolvedMcoId ? { mcoId: resolvedMcoId } : {}),
+            dateOfBirth: parseImportDate(rest.dateOfBirth),
+            serviceStartDate: parseImportDate(rest.serviceStartDate),
           };
-          
+
+          // Strip undefined so they don't override defaults
+          Object.keys(processedClientData).forEach(
+            (k) => processedClientData[k] === undefined && delete processedClientData[k]
+          );
+
           // Validate the data
           const validatedData = insertClientSchema.parse(processedClientData);
           

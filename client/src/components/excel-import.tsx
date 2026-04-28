@@ -60,8 +60,10 @@ const SYSTEM_FIELDS: Record<string, SystemField[]> = {
     { key: "medications", label: "Medications", aliases: ["Medications", "medications"] },
     { key: "allergies", label: "Allergies", aliases: ["Allergies", "allergies"] },
     { key: "dietaryRestrictions", label: "Dietary Restrictions", aliases: ["Dietary Restrictions", "dietary_restrictions", "dietaryRestrictions"] },
-    { key: "insuranceProvider", label: "Insurance Provider", aliases: ["Insurance Provider", "insurance_provider", "insuranceProvider", "Insurance"] },
-    { key: "policyNumber", label: "Policy Number", aliases: ["Policy Number", "policy_number", "policyNumber"] }
+    { key: "county", label: "County", aliases: ["County", "county"] },
+    { key: "mco", label: "MCO", aliases: ["MCO", "mco", "Insurance Provider", "insurance_provider", "insuranceProvider", "Insurance", "Managed Care Organization", "Payer"] },
+    { key: "serviceStartDate", label: "Service Start Date", aliases: ["Service Start Date", "service_start_date", "serviceStartDate", "Start Date", "Start of Service", "SOC", "SOC Date"] },
+    { key: "hhaxAdmissionId", label: "HHA Admission ID", aliases: ["HHA Admission ID", "HHAX Admission ID", "hhax_admission_id", "hhaxAdmissionId", "HHAX ID", "Admission ID", "AdmissionID"] }
   ],
   caregivers: [
     { key: "hhaxCaregiverCode", label: "HHAX ID", aliases: ["HHAX ID", "hhax_id", "hhaxId", "HHAX Caregiver Code", "hhax_caregiver_code", "hhaxCaregiverCode", "HHAXCode"] },

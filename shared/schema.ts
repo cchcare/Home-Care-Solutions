@@ -129,6 +129,7 @@ export const clients = pgTable("clients", {
   city: varchar("city"),
   state: varchar("state"),
   zipCode: varchar("zip_code"),
+  county: varchar("county"),
   hhaxAdmissionId: varchar("hhax_admission_id").unique(),
   emergencyContactName: varchar("emergency_contact_name"),
   emergencyContactPhone: varchar("emergency_contact_phone"),
