@@ -16930,12 +16930,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // POST /api/doh-audits
   app.post("/api/doh-audits", isAuthenticated, async (req: any, res) => {
+    const user = req.session.user;
+    const { title, officeId, surveyPeriod, surveyorName, auditDate } = req.body;
+    if (!title || !officeId) {
+      return res.status(400).json({ message: "title and officeId are required" });
+    }
     try {
-      const user = req.session.user;
-      const { title, officeId, surveyPeriod, surveyorName, auditDate } = req.body;
-      if (!title || !officeId) {
-        return res.status(400).json({ message: "title and officeId are required" });
-      }
       const audit = await storage.createDohAuditAssessment({
         title: String(title),
         officeId: String(officeId),
@@ -16947,7 +16947,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
       res.status(201).json(audit);
     } catch (error: any) {
-      res.status(400).json({ message: error.message || "Failed to create audit" });
+      res.status(500).json({ message: error.message || "Failed to create audit" });
     }
   });
 
