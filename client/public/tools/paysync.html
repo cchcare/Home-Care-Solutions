@@ -696,14 +696,8 @@ input.finput::placeholder { color: var(--text3); }
   height: 100%;
   border-radius: 99px;
   background: linear-gradient(90deg, var(--teal), var(--teal2));
-  width: 30%;
-  animation: proc-sweep 1.4s ease-in-out infinite;
-  transform-origin: left;
-}
-@keyframes proc-sweep {
-  0%   { margin-left: 0%;   width: 30%; }
-  50%  { margin-left: 55%;  width: 35%; }
-  100% { margin-left: 0%;   width: 30%; }
+  width: 0%;
+  transition: width 400ms ease-out;
 }
 
 /* ── WARN BOX ── */
@@ -1334,7 +1328,7 @@ tr.unmatched-separator-row > td {
       <div class="proc-info">
         <div class="proc-label" id="procLabel">Processing payroll data…</div>
         <div class="proc-bar-track">
-          <div class="proc-bar-fill"></div>
+          <div class="proc-bar-fill" id="procBarFill"></div>
         </div>
       </div>
     </div>
@@ -1751,19 +1745,23 @@ function loadHHA(input, slot) {
 // ═══════════════════ PROCESS ═══════════════════
 async function runProcess() {
   const _pi = document.getElementById('processingIndicator');
+  const _barReset = document.getElementById('procBarFill');
   if (!_pi.classList.contains('visible')) {
     _pi.classList.add('visible');
     const _lblReset = document.getElementById('procLabel');
     if (_lblReset) _lblReset.textContent = 'Processing payroll data…';
+    if (_barReset) _barReset.style.width = '0%';
     document.getElementById('genBtn').disabled = true;
     setTimeout(runProcess, 32);
     return;
   }
 
   const _lbl = document.getElementById('procLabel');
-  // Set label then yield so browser can repaint before heavy work begins
-  const setLabel = (text) => new Promise(resolve => {
+  const _bar = document.getElementById('procBarFill');
+  // Set label (and optionally advance progress bar) then yield so browser can repaint before heavy work begins
+  const setLabel = (text, pct) => new Promise(resolve => {
     if (_lbl) _lbl.textContent = text;
+    if (_bar && typeof pct === 'number') _bar.style.width = pct + '%';
     requestAnimationFrame(() => requestAnimationFrame(resolve));
   });
   let _processedOk = false;
@@ -1802,7 +1800,7 @@ async function runProcess() {
     return d.length >= 4 ? d : '';
   }
 
-  await setLabel('Building master lookup…');
+  await setLabel('Building master lookup…', 20);
   // Build lookup from master — primary by HHA code, secondary by SSN
   const lookup = {};
   const ssnLookup = {};
@@ -1825,7 +1823,7 @@ async function runProcess() {
   if (ssnEntries > 0) lg(`  SSN fallback enabled — will try Social Security match if aide code not found`, 'i');
   lg(`HHA rows to process — ${S.hhaRows.length} total`, 'i');
 
-  await setLabel('Grouping HHA rows…');
+  await setLabel('Grouping HHA rows…', 40);
   // Group by aide+week (also capture SSN from HHA file if present)
   const grouped = {};
   const hMap = S.hhaMap || {};
@@ -1853,7 +1851,7 @@ async function runProcess() {
   });
   lg(`Grouped — ${Object.keys(grouped).length} unique aide-week combinations`, 'i');
 
-  await setLabel('Matching employees…');
+  await setLabel('Matching employees…', 60);
   const output = [];
   const unmatched = new Set();
   let ssnMatches = 0;
@@ -1899,7 +1897,7 @@ async function runProcess() {
   S.output    = output;
   S.unmatched = [...unmatched];
 
-  await setLabel('Building output…');
+  await setLabel('Building output…', 80);
   const totOT  = output.reduce((s, r) => s + r.otHrs, 0);
   const totReg = output.reduce((s, r) => s + r.regHrs, 0);
 
@@ -2001,7 +1999,7 @@ async function runProcess() {
 
   // ─── Optional: Summary Sheet filling ───
   if (S.summaryRows.length > 0) {
-    await setLabel('Filling summary sheet…');
+    await setLabel('Filling summary sheet…', 90);
     lg('', 'i');
     lg('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'i');
     lg('📊 Processing Summary Sheet...', 'i');
@@ -2292,10 +2290,13 @@ async function runProcess() {
     // Append unmatched summary rows to the export preview table
     appendUnmatchedSummaryRows(sumUnmatchedItems);
   }
+  // Ensure bar reaches ~90% before the completion jump (covers the no-summary path)
+  if (_bar) _bar.style.width = '90%';
   _processedOk = true;
   } finally {
     if (_processedOk) {
       if (_lbl) _lbl.textContent = '✓ Complete';
+      if (_bar) _bar.style.width = '100%';
       setTimeout(() => { _pi.classList.remove('visible'); tick(); }, 700);
     } else {
       _pi.classList.remove('visible');
