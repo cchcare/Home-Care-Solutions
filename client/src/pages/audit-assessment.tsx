@@ -2678,6 +2678,9 @@ async function exportComparisonToExcel(
   stats2: { pass: number; fail: number; scorePct: number },
   diffCounts: { improved: number; regressed: number; unchangedFail: number; unchangedPass: number },
   passRateDiff: number,
+  notesMap1: Record<string, string> = {},
+  notesMap2: Record<string, string> = {},
+  correctiveActions2: AuditCorrectiveAction[] = [],
 ) {
   const workbook = new ExcelJS.Workbook();
   workbook.creator = "CCHC Solutions";
@@ -2838,6 +2841,8 @@ async function exportComparisonToExcel(
     { header: "Audit 1 Status", key: "status1", width: 14 },
     { header: "Audit 2 Status", key: "status2", width: 14 },
     { header: "Change", key: "change", width: 16 },
+    { header: "Audit 1 Notes", key: "notes1", width: 40 },
+    { header: "Audit 2 Notes", key: "notes2", width: 40 },
   ];
 
   const compHeader = wsComp.getRow(1);
@@ -2853,6 +2858,10 @@ async function exportComparisonToExcel(
   compHeader.getCell(5).font = headerFont;
   compHeader.getCell(6).fill = headerFill;
   compHeader.getCell(6).font = headerFont;
+  compHeader.getCell(7).fill = audit1HeaderFill;
+  compHeader.getCell(7).font = headerFont;
+  compHeader.getCell(8).fill = audit2HeaderFill;
+  compHeader.getCell(8).font = headerFont;
   compHeader.height = 20;
 
   for (const cat of CHECKLIST) {
@@ -2868,6 +2877,8 @@ async function exportComparisonToExcel(
         status1: statusLabel(s1),
         status2: statusLabel(s2),
         change: diffLabel(diff),
+        notes1: notesMap1[item.key] || "",
+        notes2: notesMap2[item.key] || "",
       });
       row.eachCell(cell => {
         cell.fill = fill;
@@ -2886,12 +2897,84 @@ async function exportComparisonToExcel(
         status1: statusLabel(cr.s1),
         status2: statusLabel(cr.s2),
         change: diffLabel(diff),
+        notes1: notesMap1[cr.id] || "",
+        notes2: notesMap2[cr.id] || "",
       });
       row.eachCell(cell => {
         cell.fill = fill;
         cell.font = { size: 10 };
         cell.alignment = { wrapText: true, vertical: "top" };
       });
+    }
+  }
+
+  // ── Sheet 3 (optional): Audit 2 Corrective Actions ───────────────────────────
+  if (correctiveActions2.length > 0) {
+    const wsCa = workbook.addWorksheet("Audit 2 Corrective Actions");
+    wsCa.columns = [
+      { header: "Category", key: "category", width: 22 },
+      { header: "Deficient Item", key: "item", width: 45 },
+      { header: "Responsible Party", key: "responsible", width: 22 },
+      { header: "Target Date", key: "targetDate", width: 14 },
+      { header: "Completion Date", key: "completionDate", width: 16 },
+      { header: "Status", key: "status", width: 14 },
+      { header: "Action Steps", key: "steps", width: 50 },
+    ];
+
+    const caHeaderRow = wsCa.getRow(1);
+    caHeaderRow.eachCell(cell => {
+      cell.fill = audit2HeaderFill;
+      cell.font = headerFont;
+      cell.alignment = { vertical: "middle" };
+    });
+    caHeaderRow.height = 20;
+
+    const caStatusLabel: Record<string, string> = { open: "Open", in_progress: "In Progress", resolved: "Resolved" };
+    const caMap = new Map(correctiveActions2.map(ca => [ca.itemKey, ca]));
+
+    let hasCaRows = false;
+    for (const cat of CHECKLIST) {
+      for (const item of cat.items) {
+        if ((map2[item.key] || "pending") !== "fail") continue;
+        const ca = caMap.get(item.key);
+        if (!ca) continue;
+        hasCaRows = true;
+        wsCa.addRow({
+          category: cat.label,
+          item: item.label,
+          responsible: ca.responsibleParty || "",
+          targetDate: ca.targetDate || "",
+          completionDate: ca.completionDate || "",
+          status: caStatusLabel[ca.status] || ca.status,
+          steps: ca.actionSteps || "",
+        }).eachCell(cell => {
+          cell.font = { size: 10 };
+          cell.alignment = { wrapText: true, vertical: "top" };
+        });
+      }
+      const customCatItems = customItems2.filter(i => i.category === cat.id);
+      for (const item of customCatItems) {
+        if ((map2[item.id] || "pending") !== "fail") continue;
+        const ca = caMap.get(item.id);
+        if (!ca) continue;
+        hasCaRows = true;
+        wsCa.addRow({
+          category: `${cat.label} (custom)`,
+          item: item.label,
+          responsible: ca.responsibleParty || "",
+          targetDate: ca.targetDate || "",
+          completionDate: ca.completionDate || "",
+          status: caStatusLabel[ca.status] || ca.status,
+          steps: ca.actionSteps || "",
+        }).eachCell(cell => {
+          cell.font = { size: 10 };
+          cell.alignment = { wrapText: true, vertical: "top" };
+        });
+      }
+    }
+
+    if (!hasCaRows) {
+      wsCa.addRow({ category: "No corrective actions on file for current Audit 2 deficiencies", item: "", responsible: "", targetDate: "", completionDate: "", status: "", steps: "" });
     }
   }
 
@@ -3021,6 +3104,16 @@ function CompareView({
     enabled: !!auditId2,
   });
 
+  const { data: correctiveActions2 = [] } = useQuery<AuditCorrectiveAction[]>({
+    queryKey: ["/api/doh-audits", auditId2, "corrective-actions"],
+    enabled: !!auditId2,
+    queryFn: async () => {
+      const res = await fetch(`/api/doh-audits/${auditId2}/corrective-actions`, { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
+  });
+
   const loading = loading1 || loading2;
   const [exporting, setExporting] = useState(false);
   const [copyingLink, setCopyingLink] = useState(false);
@@ -3039,8 +3132,16 @@ function CompareView({
 
   const map1: Record<string, ItemStatus> = {};
   const map2: Record<string, ItemStatus> = {};
-  (audit1?.responses || []).forEach(r => { map1[r.itemKey] = r.status; });
-  (audit2?.responses || []).forEach(r => { map2[r.itemKey] = r.status; });
+  const notesMap1: Record<string, string> = {};
+  const notesMap2: Record<string, string> = {};
+  (audit1?.responses || []).forEach(r => {
+    map1[r.itemKey] = r.status;
+    notesMap1[r.itemKey] = r.notes || "";
+  });
+  (audit2?.responses || []).forEach(r => {
+    map2[r.itemKey] = r.status;
+    notesMap2[r.itemKey] = r.notes || "";
+  });
 
   const customItems1: AuditCustomItem[] = audit1?.customItems || [];
   const customItems2: AuditCustomItem[] = audit2?.customItems || [];
@@ -3075,7 +3176,7 @@ function CompareView({
     if (!audit1 || !audit2) return;
     setExporting(true);
     try {
-      await exportComparisonToExcel(audit1, audit2, map1, map2, customItems1, customItems2, stats1, stats2, diffCounts, passRateDiff);
+      await exportComparisonToExcel(audit1, audit2, map1, map2, customItems1, customItems2, stats1, stats2, diffCounts, passRateDiff, notesMap1, notesMap2, correctiveActions2);
       toast({ title: "Export complete", description: "Comparison report downloaded successfully." });
     } catch {
       toast({ title: "Export failed", description: "Could not generate the comparison report.", variant: "destructive" });
