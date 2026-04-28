@@ -698,6 +698,12 @@ export class ExclusionService {
       console.log(`[Exclusion Service] Successfully imported ${recordCount} Medicheck records (${entityOnly} entity-only, ${droppedEmpty} skipped)`);
     } catch (error: any) {
       console.error('[Exclusion Service] Error importing Medicheck CSV:', error);
+      // Surface validation failures to the route layer so it can return a
+      // proper 4xx HTTP status. Other (unexpected) errors are still flattened
+      // into the result envelope so callers don't crash.
+      if (error instanceof MedicheckImportValidationError) {
+        throw error;
+      }
       errors.push(error.message);
     }
 
