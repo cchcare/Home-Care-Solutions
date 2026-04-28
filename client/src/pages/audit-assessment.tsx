@@ -2238,10 +2238,11 @@ function CorrectiveActionPanel({
 
   return (
     <div className="mt-2">
+      {/* Interactive toggle button — hidden during print */}
       <button
         type="button"
         onClick={() => setExpanded(e => !e)}
-        className="flex items-center gap-1.5 text-xs font-medium text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-200 transition-colors"
+        className="print:hidden flex items-center gap-1.5 text-xs font-medium text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-200 transition-colors"
       >
         {expanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
         {hasAction ? (
@@ -2259,8 +2260,9 @@ function CorrectiveActionPanel({
         )}
       </button>
 
+      {/* Interactive expanded form — hidden during print */}
       {expanded && (
-        <div className="mt-2 p-3 bg-blue-50/50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 rounded-lg space-y-3">
+        <div className="print:hidden mt-2 p-3 bg-blue-50/50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 rounded-lg space-y-3">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="space-y-1">
               <Label className="text-xs">Responsible Party</Label>
@@ -2330,6 +2332,47 @@ function CorrectiveActionPanel({
               </Button>
             )}
           </div>
+        </div>
+      )}
+
+      {/* Print-only static corrective action summary */}
+      {hasAction ? (
+        <div className="hidden print:block mt-2 p-2 border border-gray-300 rounded text-xs">
+          <p className="font-semibold text-gray-700 mb-1">Corrective Action Plan</p>
+          <div className="flex flex-wrap gap-x-4 gap-y-0.5">
+            <span>
+              <span className="font-medium">Status: </span>
+              {statusLabel[existingAction!.status]}
+            </span>
+            {existingAction?.responsibleParty && (
+              <span>
+                <span className="font-medium">Responsible: </span>
+                {existingAction.responsibleParty}
+              </span>
+            )}
+            {existingAction?.targetDate && (
+              <span>
+                <span className="font-medium">Target Date: </span>
+                {existingAction.targetDate}
+              </span>
+            )}
+            {existingAction?.completionDate && (
+              <span>
+                <span className="font-medium">Completed: </span>
+                {existingAction.completionDate}
+              </span>
+            )}
+          </div>
+          {existingAction?.actionSteps && (
+            <p className="mt-1 text-gray-600">
+              <span className="font-medium">Steps: </span>
+              {existingAction.actionSteps}
+            </p>
+          )}
+        </div>
+      ) : (
+        <div className="hidden print:block mt-1">
+          <p className="text-xs text-gray-400 italic">No corrective action plan on file.</p>
         </div>
       )}
     </div>
