@@ -2346,19 +2346,28 @@ function appendUnmatchedSummaryRows(items) {
     return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   }
 
+  // Stagger the fade/slide-in animation just like the matched rows above
+  // so the unmatched block feels consistent. Cap the delay at ~10 rows.
+  const ANIM_CAP = 10;
+  const ANIM_STEP = 40;
+
   // Add a separator row before the unmatched block. Styling lives in the
   // .unmatched-separator-row CSS class so it picks up the live highlight
   // colors via the same CSS variables as the rest of the unmatched rows.
   const sepTr = document.createElement('tr');
-  sepTr.className = 'unmatched-separator-row';
+  sepTr.className = 'unmatched-separator-row table-row-animate';
+  sepTr.style.animationDelay = '0ms';
   sepTr.innerHTML = `<td colspan="10">▼ UNMATCHED SUMMARY ROWS — click a row to see reason</td>`;
   tb.appendChild(sepTr);
 
   items.forEach(({ id, reason }, idx) => {
     const detailId = `unmatched-sum-detail-${idx}`;
+    // Offset row delays by 1 step so they trail the separator row.
+    const delay = (Math.min(idx + 1, ANIM_CAP - 1)) * ANIM_STEP;
 
     const tr = document.createElement('tr');
-    tr.className = 'unmatched-summary-row';
+    tr.className = 'unmatched-summary-row table-row-animate';
+    tr.style.animationDelay = `${delay}ms`;
     tr.title = `Unmatched: ${reason}`;
     tr.innerHTML = `
       <td><span style="font-family:'DM Mono',monospace;color:var(--text3)">—</span></td>
