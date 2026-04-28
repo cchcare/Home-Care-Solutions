@@ -122,6 +122,7 @@ import {
   sendUrgentAlert
 } from "./notification-service";
 import { insertNotificationPreferenceSchema, insertNotificationTemplateSchema } from "@shared/schema";
+import type { ExclusionSource, ExclusionRecord } from "@shared/schema";
 import { shiftMatchingService } from "./shift-matching-service";
 import {
   getOperationalKPIs,
@@ -13260,12 +13261,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Enrich with caregiverName, source short-name, matchedName, matchedRecord
       // identifier fields so the UI can render "Match reason" badges without
-      // making N additional requests.
+      // making N additional requests. Storage failures are NOT swallowed —
+      // the surrounding try/catch returns a 500 so coordinators are never shown
+      // partial / silently-degraded review data.
       const sourceList = await storage.getExclusionSources();
-      const sourceById = new Map(sourceList.map((s) => [s.id, s]));
-      const sourceTypeFromName = (src: any): 'oig' | 'medicheck' | 'sam' | string => {
+      const sourceById = new Map<string, ExclusionSource>(
+        sourceList.map((s) => [s.id, s]),
+      );
+      const sourceTypeFromName = (
+        src: ExclusionSource | undefined,
+      ): 'oig' | 'medicheck' | 'sam' | string => {
         if (!src) return '';
-        if (src.sourceType) return src.sourceType;
         const n = (src.name || '').toLowerCase();
         if (n.includes('oig')) return 'oig';
         if (n.includes('sam')) return 'sam';
@@ -13273,22 +13279,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return src.name || '';
       };
 
-      const caregiverIds = Array.from(new Set(rawChecks.map(c => c.caregiverId)));
+      const caregiverIds = Array.from(new Set(rawChecks.map((c) => c.caregiverId)));
       const caregiverInfoById = new Map<string, { name: string; npi: string | null }>();
       for (const cid of caregiverIds) {
-        const cg = await storage.getCaregiver(cid).catch(() => null);
+        const cg = await storage.getCaregiver(cid);
         if (cg) {
           const name = `${cg.firstName || ''} ${cg.lastName || ''}`.trim();
           caregiverInfoById.set(cid, { name: name || 'Unknown', npi: cg.npi ?? null });
         }
       }
 
-      const recordIds = Array.from(new Set(
-        rawChecks.map(c => c.exclusionRecordId).filter((x): x is string => !!x)
-      ));
-      const recordById = new Map<string, any>();
+      const recordIds = Array.from(
+        new Set(rawChecks.map((c) => c.exclusionRecordId).filter((x): x is string => !!x)),
+      );
+      const recordById = new Map<string, ExclusionRecord>();
       for (const rid of recordIds) {
-        const rec = await storage.getExclusionRecord(rid).catch(() => null);
+        const rec = await storage.getExclusionRecord(rid);
         if (rec) recordById.set(rid, rec);
       }
 
