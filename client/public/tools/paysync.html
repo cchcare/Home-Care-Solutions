@@ -926,6 +926,25 @@ tr.unmatched-separator-row > td {
   letter-spacing: 0.04em;
   border-top: 1px solid var(--preview-unmatched-border);
 }
+/* Tiny "row" swatches shown next to the color pickers so users can
+   see what a matched/unmatched row will look like without scrolling
+   down to the full Export Preview table. */
+.row-swatch {
+  display: inline-block;
+  width: 38px;
+  height: 16px;
+  border-radius: 3px;
+  border: 1px solid var(--border2);
+  vertical-align: middle;
+  transition: background 0.15s, border-color 0.15s;
+}
+.row-swatch.matched {
+  background: var(--preview-matched-bg);
+}
+.row-swatch.unmatched {
+  background: var(--preview-unmatched-bg);
+  border-left: 3px solid var(--preview-unmatched-border);
+}
 .empty-state {
   padding: 48px 20px;
   text-align: center;
@@ -1435,10 +1454,12 @@ tr.unmatched-separator-row > td {
         <label style="font-weight:500;white-space:nowrap;color:var(--text2);display:flex;align-items:center;gap:4px">
           Matched:
           <input type="color" id="matchedColor" value="#C6EFCE" title="Matched row color" style="width:28px;height:24px;padding:1px;border:1px solid var(--border2);border-radius:4px;cursor:pointer;background:none">
+          <span class="row-swatch matched" title="Live preview of a matched row" aria-hidden="true"></span>
         </label>
         <label style="font-weight:500;white-space:nowrap;color:var(--text2);display:flex;align-items:center;gap:4px">
           Unmatched:
           <input type="color" id="unmatchedColor" value="#FFC7CE" title="Unmatched row color" style="width:28px;height:24px;padding:1px;border:1px solid var(--border2);border-radius:4px;cursor:pointer;background:none">
+          <span class="row-swatch unmatched" title="Live preview of an unmatched row" aria-hidden="true"></span>
         </label>
         <button type="button" id="resetColorsBtn" title="Reset highlight colors to defaults" style="font-size:12px;padding:4px 8px;border:1px solid var(--border2);border-radius:6px;background:var(--card);color:var(--text2);font-family:'Inter',sans-serif;cursor:pointer;display:inline-flex;align-items:center;gap:4px;line-height:1">
           <span style="font-size:14px;line-height:1">↺</span> Reset
