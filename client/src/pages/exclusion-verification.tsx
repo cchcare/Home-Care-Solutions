@@ -892,10 +892,9 @@ function MedicheckRecordsDialog({
     enabled: open,
   });
 
-  const formatPersonOrEntity = (r: MedicheckRecord) => {
+  const formatPersonName = (r: MedicheckRecord) => {
     const parts = [r.lastName, r.firstName].filter(Boolean).join(", ");
     if (parts) return parts;
-    if (r.businessName) return r.businessName;
     return "—";
   };
 
@@ -923,7 +922,8 @@ function MedicheckRecordsDialog({
           <Table data-testid="table-medicheck-records">
             <TableHeader>
               <TableRow>
-                <TableHead>Name / Business</TableHead>
+                <TableHead>Name</TableHead>
+                <TableHead>Business Name</TableHead>
                 <TableHead>License Number</TableHead>
                 <TableHead>NPI</TableHead>
                 <TableHead>Status</TableHead>
@@ -934,7 +934,12 @@ function MedicheckRecordsDialog({
             <TableBody>
               {records.map((r) => (
                 <TableRow key={r.id} data-testid={`row-medicheck-${r.id}`}>
-                  <TableCell className="font-medium">{formatPersonOrEntity(r)}</TableCell>
+                  <TableCell className="font-medium" data-testid={`cell-medicheck-name-${r.id}`}>
+                    {formatPersonName(r)}
+                  </TableCell>
+                  <TableCell data-testid={`cell-medicheck-business-${r.id}`}>
+                    {r.businessName || "—"}
+                  </TableCell>
                   <TableCell>{r.licenseNumber || "—"}</TableCell>
                   <TableCell>{r.npi || "—"}</TableCell>
                   <TableCell>
