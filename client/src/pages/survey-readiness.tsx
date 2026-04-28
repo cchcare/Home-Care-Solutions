@@ -1,5 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useOfficeScope } from "@/context/office-context";
+import { Sidebar } from "@/components/sidebar";
+import { TopBar } from "@/components/topbar";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -192,7 +194,12 @@ export default function SurveyReadiness() {
     : 0;
 
   return (
-    <div className="p-6 max-w-7xl mx-auto space-y-6">
+    <div className="flex h-screen overflow-hidden">
+      <Sidebar />
+      <main className="flex-1 flex flex-col overflow-hidden">
+        <TopBar title="Survey Readiness Hub" subtitle="Real-time DOH compliance gap analysis and readiness scoring" />
+        <div className="flex-1 overflow-auto p-6 bg-background">
+        <div className="max-w-7xl mx-auto space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">
@@ -343,5 +350,8 @@ export default function SurveyReadiness() {
         </div>
       )}
     </div>
+        </div>
+    </main>
+  </div>
   );
 }

@@ -4,6 +4,8 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useOfficeScope } from "@/context/office-context";
+import { Sidebar } from "@/components/sidebar";
+import { TopBar } from "@/components/topbar";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -160,7 +162,12 @@ export default function InfectionControl() {
   const publicHealthReported = logs.filter(l => l.reportedToPublicHealth).length;
 
   return (
-    <div className="p-6 max-w-7xl mx-auto space-y-6">
+    <div className="flex h-screen overflow-hidden">
+      <Sidebar />
+      <main className="flex-1 flex flex-col overflow-hidden">
+        <TopBar title="Infection Control" subtitle="Track and manage infection incidents and prevention measures" />
+        <div className="flex-1 overflow-auto p-6 bg-background">
+        <div className="max-w-7xl mx-auto space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">
@@ -424,5 +431,8 @@ export default function InfectionControl() {
         </DialogContent>
       </Dialog>
     </div>
+        </div>
+    </main>
+  </div>
   );
 }

@@ -224,6 +224,7 @@ export function Sidebar() {
         children: [
           { name: "Analytics & Reports", href: "/reports", icon: BarChart3 },
           { name: "Care Quality Scorecard", href: "/care-quality-scorecard", icon: TrendingUp },
+          { name: "Schedule Overlap Report", href: "/reports/schedule-overlaps", icon: Layers },
         ]
       },
       {
