@@ -2393,6 +2393,8 @@ function DeficienciesSection({
   onDeleteCorrectiveAction: (actionId: string) => void;
   isSaving: boolean;
 }) {
+  const [filterStatus, setFilterStatus] = useState<"all" | "open" | "in_progress" | "resolved">("all");
+
   const deficientItems: Array<{
     key: string;
     label: string;
@@ -2449,6 +2451,18 @@ function DeficienciesSection({
   const resolvedCount = relevantCAs.filter(ca => ca.status === "resolved").length;
   const openOrUnaddressedCount = deficientItems.length - inProgressCount - resolvedCount;
 
+  const getItemCaStatus = (itemKey: string): "open" | "in_progress" | "resolved" => {
+    const ca = caMap.get(itemKey);
+    if (!ca) return "open";
+    if (ca.status === "in_progress") return "in_progress";
+    if (ca.status === "resolved") return "resolved";
+    return "open";
+  };
+
+  const filteredItems = filterStatus === "all"
+    ? deficientItems
+    : deficientItems.filter(item => getItemCaStatus(item.key) === filterStatus);
+
   return (
     <div className="space-y-3">
       {/* Summary counts */}
@@ -2478,9 +2492,46 @@ function DeficienciesSection({
             <CardTitle className="text-base">Deficiencies — {deficientItems.length} item{deficientItems.length !== 1 ? "s" : ""}</CardTitle>
           </div>
           <CardDescription>Expand each deficiency to add or update a corrective action plan.</CardDescription>
+          {/* Filter toggles */}
+          <div className="flex flex-wrap gap-1.5 pt-1">
+            {([
+              { value: "all", label: "All", count: deficientItems.length },
+              { value: "open", label: "Open / Unaddressed", count: openOrUnaddressedCount },
+              { value: "in_progress", label: "In Progress", count: inProgressCount },
+              { value: "resolved", label: "Resolved", count: resolvedCount },
+            ] as const).map(opt => (
+              <button
+                key={opt.value}
+                onClick={() => setFilterStatus(opt.value)}
+                className={[
+                  "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border transition-colors",
+                  filterStatus === opt.value
+                    ? opt.value === "all"
+                      ? "bg-foreground text-background border-foreground"
+                      : opt.value === "open"
+                      ? "bg-red-500 text-white border-red-500"
+                      : opt.value === "in_progress"
+                      ? "bg-amber-500 text-white border-amber-500"
+                      : "bg-green-500 text-white border-green-500"
+                    : "bg-background text-muted-foreground border-border hover:border-foreground/40 hover:text-foreground",
+                ].join(" ")}
+              >
+                {opt.label}
+                <span className={[
+                  "rounded-full px-1.5 py-0 text-[10px] font-bold",
+                  filterStatus === opt.value ? "bg-white/20" : "bg-muted",
+                ].join(" ")}>
+                  {opt.count}
+                </span>
+              </button>
+            ))}
+          </div>
         </CardHeader>
         <CardContent className="space-y-3">
-          {deficientItems.map((item, idx) => (
+          {filteredItems.length === 0 && (
+            <p className="text-sm text-muted-foreground text-center py-6">No deficiencies match the selected filter.</p>
+          )}
+          {filteredItems.map((item, idx) => (
             <div key={item.key} className="border-l-4 border-l-red-400 bg-red-50/40 dark:bg-red-950/20 rounded-r-lg px-3 py-3">
               <div className="flex items-start gap-2">
                 <span className="text-xs font-bold text-red-500 bg-red-100 dark:bg-red-900/30 rounded px-1.5 py-0.5 shrink-0 mt-0.5">{idx + 1}</span>
