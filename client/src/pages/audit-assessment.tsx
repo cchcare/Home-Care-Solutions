@@ -1148,13 +1148,13 @@ export default function AuditAssessment() {
                     </TabsTrigger>
                   );
                 })}
-                {stats.fail > 0 && (
-                  <TabsTrigger value="deficiencies" className="gap-1.5 text-xs py-1.5 px-3">
-                    <XCircle size={13} className="text-red-500" />
-                    <span className="hidden sm:inline">Deficiencies</span>
+                <TabsTrigger value="deficiencies" className="gap-1.5 text-xs py-1.5 px-3">
+                  <XCircle size={13} className={stats.fail > 0 ? "text-red-500" : "text-muted-foreground"} />
+                  <span className="hidden sm:inline">Deficiencies</span>
+                  {stats.fail > 0 && (
                     <Badge className="bg-red-100 text-red-700 border-red-200 text-xs px-1 py-0 ml-1">{stats.fail}</Badge>
-                  </TabsTrigger>
-                )}
+                  )}
+                </TabsTrigger>
                 <TabsTrigger value="documents" className="gap-1.5 text-xs py-1.5 px-3">
                   <Paperclip size={13} />
                   <span className="hidden sm:inline">Documents</span>
@@ -1183,17 +1183,15 @@ export default function AuditAssessment() {
                 </TabsContent>
               ))}
 
-              {stats.fail > 0 && (
-                <TabsContent value="deficiencies">
-                  <DeficienciesSection
-                    responsesMap={responsesMap}
-                    notesMap={notesMap}
-                    customItems={customItems}
-                    auditDocuments={auditDocuments}
-                    auditId={activeAuditId!}
-                  />
-                </TabsContent>
-              )}
+              <TabsContent value="deficiencies">
+                <DeficienciesSection
+                  responsesMap={responsesMap}
+                  notesMap={notesMap}
+                  customItems={customItems}
+                  auditDocuments={auditDocuments}
+                  auditId={activeAuditId!}
+                />
+              </TabsContent>
 
               <TabsContent value="documents">
                 <DocumentsSection
