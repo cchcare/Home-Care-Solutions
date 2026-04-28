@@ -35,7 +35,7 @@ import {
   Users, UserCheck, AlertTriangle, ShieldCheck, ChevronDown, ChevronUp,
   Printer, Upload, Paperclip, Download, X, File, Image, Sheet,
   MoreVertical, Archive, ArchiveRestore, FileSpreadsheet, User,
-  ArrowLeftRight, TrendingUp, TrendingDown, Minus,
+  ArrowLeftRight, TrendingUp, TrendingDown, Minus, Link2,
 } from "lucide-react";
 import ExcelJS from "exceljs";
 import jsPDF from "jspdf";
@@ -2855,7 +2855,19 @@ function CompareView({
 
   const loading = loading1 || loading2;
   const [exporting, setExporting] = useState(false);
+  const [copyingLink, setCopyingLink] = useState(false);
   const { toast } = useToast();
+
+  function handleCopyLink() {
+    const url = `${window.location.origin}/audit-assessment?compare=${auditId1},${auditId2}`;
+    navigator.clipboard.writeText(url).then(() => {
+      setCopyingLink(true);
+      toast({ title: "Link copied!", description: "Shareable comparison link copied to clipboard." });
+      setTimeout(() => setCopyingLink(false), 2000);
+    }).catch(() => {
+      toast({ title: "Copy failed", description: "Could not copy link to clipboard.", variant: "destructive" });
+    });
+  }
 
   const map1: Record<string, ItemStatus> = {};
   const map2: Record<string, ItemStatus> = {};
@@ -2922,16 +2934,28 @@ function CompareView({
           )}
         </div>
         {!loading && audit1 && audit2 && (
-          <Button
-            variant="outline"
-            size="sm"
-            className="shrink-0 gap-1.5"
-            onClick={handleExport}
-            disabled={exporting}
-          >
-            <FileSpreadsheet size={15} />
-            {exporting ? "Exporting…" : "Export Excel"}
-          </Button>
+          <div className="flex items-center gap-2 shrink-0">
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5"
+              onClick={handleCopyLink}
+              disabled={copyingLink}
+            >
+              <Link2 size={15} />
+              {copyingLink ? "Copied!" : "Copy link"}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5"
+              onClick={handleExport}
+              disabled={exporting}
+            >
+              <FileSpreadsheet size={15} />
+              {exporting ? "Exporting…" : "Export Excel"}
+            </Button>
+          </div>
         )}
       </div>
 
