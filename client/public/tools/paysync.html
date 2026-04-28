@@ -1423,6 +1423,16 @@ tr.unmatched-separator-row > td {
       </select>
       <span id="customColorPickers" style="display:inline-flex;align-items:center;gap:10px">
         <label style="font-weight:500;white-space:nowrap;color:var(--text2);display:flex;align-items:center;gap:4px">
+          Preset:
+          <select id="colorPresetSelect" title="Apply a curated color preset" style="font-size:12px;padding:4px 8px;border:1px solid var(--border2);border-radius:6px;background:var(--card);color:var(--text);font-family:'Inter',sans-serif;cursor:pointer;outline:none">
+            <option value="custom">Custom</option>
+            <option value="classic">Classic Green/Red</option>
+            <option value="contrast">High Contrast</option>
+            <option value="colorblind">Colorblind-friendly (Blue/Orange)</option>
+            <option value="pastel">Soft Pastel</option>
+          </select>
+        </label>
+        <label style="font-weight:500;white-space:nowrap;color:var(--text2);display:flex;align-items:center;gap:4px">
           Matched:
           <input type="color" id="matchedColor" value="#C6EFCE" title="Matched row color" style="width:28px;height:24px;padding:1px;border:1px solid var(--border2);border-radius:4px;cursor:pointer;background:none">
         </label>
@@ -2838,6 +2848,38 @@ setupDragDrop();
   const colorPickersEl   = document.getElementById('customColorPickers');
   const matchedColorEl   = document.getElementById('matchedColor');
   const unmatchedColorEl = document.getElementById('unmatchedColor');
+  const presetSelectEl   = document.getElementById('colorPresetSelect');
+
+  // Curated color presets. Hex values are used for both the picker swatches
+  // and as the base for the rgba() preview tints downstream.
+  const COLOR_PRESETS = {
+    classic:    { matched: '#C6EFCE', unmatched: '#FFC7CE' },
+    contrast:   { matched: '#6FCF97', unmatched: '#EB5757' },
+    colorblind: { matched: '#56B4E9', unmatched: '#E69F00' },
+    pastel:     { matched: '#D4F1D4', unmatched: '#FCD5CE' }
+  };
+
+  // Find a preset name whose colors match the given hex pair (case-insensitive).
+  function detectPresetName(matchedHex, unmatchedHex) {
+    const m = String(matchedHex || '').toLowerCase();
+    const u = String(unmatchedHex || '').toLowerCase();
+    for (const name in COLOR_PRESETS) {
+      const p = COLOR_PRESETS[name];
+      if (p.matched.toLowerCase() === m && p.unmatched.toLowerCase() === u) {
+        return name;
+      }
+    }
+    return 'custom';
+  }
+
+  // Keep the preset dropdown in sync with whatever colors are currently set,
+  // so manual edits / resets show "Custom" or the matching preset.
+  function refreshPresetSelection() {
+    if (!presetSelectEl) return;
+    const m = matchedColorEl   ? matchedColorEl.value   : '';
+    const u = unmatchedColorEl ? unmatchedColorEl.value : '';
+    presetSelectEl.value = detectPresetName(m, u);
+  }
 
   function syncColorPickerVisibility() {
     if (!colorPickersEl) return;
@@ -2914,19 +2956,50 @@ setupDragDrop();
   if (matchedColorEl) {
     const saved = localStorage.getItem('paysync_matchedColor');
     if (saved) matchedColorEl.value = saved;
-    matchedColorEl.addEventListener('input', applyPreviewHighlight);
+    matchedColorEl.addEventListener('input', function () {
+      applyPreviewHighlight();
+      refreshPresetSelection();
+    });
     matchedColorEl.addEventListener('change', function () {
       localStorage.setItem('paysync_matchedColor', matchedColorEl.value);
       applyPreviewHighlight();
+      refreshPresetSelection();
     });
   }
 
   if (unmatchedColorEl) {
     const saved = localStorage.getItem('paysync_unmatchedColor');
     if (saved) unmatchedColorEl.value = saved;
-    unmatchedColorEl.addEventListener('input', applyPreviewHighlight);
+    unmatchedColorEl.addEventListener('input', function () {
+      applyPreviewHighlight();
+      refreshPresetSelection();
+    });
     unmatchedColorEl.addEventListener('change', function () {
       localStorage.setItem('paysync_unmatchedColor', unmatchedColorEl.value);
+      applyPreviewHighlight();
+      refreshPresetSelection();
+    });
+  }
+
+  if (presetSelectEl) {
+    // The preset selection is always derived from whatever colors are
+    // currently loaded — no separate "preset" key is persisted, since the
+    // saved matched/unmatched colors are the source of truth.
+    refreshPresetSelection();
+
+    presetSelectEl.addEventListener('change', function () {
+      const preset = COLOR_PRESETS[presetSelectEl.value];
+      if (preset) {
+        if (matchedColorEl) {
+          matchedColorEl.value = preset.matched;
+          localStorage.setItem('paysync_matchedColor', preset.matched);
+        }
+        if (unmatchedColorEl) {
+          unmatchedColorEl.value = preset.unmatched;
+          localStorage.setItem('paysync_unmatchedColor', preset.unmatched);
+        }
+      }
+      // "custom" leaves the colors as-is — user keeps tweaking from here.
       applyPreviewHighlight();
     });
   }
@@ -2946,6 +3019,7 @@ setupDragDrop();
       }
       localStorage.removeItem('paysync_matchedColor');
       localStorage.removeItem('paysync_unmatchedColor');
+      refreshPresetSelection();
       applyPreviewHighlight();
     });
   }
