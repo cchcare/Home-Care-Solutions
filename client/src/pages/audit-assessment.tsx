@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useOffice } from "@/context/office-context";
@@ -35,6 +35,7 @@ import {
   Users, UserCheck, AlertTriangle, ShieldCheck, ChevronDown, ChevronUp,
   Printer, Upload, Paperclip, Download, X, File, Image, Sheet,
   MoreVertical, Archive, ArchiveRestore, FileSpreadsheet, User,
+  ArrowLeftRight, TrendingUp, TrendingDown, Minus,
 } from "lucide-react";
 import ExcelJS from "exceljs";
 import { format } from "date-fns";
@@ -522,6 +523,44 @@ export default function AuditAssessment() {
   const [newOfficeId, setNewOfficeId] = useState("");
   const [showArchived, setShowArchived] = useState(false);
   const [exportingId, setExportingId] = useState<string | null>(null);
+  const [compareMode, setCompareMode] = useState(false);
+  const [selectedForCompare, setSelectedForCompare] = useState<string[]>([]);
+  const [compareViewIds, setCompareViewIds] = useState<[string, string] | null>(null);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const compareParam = params.get("compare");
+    if (compareParam) {
+      const ids = compareParam.split(",").map(s => s.trim()).filter(Boolean);
+      if (ids.length === 2) {
+        setCompareViewIds([ids[0], ids[1]]);
+      }
+    }
+  }, []);
+
+  const enterCompareView = (id1: string, id2: string) => {
+    setCompareViewIds([id1, id2]);
+    const url = new URL(window.location.href);
+    url.searchParams.set("compare", `${id1},${id2}`);
+    window.history.pushState({}, "", url.toString());
+  };
+
+  const exitCompareView = () => {
+    setCompareViewIds(null);
+    setCompareMode(false);
+    setSelectedForCompare([]);
+    const url = new URL(window.location.href);
+    url.searchParams.delete("compare");
+    window.history.pushState({}, "", url.toString());
+  };
+
+  const toggleSelectForCompare = (auditId: string) => {
+    setSelectedForCompare(prev => {
+      if (prev.includes(auditId)) return prev.filter(id => id !== auditId);
+      if (prev.length >= 2) return prev;
+      return [...prev, auditId];
+    });
+  };
 
   const officeId = selectedOfficeId && selectedOfficeId !== "all"
     ? selectedOfficeId : (user as any)?.primaryOfficeId || "";
@@ -718,6 +757,21 @@ export default function AuditAssessment() {
 
   const visibleAudits = audits.filter(a => showArchived ? a.status === "archived" : a.status !== "archived");
 
+  // ─── Compare view ─────────────────────────────────────────────────────────
+
+  if (compareViewIds) {
+    return (
+      <div className="flex h-screen bg-background">
+        <Sidebar />
+        <CompareView
+          auditId1={compareViewIds[0]}
+          auditId2={compareViewIds[1]}
+          onBack={exitCompareView}
+        />
+      </div>
+    );
+  }
+
   // ─── List view ────────────────────────────────────────────────────────────
 
   if (!activeAuditId) {
@@ -726,7 +780,7 @@ export default function AuditAssessment() {
         <Sidebar />
         <div className="flex-1 overflow-auto">
           <div className="p-6 max-w-5xl mx-auto">
-            <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
               <div>
                 <h1 className="text-2xl font-bold flex items-center gap-2">
                   <ClipboardCheck size={24} /> DOH Audit Assessment
@@ -735,10 +789,58 @@ export default function AuditAssessment() {
                   Manage DOH home care audit readiness checklists for your agency
                 </p>
               </div>
-              <Button onClick={() => setCreateDialogOpen(true)} className="gap-2">
-                <Plus size={16} /> New Audit
-              </Button>
+              <div className="flex items-center gap-2">
+                {!compareMode && visibleAudits.length >= 2 && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-2"
+                    onClick={() => { setCompareMode(true); setSelectedForCompare([]); }}
+                  >
+                    <ArrowLeftRight size={15} /> Compare
+                  </Button>
+                )}
+                {!compareMode && (
+                  <Button onClick={() => setCreateDialogOpen(true)} className="gap-2">
+                    <Plus size={16} /> New Audit
+                  </Button>
+                )}
+                {compareMode && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => { setCompareMode(false); setSelectedForCompare([]); }}
+                  >
+                    <X size={14} className="mr-1" /> Cancel
+                  </Button>
+                )}
+              </div>
             </div>
+
+            {/* Compare mode banner */}
+            {compareMode && (
+              <div className="mb-4 p-3 rounded-lg bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 flex items-center justify-between gap-3 flex-wrap">
+                <div className="flex items-center gap-2 text-sm text-blue-800 dark:text-blue-300">
+                  <ArrowLeftRight size={16} />
+                  <span>
+                    {selectedForCompare.length === 0
+                      ? "Select 2 audits to compare side-by-side"
+                      : selectedForCompare.length === 1
+                      ? "Select one more audit to compare"
+                      : "Ready to compare — click Compare below"}
+                  </span>
+                </div>
+                {selectedForCompare.length === 2 && (
+                  <Button
+                    size="sm"
+                    className="gap-2 bg-blue-600 hover:bg-blue-700 text-white"
+                    onClick={() => enterCompareView(selectedForCompare[0], selectedForCompare[1])}
+                  >
+                    <ArrowLeftRight size={14} /> Compare Selected
+                  </Button>
+                )}
+              </div>
+            )}
 
             {/* Archived toggle */}
             <div className="flex items-center gap-2 mb-4">
@@ -791,14 +893,45 @@ export default function AuditAssessment() {
                   const fails = audit.failCount ?? 0;
                   const totalItems = BUILTIN_TOTAL + (audit.customItemCount ?? 0);
                   const pct = Math.round((reviewed / totalItems) * 100);
+                  const isSelectedForCompare = selectedForCompare.includes(audit.id);
+                  const compareSelectionOrder = selectedForCompare.indexOf(audit.id);
                   return (
                     <Card
                       key={audit.id}
-                      className="cursor-pointer hover:shadow-md transition-all hover:border-primary/30"
-                      onClick={() => setActiveAuditId(audit.id)}
+                      className={`transition-all ${compareMode
+                        ? isSelectedForCompare
+                          ? "border-blue-400 ring-2 ring-blue-300 dark:ring-blue-700 shadow-md cursor-pointer"
+                          : selectedForCompare.length >= 2
+                          ? "opacity-50 cursor-not-allowed"
+                          : "hover:border-blue-300 hover:shadow-sm cursor-pointer"
+                        : "cursor-pointer hover:shadow-md hover:border-primary/30"}`}
+                      onClick={() => {
+                        if (compareMode) {
+                          if (isSelectedForCompare || selectedForCompare.length < 2) {
+                            toggleSelectForCompare(audit.id);
+                          }
+                        } else {
+                          setActiveAuditId(audit.id);
+                        }
+                      }}
                     >
                       <CardContent className="p-4">
                         <div className="flex items-start justify-between gap-3">
+                          {compareMode && (
+                            <div className="shrink-0 mt-1">
+                              <div className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-colors
+                                ${isSelectedForCompare
+                                  ? "bg-blue-500 border-blue-500"
+                                  : "border-gray-300 dark:border-gray-600"}`}
+                              >
+                                {isSelectedForCompare && (
+                                  <span className="text-white text-[10px] font-bold leading-none">
+                                    {compareSelectionOrder + 1}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          )}
                           <div className="flex items-start gap-3 flex-1 min-w-0">
                             <div className={`p-2.5 rounded-lg shrink-0 ${audit.status === "archived" ? "bg-gray-100 dark:bg-gray-800" : "bg-blue-50 dark:bg-blue-900/20"}`}>
                               {audit.status === "archived"
@@ -845,6 +978,7 @@ export default function AuditAssessment() {
                               </div>
                             </div>
                           </div>
+                          {!compareMode && (
                           <div className="flex items-center gap-1 shrink-0" onClick={e => e.stopPropagation()}>
                             <DropdownMenu>
                               <DropdownMenuTrigger asChild>
@@ -878,6 +1012,7 @@ export default function AuditAssessment() {
                               </DropdownMenuContent>
                             </DropdownMenu>
                           </div>
+                          )}
                         </div>
                       </CardContent>
                     </Card>
@@ -1662,6 +1797,393 @@ function DeficienciesSection({
         ))}
       </CardContent>
     </Card>
+  );
+}
+
+// ─── Compare View ─────────────────────────────────────────────────────────────
+
+type DiffResult = "improved" | "regressed" | "unchanged_pass" | "unchanged_fail" | "unchanged_other";
+
+function getDiff(s1: ItemStatus, s2: ItemStatus): DiffResult {
+  if (s2 === "pass" && s1 !== "pass") return "improved";
+  if (s2 === "fail" && s1 !== "fail") return "regressed";
+  if (s1 === "fail" && s2 === "fail") return "unchanged_fail";
+  if (s1 === "pass" && s2 === "pass") return "unchanged_pass";
+  return "unchanged_other";
+}
+
+function getCustomCompareItems(
+  catId: string,
+  customItems1: AuditCustomItem[],
+  customItems2: AuditCustomItem[],
+  map1: Record<string, ItemStatus>,
+  map2: Record<string, ItemStatus>,
+): Array<{ id: string; label: string; s1: ItemStatus; s2: ItemStatus }> {
+  const cat1 = customItems1.filter(i => i.category === catId);
+  const cat2 = customItems2.filter(i => i.category === catId);
+  const result: Array<{ id: string; label: string; s1: ItemStatus; s2: ItemStatus }> = [];
+  const seen = new Set<string>();
+
+  for (const item of cat1) {
+    const key = item.label.toLowerCase().trim();
+    const match = cat2.find(i => i.label.toLowerCase().trim() === key);
+    result.push({ id: item.id, label: item.label, s1: map1[item.id] || "pending", s2: match ? (map2[match.id] || "pending") : "pending" });
+    seen.add(key);
+  }
+  for (const item of cat2) {
+    const key = item.label.toLowerCase().trim();
+    if (!seen.has(key)) {
+      result.push({ id: item.id, label: item.label, s1: "pending", s2: map2[item.id] || "pending" });
+    }
+  }
+  return result;
+}
+
+function diffBorderColor(diff: DiffResult): string {
+  if (diff === "improved") return "border-l-green-400";
+  if (diff === "regressed") return "border-l-red-400";
+  if (diff === "unchanged_fail") return "border-l-amber-400";
+  if (diff === "unchanged_pass") return "border-l-green-200";
+  return "border-l-gray-200";
+}
+
+function diffBgColor(diff: DiffResult): string {
+  if (diff === "improved") return "bg-green-50/60 dark:bg-green-950/20";
+  if (diff === "regressed") return "bg-red-50/60 dark:bg-red-950/20";
+  if (diff === "unchanged_fail") return "bg-amber-50/40 dark:bg-amber-950/20";
+  return "bg-muted/20";
+}
+
+function DiffBadge({ diff }: { diff: DiffResult }) {
+  if (diff === "improved") return (
+    <span className="inline-flex items-center gap-0.5 text-[10px] font-semibold text-green-700 bg-green-100 dark:bg-green-900/30 dark:text-green-400 border border-green-200 dark:border-green-800 rounded px-1.5 py-0.5 shrink-0">
+      <TrendingUp size={10} /> Improved
+    </span>
+  );
+  if (diff === "regressed") return (
+    <span className="inline-flex items-center gap-0.5 text-[10px] font-semibold text-red-700 bg-red-100 dark:bg-red-900/30 dark:text-red-400 border border-red-200 dark:border-red-800 rounded px-1.5 py-0.5 shrink-0">
+      <TrendingDown size={10} /> Regressed
+    </span>
+  );
+  if (diff === "unchanged_fail") return (
+    <span className="inline-flex items-center gap-0.5 text-[10px] font-semibold text-amber-700 bg-amber-100 dark:bg-amber-900/30 dark:text-amber-400 border border-amber-200 dark:border-amber-800 rounded px-1.5 py-0.5 shrink-0">
+      <Minus size={10} /> Still Deficient
+    </span>
+  );
+  return null;
+}
+
+function CompareStatusPill({ status }: { status: ItemStatus }) {
+  if (status === "pass") return (
+    <span className="inline-flex items-center gap-0.5 text-xs font-medium text-green-700 dark:text-green-400">
+      <CheckCircle2 size={12} /> Pass
+    </span>
+  );
+  if (status === "fail") return (
+    <span className="inline-flex items-center gap-0.5 text-xs font-medium text-red-600 dark:text-red-400">
+      <XCircle size={12} /> Deficient
+    </span>
+  );
+  if (status === "na") return (
+    <span className="inline-flex items-center gap-0.5 text-xs font-medium text-gray-500 dark:text-gray-400">
+      <MinusCircle size={12} /> N/A
+    </span>
+  );
+  return (
+    <span className="inline-flex items-center gap-0.5 text-xs font-medium text-yellow-600 dark:text-yellow-400">
+      <Clock size={12} /> Pending
+    </span>
+  );
+}
+
+function CompareView({
+  auditId1,
+  auditId2,
+  onBack,
+}: {
+  auditId1: string;
+  auditId2: string;
+  onBack: () => void;
+}) {
+  const { data: audit1, isLoading: loading1 } = useQuery<AuditAssessment & { responses: AuditResponse[]; customItems: AuditCustomItem[] }>({
+    queryKey: ["/api/doh-audits", auditId1],
+    enabled: !!auditId1,
+  });
+
+  const { data: audit2, isLoading: loading2 } = useQuery<AuditAssessment & { responses: AuditResponse[]; customItems: AuditCustomItem[] }>({
+    queryKey: ["/api/doh-audits", auditId2],
+    enabled: !!auditId2,
+  });
+
+  const loading = loading1 || loading2;
+
+  const map1: Record<string, ItemStatus> = {};
+  const map2: Record<string, ItemStatus> = {};
+  (audit1?.responses || []).forEach(r => { map1[r.itemKey] = r.status; });
+  (audit2?.responses || []).forEach(r => { map2[r.itemKey] = r.status; });
+
+  const customItems1: AuditCustomItem[] = audit1?.customItems || [];
+  const customItems2: AuditCustomItem[] = audit2?.customItems || [];
+
+  const stats1 = computeStats(map1, customItems1);
+  const stats2 = computeStats(map2, customItems2);
+
+  const passRateDiff = stats2.scorePct - stats1.scorePct;
+
+  const diffCounts = { improved: 0, regressed: 0, unchangedFail: 0, unchangedPass: 0 };
+  for (const cat of CHECKLIST) {
+    for (const item of cat.items) {
+      const s1 = map1[item.key] || "pending";
+      const s2 = map2[item.key] || "pending";
+      const d = getDiff(s1, s2);
+      if (d === "improved") diffCounts.improved++;
+      else if (d === "regressed") diffCounts.regressed++;
+      else if (d === "unchanged_fail") diffCounts.unchangedFail++;
+      else if (d === "unchanged_pass") diffCounts.unchangedPass++;
+    }
+    const customRows = getCustomCompareItems(cat.id, customItems1, customItems2, map1, map2);
+    for (const row of customRows) {
+      const d = getDiff(row.s1, row.s2);
+      if (d === "improved") diffCounts.improved++;
+      else if (d === "regressed") diffCounts.regressed++;
+      else if (d === "unchanged_fail") diffCounts.unchangedFail++;
+      else if (d === "unchanged_pass") diffCounts.unchangedPass++;
+    }
+  }
+
+  return (
+    <div className="flex-1 overflow-auto p-6 max-w-6xl mx-auto">
+      {/* Header */}
+      <div className="flex items-start gap-3 mb-6">
+        <Button variant="ghost" size="icon" onClick={onBack} className="mt-0.5 shrink-0">
+          <ArrowLeft size={18} />
+        </Button>
+        <div className="flex-1 min-w-0">
+          <h1 className="text-xl font-bold flex items-center gap-2">
+            <ArrowLeftRight size={20} /> Audit Comparison
+          </h1>
+          {!loading && audit1 && audit2 && (
+            <p className="text-sm text-muted-foreground mt-0.5">
+              Comparing <span className="font-medium text-foreground">{audit1.title}</span> → <span className="font-medium text-foreground">{audit2.title}</span>
+            </p>
+          )}
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="space-y-4">
+          {[1, 2, 3].map(i => <Card key={i} className="animate-pulse h-24" />)}
+        </div>
+      ) : !audit1 || !audit2 ? (
+        <Card>
+          <CardContent className="py-16 text-center">
+            <p className="text-muted-foreground">One or both audits could not be loaded.</p>
+            <Button className="mt-4" onClick={onBack}>Back to list</Button>
+          </CardContent>
+        </Card>
+      ) : (
+        <>
+          {/* Audit labels */}
+          <div className="grid grid-cols-2 gap-4 mb-4">
+            {[audit1, audit2].map((audit, idx) => (
+              <Card key={idx} className={`border-2 ${idx === 0 ? "border-blue-200 dark:border-blue-800" : "border-purple-200 dark:border-purple-800"}`}>
+                <CardContent className="p-3">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className={`text-xs font-bold px-1.5 py-0.5 rounded ${idx === 0 ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300" : "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300"}`}>
+                      Audit {idx + 1}
+                    </span>
+                    {audit.status === "completed" && (
+                      <Badge className="bg-green-100 text-green-800 border-green-200 text-xs">Completed</Badge>
+                    )}
+                    {audit.status === "in_progress" && (
+                      <Badge className="bg-blue-100 text-blue-800 border-blue-200 text-xs">In Progress</Badge>
+                    )}
+                  </div>
+                  <p className="font-semibold text-sm truncate">{audit.title}</p>
+                  <div className="flex items-center gap-3 text-xs text-muted-foreground mt-0.5 flex-wrap">
+                    {audit.auditDate && <span>Date: {audit.auditDate}</span>}
+                    {audit.surveyPeriod && <span>Period: {audit.surveyPeriod}</span>}
+                    {audit.surveyorName && <span>{audit.surveyorName}</span>}
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+
+          {/* Summary stats */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+            <Card>
+              <CardContent className="pt-3 pb-3 text-center">
+                <div className="flex items-center justify-center gap-3 mb-1">
+                  <div className="text-center">
+                    <p className="text-lg font-bold text-blue-600 dark:text-blue-400">
+                      {stats1.pass + stats1.fail > 0 ? `${stats1.scorePct}%` : "—"}
+                    </p>
+                    <p className="text-[10px] text-muted-foreground">Audit 1</p>
+                  </div>
+                  <div className="text-muted-foreground">→</div>
+                  <div className="text-center">
+                    <p className="text-lg font-bold text-purple-600 dark:text-purple-400">
+                      {stats2.pass + stats2.fail > 0 ? `${stats2.scorePct}%` : "—"}
+                    </p>
+                    <p className="text-[10px] text-muted-foreground">Audit 2</p>
+                  </div>
+                </div>
+                <p className="text-xs text-muted-foreground">Pass Rate</p>
+                {stats1.pass + stats1.fail > 0 && stats2.pass + stats2.fail > 0 && (
+                  <p className={`text-xs font-semibold mt-1 flex items-center justify-center gap-0.5 ${passRateDiff > 0 ? "text-green-600" : passRateDiff < 0 ? "text-red-500" : "text-muted-foreground"}`}>
+                    {passRateDiff > 0 ? <TrendingUp size={12} /> : passRateDiff < 0 ? <TrendingDown size={12} /> : <Minus size={12} />}
+                    {passRateDiff > 0 ? `+${passRateDiff}%` : passRateDiff < 0 ? `${passRateDiff}%` : "No change"}
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+            <Card className="bg-green-50/60 dark:bg-green-950/20 border-green-100 dark:border-green-900">
+              <CardContent className="pt-3 pb-3 text-center">
+                <p className="text-2xl font-bold text-green-700 dark:text-green-400">{diffCounts.improved}</p>
+                <p className="text-xs text-green-600 dark:text-green-500 mt-0.5 flex items-center justify-center gap-0.5">
+                  <TrendingUp size={11} /> Items Improved
+                </p>
+              </CardContent>
+            </Card>
+            <Card className="bg-red-50/60 dark:bg-red-950/20 border-red-100 dark:border-red-900">
+              <CardContent className="pt-3 pb-3 text-center">
+                <p className="text-2xl font-bold text-red-700 dark:text-red-400">{diffCounts.regressed}</p>
+                <p className="text-xs text-red-600 dark:text-red-500 mt-0.5 flex items-center justify-center gap-0.5">
+                  <TrendingDown size={11} /> Items Regressed
+                </p>
+              </CardContent>
+            </Card>
+            <Card className="bg-amber-50/60 dark:bg-amber-950/20 border-amber-100 dark:border-amber-900">
+              <CardContent className="pt-3 pb-3 text-center">
+                <p className="text-2xl font-bold text-amber-700 dark:text-amber-400">{diffCounts.unchangedFail}</p>
+                <p className="text-xs text-amber-600 dark:text-amber-500 mt-0.5 flex items-center justify-center gap-0.5">
+                  <Minus size={11} /> Still Deficient
+                </p>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Legend */}
+          <div className="flex items-center gap-4 mb-4 text-xs text-muted-foreground flex-wrap">
+            <span className="font-medium">Legend:</span>
+            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-sm bg-green-400 inline-block" /> Improved</span>
+            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-sm bg-red-400 inline-block" /> Regressed</span>
+            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-sm bg-amber-400 inline-block" /> Still deficient</span>
+            <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-sm bg-green-200 inline-block" /> Unchanged pass</span>
+          </div>
+
+          {/* Per-category comparisons */}
+          <div className="space-y-4">
+            {CHECKLIST.map(cat => {
+              const Icon = cat.icon;
+              const catItems = cat.items;
+              const catCustomRows = getCustomCompareItems(cat.id, customItems1, customItems2, map1, map2);
+              const catImproved = catItems.filter(i => getDiff(map1[i.key] || "pending", map2[i.key] || "pending") === "improved").length + catCustomRows.filter(r => getDiff(r.s1, r.s2) === "improved").length;
+              const catRegressed = catItems.filter(i => getDiff(map1[i.key] || "pending", map2[i.key] || "pending") === "regressed").length + catCustomRows.filter(r => getDiff(r.s1, r.s2) === "regressed").length;
+              const catStillFail = catItems.filter(i => getDiff(map1[i.key] || "pending", map2[i.key] || "pending") === "unchanged_fail").length + catCustomRows.filter(r => getDiff(r.s1, r.s2) === "unchanged_fail").length;
+
+              return (
+                <Card key={cat.id}>
+                  <CardHeader className="pb-2">
+                    <div className="flex items-center justify-between flex-wrap gap-2">
+                      <div className="flex items-center gap-2">
+                        <Icon size={17} className="text-muted-foreground" />
+                        <CardTitle className="text-sm">{cat.label}</CardTitle>
+                      </div>
+                      <div className="flex items-center gap-2 text-xs">
+                        {catImproved > 0 && (
+                          <span className="flex items-center gap-0.5 text-green-600 font-medium">
+                            <TrendingUp size={11} /> {catImproved}
+                          </span>
+                        )}
+                        {catRegressed > 0 && (
+                          <span className="flex items-center gap-0.5 text-red-500 font-medium">
+                            <TrendingDown size={11} /> {catRegressed}
+                          </span>
+                        )}
+                        {catStillFail > 0 && (
+                          <span className="flex items-center gap-0.5 text-amber-600 font-medium">
+                            <Minus size={11} /> {catStillFail} still deficient
+                          </span>
+                        )}
+                        {catImproved === 0 && catRegressed === 0 && catStillFail === 0 && (
+                          <span className="text-muted-foreground">No changes</span>
+                        )}
+                      </div>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="space-y-1.5">
+                    {/* Column header */}
+                    <div className="grid grid-cols-[1fr_80px_80px] gap-2 px-2 pb-1 border-b text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
+                      <span>Item</span>
+                      <span className="text-center text-blue-600 dark:text-blue-400">Audit 1</span>
+                      <span className="text-center text-purple-600 dark:text-purple-400">Audit 2</span>
+                    </div>
+                    {catItems.map(item => {
+                      const s1 = map1[item.key] || "pending";
+                      const s2 = map2[item.key] || "pending";
+                      const diff = getDiff(s1, s2);
+                      return (
+                        <div
+                          key={item.key}
+                          className={`grid grid-cols-[1fr_80px_80px] gap-2 items-center border-l-4 ${diffBorderColor(diff)} ${diffBgColor(diff)} rounded-r px-2 py-2`}
+                        >
+                          <div className="min-w-0">
+                            <p className="text-xs leading-snug">{item.label}</p>
+                            {item.reference && (
+                              <p className="text-[10px] text-muted-foreground mt-0.5">§ {item.reference}</p>
+                            )}
+                            {diff !== "unchanged_pass" && diff !== "unchanged_other" && (
+                              <div className="mt-0.5">
+                                <DiffBadge diff={diff} />
+                              </div>
+                            )}
+                          </div>
+                          <div className="flex justify-center">
+                            <CompareStatusPill status={s1} />
+                          </div>
+                          <div className="flex justify-center">
+                            <CompareStatusPill status={s2} />
+                          </div>
+                        </div>
+                      );
+                    })}
+                    {catCustomRows.map(row => {
+                      const diff = getDiff(row.s1, row.s2);
+                      return (
+                        <div
+                          key={row.id}
+                          className={`grid grid-cols-[1fr_80px_80px] gap-2 items-center border-l-4 ${diffBorderColor(diff)} ${diffBgColor(diff)} rounded-r px-2 py-2`}
+                        >
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <p className="text-xs leading-snug">{row.label}</p>
+                              <Badge className="text-[9px] px-1 py-0 bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-900/20 dark:text-amber-400">custom</Badge>
+                            </div>
+                            {diff !== "unchanged_pass" && diff !== "unchanged_other" && (
+                              <div className="mt-0.5">
+                                <DiffBadge diff={diff} />
+                              </div>
+                            )}
+                          </div>
+                          <div className="flex justify-center">
+                            <CompareStatusPill status={row.s1} />
+                          </div>
+                          <div className="flex justify-center">
+                            <CompareStatusPill status={row.s2} />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
+        </>
+      )}
+    </div>
   );
 }
 
