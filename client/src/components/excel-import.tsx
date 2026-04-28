@@ -266,8 +266,24 @@ export function ExcelImport({ type, onImportComplete, officeId }: ExcelImportPro
       setExcelHeaders(headers);
       setRawRows(rows);
       
+      // Load any previously-saved mappings for this import type so the user
+      // doesn't have to re-pick fields when re-importing the same kind of file.
+      let savedMappings: Record<string, string> = {};
+      try {
+        const stored = localStorage.getItem(`excel_import_mapping_${type}`);
+        if (stored) savedMappings = JSON.parse(stored) || {};
+      } catch {
+        savedMappings = {};
+      }
+
       const initialMappings: Record<string, string> = {};
       for (const field of SYSTEM_FIELDS[type]) {
+        // Prefer saved mapping if its excel header still exists in this file
+        const saved = savedMappings[field.key];
+        if (saved && headers.includes(saved)) {
+          initialMappings[field.key] = saved;
+          continue;
+        }
         const suggested = headers.find(h => suggestMapping(h) === field.key);
         if (suggested) {
           initialMappings[field.key] = suggested;
@@ -292,6 +308,17 @@ export function ExcelImport({ type, onImportComplete, officeId }: ExcelImportPro
   };
 
   const handleContinueToPreview = () => {
+    // Persist the user's mapping choices so the next import of the same
+    // type can reuse them automatically.
+    try {
+      const toSave: Record<string, string> = {};
+      for (const [k, v] of Object.entries(columnMappings)) {
+        if (v && v !== "__skip__") toSave[k] = v;
+      }
+      localStorage.setItem(`excel_import_mapping_${type}`, JSON.stringify(toSave));
+    } catch {
+      // ignore localStorage errors
+    }
     const mappedData = applyMappings(excelHeaders, rawRows, columnMappings);
     setPreviewData(mappedData.slice(0, 5));
     setStep("preview");

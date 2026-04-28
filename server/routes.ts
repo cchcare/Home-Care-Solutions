@@ -1682,10 +1682,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const results: {
         totalRows: number;
         successfulImports: number;
+        createdRecords: number;
+        updatedRecords: number;
         errors: BulkImportError[];
       } = {
         totalRows: data.length,
         successfulImports: 0,
+        createdRecords: 0,
+        updatedRecords: 0,
         errors: []
       };
 
@@ -1750,29 +1754,88 @@ export async function registerRoutes(app: Express): Promise<Server> {
             serviceStartDate: parseImportDate(rest.serviceStartDate),
           };
 
+          // Normalize identifier strings: trim and convert blanks to undefined
+          // so we never accidentally overwrite a unique ID with empty/whitespace.
+          const normalizeId = (v: any): string | undefined => {
+            if (typeof v !== "string") return v == null ? undefined : v;
+            const t = v.trim();
+            return t.length === 0 ? undefined : t;
+          };
+          const normHhax = normalizeId(processedClientData.hhaxAdmissionId);
+          const normMember = normalizeId(processedClientData.memberId);
+          if (normHhax === undefined) delete processedClientData.hhaxAdmissionId;
+          else processedClientData.hhaxAdmissionId = normHhax;
+          if (normMember === undefined) delete processedClientData.memberId;
+          else processedClientData.memberId = normMember;
+
           // Strip undefined so they don't override defaults
           Object.keys(processedClientData).forEach(
             (k) => processedClientData[k] === undefined && delete processedClientData[k]
           );
 
-          // Validate the data
-          const validatedData = insertClientSchema.parse(processedClientData);
-          
-          // Create the client
-          const client = await storage.createClient(validatedData);
-          
-          // Log audit trail
-          await storage.createAuditLog({
-            userId: req.session?.user?.id,
-            action: "bulk_import_create",
-            entityType: "client",
-            entityId: client.id,
-            newValues: client,
-            ipAddress: req.ip,
-            userAgent: req.get("User-Agent"),
-          });
-          
-          results.successfulImports++;
+          // Try to find an existing client to UPDATE rather than create.
+          // Match priority: HHA Admission ID -> Member ID
+          let existingClient = null as Awaited<ReturnType<typeof storage.getClientByHhaxAdmissionId>> | null;
+          let matchedByMember = null as Awaited<ReturnType<typeof storage.getClientByMemberId>> | null;
+          if (processedClientData.hhaxAdmissionId) {
+            existingClient = await storage.getClientByHhaxAdmissionId(processedClientData.hhaxAdmissionId);
+          }
+          if (processedClientData.memberId) {
+            matchedByMember = await storage.getClientByMemberId(processedClientData.memberId);
+          }
+
+          // If both identifiers were provided and resolve to two DIFFERENT
+          // existing clients, refuse the row to avoid corrupting identity links.
+          if (existingClient && matchedByMember && existingClient.id !== matchedByMember.id) {
+            throw new Error(
+              "Identifier conflict: HHA Admission ID and Member ID match different existing clients",
+            );
+          }
+          if (!existingClient && matchedByMember) {
+            existingClient = matchedByMember;
+          }
+
+          if (existingClient) {
+            // Only update fields the user actually mapped from the import file
+            // (i.e. the fields present in processedClientData). This preserves
+            // any other existing data on the client record.
+            const validatedUpdate = insertClientSchema.partial().parse(processedClientData);
+            const updated = await storage.updateClient(existingClient.id, validatedUpdate);
+
+            await storage.createAuditLog({
+              userId: req.session?.user?.id,
+              action: "bulk_import_update",
+              entityType: "client",
+              entityId: updated.id,
+              oldValues: existingClient,
+              newValues: updated,
+              ipAddress: req.ip,
+              userAgent: req.get("User-Agent"),
+            });
+
+            results.successfulImports++;
+            results.updatedRecords++;
+          } else {
+            // Validate the data
+            const validatedData = insertClientSchema.parse(processedClientData);
+
+            // Create the client
+            const client = await storage.createClient(validatedData);
+
+            // Log audit trail
+            await storage.createAuditLog({
+              userId: req.session?.user?.id,
+              action: "bulk_import_create",
+              entityType: "client",
+              entityId: client.id,
+              newValues: client,
+              ipAddress: req.ip,
+              userAgent: req.get("User-Agent"),
+            });
+
+            results.successfulImports++;
+            results.createdRecords++;
+          }
         } catch (error: any) {
           // Sanitize error message to avoid exposing sensitive data
           const sanitizedError = error.message?.includes('duplicate') ? 'Record already exists' : 

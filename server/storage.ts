@@ -1116,6 +1116,7 @@ export interface IStorage {
   // HHAX Integration operations
   getCaregiverByHhaxCode(hhaxCode: string): Promise<Caregiver | undefined>;
   getClientByHhaxAdmissionId(admissionId: string): Promise<Client | undefined>;
+  getClientByMemberId(memberId: string): Promise<Client | undefined>;
   getHhaxOfficeMappings(): Promise<HhaxOfficeMapping[]>;
   createHhaxOfficeMapping(mapping: InsertHhaxOfficeMapping): Promise<HhaxOfficeMapping>;
   updateHhaxOfficeMapping(id: string, mapping: Partial<InsertHhaxOfficeMapping>): Promise<HhaxOfficeMapping>;
@@ -3618,6 +3619,12 @@ export class DatabaseStorage implements IStorage {
   // Find client by HHAX admission ID for billing import matching
   async getClientByHhaxId(hhaxAdmissionId: string): Promise<Client | undefined> {
     const [client] = await db.select().from(clients).where(eq(clients.hhaxAdmissionId, hhaxAdmissionId));
+    return client;
+  }
+
+  // Find client by Member ID (used for matching during bulk import upserts)
+  async getClientByMemberId(memberId: string): Promise<Client | undefined> {
+    const [client] = await db.select().from(clients).where(eq(clients.memberId, memberId));
     return client;
   }
 

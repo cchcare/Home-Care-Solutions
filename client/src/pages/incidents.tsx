@@ -168,6 +168,9 @@ export default function IncidentsPage() {
   const onSubmit = (data: IncidentFormData) => {
     const deadlineHours = getCirDeadlineHours(data.cirClass);
     const payload: any = { ...data };
+    if (selectedOfficeId && selectedOfficeId !== "all") {
+      payload.officeId = selectedOfficeId;
+    }
     if (deadlineHours && data.incidentDate) {
       const incDate = new Date(data.incidentDate);
       incDate.setHours(incDate.getHours() + deadlineHours);

@@ -243,7 +243,11 @@ export default function Compliance() {
   });
 
   const onEvvSubmit = (data: EvvFormData) => {
-    createEvvMutation.mutate(data);
+    const payload: any = { ...data };
+    if (selectedOfficeId && selectedOfficeId !== "all") {
+      payload.officeId = selectedOfficeId;
+    }
+    createEvvMutation.mutate(payload);
   };
 
   const monthNames = [
