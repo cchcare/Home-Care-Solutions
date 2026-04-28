@@ -1287,6 +1287,21 @@ export interface IStorage {
   deleteClientSatisfactionSurvey(id: string): Promise<void>;
   getClientSurveyResponses(surveyId: string): Promise<ClientSurveyResponse[]>;
   createClientSurveyResponse(response: InsertClientSurveyResponse): Promise<ClientSurveyResponse>;
+
+  // Exclusion / OIG / SAM / MediCheck — identifier-based matching support
+  getActiveCaregiversForExclusionCheck(): Promise<{
+    id: string;
+    firstName: string | null;
+    lastName: string | null;
+    dateOfBirth: Date | null;
+    npi: string | null;
+  }[]>;
+  getCertificateNumbersByCaregiver(caregiverId: string): Promise<string[]>;
+  getExclusionRecord(id: string): Promise<ExclusionRecord | undefined>;
+  getExclusionRecordsByNpi(npi: string): Promise<ExclusionRecord[]>;
+  getExclusionRecordsByLicenseNumbers(
+    licenseNumbers: string[],
+  ): Promise<ExclusionRecord[]>;
 }
 
 export class DatabaseStorage implements IStorage {

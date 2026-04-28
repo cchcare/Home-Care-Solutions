@@ -13279,7 +13279,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const cg = await storage.getCaregiver(cid).catch(() => null);
         if (cg) {
           const name = `${cg.firstName || ''} ${cg.lastName || ''}`.trim();
-          caregiverInfoById.set(cid, { name: name || 'Unknown', npi: (cg as any).npi ?? null });
+          caregiverInfoById.set(cid, { name: name || 'Unknown', npi: cg.npi ?? null });
         }
       }
 
@@ -13308,8 +13308,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           matchedName: matchedName || (rec?.businessName || rec?.lastName || ''),
           matchScore: c.matchScore ? Number(c.matchScore) : 0,
           matchType: c.matchType,
-          matchReason: (c as any).matchReason ?? null,
-          matchedIdentifier: (c as any).matchedIdentifier ?? null,
+          matchReason: c.matchReason ?? null,
+          matchedIdentifier: c.matchedIdentifier ?? null,
           status: c.status,
           createdAt: c.createdAt || c.checkedAt,
           checkedAt: c.checkedAt,
