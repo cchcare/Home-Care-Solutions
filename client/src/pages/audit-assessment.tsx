@@ -38,8 +38,16 @@ import {
   ArrowLeftRight, TrendingUp, TrendingDown, Minus,
 } from "lucide-react";
 import ExcelJS from "exceljs";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
 import { format } from "date-fns";
 import type { Office } from "@shared/schema";
+
+declare module "jspdf" {
+  interface jsPDF {
+    lastAutoTable: { finalY: number };
+  }
+}
 
 // ─── Checklist Definition ────────────────────────────────────────────────────
 
@@ -588,6 +596,366 @@ async function exportAuditToExcel(
   URL.revokeObjectURL(url);
 }
 
+// ─── PDF Export ───────────────────────────────────────────────────────────────
+
+function statusLabel(s: ItemStatus) {
+  if (s === "pass") return "Pass";
+  if (s === "fail") return "Deficient";
+  if (s === "na") return "N/A";
+  return "Pending";
+}
+
+async function exportAuditToPDF(
+  audit: AuditAssessment,
+  responsesMap: Record<string, ItemStatus>,
+  notesMap: Record<string, string>,
+  customItems: AuditCustomItem[],
+  correctiveActions: AuditCorrectiveAction[],
+  officeName: string,
+) {
+  const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "letter" });
+  const W = doc.internal.pageSize.getWidth();
+  const margin = 18;
+  const contentW = W - margin * 2;
+
+  const NAVY = [30, 64, 175] as [number, number, number];
+  const RED_DARK = [153, 27, 27] as [number, number, number];
+  const GREEN = [21, 128, 61] as [number, number, number];
+  const GRAY = [107, 114, 128] as [number, number, number];
+  const LIGHT_GRAY = [243, 244, 246] as [number, number, number];
+  const RED_LIGHT = [254, 226, 226] as [number, number, number];
+  const GREEN_LIGHT = [209, 250, 229] as [number, number, number];
+  const YELLOW_LIGHT = [254, 243, 199] as [number, number, number];
+  const WHITE = [255, 255, 255] as [number, number, number];
+
+  const auditDateStr = audit.auditDate ? format(new Date(audit.auditDate), "MMMM d, yyyy") : "";
+  const generatedStr = format(new Date(), "MMMM d, yyyy 'at' h:mm a");
+
+  // ── Page 1: Cover ──────────────────────────────────────────────────────────
+  // Header band
+  doc.setFillColor(...NAVY);
+  doc.rect(0, 0, W, 48, "F");
+
+  doc.setTextColor(...WHITE);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(22);
+  doc.text("DOH Audit Assessment Report", W / 2, 22, { align: "center" });
+
+  doc.setFontSize(11);
+  doc.setFont("helvetica", "normal");
+  doc.text("Department of Health Compliance Checklist", W / 2, 32, { align: "center" });
+
+  doc.setFontSize(9);
+  doc.text(`Generated ${generatedStr}`, W / 2, 41, { align: "center" });
+
+  // Info card
+  let y = 62;
+  doc.setFillColor(...LIGHT_GRAY);
+  doc.roundedRect(margin, y, contentW, 72, 3, 3, "F");
+  y += 10;
+
+  const infoRows: [string, string][] = [
+    ["Agency", officeName || "—"],
+    ["Audit Title", audit.title],
+    ["Surveyor", audit.surveyorName || "—"],
+    ["Audit Date", auditDateStr || "—"],
+    ["Survey Period", audit.surveyPeriod || "—"],
+    ["Status", audit.status === "completed" ? "Completed" : audit.status === "archived" ? "Archived" : "In Progress"],
+  ];
+
+  doc.setTextColor(30, 30, 30);
+  for (const [label, value] of infoRows) {
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(9);
+    doc.text(`${label}:`, margin + 6, y);
+    doc.setFont("helvetica", "normal");
+    doc.text(value, margin + 42, y);
+    y += 10;
+  }
+
+  // Scorecard
+  y = 148;
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(13);
+  doc.setTextColor(...NAVY);
+  doc.text("Summary Scorecard", margin, y);
+  y += 6;
+  doc.setDrawColor(...NAVY);
+  doc.setLineWidth(0.5);
+  doc.line(margin, y, margin + contentW, y);
+  y += 8;
+
+  const totalItems = BUILTIN_TOTAL + customItems.length;
+  const pass = Object.values(responsesMap).filter(s => s === "pass").length;
+  const fail = Object.values(responsesMap).filter(s => s === "fail").length;
+  const na = Object.values(responsesMap).filter(s => s === "na").length;
+  const reviewed = pass + fail + na;
+  const pct = totalItems > 0 ? Math.round((reviewed / totalItems) * 100) : 0;
+  const scorePct = (pass + fail) > 0 ? Math.round((pass / (pass + fail)) * 100) : 0;
+
+  // Score tiles (4 across)
+  const tiles: { label: string; value: string | number; color: [number, number, number]; bg: [number, number, number] }[] = [
+    { label: "Compliance Score", value: `${scorePct}%`, color: scorePct >= 80 ? GREEN : RED_DARK, bg: scorePct >= 80 ? GREEN_LIGHT : RED_LIGHT },
+    { label: "Pass", value: pass, color: GREEN, bg: GREEN_LIGHT },
+    { label: "Deficient", value: fail, color: RED_DARK, bg: RED_LIGHT },
+    { label: "N/A", value: na, color: GRAY, bg: LIGHT_GRAY },
+  ];
+
+  const tileW = (contentW - 9) / 4;
+  for (let i = 0; i < tiles.length; i++) {
+    const t = tiles[i];
+    const tx = margin + i * (tileW + 3);
+    doc.setFillColor(...t.bg);
+    doc.roundedRect(tx, y, tileW, 28, 2, 2, "F");
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(18);
+    doc.setTextColor(...t.color);
+    doc.text(String(t.value), tx + tileW / 2, y + 15, { align: "center" });
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(7.5);
+    doc.setTextColor(...GRAY);
+    doc.text(t.label, tx + tileW / 2, y + 23, { align: "center" });
+  }
+  y += 36;
+
+  // Progress bar
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8.5);
+  doc.setTextColor(50, 50, 50);
+  doc.text(`${reviewed} of ${totalItems} items reviewed (${pct}% complete)`, margin, y);
+  y += 4;
+  doc.setFillColor(...LIGHT_GRAY);
+  doc.rect(margin, y, contentW, 4, "F");
+  doc.setFillColor(...NAVY);
+  doc.rect(margin, y, contentW * (pct / 100), 4, "F");
+  y += 12;
+
+  // Per-category scorecard table
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(11);
+  doc.setTextColor(...NAVY);
+  doc.text("Category Breakdown", margin, y);
+  y += 4;
+
+  const catRows: (string | number)[][] = CHECKLIST.map(cat => {
+    const builtInItems = cat.items;
+    const customCatItems = customItems.filter(i => i.category === cat.id);
+    const allKeys = [...builtInItems.map(i => i.key), ...customCatItems.map(i => i.id)];
+    const p = allKeys.filter(k => responsesMap[k] === "pass").length;
+    const f = allKeys.filter(k => responsesMap[k] === "fail").length;
+    const n = allKeys.filter(k => responsesMap[k] === "na").length;
+    const rev = p + f + n;
+    const sc = (p + f) > 0 ? `${Math.round((p / (p + f)) * 100)}%` : "—";
+    return [cat.label, allKeys.length, p, f, n, `${rev}/${allKeys.length}`, sc];
+  });
+
+  autoTable(doc, {
+    startY: y,
+    head: [["Category", "Total", "Pass", "Deficient", "N/A", "Reviewed", "Score"]],
+    body: catRows,
+    margin: { left: margin, right: margin },
+    styles: { fontSize: 8.5, cellPadding: 2.5 },
+    headStyles: { fillColor: NAVY, textColor: WHITE, fontStyle: "bold" },
+    alternateRowStyles: { fillColor: [248, 250, 252] as [number, number, number] },
+    columnStyles: {
+      0: { cellWidth: 52 },
+      1: { halign: "center", cellWidth: 14 },
+      2: { halign: "center", cellWidth: 14 },
+      3: { halign: "center", cellWidth: 18 },
+      4: { halign: "center", cellWidth: 14 },
+      5: { halign: "center", cellWidth: 22 },
+      6: { halign: "center", cellWidth: 16 },
+    },
+  });
+
+  // ── Page 2+: Full Checklist by Category ──────────────────────────────────
+  doc.addPage();
+
+  doc.setFillColor(...NAVY);
+  doc.rect(0, 0, W, 14, "F");
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(11);
+  doc.setTextColor(...WHITE);
+  doc.text("Full Checklist", margin, 9.5);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8);
+  doc.text(`${audit.title}  ·  ${officeName}`, W - margin, 9.5, { align: "right" });
+
+  let startY = 20;
+
+  for (const cat of CHECKLIST) {
+    const builtInItems = cat.items;
+    const customCatItems = customItems.filter(i => i.category === cat.id);
+    const allItems: { key: string; label: string; reference?: string; isCustom?: boolean }[] = [
+      ...builtInItems,
+      ...customCatItems.map(i => ({ key: i.id, label: i.label, isCustom: true })),
+    ];
+
+    const tableBody: (string | { content: string; styles: object })[][] = allItems.map(item => {
+      const status = responsesMap[item.key] || "pending";
+      const note = notesMap[item.key] || "";
+      const refStr = item.reference ? `§ ${item.reference}` : (item.isCustom ? "Custom" : "");
+      return [
+        item.label,
+        refStr,
+        statusLabel(status),
+        note,
+      ];
+    });
+
+    autoTable(doc, {
+      startY,
+      head: [[{ content: cat.label, colSpan: 4, styles: { halign: "left", fillColor: NAVY, textColor: WHITE, fontStyle: "bold", fontSize: 9 } }],
+             ["Requirement", "Regulation", "Status", "Notes / Findings"]],
+      body: tableBody,
+      margin: { left: margin, right: margin },
+      styles: { fontSize: 8, cellPadding: 2.5, overflow: "linebreak" },
+      headStyles: { fillColor: [51, 65, 85] as [number, number, number], textColor: WHITE, fontStyle: "bold", fontSize: 8 },
+      columnStyles: {
+        0: { cellWidth: 90 },
+        1: { cellWidth: 22, halign: "center" },
+        2: { cellWidth: 20, halign: "center" },
+        3: { cellWidth: "auto" },
+      },
+      didParseCell: (data) => {
+        if (data.section === "body" && data.column.index === 2) {
+          const statusVal = data.cell.raw as string;
+          if (statusVal === "Pass") {
+            data.cell.styles.fillColor = GREEN_LIGHT;
+            data.cell.styles.textColor = [21, 128, 61] as [number, number, number];
+            data.cell.styles.fontStyle = "bold";
+          } else if (statusVal === "Deficient") {
+            data.cell.styles.fillColor = RED_LIGHT;
+            data.cell.styles.textColor = [153, 27, 27] as [number, number, number];
+            data.cell.styles.fontStyle = "bold";
+          } else if (statusVal === "N/A") {
+            data.cell.styles.fillColor = LIGHT_GRAY;
+            data.cell.styles.textColor = GRAY;
+          } else {
+            data.cell.styles.fillColor = YELLOW_LIGHT;
+            data.cell.styles.textColor = [120, 80, 0] as [number, number, number];
+          }
+        }
+      },
+      didDrawPage: () => {
+        doc.setFillColor(...NAVY);
+        doc.rect(0, 0, W, 14, "F");
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(11);
+        doc.setTextColor(...WHITE);
+        doc.text("Full Checklist", margin, 9.5);
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(8);
+        doc.text(`${audit.title}  ·  ${officeName}`, W - margin, 9.5, { align: "right" });
+      },
+    });
+
+    startY = doc.lastAutoTable.finalY + 6;
+  }
+
+  // ── Final Page: Deficiencies ──────────────────────────────────────────────
+  doc.addPage();
+
+  doc.setFillColor(...RED_DARK);
+  doc.rect(0, 0, W, 14, "F");
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(11);
+  doc.setTextColor(...WHITE);
+  doc.text("Deficiencies", margin, 9.5);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8);
+  doc.text(`${audit.title}  ·  ${officeName}`, W - margin, 9.5, { align: "right" });
+
+  const caMap = new Map(correctiveActions.map(ca => [ca.itemKey, ca]));
+  const caStatusLabel: Record<string, string> = { open: "Open", in_progress: "In Progress", resolved: "Resolved" };
+
+  const defRows: (string | { content: string; styles?: object })[][] = [];
+
+  for (const cat of CHECKLIST) {
+    for (const item of cat.items) {
+      if ((responsesMap[item.key] || "pending") !== "fail") continue;
+      const note = notesMap[item.key] || "";
+      const ca = caMap.get(item.key);
+      defRows.push([
+        cat.label,
+        item.label,
+        item.reference ? `§ ${item.reference}` : "",
+        note,
+        ca?.responsibleParty || "",
+        ca?.targetDate || "",
+        ca ? caStatusLabel[ca.status] || ca.status : "Open",
+      ]);
+    }
+    const customCatItems = customItems.filter(i => i.category === cat.id);
+    for (const item of customCatItems) {
+      if ((responsesMap[item.id] || "pending") !== "fail") continue;
+      const note = notesMap[item.id] || "";
+      const ca = caMap.get(item.id);
+      defRows.push([
+        `${cat.label} (custom)`,
+        item.label,
+        "",
+        note,
+        ca?.responsibleParty || "",
+        ca?.targetDate || "",
+        ca ? caStatusLabel[ca.status] || ca.status : "Open",
+      ]);
+    }
+  }
+
+  if (defRows.length === 0) {
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(11);
+    doc.setTextColor(...GREEN);
+    doc.text("No deficiencies found — all reviewed items passed.", margin, 30);
+  } else {
+    autoTable(doc, {
+      startY: 20,
+      head: [["Category", "Deficient Item", "Regulation", "Notes / Findings", "Responsible Party", "Target Date", "CA Status"]],
+      body: defRows,
+      margin: { left: margin, right: margin },
+      styles: { fontSize: 7.5, cellPadding: 2, overflow: "linebreak", fillColor: RED_LIGHT as [number, number, number] },
+      headStyles: { fillColor: RED_DARK, textColor: WHITE, fontStyle: "bold" },
+      columnStyles: {
+        0: { cellWidth: 28 },
+        1: { cellWidth: 60 },
+        2: { cellWidth: 18, halign: "center" },
+        3: { cellWidth: "auto" },
+        4: { cellWidth: 24 },
+        5: { cellWidth: 18, halign: "center" },
+        6: { cellWidth: 18, halign: "center" },
+      },
+      didDrawPage: () => {
+        doc.setFillColor(...RED_DARK);
+        doc.rect(0, 0, W, 14, "F");
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(11);
+        doc.setTextColor(...WHITE);
+        doc.text("Deficiencies", margin, 9.5);
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(8);
+        doc.text(`${audit.title}  ·  ${officeName}`, W - margin, 9.5, { align: "right" });
+      },
+    });
+  }
+
+  // Page numbers
+  const totalPages = doc.getNumberOfPages();
+  for (let i = 1; i <= totalPages; i++) {
+    doc.setPage(i);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(7.5);
+    doc.setTextColor(...GRAY);
+    doc.text(`Page ${i} of ${totalPages}`, W / 2, doc.internal.pageSize.getHeight() - 6, { align: "center" });
+    doc.text("CCHC Solutions — Confidential", margin, doc.internal.pageSize.getHeight() - 6);
+  }
+
+  // Download
+  const dateStr = format(new Date(), "yyyy-MM-dd");
+  const safeName = audit.title.replace(/[^a-zA-Z0-9\s-]/g, "").replace(/\s+/g, "_").slice(0, 40);
+  doc.save(`DOH_Audit_${safeName}_${dateStr}.pdf`);
+}
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function AuditAssessment() {
@@ -606,6 +974,7 @@ export default function AuditAssessment() {
   const [newOfficeId, setNewOfficeId] = useState("");
   const [showArchived, setShowArchived] = useState(false);
   const [exportingId, setExportingId] = useState<string | null>(null);
+  const [exportingPdfId, setExportingPdfId] = useState<string | null>(null);
   const [compareMode, setCompareMode] = useState(false);
   const [selectedForCompare, setSelectedForCompare] = useState<string[]>([]);
   const [compareViewIds, setCompareViewIds] = useState<[string, string] | null>(null);
@@ -859,6 +1228,20 @@ export default function AuditAssessment() {
       toast({ title: "Export failed", variant: "destructive" });
     } finally {
       setExportingId(null);
+    }
+  };
+
+  const handleExportPDF = async () => {
+    if (!activeAudit || !activeAuditId) return;
+    setExportingPdfId(activeAuditId);
+    try {
+      const currentOfficeName = offices.find((o: Office) => o.id === (activeAudit.officeId || officeId))?.name || "";
+      await exportAuditToPDF(activeAudit, responsesMap, notesMap, customItems, correctiveActions, currentOfficeName);
+      toast({ title: "PDF exported" });
+    } catch {
+      toast({ title: "PDF export failed", variant: "destructive" });
+    } finally {
+      setExportingPdfId(null);
     }
   };
 
@@ -1290,6 +1673,16 @@ export default function AuditAssessment() {
             >
               <FileSpreadsheet size={14} />
               {exportingId === activeAuditId ? "Exporting…" : "Export"}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-2"
+              disabled={exportingPdfId === activeAuditId || auditLoading}
+              onClick={handleExportPDF}
+            >
+              <FileText size={14} />
+              {exportingPdfId === activeAuditId ? "Generating…" : "Export PDF"}
             </Button>
             <Button variant="outline" size="sm" className="gap-2" onClick={() => window.print()}>
               <Printer size={14} /> Print
