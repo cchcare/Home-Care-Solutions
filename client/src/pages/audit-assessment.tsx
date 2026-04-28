@@ -2604,7 +2604,38 @@ function DeficienciesSection({
   onDeleteCorrectiveAction: (actionId: string) => void;
   isSaving: boolean;
 }) {
-  const [filterStatus, setFilterStatus] = useState<"all" | "open" | "in_progress" | "resolved">("all");
+  type DeficiencyFilter = "all" | "open" | "in_progress" | "resolved";
+  const filterStorageKey = `audit-deficiency-filter:${auditId}`;
+  const parseStoredFilter = (raw: string | null): DeficiencyFilter => {
+    if (raw === "all" || raw === "open" || raw === "in_progress" || raw === "resolved") return raw;
+    return "all";
+  };
+  const readStoredFilter = (key: string): DeficiencyFilter => {
+    if (typeof window === "undefined") return "all";
+    try {
+      return parseStoredFilter(window.localStorage.getItem(key));
+    } catch {
+      return "all";
+    }
+  };
+  const [filterStatus, setFilterStatusState] = useState<DeficiencyFilter>(() => readStoredFilter(filterStorageKey));
+
+  // Re-hydrate when the audit changes (e.g. user navigates between audits without unmounting)
+  useEffect(() => {
+    setFilterStatusState(readStoredFilter(filterStorageKey));
+  }, [filterStorageKey]);
+
+  // Persist only on explicit user action, never as a side effect of hydration,
+  // so we don't accidentally overwrite another audit's saved preference.
+  const setFilterStatus = (next: DeficiencyFilter) => {
+    setFilterStatusState(next);
+    if (typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem(filterStorageKey, next);
+    } catch {
+      // ignore (e.g. quota exceeded, private mode)
+    }
+  };
 
   const deficientItems: Array<{
     key: string;
