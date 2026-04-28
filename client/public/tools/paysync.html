@@ -596,6 +596,20 @@ input.finput::placeholder { color: var(--text3); }
   animation: tableRowIn 0.35s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
+/* ── REDUCED MOTION ── */
+/* Honor users who enabled the OS-level "reduce motion" accessibility setting.
+   Rows and cards still appear in their final styled state; only the motion is
+   suppressed (animations resolve instantly with no delay). */
+@media (prefers-reduced-motion: reduce) {
+  .stat-card.card-animate,
+  .summary-stat-card.card-animate,
+  .table-row-animate {
+    animation-duration: 0.001ms !important;
+    animation-delay: 0ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
+
 /* ── LOG PANEL ── */
 .log-panel {
   background: var(--card);
