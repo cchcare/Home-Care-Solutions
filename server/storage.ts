@@ -1192,7 +1192,7 @@ export interface IStorage {
   incrementHelpArticleViewCount(id: string): Promise<void>;
 
   // DOH Audit Assessment operations
-  getDohAuditAssessments(officeId: string): Promise<DohAuditAssessment[]>;
+  getDohAuditAssessments(officeId: string): Promise<(DohAuditAssessment & { reviewedCount: number; failCount: number })[]>;
   getDohAuditAssessment(id: string): Promise<DohAuditAssessment | undefined>;
   createDohAuditAssessment(assessment: InsertDohAuditAssessment): Promise<DohAuditAssessment>;
   updateDohAuditAssessment(id: string, assessment: Partial<InsertDohAuditAssessment>): Promise<DohAuditAssessment>;
@@ -7327,10 +7327,25 @@ export class DatabaseStorage implements IStorage {
   }
 
   // DOH Audit Assessment operations
-  async getDohAuditAssessments(officeId: string): Promise<DohAuditAssessment[]> {
-    return db.select().from(dohAuditAssessments)
+  async getDohAuditAssessments(officeId: string): Promise<(DohAuditAssessment & { reviewedCount: number; failCount: number })[]> {
+    const rows = await db.select().from(dohAuditAssessments)
       .where(eq(dohAuditAssessments.officeId, officeId))
       .orderBy(desc(dohAuditAssessments.createdAt));
+    if (!rows.length) return [];
+    const auditIds = rows.map(r => r.id);
+    const responseCounts = await db.select({
+      auditId: dohAuditResponses.auditId,
+      reviewedCount: sql<number>`cast(count(*) filter (where ${dohAuditResponses.status} != 'pending') as int)`,
+      failCount: sql<number>`cast(count(*) filter (where ${dohAuditResponses.status} = 'fail') as int)`,
+    }).from(dohAuditResponses)
+      .where(inArray(dohAuditResponses.auditId, auditIds))
+      .groupBy(dohAuditResponses.auditId);
+    const countMap = new Map(responseCounts.map(r => [r.auditId, r]));
+    return rows.map(r => ({
+      ...r,
+      reviewedCount: countMap.get(r.id)?.reviewedCount ?? 0,
+      failCount: countMap.get(r.id)?.failCount ?? 0,
+    }));
   }
 
   async getDohAuditAssessment(id: string): Promise<DohAuditAssessment | undefined> {

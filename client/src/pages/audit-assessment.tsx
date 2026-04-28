@@ -20,6 +20,9 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel,
@@ -28,10 +31,13 @@ import {
 } from "@/components/ui/alert-dialog";
 import {
   ClipboardCheck, Plus, ArrowLeft, CheckCircle2, XCircle,
-  MinusCircle, Clock, Building2, Trash2, FileText,
+  MinusCircle, Clock, Trash2, FileText,
   Users, UserCheck, AlertTriangle, ShieldCheck, ChevronDown, ChevronUp,
-  Printer, Upload, Paperclip, Download, X, File, Image, Sheet, FileBadge2,
+  Printer, Upload, Paperclip, Download, X, File, Image, Sheet,
+  MoreVertical, Archive, ArchiveRestore, FileSpreadsheet, User,
 } from "lucide-react";
+import ExcelJS from "exceljs";
+import { format } from "date-fns";
 import type { Office } from "@shared/schema";
 
 // ─── Checklist Definition ────────────────────────────────────────────────────
@@ -170,6 +176,8 @@ const CHECKLIST: ChecklistCategory[] = [
   },
 ];
 
+const BUILTIN_TOTAL = CHECKLIST.reduce((a, c) => a + c.items.length, 0);
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface AuditResponse {
@@ -208,12 +216,16 @@ interface AuditAssessment {
   officeId: string;
   title: string;
   surveyPeriod: string | null;
+  surveyorName: string | null;
+  auditDate: string | null;
   status: "in_progress" | "completed" | "archived";
   createdBy: string | null;
   completedAt: string | null;
   overallNotes: string | null;
   createdAt: string;
   updatedAt: string;
+  reviewedCount?: number;
+  failCount?: number;
   responses?: AuditResponse[];
   documents?: AuditDocument[];
   customItems?: AuditCustomItem[];
@@ -229,16 +241,8 @@ function getStatusIcon(status: ItemStatus, size = 16) {
   return <Clock {...props} className="text-yellow-500" />;
 }
 
-function getStatusBadge(status: ItemStatus) {
-  if (status === "pass") return <Badge className="bg-green-100 text-green-800 border-green-200 dark:bg-green-900/30 dark:text-green-300">Pass</Badge>;
-  if (status === "fail") return <Badge className="bg-red-100 text-red-800 border-red-200 dark:bg-red-900/30 dark:text-red-300">Deficient</Badge>;
-  if (status === "na") return <Badge className="bg-gray-100 text-gray-600 border-gray-200 dark:bg-gray-800 dark:text-gray-400">N/A</Badge>;
-  return <Badge className="bg-yellow-100 text-yellow-800 border-yellow-200 dark:bg-yellow-900/30 dark:text-yellow-300">Pending</Badge>;
-}
-
 function computeStats(responses: Record<string, ItemStatus>, customItems: AuditCustomItem[]) {
-  const builtInTotal = CHECKLIST.reduce((a, c) => a + c.items.length, 0);
-  const totalItems = builtInTotal + customItems.length;
+  const totalItems = BUILTIN_TOTAL + customItems.length;
   const pass = Object.values(responses).filter(s => s === "pass").length;
   const fail = Object.values(responses).filter(s => s === "fail").length;
   const na = Object.values(responses).filter(s => s === "na").length;
@@ -276,6 +280,229 @@ function getFileIcon(mimeType: string | null) {
   return <File size={16} className="text-gray-400" />;
 }
 
+function resolveItemLabel(itemKey: string | null, customItems: AuditCustomItem[]): string | null {
+  if (!itemKey) return null;
+  for (const cat of CHECKLIST) {
+    const found = cat.items.find(i => i.key === itemKey);
+    if (found) return found.label;
+  }
+  const custom = customItems.find(i => i.id === itemKey);
+  if (custom) return custom.label;
+  return null;
+}
+
+function resolveItemReference(itemKey: string | null): string | null {
+  if (!itemKey) return null;
+  for (const cat of CHECKLIST) {
+    const found = cat.items.find(i => i.key === itemKey);
+    if (found) return found.reference || null;
+  }
+  return null;
+}
+
+function resolveItemCategory(itemKey: string, customItems: AuditCustomItem[]): string {
+  for (const cat of CHECKLIST) {
+    if (cat.items.some(i => i.key === itemKey)) return cat.label;
+  }
+  const custom = customItems.find(i => i.id === itemKey);
+  if (custom) {
+    const cat = CHECKLIST.find(c => c.id === custom.category);
+    return cat ? cat.label : "Custom";
+  }
+  return "Unknown";
+}
+
+// ─── Excel Export ─────────────────────────────────────────────────────────────
+
+async function exportAuditToExcel(
+  audit: AuditAssessment,
+  responsesMap: Record<string, ItemStatus>,
+  notesMap: Record<string, string>,
+  customItems: AuditCustomItem[],
+  documents: AuditDocument[],
+) {
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = "CCHC Solutions";
+  workbook.created = new Date();
+
+  const headerFill: ExcelJS.FillPattern = {
+    type: "pattern", pattern: "solid", fgColor: { argb: "FF1e40af" },
+  };
+  const defFill: ExcelJS.FillPattern = {
+    type: "pattern", pattern: "solid", fgColor: { argb: "FFFEE2E2" },
+  };
+  const passFill: ExcelJS.FillPattern = {
+    type: "pattern", pattern: "solid", fgColor: { argb: "FFD1FAE5" },
+  };
+  const pendFill: ExcelJS.FillPattern = {
+    type: "pattern", pattern: "solid", fgColor: { argb: "FFFFF3CD" },
+  };
+  const naFill: ExcelJS.FillPattern = {
+    type: "pattern", pattern: "solid", fgColor: { argb: "FFF3F4F6" },
+  };
+  const headerFont = { bold: true, color: { argb: "FFFFFFFF" }, size: 11 };
+  const boldFont = { bold: true, size: 10 };
+
+  function statusLabel(s: ItemStatus) {
+    if (s === "pass") return "Pass";
+    if (s === "fail") return "Deficient";
+    if (s === "na") return "N/A";
+    return "Pending";
+  }
+
+  function rowFill(s: ItemStatus) {
+    if (s === "pass") return passFill;
+    if (s === "fail") return defFill;
+    if (s === "na") return naFill;
+    return pendFill;
+  }
+
+  // ── Sheet 1: Full Checklist ──────────────────────────────────────────────
+  const ws1 = workbook.addWorksheet("Full Checklist");
+  ws1.columns = [
+    { header: "Category", key: "category", width: 22 },
+    { header: "Item", key: "item", width: 55 },
+    { header: "Regulation", key: "ref", width: 14 },
+    { header: "Status", key: "status", width: 12 },
+    { header: "Notes", key: "notes", width: 40 },
+    { header: "Files", key: "files", width: 8 },
+  ];
+
+  const h1Row = ws1.getRow(1);
+  h1Row.eachCell(cell => {
+    cell.fill = headerFill;
+    cell.font = headerFont;
+    cell.alignment = { vertical: "middle" };
+  });
+  h1Row.height = 20;
+
+  for (const cat of CHECKLIST) {
+    for (const item of cat.items) {
+      const status = responsesMap[item.key] || "pending";
+      const notes = notesMap[item.key] || "";
+      const fileCount = documents.filter(d => d.itemKey === item.key).length;
+      const row = ws1.addRow({
+        category: cat.label,
+        item: item.label,
+        ref: item.reference ? `§ ${item.reference}` : "",
+        status: statusLabel(status),
+        notes,
+        files: fileCount || "",
+      });
+      row.eachCell(cell => {
+        cell.fill = rowFill(status);
+        cell.font = { size: 10 };
+        cell.alignment = { wrapText: true, vertical: "top" };
+      });
+    }
+    const customCatItems = customItems.filter(i => i.category === cat.id);
+    for (const item of customCatItems) {
+      const status = responsesMap[item.id] || "pending";
+      const notes = notesMap[item.id] || "";
+      const fileCount = documents.filter(d => d.itemKey === item.id).length;
+      const row = ws1.addRow({
+        category: `${cat.label} (custom)`,
+        item: item.label,
+        ref: "",
+        status: statusLabel(status),
+        notes,
+        files: fileCount || "",
+      });
+      row.eachCell(cell => {
+        cell.fill = rowFill(status);
+        cell.font = { size: 10 };
+        cell.alignment = { wrapText: true, vertical: "top" };
+      });
+    }
+  }
+
+  // ── Sheet 2: Deficiencies ───────────────────────────────────────────────
+  const ws2 = workbook.addWorksheet("Deficiencies");
+  ws2.columns = [
+    { header: "Category", key: "category", width: 22 },
+    { header: "Deficient Item", key: "item", width: 55 },
+    { header: "Regulation", key: "ref", width: 14 },
+    { header: "Notes / Findings", key: "notes", width: 45 },
+    { header: "Files", key: "files", width: 8 },
+  ];
+
+  const h2Row = ws2.getRow(1);
+  h2Row.eachCell(cell => {
+    cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF991B1B" } };
+    cell.font = headerFont;
+    cell.alignment = { vertical: "middle" };
+  });
+  h2Row.height = 20;
+
+  let hasDeficiencies = false;
+  for (const cat of CHECKLIST) {
+    for (const item of cat.items) {
+      if ((responsesMap[item.key] || "pending") !== "fail") continue;
+      hasDeficiencies = true;
+      const notes = notesMap[item.key] || "";
+      const fileCount = documents.filter(d => d.itemKey === item.key).length;
+      const row = ws2.addRow({
+        category: cat.label,
+        item: item.label,
+        ref: item.reference ? `§ ${item.reference}` : "",
+        notes,
+        files: fileCount || "",
+      });
+      row.eachCell(cell => {
+        cell.fill = defFill;
+        cell.font = { size: 10 };
+        cell.alignment = { wrapText: true, vertical: "top" };
+      });
+    }
+    const customCatItems = customItems.filter(i => i.category === cat.id);
+    for (const item of customCatItems) {
+      if ((responsesMap[item.id] || "pending") !== "fail") continue;
+      hasDeficiencies = true;
+      const notes = notesMap[item.id] || "";
+      const fileCount = documents.filter(d => d.itemKey === item.id).length;
+      const row = ws2.addRow({
+        category: `${cat.label} (custom)`,
+        item: item.label,
+        ref: "",
+        notes,
+        files: fileCount || "",
+      });
+      row.eachCell(cell => {
+        cell.fill = defFill;
+        cell.font = { size: 10 };
+        cell.alignment = { wrapText: true, vertical: "top" };
+      });
+    }
+  }
+
+  if (!hasDeficiencies) {
+    ws2.addRow({ category: "No deficiencies found", item: "", ref: "", notes: "", files: "" });
+  }
+
+  // Metadata header above sheet 1 data — prepend rows
+  ws1.spliceRows(1, 0,
+    [`DOH Audit Assessment — ${audit.title}`],
+    [`Status: ${audit.status === "completed" ? "Completed" : audit.status === "archived" ? "Archived" : "In Progress"}${audit.surveyPeriod ? `  |  Period: ${audit.surveyPeriod}` : ""}${audit.surveyorName ? `  |  Surveyor: ${audit.surveyorName}` : ""}${audit.auditDate ? `  |  Audit Date: ${audit.auditDate}` : ""}`],
+    [],
+  );
+  const titleRow1 = ws1.getRow(1);
+  titleRow1.getCell(1).font = { bold: true, size: 13 };
+  titleRow1.height = 22;
+  ws1.getRow(2).getCell(1).font = { size: 10, italic: true, color: { argb: "FF555555" } };
+
+  // Download
+  const dateStr = format(new Date(), "yyyy-MM-dd");
+  const safeName = audit.title.replace(/[^a-zA-Z0-9\s-]/g, "").replace(/\s+/g, "_").slice(0, 40);
+  const buffer = await workbook.xlsx.writeBuffer();
+  const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `DOH_Audit_${safeName}_${dateStr}.xlsx`;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function AuditAssessment() {
@@ -289,7 +516,11 @@ export default function AuditAssessment() {
   const [deleteAuditId, setDeleteAuditId] = useState<string | null>(null);
   const [newTitle, setNewTitle] = useState("");
   const [newPeriod, setNewPeriod] = useState("");
+  const [newSurveyorName, setNewSurveyorName] = useState("");
+  const [newAuditDate, setNewAuditDate] = useState("");
   const [newOfficeId, setNewOfficeId] = useState("");
+  const [showArchived, setShowArchived] = useState(false);
+  const [exportingId, setExportingId] = useState<string | null>(null);
 
   const officeId = selectedOfficeId && selectedOfficeId !== "all"
     ? selectedOfficeId : (user as any)?.primaryOfficeId || "";
@@ -303,6 +534,7 @@ export default function AuditAssessment() {
     queryFn: async () => {
       if (!officeId) return [];
       const res = await fetch(`/api/doh-audits?officeId=${officeId}`, { credentials: "include" });
+      if (!res.ok) throw new Error(res.statusText);
       return res.json();
     },
     enabled: !!officeId,
@@ -329,6 +561,9 @@ export default function AuditAssessment() {
       setCreateDialogOpen(false);
       setNewTitle("");
       setNewPeriod("");
+      setNewSurveyorName("");
+      setNewAuditDate("");
+      setNewOfficeId("");
       toast({ title: "Audit created", description: "Start completing the checklist." });
       setActiveAuditId(newAudit.id);
     },
@@ -349,7 +584,12 @@ export default function AuditAssessment() {
   const statusMutation = useMutation({
     mutationFn: ({ id, status }: { id: string; status: string }) =>
       apiRequest("PATCH", `/api/doh-audits/${id}`, { status }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/doh-audits", activeAuditId] }),
+    onSuccess: (_data, vars) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/doh-audits", activeAuditId] });
+      queryClient.invalidateQueries({ queryKey: ["/api/doh-audits", officeId] });
+      if (vars.status === "archived") toast({ title: "Audit archived" });
+      if (vars.status === "in_progress") toast({ title: "Audit reopened" });
+    },
     onError: () => toast({ title: "Error", description: "Failed to update status.", variant: "destructive" }),
   });
 
@@ -384,38 +624,63 @@ export default function AuditAssessment() {
     onError: () => toast({ title: "Error", description: "Failed to remove item.", variant: "destructive" }),
   });
 
+  // File upload — sequential queue state
   const [uploadingItemKey, setUploadingItemKey] = useState<string | null>(null);
+  const uploadQueue = useRef<{ auditId: string; file: File; itemKey?: string | null }[]>([]);
+  const isUploadingRef = useRef(false);
+
+  const processUploadQueue = useCallback(async () => {
+    if (isUploadingRef.current || uploadQueue.current.length === 0) return;
+    isUploadingRef.current = true;
+    while (uploadQueue.current.length > 0) {
+      const job = uploadQueue.current.shift()!;
+      if (job.itemKey) setUploadingItemKey(job.itemKey);
+      const formData = new FormData();
+      formData.append("file", job.file);
+      if (job.itemKey) formData.append("itemKey", job.itemKey);
+      try {
+        const res = await fetch(`/api/doh-audits/${job.auditId}/documents/upload`, {
+          method: "POST", body: formData, credentials: "include",
+        });
+        if (!res.ok) throw new Error("Upload failed");
+        queryClient.invalidateQueries({ queryKey: ["/api/doh-audits", job.auditId] });
+        toast({ title: "File attached" });
+      } catch {
+        toast({ title: "Upload failed", description: "Check file size and format.", variant: "destructive" });
+      }
+    }
+    isUploadingRef.current = false;
+    setUploadingItemKey(null);
+  }, [queryClient, toast]);
+
+  const enqueueUpload = useCallback((auditId: string, file: File, itemKey?: string | null) => {
+    uploadQueue.current.push({ auditId, file, itemKey });
+    processUploadQueue();
+  }, [processUploadQueue]);
+
+  const attachToItem = useCallback((itemKey: string, file: File) => {
+    if (!activeAuditId) return;
+    setUploadingItemKey(itemKey);
+    enqueueUpload(activeAuditId, file, itemKey);
+  }, [activeAuditId, enqueueUpload]);
 
   const uploadDocMutation = useMutation({
-    mutationFn: async ({ auditId, file, notes, itemKey }: { auditId: string; file: File; notes?: string; itemKey?: string | null }) => {
+    mutationFn: async ({ auditId, file, notes }: { auditId: string; file: File; notes?: string }) => {
       const formData = new FormData();
       formData.append("file", file);
       if (notes) formData.append("notes", notes);
-      if (itemKey) formData.append("itemKey", itemKey);
       const res = await fetch(`/api/doh-audits/${auditId}/documents/upload`, {
-        method: "POST",
-        body: formData,
-        credentials: "include",
+        method: "POST", body: formData, credentials: "include",
       });
       if (!res.ok) throw new Error("Upload failed");
       return res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/doh-audits", activeAuditId] });
-      setUploadingItemKey(null);
-      toast({ title: "File attached successfully" });
+      toast({ title: "File uploaded" });
     },
-    onError: () => {
-      setUploadingItemKey(null);
-      toast({ title: "Upload failed", description: "Unable to upload file. Check size and format.", variant: "destructive" });
-    },
+    onError: () => toast({ title: "Upload failed", description: "Unable to upload file. Check size and format.", variant: "destructive" }),
   });
-
-  const attachToItem = useCallback((itemKey: string, file: File) => {
-    if (!activeAuditId) return;
-    setUploadingItemKey(itemKey);
-    uploadDocMutation.mutate({ auditId: activeAuditId, file, itemKey });
-  }, [activeAuditId]);
 
   const deleteDocMutation = useMutation({
     mutationFn: ({ auditId, docId }: { auditId: string; docId: string }) =>
@@ -432,8 +697,25 @@ export default function AuditAssessment() {
     responseMutation.mutate({ auditId: activeAuditId, itemKey, category, status, notes });
   }, [activeAuditId]);
 
+  const handleExport = async () => {
+    if (!activeAudit || !activeAuditId) return;
+    setExportingId(activeAuditId);
+    try {
+      await exportAuditToExcel(activeAudit, responsesMap, notesMap, customItems, auditDocuments);
+      toast({ title: "Export complete" });
+    } catch {
+      toast({ title: "Export failed", variant: "destructive" });
+    } finally {
+      setExportingId(null);
+    }
+  };
+
   const isCompleted = activeAudit?.status === "completed";
+  const isArchived = activeAudit?.status === "archived";
+  const isLocked = isCompleted || isArchived;
   const stats = computeStats(responsesMap, customItems);
+
+  const visibleAudits = audits.filter(a => showArchived ? a.status === "archived" : a.status !== "archived");
 
   // ─── List view ────────────────────────────────────────────────────────────
 
@@ -457,65 +739,148 @@ export default function AuditAssessment() {
               </Button>
             </div>
 
+            {/* Archived toggle */}
+            <div className="flex items-center gap-2 mb-4">
+              <button
+                onClick={() => setShowArchived(false)}
+                className={`text-sm px-3 py-1.5 rounded-full border transition-colors ${!showArchived ? "bg-primary text-primary-foreground border-primary" : "border-border text-muted-foreground hover:text-foreground"}`}
+              >
+                Active
+              </button>
+              <button
+                onClick={() => setShowArchived(true)}
+                className={`text-sm px-3 py-1.5 rounded-full border transition-colors flex items-center gap-1.5 ${showArchived ? "bg-primary text-primary-foreground border-primary" : "border-border text-muted-foreground hover:text-foreground"}`}
+              >
+                <Archive size={13} /> Archived
+                {audits.filter(a => a.status === "archived").length > 0 && (
+                  <Badge className="bg-gray-200 text-gray-700 text-xs px-1.5 py-0 ml-0.5">
+                    {audits.filter(a => a.status === "archived").length}
+                  </Badge>
+                )}
+              </button>
+            </div>
+
             {listLoading ? (
               <div className="space-y-3">
                 {[1, 2, 3].map(i => <Card key={i} className="animate-pulse h-24" />)}
               </div>
-            ) : audits.length === 0 ? (
+            ) : visibleAudits.length === 0 ? (
               <Card>
                 <CardContent className="py-16 text-center">
-                  <ClipboardCheck size={40} className="mx-auto mb-3 text-muted-foreground opacity-40" />
-                  <p className="text-muted-foreground">No audits yet. Create your first audit to get started.</p>
-                  <Button className="mt-4 gap-2" onClick={() => setCreateDialogOpen(true)}>
-                    <Plus size={15} /> Create First Audit
-                  </Button>
+                  {showArchived ? (
+                    <>
+                      <Archive size={40} className="mx-auto mb-3 text-muted-foreground opacity-40" />
+                      <p className="text-muted-foreground">No archived audits.</p>
+                    </>
+                  ) : (
+                    <>
+                      <ClipboardCheck size={40} className="mx-auto mb-3 text-muted-foreground opacity-40" />
+                      <p className="text-muted-foreground">No audits yet. Create your first audit to get started.</p>
+                      <Button className="mt-4 gap-2" onClick={() => setCreateDialogOpen(true)}>
+                        <Plus size={15} /> Create First Audit
+                      </Button>
+                    </>
+                  )}
                 </CardContent>
               </Card>
             ) : (
               <div className="space-y-3">
-                {audits.map(audit => (
-                  <Card
-                    key={audit.id}
-                    className="cursor-pointer hover:shadow-md transition-all hover:border-primary/30"
-                    onClick={() => setActiveAuditId(audit.id)}
-                  >
-                    <CardContent className="p-4">
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="flex items-start gap-3 flex-1 min-w-0">
-                          <div className="bg-blue-50 dark:bg-blue-900/20 p-2.5 rounded-lg shrink-0">
-                            <ClipboardCheck size={20} className="text-blue-600 dark:text-blue-400" />
+                {visibleAudits.map(audit => {
+                  const reviewed = audit.reviewedCount ?? 0;
+                  const fails = audit.failCount ?? 0;
+                  const pct = Math.round((reviewed / BUILTIN_TOTAL) * 100);
+                  return (
+                    <Card
+                      key={audit.id}
+                      className="cursor-pointer hover:shadow-md transition-all hover:border-primary/30"
+                      onClick={() => setActiveAuditId(audit.id)}
+                    >
+                      <CardContent className="p-4">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex items-start gap-3 flex-1 min-w-0">
+                            <div className={`p-2.5 rounded-lg shrink-0 ${audit.status === "archived" ? "bg-gray-100 dark:bg-gray-800" : "bg-blue-50 dark:bg-blue-900/20"}`}>
+                              {audit.status === "archived"
+                                ? <Archive size={20} className="text-gray-500 dark:text-gray-400" />
+                                : <ClipboardCheck size={20} className="text-blue-600 dark:text-blue-400" />}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <h3 className="font-semibold truncate">{audit.title}</h3>
+                                {audit.status === "completed" && (
+                                  <Badge className="bg-green-100 text-green-800 border-green-200 dark:bg-green-900/30 dark:text-green-300">
+                                    <CheckCircle2 size={11} className="mr-1" /> Completed
+                                  </Badge>
+                                )}
+                                {audit.status === "archived" && (
+                                  <Badge className="bg-gray-100 text-gray-600 border-gray-200 dark:bg-gray-800 dark:text-gray-400">
+                                    <Archive size={11} className="mr-1" /> Archived
+                                  </Badge>
+                                )}
+                                {audit.status === "in_progress" && (
+                                  <Badge className="bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-900/30 dark:text-blue-300">
+                                    <Clock size={11} className="mr-1" /> In Progress
+                                  </Badge>
+                                )}
+                                {fails > 0 && (
+                                  <Badge className="bg-red-100 text-red-700 border-red-200 text-xs">
+                                    {fails} {fails === 1 ? "deficiency" : "deficiencies"}
+                                  </Badge>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-3 text-xs text-muted-foreground mt-1 flex-wrap">
+                                {audit.surveyPeriod && <span>Period: {audit.surveyPeriod}</span>}
+                                {audit.surveyorName && (
+                                  <span className="flex items-center gap-0.5"><User size={11} /> {audit.surveyorName}</span>
+                                )}
+                                {audit.auditDate && <span>Date: {audit.auditDate}</span>}
+                                <span>Created: {new Date(audit.createdAt).toLocaleDateString()}</span>
+                              </div>
+                              <div className="mt-2 flex items-center gap-2">
+                                <Progress value={pct} className="h-1.5 flex-1" />
+                                <span className="text-xs text-muted-foreground whitespace-nowrap shrink-0">
+                                  {reviewed}/{BUILTIN_TOTAL} reviewed
+                                </span>
+                              </div>
+                            </div>
                           </div>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <h3 className="font-semibold truncate">{audit.title}</h3>
-                              {audit.status === "completed" ? (
-                                <Badge className="bg-green-100 text-green-800 border-green-200 dark:bg-green-900/30 dark:text-green-300">
-                                  <CheckCircle2 size={11} className="mr-1" /> Completed
-                                </Badge>
-                              ) : (
-                                <Badge className="bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-900/30 dark:text-blue-300">
-                                  <Clock size={11} className="mr-1" /> In Progress
-                                </Badge>
-                              )}
-                            </div>
-                            <div className="flex items-center gap-3 text-xs text-muted-foreground mt-1">
-                              {audit.surveyPeriod && <span>Period: {audit.surveyPeriod}</span>}
-                              <span>Created: {new Date(audit.createdAt).toLocaleDateString()}</span>
-                            </div>
+                          <div className="flex items-center gap-1 shrink-0" onClick={e => e.stopPropagation()}>
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button size="icon" variant="ghost" className="h-8 w-8 text-muted-foreground">
+                                  <MoreVertical size={15} />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end">
+                                {audit.status !== "archived" ? (
+                                  <DropdownMenuItem
+                                    onClick={() => statusMutation.mutate({ id: audit.id, status: "archived" })}
+                                    className="gap-2 text-muted-foreground"
+                                  >
+                                    <Archive size={14} /> Archive
+                                  </DropdownMenuItem>
+                                ) : (
+                                  <DropdownMenuItem
+                                    onClick={() => statusMutation.mutate({ id: audit.id, status: "in_progress" })}
+                                    className="gap-2"
+                                  >
+                                    <ArchiveRestore size={14} /> Unarchive
+                                  </DropdownMenuItem>
+                                )}
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem
+                                  onClick={() => setDeleteAuditId(audit.id)}
+                                  className="gap-2 text-destructive focus:text-destructive"
+                                >
+                                  <Trash2 size={14} /> Delete
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
                           </div>
                         </div>
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="shrink-0 text-muted-foreground hover:text-destructive"
-                          onClick={e => { e.stopPropagation(); setDeleteAuditId(audit.id); }}
-                        >
-                          <Trash2 size={15} />
-                        </Button>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
+                      </CardContent>
+                    </Card>
+                  );
+                })}
               </div>
             )}
           </div>
@@ -529,7 +894,7 @@ export default function AuditAssessment() {
             </DialogHeader>
             <div className="space-y-4 py-2">
               <div>
-                <Label>Audit Title</Label>
+                <Label>Audit Title <span className="text-destructive">*</span></Label>
                 <Input
                   value={newTitle}
                   onChange={e => setNewTitle(e.target.value)}
@@ -537,12 +902,32 @@ export default function AuditAssessment() {
                   className="mt-1"
                 />
               </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label>Survey Period <span className="text-muted-foreground">(optional)</span></Label>
+                  <Input
+                    value={newPeriod}
+                    onChange={e => setNewPeriod(e.target.value)}
+                    placeholder="e.g. Q1 2025"
+                    className="mt-1"
+                  />
+                </div>
+                <div>
+                  <Label>Audit Date <span className="text-muted-foreground">(optional)</span></Label>
+                  <Input
+                    type="date"
+                    value={newAuditDate}
+                    onChange={e => setNewAuditDate(e.target.value)}
+                    className="mt-1"
+                  />
+                </div>
+              </div>
               <div>
-                <Label>Survey Period <span className="text-muted-foreground">(optional)</span></Label>
+                <Label>Surveyor Name <span className="text-muted-foreground">(optional)</span></Label>
                 <Input
-                  value={newPeriod}
-                  onChange={e => setNewPeriod(e.target.value)}
-                  placeholder="e.g. Q1 2025 or Jan–Mar 2025"
+                  value={newSurveyorName}
+                  onChange={e => setNewSurveyorName(e.target.value)}
+                  placeholder="Name of DOH surveyor"
                   className="mt-1"
                 />
               </div>
@@ -569,6 +954,8 @@ export default function AuditAssessment() {
                 onClick={() => createMutation.mutate({
                   title: newTitle.trim(),
                   surveyPeriod: newPeriod.trim() || null,
+                  surveyorName: newSurveyorName.trim() || null,
+                  auditDate: newAuditDate || null,
                   officeId: effectiveOfficeId,
                   status: "in_progress",
                   createdBy: (user as any)?.id,
@@ -619,37 +1006,86 @@ export default function AuditAssessment() {
             <div className="min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
                 <h1 className="text-xl font-bold truncate">{activeAudit?.title || "Loading…"}</h1>
-                {isCompleted ? (
+                {isArchived && (
+                  <Badge className="bg-gray-100 text-gray-600 border-gray-200 dark:bg-gray-800 dark:text-gray-400">
+                    <Archive size={11} className="mr-1" /> Archived
+                  </Badge>
+                )}
+                {isCompleted && !isArchived && (
                   <Badge className="bg-green-100 text-green-800 border-green-200 dark:bg-green-900/30 dark:text-green-300">
                     <CheckCircle2 size={11} className="mr-1" /> Completed
                   </Badge>
-                ) : (
+                )}
+                {!isCompleted && !isArchived && (
                   <Badge className="bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-900/30 dark:text-blue-300">
                     <Clock size={11} className="mr-1" /> In Progress
                   </Badge>
                 )}
               </div>
-              {activeAudit?.surveyPeriod && (
-                <p className="text-sm text-muted-foreground">Survey Period: {activeAudit.surveyPeriod}</p>
-              )}
+              <div className="flex items-center gap-3 text-xs text-muted-foreground mt-1 flex-wrap">
+                {activeAudit?.surveyPeriod && <span>Period: {activeAudit.surveyPeriod}</span>}
+                {activeAudit?.surveyorName && (
+                  <span className="flex items-center gap-1"><User size={11} /> {activeAudit.surveyorName}</span>
+                )}
+                {activeAudit?.auditDate && <span>Audit Date: {activeAudit.auditDate}</span>}
+              </div>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-2"
+              disabled={exportingId === activeAuditId || auditLoading}
+              onClick={handleExport}
+            >
+              <FileSpreadsheet size={14} />
+              {exportingId === activeAuditId ? "Exporting…" : "Export"}
+            </Button>
             <Button variant="outline" size="sm" className="gap-2" onClick={() => window.print()}>
               <Printer size={14} /> Print
             </Button>
-            {isCompleted ? (
-              <Button variant="outline" size="sm" onClick={() => statusMutation.mutate({ id: activeAuditId!, status: "in_progress" })}>
-                Reopen
-              </Button>
-            ) : (
+            {isArchived ? (
               <Button
+                variant="outline"
                 size="sm"
-                className="gap-2 bg-green-600 hover:bg-green-700 text-white"
-                onClick={() => statusMutation.mutate({ id: activeAuditId!, status: "completed" })}
+                className="gap-2"
+                onClick={() => statusMutation.mutate({ id: activeAuditId!, status: "in_progress" })}
               >
-                <CheckCircle2 size={15} /> Mark Complete
+                <ArchiveRestore size={14} /> Unarchive
               </Button>
+            ) : isCompleted ? (
+              <>
+                <Button variant="outline" size="sm" onClick={() => statusMutation.mutate({ id: activeAuditId!, status: "in_progress" })}>
+                  Reopen
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-2 text-muted-foreground"
+                  onClick={() => statusMutation.mutate({ id: activeAuditId!, status: "archived" })}
+                >
+                  <Archive size={14} /> Archive
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button
+                  size="sm"
+                  className="gap-2 bg-green-600 hover:bg-green-700 text-white"
+                  onClick={() => statusMutation.mutate({ id: activeAuditId!, status: "completed" })}
+                >
+                  <CheckCircle2 size={15} /> Mark Complete
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-2 text-muted-foreground"
+                  onClick={() => statusMutation.mutate({ id: activeAuditId!, status: "archived" })}
+                >
+                  <Archive size={14} /> Archive
+                </Button>
+              </>
             )}
           </div>
         </div>
@@ -691,7 +1127,7 @@ export default function AuditAssessment() {
               </Card>
             </div>
 
-            {/* Category Tabs + Documents tab */}
+            {/* Category Tabs + Deficiencies + Documents tab */}
             <Tabs defaultValue={CHECKLIST[0].id}>
               <TabsList className="flex flex-wrap h-auto gap-1 mb-4 bg-muted p-1">
                 {CHECKLIST.map(cat => {
@@ -704,12 +1140,19 @@ export default function AuditAssessment() {
                       {cs.fail > 0 && (
                         <Badge className="bg-red-100 text-red-700 border-red-200 text-xs px-1 py-0 ml-1">{cs.fail}</Badge>
                       )}
-                      {cs.fail === 0 && cs.reviewed === cs.total && (
+                      {cs.fail === 0 && cs.reviewed === cs.total && cs.total > 0 && (
                         <CheckCircle2 size={12} className="text-green-500 ml-1" />
                       )}
                     </TabsTrigger>
                   );
                 })}
+                {stats.fail > 0 && (
+                  <TabsTrigger value="deficiencies" className="gap-1.5 text-xs py-1.5 px-3">
+                    <XCircle size={13} className="text-red-500" />
+                    <span className="hidden sm:inline">Deficiencies</span>
+                    <Badge className="bg-red-100 text-red-700 border-red-200 text-xs px-1 py-0 ml-1">{stats.fail}</Badge>
+                  </TabsTrigger>
+                )}
                 <TabsTrigger value="documents" className="gap-1.5 text-xs py-1.5 px-3">
                   <Paperclip size={13} />
                   <span className="hidden sm:inline">Documents</span>
@@ -728,7 +1171,7 @@ export default function AuditAssessment() {
                     customItems={customItems.filter(i => i.category === cat.id)}
                     auditDocuments={auditDocuments}
                     onSave={saveResponse}
-                    disabled={isCompleted}
+                    disabled={isLocked}
                     onAddCustomItem={label => addCustomItemMutation.mutate({ auditId: activeAuditId!, category: cat.id, label })}
                     onDeleteCustomItem={itemId => deleteCustomItemMutation.mutate({ auditId: activeAuditId!, itemId })}
                     onAttachToItem={attachToItem}
@@ -738,12 +1181,24 @@ export default function AuditAssessment() {
                 </TabsContent>
               ))}
 
+              {stats.fail > 0 && (
+                <TabsContent value="deficiencies">
+                  <DeficienciesSection
+                    responsesMap={responsesMap}
+                    notesMap={notesMap}
+                    customItems={customItems}
+                    auditDocuments={auditDocuments}
+                    auditId={activeAuditId!}
+                  />
+                </TabsContent>
+              )}
+
               <TabsContent value="documents">
                 <DocumentsSection
                   auditId={activeAuditId!}
                   documents={auditDocuments}
                   customItems={customItems}
-                  disabled={isCompleted}
+                  disabled={isLocked}
                   onUpload={(file, notes) => uploadDocMutation.mutate({ auditId: activeAuditId!, file, notes })}
                   onDelete={docId => deleteDocMutation.mutate({ auditId: activeAuditId!, docId })}
                   uploading={uploadDocMutation.isPending}
@@ -760,7 +1215,7 @@ export default function AuditAssessment() {
               <CardContent>
                 <Textarea
                   defaultValue={activeAudit?.overallNotes || ""}
-                  disabled={isCompleted}
+                  disabled={isLocked}
                   rows={4}
                   placeholder="Add overall notes, corrective actions, or surveyor observations…"
                   onBlur={e => notesMutation.mutate({ id: activeAuditId!, notes: e.target.value })}
@@ -975,18 +1430,17 @@ function AuditItem({
             </button>
           ))}
 
-          {/* Attach button */}
+          {/* Attach button — single file only per item to avoid race conditions */}
           {onAttach && (
             <>
               <input
                 ref={fileInputRef}
                 type="file"
-                multiple
                 accept=".jpg,.jpeg,.png,.gif,.webp,.pdf,.doc,.docx,.xls,.xlsx"
                 className="hidden"
                 onChange={e => {
-                  if (!e.target.files) return;
-                  Array.from(e.target.files).forEach(f => onAttach(f));
+                  const file = e.target.files?.[0];
+                  if (file) onAttach(file);
                   e.target.value = "";
                 }}
               />
@@ -1090,18 +1544,128 @@ function AuditItem({
   );
 }
 
-// ─── Documents Section ────────────────────────────────────────────────────────
+// ─── Deficiencies Section ─────────────────────────────────────────────────────
 
-function resolveItemLabel(itemKey: string | null, customItems: AuditCustomItem[]): string | null {
-  if (!itemKey) return null;
+function DeficienciesSection({
+  responsesMap, notesMap, customItems, auditDocuments, auditId,
+}: {
+  responsesMap: Record<string, ItemStatus>;
+  notesMap: Record<string, string>;
+  customItems: AuditCustomItem[];
+  auditDocuments: AuditDocument[];
+  auditId: string;
+}) {
+  const deficientItems: Array<{
+    key: string;
+    label: string;
+    reference?: string;
+    category: string;
+    notes: string;
+    docs: AuditDocument[];
+  }> = [];
+
   for (const cat of CHECKLIST) {
-    const found = cat.items.find(i => i.key === itemKey);
-    if (found) return found.label;
+    for (const item of cat.items) {
+      if ((responsesMap[item.key] || "pending") === "fail") {
+        deficientItems.push({
+          key: item.key,
+          label: item.label,
+          reference: item.reference,
+          category: cat.label,
+          notes: notesMap[item.key] || "",
+          docs: auditDocuments.filter(d => d.itemKey === item.key),
+        });
+      }
+    }
+    const customCatItems = customItems.filter(i => i.category === cat.id);
+    for (const item of customCatItems) {
+      if ((responsesMap[item.id] || "pending") === "fail") {
+        deficientItems.push({
+          key: item.id,
+          label: item.label,
+          category: `${cat.label} (custom)`,
+          notes: notesMap[item.id] || "",
+          docs: auditDocuments.filter(d => d.itemKey === item.id),
+        });
+      }
+    }
   }
-  const custom = customItems.find(i => i.id === itemKey);
-  if (custom) return custom.label;
-  return null;
+
+  if (deficientItems.length === 0) {
+    return (
+      <Card>
+        <CardContent className="py-12 text-center">
+          <CheckCircle2 size={36} className="mx-auto mb-3 text-green-500 opacity-60" />
+          <p className="text-muted-foreground">No deficiencies found.</p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <div className="flex items-center gap-2">
+          <XCircle size={18} className="text-red-500" />
+          <CardTitle className="text-base">Deficiencies — {deficientItems.length} item{deficientItems.length !== 1 ? "s" : ""}</CardTitle>
+        </div>
+        <CardDescription>All items marked deficient across all categories. Use notes fields to document corrective actions.</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {deficientItems.map((item, idx) => (
+          <div key={item.key} className="border-l-4 border-l-red-400 bg-red-50/40 dark:bg-red-950/20 rounded-r-lg px-3 py-3">
+            <div className="flex items-start gap-2">
+              <span className="text-xs font-bold text-red-500 bg-red-100 dark:bg-red-900/30 rounded px-1.5 py-0.5 shrink-0 mt-0.5">{idx + 1}</span>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-start justify-between gap-2 flex-wrap">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium leading-snug">{item.label}</p>
+                    <div className="flex items-center gap-2 flex-wrap mt-0.5">
+                      <Badge className="text-xs px-1.5 py-0 bg-gray-100 text-gray-600 border-gray-200 dark:bg-gray-800 dark:text-gray-400">
+                        {item.category}
+                      </Badge>
+                      {item.reference && (
+                        <span className="text-xs text-muted-foreground">§ {item.reference}</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+                {item.notes && (
+                  <div className="mt-2 p-2 bg-white dark:bg-background border rounded text-xs text-muted-foreground italic">
+                    "{item.notes}"
+                  </div>
+                )}
+                {!item.notes && (
+                  <p className="mt-1 text-xs text-muted-foreground/60 italic">No notes — open the checklist item to add corrective action notes.</p>
+                )}
+                {item.docs.length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {item.docs.map(doc => (
+                      <a
+                        key={doc.id}
+                        href={`/api/doh-audits/${auditId}/documents/${doc.id}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center gap-1 text-xs bg-white dark:bg-background border rounded px-2 py-1 hover:bg-muted transition-colors"
+                        title="View / Download"
+                      >
+                        {getFileIcon(doc.mimeType)}
+                        <span className="truncate max-w-[140px]">{doc.originalName}</span>
+                        <Download size={11} className="text-muted-foreground shrink-0" />
+                      </a>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        ))}
+      </CardContent>
+    </Card>
+  );
 }
+
+// ─── Documents Section ────────────────────────────────────────────────────────
 
 function DocumentsSection({
   auditId, documents, customItems, disabled, onUpload, onDelete, uploading,
@@ -1181,47 +1745,47 @@ function DocumentsSection({
             {documents.map(doc => {
               const linkedLabel = resolveItemLabel(doc.itemKey, customItems);
               return (
-              <div
-                key={doc.id}
-                className="flex items-center gap-3 p-3 rounded-lg border bg-muted/20 hover:bg-muted/40 transition-colors"
-              >
-                <div className="shrink-0">{getFileIcon(doc.mimeType)}</div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium truncate">{doc.originalName}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {formatFileSize(doc.fileSize)}
-                    {doc.createdAt && ` · ${new Date(doc.createdAt).toLocaleDateString()}`}
-                  </p>
-                  {linkedLabel && (
-                    <p className="text-xs text-blue-600 dark:text-blue-400 mt-0.5 flex items-center gap-1 truncate">
-                      <Paperclip size={10} className="shrink-0" />
-                      <span className="truncate">{linkedLabel}</span>
+                <div
+                  key={doc.id}
+                  className="flex items-center gap-3 p-3 rounded-lg border bg-muted/20 hover:bg-muted/40 transition-colors"
+                >
+                  <div className="shrink-0">{getFileIcon(doc.mimeType)}</div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">{doc.originalName}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {formatFileSize(doc.fileSize)}
+                      {doc.createdAt && ` · ${new Date(doc.createdAt).toLocaleDateString()}`}
                     </p>
-                  )}
-                  {doc.notes && <p className="text-xs text-muted-foreground italic mt-0.5">"{doc.notes}"</p>}
-                </div>
-                <div className="flex items-center gap-1 shrink-0">
-                  <a
-                    href={`/api/doh-audits/${auditId}/documents/${doc.id}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="w-8 h-8 rounded flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-                    title="View / Download"
-                  >
-                    <Download size={15} />
-                  </a>
-                  {!disabled && (
-                    <button
-                      onClick={() => setDeleteDocId(doc.id)}
-                      className="w-8 h-8 rounded flex items-center justify-center text-muted-foreground hover:text-destructive hover:bg-muted transition-colors"
-                      title="Delete file"
+                    {linkedLabel && (
+                      <p className="text-xs text-blue-600 dark:text-blue-400 mt-0.5 flex items-center gap-1 truncate">
+                        <Paperclip size={10} className="shrink-0" />
+                        <span className="truncate">{linkedLabel}</span>
+                      </p>
+                    )}
+                    {doc.notes && <p className="text-xs text-muted-foreground italic mt-0.5">"{doc.notes}"</p>}
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <a
+                      href={`/api/doh-audits/${auditId}/documents/${doc.id}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="w-8 h-8 rounded flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                      title="View / Download"
                     >
-                      <Trash2 size={15} />
-                    </button>
-                  )}
+                      <Download size={15} />
+                    </a>
+                    {!disabled && (
+                      <button
+                        onClick={() => setDeleteDocId(doc.id)}
+                        className="w-8 h-8 rounded flex items-center justify-center text-muted-foreground hover:text-destructive hover:bg-muted transition-colors"
+                        title="Delete file"
+                      >
+                        <Trash2 size={15} />
+                      </button>
+                    )}
+                  </div>
                 </div>
-              </div>
-            );
+              );
             })}
           </div>
         )}
