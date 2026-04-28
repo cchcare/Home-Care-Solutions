@@ -1751,12 +1751,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Enrich caregivers with user data and office info
       const enrichedCaregivers = await Promise.all(
         caregivers.map(async (caregiver) => {
-          let userInfo = { firstName: null as string | null, lastName: null as string | null, email: null as string | null };
+          let userInfo = { firstName: caregiver.firstName || null, lastName: caregiver.lastName || null, email: null as string | null };
           if (caregiver.userId) {
             const user = await storage.getUser(caregiver.userId);
             userInfo = {
-              firstName: user?.firstName || null,
-              lastName: user?.lastName || null,
+              firstName: user?.firstName || caregiver.firstName || null,
+              lastName: user?.lastName || caregiver.lastName || null,
               email: user?.email || null,
             };
           }
@@ -1803,13 +1803,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       // Enrich caregiver with user data
-      let enrichedCaregiver = { ...caregiver, firstName: null as string | null, lastName: null as string | null, email: null as string | null };
+      let enrichedCaregiver: any = { ...caregiver, email: null as string | null };
       if (caregiver.userId) {
         const user = await storage.getUser(caregiver.userId);
         enrichedCaregiver = {
           ...caregiver,
-          firstName: user?.firstName || null,
-          lastName: user?.lastName || null,
+          firstName: user?.firstName || caregiver.firstName || null,
+          lastName: user?.lastName || caregiver.lastName || null,
           email: user?.email || null,
         };
       }
@@ -2273,8 +2273,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }
           
           if (existingCaregiver) {
-            // Update existing caregiver record
-            const updateData: any = { ...caregiverInfo };
+            // Update existing caregiver record (include firstName/lastName from import)
+            const updateData: any = {
+              ...caregiverInfo,
+              ...(firstName !== undefined && firstName !== null ? { firstName } : {}),
+              ...(lastName !== undefined && lastName !== null ? { lastName } : {}),
+              ...(middleName !== undefined && middleName !== null ? { middleName } : {}),
+            };
             
             // Update user info only if email is provided (required for user upsert)
             if (email && typeof email === 'string' && email.trim()) {
