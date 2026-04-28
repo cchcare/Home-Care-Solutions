@@ -1844,6 +1844,20 @@ async function runProcess() {
       else resolve();
     }));
   });
+  // Sub-stage progress: interpolates the bar width inside long-running loops between
+  // a stage's start/end percentages, then yields one frame so the browser can repaint
+  // and we can honor a cancel request. Call sparingly (every N rows) to avoid stalling
+  // the loop on large files.
+  const setSubProgress = (processed, total, startPct, endPct) => new Promise((resolve, reject) => {
+    if (_bar && total > 0) {
+      const frac = Math.min(1, Math.max(0, processed / total));
+      _bar.style.width = (startPct + (endPct - startPct) * frac) + '%';
+    }
+    requestAnimationFrame(() => {
+      if (_processingCancelled) reject(_PROC_CANCEL_SENTINEL);
+      else resolve();
+    });
+  });
   let _processedOk = false;
 
   try {
@@ -1936,7 +1950,14 @@ async function runProcess() {
   const unmatched = new Set();
   let ssnMatches = 0;
 
-  Object.values(grouped).forEach(({ aide, week, pay, reg, ot, ssn }) => {
+  // Iterate sequentially so we can update the progress bar inside the loop.
+  // Yield to the browser ~20 times across the stage (or every row on tiny files)
+  // so the bar advances incrementally between 60% → 80% on large HHA files.
+  const groupedArr = Object.values(grouped);
+  const matchTotal = groupedArr.length;
+  const matchYield = Math.max(1, Math.ceil(matchTotal / 20));
+  for (let gi = 0; gi < matchTotal; gi++) {
+    const { aide, week, pay, reg, ot, ssn } = groupedArr[gi];
     let m = lookup[aide];
     let matchMethod = 'Code';
 
@@ -1958,21 +1979,24 @@ async function runProcess() {
     if (!m) {
       unmatched.add(aide);
       lg(`⚠ Aide Code ${aide} (Week ${week}) — no match by code or SSN, skipped`, 'w');
-      return;
+    } else {
+      if (matchMethod === 'SSN') {
+        ssnMatches++;
+        lg(`  ℹ Aide ${aide} (Week ${week}) — matched via SSN → ${m.name} (ADP: ${m.adpCode})`, 'i');
+      }
+
+      let fReg = reg, fOT = ot;
+      if (fReg === 0 && fOT === 0 && pay > 0) {
+        fReg = Math.min(pay, 40);
+        fOT  = Math.max(0, pay - 40);
+      }
+      output.push({ coCode, batchId, name: m.name, adpCode: m.adpCode, flsaWk: week, regHrs: fReg, otHrs: fOT, week, aide, matchMethod });
     }
 
-    if (matchMethod === 'SSN') {
-      ssnMatches++;
-      lg(`  ℹ Aide ${aide} (Week ${week}) — matched via SSN → ${m.name} (ADP: ${m.adpCode})`, 'i');
+    if ((gi + 1) % matchYield === 0 || gi === matchTotal - 1) {
+      await setSubProgress(gi + 1, matchTotal, 60, 80);
     }
-
-    let fReg = reg, fOT = ot;
-    if (fReg === 0 && fOT === 0 && pay > 0) {
-      fReg = Math.min(pay, 40);
-      fOT  = Math.max(0, pay - 40);
-    }
-    output.push({ coCode, batchId, name: m.name, adpCode: m.adpCode, flsaWk: week, regHrs: fReg, otHrs: fOT, week, aide, matchMethod });
-  });
+  }
 
   S.output    = output;
   S.unmatched = [...unmatched];
@@ -2131,10 +2155,17 @@ async function runProcess() {
     const wk1Key = allWeekKeys[0] || '1';
     const wk2Key = allWeekKeys[1] || '2';
 
-    // Fill summary rows
+    // Fill summary rows — iterate sequentially so we can advance the bar inside
+    // the loop (90% → 100%). Yield to the browser ~20 times across the stage so
+    // very large summary sheets don't sit at 90% the whole time.
     let sumMatched = 0, sumUnmatched = 0;
     const sumUnmatchedItems = [];
-    const filled = S.summaryRows.map(row => {
+    const filled = [];
+    const sumTotal = S.summaryRows.length;
+    const sumYield = Math.max(1, Math.ceil(sumTotal / 20));
+    for (let si = 0; si < sumTotal; si++) {
+      const row = S.summaryRows[si];
+      const _filledRow = (() => {
       const clone = { ...row };
 
       // Resolve HHA code for this summary row
@@ -2212,7 +2243,12 @@ async function runProcess() {
       clone[wk2Col] = parseFloat(w2Hrs.toFixed(2));
       lg(`  ✓ ${sumAdp || hhaKey} [${matchMethod}] — Wk${wk1Key}: ${w1Hrs.toFixed(2)}  Wk${wk2Key}: ${w2Hrs.toFixed(2)}`, 's');
       return clone;
-    });
+      })();
+      filled.push(_filledRow);
+      if ((si + 1) % sumYield === 0 || si === sumTotal - 1) {
+        await setSubProgress(si + 1, sumTotal, 90, 100);
+      }
+    }
 
     S.filledSummary = filled;
 
@@ -2370,8 +2406,9 @@ async function runProcess() {
     // Append unmatched summary rows to the export preview table
     appendUnmatchedSummaryRows(sumUnmatchedItems);
   }
-  // Ensure bar reaches ~90% before the completion jump (covers the no-summary path)
-  if (_bar) _bar.style.width = '90%';
+  // Ensure bar reaches ~90% before the completion jump (covers the no-summary path).
+  // Only nudge it up if we haven't already advanced past 90% via sub-stage progress.
+  if (_bar && (parseFloat(_bar.style.width) || 0) < 90) _bar.style.width = '90%';
   _processedOk = true;
   } catch (err) {
     if (err === _PROC_CANCEL_SENTINEL) {
