@@ -21,7 +21,7 @@
  */
 
 import { ExclusionService } from "../exclusion-service";
-import { storage } from "../storage";
+import { storage, type IStorage } from "../storage";
 import type {
   ExclusionRecord,
   CaregiverExclusionFalsePositive,
@@ -53,9 +53,9 @@ const SOURCE_OIG = "src-oig";
 const SOURCE_MEDI = "src-medi";
 
 function rec(partial: Partial<ExclusionRecord>): ExclusionRecord {
-  return {
-    id: partial.id || `rec-${Math.random().toString(36).slice(2, 8)}`,
-    sourceId: partial.sourceId || SOURCE_MEDI,
+  const base: ExclusionRecord = {
+    id: `rec-${Math.random().toString(36).slice(2, 8)}`,
+    sourceId: SOURCE_MEDI,
     externalIdentifier: null,
     firstName: null,
     lastName: null,
@@ -79,8 +79,8 @@ function rec(partial: Partial<ExclusionRecord>): ExclusionRecord {
     isActive: true,
     createdAt: new Date(),
     updatedAt: new Date(),
-    ...partial,
-  } as ExclusionRecord;
+  };
+  return { ...base, ...partial };
 }
 
 // ---------------------------------------------------------------------------
@@ -93,59 +93,85 @@ type Stub = {
 
 const stub: Stub = { records: [], fps: [] };
 
-(storage as any).getCaregiverFalsePositives = async (caregiverId: string) =>
-  stub.fps.filter((fp) => fp.caregiverId === caregiverId);
+// Strongly-typed override surface — only the IStorage methods the
+// matcher actually calls. Each impl matches the real IStorage signature.
+type ExclusionStorageOverrides = Pick<
+  IStorage,
+  | "getCaregiverFalsePositives"
+  | "getExclusionRecordsByNpi"
+  | "getExclusionRecordsByLicenseNumbers"
+  | "getExclusionRecordsByName"
+  | "searchExclusionRecords"
+>;
 
-(storage as any).getExclusionRecordsByNpi = async (npi: string) => {
-  const digits = (npi || "").replace(/\D/g, "");
-  if (!digits) return [];
-  return stub.records.filter(
-    (r) => r.isActive && (r.npi || "").replace(/\D/g, "") === digits,
-  );
+const overrides: ExclusionStorageOverrides = {
+  getCaregiverFalsePositives: async (caregiverId) =>
+    stub.fps.filter((fp) => fp.caregiverId === caregiverId),
+
+  getExclusionRecordsByNpi: async (npi) => {
+    const digits = (npi || "").replace(/\D/g, "");
+    if (!digits) return [];
+    return stub.records.filter(
+      (r) => r.isActive && (r.npi || "").replace(/\D/g, "") === digits,
+    );
+  },
+
+  getExclusionRecordsByLicenseNumbers: async (numbers) => {
+    const norm = new Set(
+      numbers.map((n) => (n || "").trim().toLowerCase()).filter(Boolean),
+    );
+    if (norm.size === 0) return [];
+    return stub.records.filter(
+      (r) =>
+        r.isActive &&
+        !!r.licenseNumber &&
+        norm.has(r.licenseNumber.trim().toLowerCase()),
+    );
+  },
+
+  getExclusionRecordsByName: async (lastName, firstName) => {
+    const ln = lastName.toLowerCase();
+    const fn = firstName?.toLowerCase();
+    return stub.records.filter(
+      (r) =>
+        r.isActive &&
+        (r.lastName || "").toLowerCase() === ln &&
+        (fn == null || (r.firstName || "").toLowerCase() === fn),
+    );
+  },
+
+  searchExclusionRecords: async (lastName, firstName) => {
+    const ln = lastName.toLowerCase();
+    const fn = firstName?.toLowerCase();
+    return stub.records.filter(
+      (r) =>
+        r.isActive &&
+        (r.lastName || "").toLowerCase().includes(ln) &&
+        (fn == null || (r.firstName || "").toLowerCase().includes(fn)),
+    );
+  },
 };
 
-(storage as any).getExclusionRecordsByLicenseNumbers = async (
-  numbers: string[],
-) => {
-  const norm = new Set(
-    numbers.map((n) => (n || "").trim().toLowerCase()).filter(Boolean),
-  );
-  if (norm.size === 0) return [];
-  return stub.records.filter(
-    (r) =>
-      r.isActive &&
-      r.licenseNumber &&
-      norm.has(r.licenseNumber.trim().toLowerCase()),
-  );
-};
+// Install typed overrides onto the real storage singleton. Using
+// Object.assign keeps both source and target typed — no `any` escapes.
+Object.assign<IStorage, ExclusionStorageOverrides>(storage, overrides);
 
-(storage as any).getExclusionRecordsByName = async (
-  lastName: string,
-  firstName?: string,
-) => {
-  const ln = lastName.toLowerCase();
-  const fn = firstName?.toLowerCase();
-  return stub.records.filter(
-    (r) =>
-      r.isActive &&
-      (r.lastName || "").toLowerCase() === ln &&
-      (fn == null || (r.firstName || "").toLowerCase() === fn),
-  );
-};
-
-(storage as any).searchExclusionRecords = async (
-  lastName: string,
-  firstName?: string,
-) => {
-  const ln = lastName.toLowerCase();
-  const fn = firstName?.toLowerCase();
-  return stub.records.filter(
-    (r) =>
-      r.isActive &&
-      (r.lastName || "").toLowerCase().includes(ln) &&
-      (fn == null || (r.firstName || "").toLowerCase().includes(fn)),
-  );
-};
+function fp(
+  caregiverId: string,
+  matchSignature: string,
+  sourceId: string = SOURCE_OIG,
+): CaregiverExclusionFalsePositive {
+  return {
+    id: `fp-${Math.random().toString(36).slice(2, 8)}`,
+    caregiverId,
+    sourceId,
+    exclusionRecordId: null,
+    matchSignature,
+    reason: null,
+    createdBy: null,
+    createdAt: new Date(),
+  };
+}
 
 function reset(): void {
   stub.records = [];
@@ -365,16 +391,7 @@ async function main(): Promise<void> {
       "9999999999",
     );
     assert(nameSig !== npiSig, "name-exact and NPI signatures differ");
-    stub.fps.push({
-      id: "fp1",
-      caregiverId: "cgFP",
-      sourceId: SOURCE_MEDI,
-      exclusionRecordId: "r-fp",
-      matchSignature: nameSig,
-      reason: "name FP",
-      createdBy: "u1",
-      createdAt: new Date(),
-    } as CaregiverExclusionFalsePositive);
+    stub.fps.push(fp("cgFP", nameSig, SOURCE_MEDI));
 
     const matches = await svc.checkCaregiverAgainstExclusions(
       "cgFP",
@@ -419,7 +436,7 @@ async function main(): Promise<void> {
     ];
     // Pre-Task-#71 false positive (4-part legacy signature, no reason suffix).
     const legacy = svc.generateLegacyMatchSignature("cgL", "src-A", "John", "Doe");
-    stub.fps = [{ caregiverId: "cgL", matchSignature: legacy } as any];
+    stub.fps = [fp("cgL", legacy, "src-A")];
 
     const matches = await svc.checkCaregiverAgainstExclusions(
       "cgL",
@@ -445,7 +462,7 @@ async function main(): Promise<void> {
       }),
     ];
     const legacy = svc.generateLegacyMatchSignature("cgL2", "src-B", "John", "Doe");
-    stub.fps = [{ caregiverId: "cgL2", matchSignature: legacy } as any];
+    stub.fps = [fp("cgL2", legacy, "src-B")];
 
     // NPI match should fire despite legacy name dismissal — identifier
     // semantics are stronger than a prior name-only FP decision.
