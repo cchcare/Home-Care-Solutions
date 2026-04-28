@@ -1416,6 +1416,9 @@ tr.unmatched-detail-row td {
           Unmatched:
           <input type="color" id="unmatchedColor" value="#FFC7CE" title="Unmatched row color" style="width:28px;height:24px;padding:1px;border:1px solid var(--border2);border-radius:4px;cursor:pointer;background:none">
         </label>
+        <button type="button" id="resetColorsBtn" title="Reset highlight colors to defaults" style="font-size:12px;padding:4px 8px;border:1px solid var(--border2);border-radius:6px;background:var(--card);color:var(--text2);font-family:'Inter',sans-serif;cursor:pointer;display:inline-flex;align-items:center;gap:4px;line-height:1">
+          <span style="font-size:14px;line-height:1">↺</span> Reset
+        </button>
       </span>
     </div>
     <div class="dl-row" id="summaryDlRow" style="display:none;margin-top:8px">
@@ -2833,6 +2836,24 @@ setupDragDrop();
     if (saved) unmatchedColorEl.value = saved;
     unmatchedColorEl.addEventListener('change', function () {
       localStorage.setItem('paysync_unmatchedColor', unmatchedColorEl.value);
+    });
+  }
+
+  const resetColorsBtn = document.getElementById('resetColorsBtn');
+  if (resetColorsBtn) {
+    resetColorsBtn.addEventListener('click', function () {
+      if (matchedColorEl) {
+        matchedColorEl.value = '#C6EFCE';
+        matchedColorEl.dispatchEvent(new Event('change', { bubbles: true }));
+        matchedColorEl.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+      if (unmatchedColorEl) {
+        unmatchedColorEl.value = '#FFC7CE';
+        unmatchedColorEl.dispatchEvent(new Event('change', { bubbles: true }));
+        unmatchedColorEl.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+      localStorage.removeItem('paysync_matchedColor');
+      localStorage.removeItem('paysync_unmatchedColor');
     });
   }
 }());
