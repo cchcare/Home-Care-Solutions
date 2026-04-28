@@ -106,6 +106,7 @@ import {
   insertShiftSwapRequestSchema,
   insertESignatureTemplateSchema,
   insertESignatureRequestSchema,
+  subscriptionFeatures,
 } from "@shared/schema";
 import bcrypt from "bcrypt";
 import { ObjectStorageService, ObjectNotFoundError } from "./objectStorage";
@@ -492,7 +493,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/organization/features", isAuthenticated, async (req: any, res) => {
     try {
       const user = await storage.getUser(req.session?.user?.id);
-      if (!user?.organizationId) {
+      if (!user) {
+        return res.status(401).json({ message: "Authentication required" });
+      }
+
+      // Super admins bypass feature gating and have access to every feature
+      if (user.role === "super_admin") {
+        const allFeatures = await db
+          .select({ key: subscriptionFeatures.key })
+          .from(subscriptionFeatures);
+        return res.json({ features: allFeatures.map((f) => f.key) });
+      }
+
+      if (!user.organizationId) {
         return res.status(400).json({ message: "User not associated with an organization" });
       }
 

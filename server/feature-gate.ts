@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import { db } from "./db";
-import { organizations, planFeatures, subscriptionFeatures } from "@shared/schema";
+import { organizations, planFeatures, subscriptionFeatures, users } from "@shared/schema";
 import { eq, and } from "drizzle-orm";
 
 /**
@@ -58,14 +58,53 @@ export async function hasFeature(organizationId: string, featureKey: string): Pr
  */
 export function requireFeature(featureKey: string) {
   return async (req: Request, res: Response, next: NextFunction) => {
-    // Check if user is authenticated and has an organization
-    const user = (req as any).user;
-    if (!user || !user.organizationId) {
+    // Resolve the authenticated user from either auth flow:
+    //   - local auth stores it on req.session.user
+    //   - passport (OIDC) stores it on req.user
+    const sessionUser = (req as any).session?.user;
+    const passportUser = (req as any).user;
+    const user = sessionUser || passportUser;
+
+    if (!user || !user.id) {
       return res.status(401).json({ message: "Authentication required" });
     }
 
+    // Super admins bypass all feature gates (platform-level access)
+    if (user.role === "super_admin") {
+      return next();
+    }
+
+    // Defensive fallback: if the session payload is missing role/organizationId
+    // (e.g., a partial session created by an older code path), look up the
+    // canonical user record from the DB before denying access.
+    let role = user.role;
+    let organizationId = user.organizationId;
+    if (!role || !organizationId) {
+      try {
+        const dbUser = await db.query.users.findFirst({
+          where: eq(users.id, user.id),
+        });
+        if (dbUser) {
+          role = role || dbUser.role;
+          organizationId = organizationId || dbUser.organizationId || undefined;
+          if (role === "super_admin") {
+            return next();
+          }
+        }
+      } catch (lookupError) {
+        console.error(`Error looking up user ${user.id} during feature gate:`, lookupError);
+      }
+    }
+
+    if (!organizationId) {
+      return res.status(403).json({
+        message: "Your account is not associated with an organization. Contact your administrator.",
+        feature: featureKey,
+      });
+    }
+
     try {
-      const hasAccess = await hasFeature(user.organizationId, featureKey);
+      const hasAccess = await hasFeature(organizationId, featureKey);
 
       if (!hasAccess) {
         return res.status(403).json({
