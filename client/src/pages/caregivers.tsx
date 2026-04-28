@@ -29,7 +29,7 @@ import {
   Trash2,
   RefreshCw
 } from "lucide-react";
-import type { Caregiver } from "@shared/schema";
+import type { Caregiver, Coordinator } from "@shared/schema";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -63,6 +63,12 @@ export default function Caregivers() {
   const { data: caregivers = [], isLoading } = useQuery<EnrichedCaregiver[]>({
     queryKey: ["/api/caregivers", selectedOfficeId],
     queryFn: () => fetch(`/api/caregivers${officeQuery}`).then(r => r.json()),
+    retry: false,
+  });
+
+  const { data: coordinators = [] } = useQuery<Coordinator[]>({
+    queryKey: ["/api/coordinators"],
+    queryFn: () => fetch("/api/coordinators").then(r => r.json()),
     retry: false,
   });
 
@@ -327,8 +333,9 @@ export default function Caregivers() {
                           />
                         </th>
                         <th className="text-left p-4 text-sm font-medium text-muted-foreground">Caregiver Information</th>
-                        <th className="text-left p-4 text-sm font-medium text-muted-foreground">Experience</th>
-                        <th className="text-left p-4 text-sm font-medium text-muted-foreground">Specializations</th>
+                        <th className="text-left p-4 text-sm font-medium text-muted-foreground">Start Date</th>
+                        <th className="text-left p-4 text-sm font-medium text-muted-foreground">Phone Number</th>
+                        <th className="text-left p-4 text-sm font-medium text-muted-foreground">Coordinator</th>
                         <th className="text-left p-4 text-sm font-medium text-muted-foreground">Status</th>
                         <th className="text-left p-4 text-sm font-medium text-muted-foreground">Actions</th>
                       </tr>
@@ -336,12 +343,16 @@ export default function Caregivers() {
                     <tbody className="divide-y divide-border">
                       {isLoading ? (
                         <tr>
-                          <td colSpan={6} className="p-8 text-center text-muted-foreground">
+                          <td colSpan={7} className="p-8 text-center text-muted-foreground">
                             Loading caregivers...
                           </td>
                         </tr>
                       ) : filteredCaregivers.length > 0 ? (
-                        filteredCaregivers.map((caregiver: EnrichedCaregiver) => (
+                        filteredCaregivers.map((caregiver: EnrichedCaregiver) => {
+                          const startDate = caregiver.startDate || caregiver.hireDate;
+                          const coordinator = caregiver.coordinatorId ? coordinators.find((c) => c.id === caregiver.coordinatorId) : null;
+                          const coordinatorName = coordinator ? `${coordinator.firstName} ${coordinator.lastName}` : null;
+                          return (
                           <tr key={caregiver.id} className="hover:bg-muted/25 transition-colors" data-testid={`row-caregiver-${caregiver.id}`}>
                             <td className="p-4">
                               <Checkbox 
@@ -365,26 +376,26 @@ export default function Caregivers() {
                                       ? `${caregiver.firstName} ${caregiver.lastName}` 
                                       : `Employee #${caregiver.employeeId || 'N/A'}`}
                                   </p>
-                                  <p className="text-sm text-muted-foreground">
-                                    {caregiver.employeeId && `ID: ${caregiver.employeeId} • `}
-                                    Hired: {caregiver.hireDate ? new Date(caregiver.hireDate).toLocaleDateString() : "Not provided"}
+                                  <p className="text-sm text-muted-foreground" data-testid={`text-caregiver-hha-id-${caregiver.id}`}>
+                                    HHA ID: {caregiver.hhaxCaregiverCode || "Not provided"}
                                   </p>
                                 </div>
                               </div>
                             </td>
                             <td className="p-4">
-                              <p className="text-sm text-foreground" data-testid={`text-caregiver-experience-${caregiver.id}`}>
-                                {caregiver.experienceYears || 0} years
+                              <p className="text-sm text-foreground" data-testid={`text-caregiver-start-date-${caregiver.id}`}>
+                                {startDate ? new Date(startDate).toLocaleDateString() : "Not set"}
                               </p>
                             </td>
                             <td className="p-4">
-                              <div className="flex flex-wrap gap-1">
-                                {caregiver.specializations?.map((spec, index) => (
-                                  <Badge key={index} variant="outline" className="text-xs">
-                                    {spec}
-                                  </Badge>
-                                )) || <span className="text-xs text-muted-foreground">None listed</span>}
-                              </div>
+                              <p className="text-sm text-foreground" data-testid={`text-caregiver-phone-${caregiver.id}`}>
+                                {caregiver.phone || <span className="text-muted-foreground">Not provided</span>}
+                              </p>
+                            </td>
+                            <td className="p-4">
+                              <p className="text-sm text-foreground" data-testid={`text-caregiver-coordinator-${caregiver.id}`}>
+                                {coordinatorName || <span className="text-muted-foreground">Unassigned</span>}
+                              </p>
                             </td>
                             <td className="p-4">
                               <Badge 
@@ -415,10 +426,11 @@ export default function Caregivers() {
                               </div>
                             </td>
                           </tr>
-                        ))
+                          );
+                        })
                       ) : (
                         <tr>
-                          <td colSpan={6} className="p-8 text-center text-muted-foreground">
+                          <td colSpan={7} className="p-8 text-center text-muted-foreground">
                             {searchTerm ? "No caregivers found matching your search" : "No caregivers found"}
                           </td>
                         </tr>

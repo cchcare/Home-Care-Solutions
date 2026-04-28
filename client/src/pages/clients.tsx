@@ -275,6 +275,11 @@ export default function Clients() {
     queryFn: () => fetch("/api/mcos").then(r => r.json()),
   });
 
+  const { data: coordinators = [] } = useQuery<Coordinator[]>({
+    queryKey: ["/api/coordinators"],
+    queryFn: () => fetch("/api/coordinators").then(r => r.json()),
+  });
+
   const buildQueryString = () => {
     const params = new URLSearchParams();
     if (selectedOfficeId !== "all") params.append("officeId", selectedOfficeId);
@@ -668,21 +673,27 @@ export default function Clients() {
                           />
                         </th>
                         <th className="text-left p-4 text-sm font-medium text-muted-foreground">Client Information</th>
-                        <th className="text-left p-4 text-sm font-medium text-muted-foreground">Contact</th>
-                        <th className="text-left p-4 text-sm font-medium text-muted-foreground">Emergency Contact</th>
+                        <th className="text-left p-4 text-sm font-medium text-muted-foreground">Start Date</th>
                         <th className="text-left p-4 text-sm font-medium text-muted-foreground">Status</th>
+                        <th className="text-left p-4 text-sm font-medium text-muted-foreground">MCO</th>
+                        <th className="text-left p-4 text-sm font-medium text-muted-foreground">Phone Number</th>
+                        <th className="text-left p-4 text-sm font-medium text-muted-foreground">Coordinator</th>
                         <th className="text-left p-4 text-sm font-medium text-muted-foreground">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-border">
                       {isLoading ? (
                         <tr>
-                          <td colSpan={6} className="p-8 text-center text-muted-foreground">
+                          <td colSpan={8} className="p-8 text-center text-muted-foreground">
                             Loading clients...
                           </td>
                         </tr>
                       ) : filteredClients.length > 0 ? (
-                        filteredClients.map((client: Client) => (
+                        filteredClients.map((client: Client) => {
+                          const mcoName = client.mcoId ? mcos.find((m) => m.id === client.mcoId)?.name : null;
+                          const coordinator = client.coordinatorId ? coordinators.find((c) => c.id === client.coordinatorId) : null;
+                          const coordinatorName = coordinator ? `${coordinator.firstName} ${coordinator.lastName}` : null;
+                          return (
                           <tr key={client.id} className="hover:bg-muted/25 transition-colors" data-testid={`row-client-details-${client.id}`}>
                             <td className="p-4">
                               <Checkbox
@@ -707,28 +718,19 @@ export default function Clients() {
                                   >
                                     {client.firstName} {client.lastName}
                                   </p>
-                                  <p className="text-sm text-muted-foreground">
+                                  <p className="text-sm text-muted-foreground" data-testid={`text-client-dob-${client.id}`}>
                                     DOB: {client.dateOfBirth ? new Date(client.dateOfBirth).toLocaleDateString() : "Not provided"}
                                   </p>
-                                  <p className="text-xs text-muted-foreground">ID: {client.id.slice(0, 8)}</p>
+                                  <p className="text-xs text-muted-foreground" data-testid={`text-client-member-id-${client.id}`}>
+                                    Member ID: {client.memberId || "Not provided"}
+                                  </p>
                                 </div>
                               </div>
                             </td>
                             <td className="p-4">
-                              <div className="space-y-1">
-                                <div className="flex items-center space-x-2">
-                                  <Phone className="w-4 h-4 text-muted-foreground" />
-                                  <p className="text-sm text-foreground">{client.phone || "Not provided"}</p>
-                                </div>
-                                <p className="text-xs text-muted-foreground">{client.address || "Address not provided"}</p>
-                              </div>
-                            </td>
-                            <td className="p-4">
-                              <div className="space-y-1">
-                                <p className="text-sm text-foreground">{client.emergencyContactName || "Not provided"}</p>
-                                <p className="text-xs text-muted-foreground">{client.emergencyContactRelation}</p>
-                                <p className="text-xs text-muted-foreground">{client.emergencyContactPhone}</p>
-                              </div>
+                              <p className="text-sm text-foreground" data-testid={`text-client-start-date-${client.id}`}>
+                                {client.serviceStartDate ? new Date(client.serviceStartDate).toLocaleDateString() : "Not set"}
+                              </p>
                             </td>
                             <td className="p-4">
                               <Badge 
@@ -737,6 +739,24 @@ export default function Clients() {
                               >
                                 {client.status}
                               </Badge>
+                            </td>
+                            <td className="p-4">
+                              <p className="text-sm text-foreground" data-testid={`text-client-mco-${client.id}`}>
+                                {mcoName || <span className="text-muted-foreground">—</span>}
+                              </p>
+                            </td>
+                            <td className="p-4">
+                              <div className="flex items-center space-x-2">
+                                <Phone className="w-4 h-4 text-muted-foreground" />
+                                <p className="text-sm text-foreground" data-testid={`text-client-phone-${client.id}`}>
+                                  {client.phone || <span className="text-muted-foreground">Not provided</span>}
+                                </p>
+                              </div>
+                            </td>
+                            <td className="p-4">
+                              <p className="text-sm text-foreground" data-testid={`text-client-coordinator-${client.id}`}>
+                                {coordinatorName || <span className="text-muted-foreground">Unassigned</span>}
+                              </p>
                             </td>
                             <td className="p-4">
                               <div className="flex space-x-2">
@@ -759,10 +779,11 @@ export default function Clients() {
                               </div>
                             </td>
                           </tr>
-                        ))
+                          );
+                        })
                       ) : (
                         <tr>
-                          <td colSpan={6} className="p-8 text-center text-muted-foreground">
+                          <td colSpan={8} className="p-8 text-center text-muted-foreground">
                             {searchTerm ? "No clients found matching your search" : "No clients found"}
                           </td>
                         </tr>
