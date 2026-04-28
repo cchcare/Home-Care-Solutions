@@ -321,6 +321,14 @@ export const incidentReports = pgTable("incident_reports", {
   notifiedAgency: boolean("notified_agency").default(false),
   status: varchar("status").default("open"), // open, under_investigation, resolved, closed
   resolution: text("resolution"),
+  // CIR (Critical Incident Reporting) DOH fields
+  cirClass: varchar("cir_class"), // class_1, class_2, not_applicable
+  dohReportDue: timestamp("doh_report_due"),
+  dohSubmittedAt: timestamp("doh_submitted_at"),
+  dohSubmissionRef: varchar("doh_submission_ref"),
+  dohSubmissionStatus: varchar("doh_submission_status").default("not_required"), // not_required, pending, submitted, acknowledged
+  internalInvestigationNotes: text("internal_investigation_notes"),
+  correctiveActionRequired: boolean("corrective_action_required").default(false),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -3952,3 +3960,213 @@ export type InsertDohAuditDocument = typeof dohAuditDocuments.$inferInsert;
 
 export type DohAuditCustomItem = typeof dohAuditCustomItems.$inferSelect;
 export type InsertDohAuditCustomItem = typeof dohAuditCustomItems.$inferInsert;
+
+// ─── Supervisory Visits ───────────────────────────────────────────────────────
+export const supervisoryVisitTypeEnum = pgEnum("supervisory_visit_type", ["in_person", "phone", "virtual", "written"]);
+export const supervisoryVisitStatusEnum = pgEnum("supervisory_visit_status", ["scheduled", "completed", "cancelled"]);
+
+export const supervisoryVisits = pgTable("supervisory_visits", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  officeId: varchar("office_id").references(() => offices.id).notNull(),
+  caregiverId: varchar("caregiver_id").references(() => caregivers.id, { onDelete: "cascade" }).notNull(),
+  supervisorId: varchar("supervisor_id").references(() => users.id),
+  visitDate: date("visit_date").notNull(),
+  visitType: supervisoryVisitTypeEnum("visit_type").default("in_person").notNull(),
+  durationMinutes: integer("duration_minutes"),
+  topics: text("topics").array(),
+  notes: text("notes"),
+  caregiverSignedAt: timestamp("caregiver_signed_at"),
+  nextVisitDue: date("next_visit_due"),
+  status: supervisoryVisitStatusEnum("status").default("completed").notNull(),
+  createdBy: varchar("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_supervisory_visit_office").on(table.officeId),
+  index("idx_supervisory_visit_caregiver").on(table.caregiverId),
+  index("idx_supervisory_visit_date").on(table.visitDate),
+]);
+
+export type SupervisoryVisit = typeof supervisoryVisits.$inferSelect;
+export type InsertSupervisoryVisit = typeof supervisoryVisits.$inferInsert;
+export const insertSupervisoryVisitSchema = createInsertSchema(supervisoryVisits).omit({ id: true, createdAt: true, updatedAt: true });
+
+// ─── Policy Documents & Acknowledgments ──────────────────────────────────────
+export const policyStatusEnum = pgEnum("policy_status", ["draft", "active", "archived"]);
+export const policyCategoryEnum = pgEnum("policy_category", ["general", "safety", "clinical", "administrative", "hr", "hipaa", "emergency", "infection_control"]);
+
+export const policyDocuments = pgTable("policy_documents", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  officeId: varchar("office_id").references(() => offices.id).notNull(),
+  title: varchar("title").notNull(),
+  category: policyCategoryEnum("category").default("general").notNull(),
+  version: varchar("version").notNull().default("1.0"),
+  effectiveDate: date("effective_date"),
+  reviewDate: date("review_date"),
+  content: text("content"),
+  fileUrl: varchar("file_url"),
+  fileName: varchar("file_name"),
+  status: policyStatusEnum("status").default("draft").notNull(),
+  requiresAcknowledgment: boolean("requires_acknowledgment").default(true),
+  acknowledgmentDueDays: integer("acknowledgment_due_days").default(7),
+  createdBy: varchar("created_by").references(() => users.id),
+  publishedAt: timestamp("published_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_policy_office").on(table.officeId),
+  index("idx_policy_status").on(table.status),
+]);
+
+export type PolicyDocument = typeof policyDocuments.$inferSelect;
+export type InsertPolicyDocument = typeof policyDocuments.$inferInsert;
+export const insertPolicyDocumentSchema = createInsertSchema(policyDocuments).omit({ id: true, createdAt: true, updatedAt: true });
+
+export const policyAckMethodEnum = pgEnum("policy_ack_method", ["digital", "printed", "verbal_documented"]);
+
+export const policyAcknowledgments = pgTable("policy_acknowledgments", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  policyId: varchar("policy_id").references(() => policyDocuments.id, { onDelete: "cascade" }).notNull(),
+  userId: varchar("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  acknowledgedAt: timestamp("acknowledged_at").defaultNow(),
+  method: policyAckMethodEnum("method").default("digital"),
+  notes: text("notes"),
+}, (table) => [
+  index("idx_policy_ack_policy").on(table.policyId),
+  index("idx_policy_ack_user").on(table.userId),
+]);
+
+export type PolicyAcknowledgment = typeof policyAcknowledgments.$inferSelect;
+export type InsertPolicyAcknowledgment = typeof policyAcknowledgments.$inferInsert;
+export const insertPolicyAcknowledgmentSchema = createInsertSchema(policyAcknowledgments).omit({ id: true });
+
+// ─── QAPI Meetings ────────────────────────────────────────────────────────────
+export const qapiMeetingStatusEnum = pgEnum("qapi_meeting_status", ["draft", "finalized"]);
+
+export const qapiMeetings = pgTable("qapi_meetings", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  officeId: varchar("office_id").references(() => offices.id).notNull(),
+  meetingDate: date("meeting_date").notNull(),
+  quarter: varchar("quarter"),
+  year: integer("year"),
+  facilitatedBy: varchar("facilitated_by"),
+  attendees: text("attendees").array(),
+  meetingNotes: text("meeting_notes"),
+  indicators: jsonb("indicators"),
+  actionItems: jsonb("action_items"),
+  status: qapiMeetingStatusEnum("status").default("draft").notNull(),
+  nextMeetingDate: date("next_meeting_date"),
+  createdBy: varchar("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_qapi_office").on(table.officeId),
+  index("idx_qapi_date").on(table.meetingDate),
+]);
+
+export type QapiMeeting = typeof qapiMeetings.$inferSelect;
+export type InsertQapiMeeting = typeof qapiMeetings.$inferInsert;
+export const insertQapiMeetingSchema = createInsertSchema(qapiMeetings).omit({ id: true, createdAt: true, updatedAt: true });
+
+// ─── Infection Control Log ────────────────────────────────────────────────────
+export const infectionTypeEnum = pgEnum("infection_type", ["respiratory", "gastrointestinal", "skin", "bloodborne", "covid19", "influenza", "other"]);
+export const infectionControlStatusEnum = pgEnum("infection_control_status", ["active", "monitoring", "resolved"]);
+
+export const infectionControlLogs = pgTable("infection_control_logs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  officeId: varchar("office_id").references(() => offices.id).notNull(),
+  incidentDate: date("incident_date").notNull(),
+  reportedBy: varchar("reported_by").references(() => users.id),
+  infectionType: infectionTypeEnum("infection_type").notNull(),
+  description: text("description").notNull(),
+  affectedClients: text("affected_clients").array(),
+  affectedStaff: text("affected_staff").array(),
+  containmentActions: text("containment_actions"),
+  notificationsGiven: text("notifications_given"),
+  ppeUsed: boolean("ppe_used").default(false),
+  reportedToPublicHealth: boolean("reported_to_public_health").default(false),
+  publicHealthReportDate: date("public_health_report_date"),
+  resolvedAt: date("resolved_at"),
+  outcome: text("outcome"),
+  status: infectionControlStatusEnum("status").default("active").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_infection_ctrl_office").on(table.officeId),
+  index("idx_infection_ctrl_date").on(table.incidentDate),
+]);
+
+export type InfectionControlLog = typeof infectionControlLogs.$inferSelect;
+export type InsertInfectionControlLog = typeof infectionControlLogs.$inferInsert;
+export const insertInfectionControlLogSchema = createInsertSchema(infectionControlLogs).omit({ id: true, createdAt: true, updatedAt: true });
+
+// ─── Client Emergency Plans ───────────────────────────────────────────────────
+export const clientEmergencyPlans = pgTable("client_emergency_plans", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  clientId: varchar("client_id").references(() => clients.id, { onDelete: "cascade" }).notNull().unique(),
+  officeId: varchar("office_id").references(() => offices.id).notNull(),
+  evacuationRoute: text("evacuation_route"),
+  shelterInPlaceInstructions: text("shelter_in_place_instructions"),
+  primaryEmergencyContact: jsonb("primary_emergency_contact"),
+  secondaryEmergencyContact: jsonb("secondary_emergency_contact"),
+  medicalConditions: text("medical_conditions"),
+  medications: text("medications"),
+  specialEquipment: text("special_equipment"),
+  preferredHospital: varchar("preferred_hospital"),
+  doNotResuscitate: boolean("do_not_resuscitate").default(false),
+  powerDependentEquipment: boolean("power_dependent_equipment").default(false),
+  mobilityAssistance: boolean("mobility_assistance").default(false),
+  utilityCompanyNotified: boolean("utility_company_notified").default(false),
+  lastReviewedAt: date("last_reviewed_at"),
+  reviewedBy: varchar("reviewed_by").references(() => users.id),
+  nextReviewDue: date("next_review_due"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_emergency_plan_client").on(table.clientId),
+  index("idx_emergency_plan_office").on(table.officeId),
+]);
+
+export type ClientEmergencyPlan = typeof clientEmergencyPlans.$inferSelect;
+export type InsertClientEmergencyPlan = typeof clientEmergencyPlans.$inferInsert;
+export const insertClientEmergencyPlanSchema = createInsertSchema(clientEmergencyPlans).omit({ id: true, createdAt: true, updatedAt: true });
+
+// ─── Client Satisfaction Surveys ─────────────────────────────────────────────
+export const clientSurveyStatusEnum = pgEnum("client_survey_status", ["draft", "active", "closed"]);
+
+export const clientSatisfactionSurveys = pgTable("client_satisfaction_surveys", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  officeId: varchar("office_id").references(() => offices.id).notNull(),
+  title: varchar("title").notNull(),
+  description: text("description"),
+  questions: jsonb("questions"),
+  status: clientSurveyStatusEnum("status").default("draft").notNull(),
+  sentAt: timestamp("sent_at"),
+  closedAt: timestamp("closed_at"),
+  createdBy: varchar("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [index("idx_client_survey_office").on(table.officeId)]);
+
+export type ClientSatisfactionSurvey = typeof clientSatisfactionSurveys.$inferSelect;
+export type InsertClientSatisfactionSurvey = typeof clientSatisfactionSurveys.$inferInsert;
+export const insertClientSatisfactionSurveySchema = createInsertSchema(clientSatisfactionSurveys).omit({ id: true, createdAt: true, updatedAt: true });
+
+export const clientSurveyResponses = pgTable("client_survey_responses", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  surveyId: varchar("survey_id").references(() => clientSatisfactionSurveys.id, { onDelete: "cascade" }).notNull(),
+  clientId: varchar("client_id").references(() => clients.id),
+  overallRating: integer("overall_rating"),
+  responses: jsonb("responses"),
+  comments: text("comments"),
+  wouldRecommend: boolean("would_recommend"),
+  submittedAt: timestamp("submitted_at").defaultNow(),
+  submittedByName: varchar("submitted_by_name"),
+}, (table) => [
+  index("idx_survey_response_survey").on(table.surveyId),
+  index("idx_survey_response_client").on(table.clientId),
+]);
+
+export type ClientSurveyResponse = typeof clientSurveyResponses.$inferSelect;
+export type InsertClientSurveyResponse = typeof clientSurveyResponses.$inferInsert;
+export const insertClientSurveyResponseSchema = createInsertSchema(clientSurveyResponses).omit({ id: true, submittedAt: true });

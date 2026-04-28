@@ -76,6 +76,12 @@ import MyDocuments from "@/pages/my-documents";
 import MyCommunication from "@/pages/my-communication";
 import MySupportTickets from "@/pages/my-support-tickets";
 import CaregiverLogin from "@/pages/caregiver-login";
+import SurveyReadiness from "@/pages/survey-readiness";
+import SupervisoryVisits from "@/pages/supervisory-visits";
+import PolicyManagement from "@/pages/policy-management";
+import Qapi from "@/pages/qapi";
+import InfectionControl from "@/pages/infection-control";
+import ClientSatisfactionSurveys from "@/pages/client-satisfaction-surveys";
 
 import { Redirect } from "wouter";
 
@@ -197,6 +203,12 @@ function Router() {
           <Route path="/error-log" component={ErrorLog} />
           <Route path="/help-center-admin" component={HelpCenterAdmin} />
           <Route path="/audit-assessment" component={AuditAssessment} />
+          <Route path="/survey-readiness" component={SurveyReadiness} />
+          <Route path="/supervisory-visits" component={SupervisoryVisits} />
+          <Route path="/policy-management" component={PolicyManagement} />
+          <Route path="/qapi" component={Qapi} />
+          <Route path="/infection-control" component={InfectionControl} />
+          <Route path="/client-satisfaction-surveys" component={ClientSatisfactionSurveys} />
         </>
       )}
       <Route component={NotFound} />

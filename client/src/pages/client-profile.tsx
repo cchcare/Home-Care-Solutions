@@ -84,8 +84,10 @@ import {
   Globe,
   FileSignature,
   Mail,
-  AlertTriangle
+  AlertTriangle,
+  ShieldAlert
 } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
 import type { Client, Document, Office, Mco, User as UserType, ClientCommunication, OfficeMcoBillingRate, ClientSchedule, MasterWeekTemplate, MasterWeekSlot, Caregiver, ClientMco, Coordinator, EligibilityCheck, LetterTemplate } from "@shared/schema";
 import { AddressInput } from "@/components/address-input";
 
@@ -117,6 +119,7 @@ const CLIENT_MENU_ITEMS = [
   { id: "visits", label: "Visits", icon: Clock },
   { id: "poc", label: "POC", icon: FileText },
   { id: "caregiver-history", label: "Caregiver History", icon: History },
+  { id: "emergency-plan", label: "Emergency Plan", icon: ShieldAlert },
   { id: "others", label: "Others", icon: MoreHorizontal },
 ];
 
@@ -436,6 +439,59 @@ export default function ClientProfile() {
   });
 
   const canDeleteClient = currentUser && ["super_admin", "admin", "office_admin"].includes(currentUser.role);
+
+  // ─── Emergency Plan ───────────────────────────────────────────────────────
+  const [emergencyPlan, setEmergencyPlan] = useState<any>({
+    evacuationRoute: "", shelterInPlaceInstructions: "", medicalConditions: "",
+    medications: "", specialEquipment: "", preferredHospital: "",
+    doNotResuscitate: false, powerDependentEquipment: false,
+    mobilityAssistance: false, utilityCompanyNotified: false,
+    lastReviewedAt: "", nextReviewDue: "",
+    primaryEmergencyContact: { name: "", relationship: "", phone: "", altPhone: "" },
+    secondaryEmergencyContact: { name: "", relationship: "", phone: "", altPhone: "" },
+  });
+  useQuery({
+    queryKey: ["/api/clients", clientId, "emergency-plan"],
+    queryFn: async () => {
+      const r = await fetch(`/api/clients/${clientId}/emergency-plan`);
+      if (!r.ok) return null;
+      const plan = await r.json();
+      if (plan) {
+        setEmergencyPlan({
+          evacuationRoute: plan.evacuationRoute || "",
+          shelterInPlaceInstructions: plan.shelterInPlaceInstructions || "",
+          medicalConditions: plan.medicalConditions || "",
+          medications: plan.medications || "",
+          specialEquipment: plan.specialEquipment || "",
+          preferredHospital: plan.preferredHospital || "",
+          doNotResuscitate: plan.doNotResuscitate ?? false,
+          powerDependentEquipment: plan.powerDependentEquipment ?? false,
+          mobilityAssistance: plan.mobilityAssistance ?? false,
+          utilityCompanyNotified: plan.utilityCompanyNotified ?? false,
+          lastReviewedAt: plan.lastReviewedAt || "",
+          nextReviewDue: plan.nextReviewDue || "",
+          primaryEmergencyContact: plan.primaryEmergencyContact || { name: "", relationship: "", phone: "", altPhone: "" },
+          secondaryEmergencyContact: plan.secondaryEmergencyContact || { name: "", relationship: "", phone: "", altPhone: "" },
+        });
+      }
+      return plan;
+    },
+    enabled: !!clientId,
+  });
+
+  const saveEmergencyPlanMutation = useMutation({
+    mutationFn: async (officeId: string) => {
+      return apiRequest("PUT", `/api/clients/${clientId}/emergency-plan`, {
+        ...emergencyPlan,
+        officeId,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/clients", clientId, "emergency-plan"] });
+      toast({ title: "Emergency plan saved", description: "Client emergency plan updated successfully." });
+    },
+    onError: () => toast({ title: "Error", description: "Failed to save emergency plan", variant: "destructive" }),
+  });
 
   const createClientMcoMutation = useMutation({
     mutationFn: async (data: typeof mcoFormData) => {
@@ -2839,6 +2895,170 @@ export default function ClientProfile() {
                           ))}
                         </div>
                       )}
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
+
+              {/* Emergency Plan Section */}
+              {activeSection === "emergency-plan" && (
+                <div className="space-y-6">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2">
+                        <ShieldAlert className="w-5 h-5 text-orange-500" />
+                        Emergency Preparedness Plan
+                      </CardTitle>
+                      <CardDescription>Client-specific emergency plan for DOH compliance. This information is required for all active clients.</CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-6">
+                      {/* Emergency Contacts */}
+                      <div>
+                        <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3">Emergency Contacts</h3>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          {(["primaryEmergencyContact", "secondaryEmergencyContact"] as const).map((key, idx) => (
+                            <div key={key} className="border rounded-lg p-4 space-y-3">
+                              <p className="text-sm font-medium">{idx === 0 ? "Primary" : "Secondary"} Contact</p>
+                              {(["name", "relationship", "phone", "altPhone"] as const).map(field => (
+                                <div key={field}>
+                                  <Label className="text-xs capitalize">{field === "altPhone" ? "Alt Phone" : field.charAt(0).toUpperCase() + field.slice(1)}</Label>
+                                  <Input
+                                    value={emergencyPlan[key]?.[field] || ""}
+                                    onChange={e => setEmergencyPlan((p: any) => ({ ...p, [key]: { ...p[key], [field]: e.target.value } }))}
+                                    placeholder={field === "name" ? "Full name" : field === "relationship" ? "Daughter, son, spouse..." : "Phone number"}
+                                    className="h-8 text-sm mt-1"
+                                  />
+                                </div>
+                              ))}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Medical & Equipment Flags */}
+                      <div>
+                        <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3">Medical & Equipment Flags</h3>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                          {([
+                            { key: "doNotResuscitate", label: "DNR on File", desc: "Do Not Resuscitate" },
+                            { key: "powerDependentEquipment", label: "Power-Dependent Equipment", desc: "Requires electricity" },
+                            { key: "mobilityAssistance", label: "Mobility Assistance", desc: "Needs help moving" },
+                            { key: "utilityCompanyNotified", label: "Utility Co. Notified", desc: "Notified of medical need" },
+                          ] as { key: string; label: string; desc: string }[]).map(flag => (
+                            <div key={flag.key} className="border rounded-lg p-3 flex items-start justify-between gap-2">
+                              <div>
+                                <p className="text-xs font-medium leading-tight">{flag.label}</p>
+                                <p className="text-xs text-muted-foreground mt-0.5">{flag.desc}</p>
+                              </div>
+                              <Switch
+                                checked={emergencyPlan[flag.key] ?? false}
+                                onCheckedChange={v => setEmergencyPlan((p: any) => ({ ...p, [flag.key]: v }))}
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Evacuation & Shelter */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <Label>Evacuation Route</Label>
+                          <Textarea
+                            value={emergencyPlan.evacuationRoute}
+                            onChange={e => setEmergencyPlan((p: any) => ({ ...p, evacuationRoute: e.target.value }))}
+                            placeholder="Primary evacuation route and instructions..."
+                            rows={3}
+                            className="mt-1"
+                          />
+                        </div>
+                        <div>
+                          <Label>Shelter-in-Place Instructions</Label>
+                          <Textarea
+                            value={emergencyPlan.shelterInPlaceInstructions}
+                            onChange={e => setEmergencyPlan((p: any) => ({ ...p, shelterInPlaceInstructions: e.target.value }))}
+                            placeholder="Instructions if evacuation is not possible..."
+                            rows={3}
+                            className="mt-1"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Medical Info */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <Label>Medical Conditions</Label>
+                          <Textarea
+                            value={emergencyPlan.medicalConditions}
+                            onChange={e => setEmergencyPlan((p: any) => ({ ...p, medicalConditions: e.target.value }))}
+                            placeholder="Chronic conditions, allergies, diagnoses..."
+                            rows={3}
+                            className="mt-1"
+                          />
+                        </div>
+                        <div>
+                          <Label>Current Medications</Label>
+                          <Textarea
+                            value={emergencyPlan.medications}
+                            onChange={e => setEmergencyPlan((p: any) => ({ ...p, medications: e.target.value }))}
+                            placeholder="List of medications and dosages..."
+                            rows={3}
+                            className="mt-1"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <Label>Special Equipment</Label>
+                          <Input
+                            value={emergencyPlan.specialEquipment}
+                            onChange={e => setEmergencyPlan((p: any) => ({ ...p, specialEquipment: e.target.value }))}
+                            placeholder="Wheelchair, oxygen, ventilator..."
+                            className="mt-1"
+                          />
+                        </div>
+                        <div>
+                          <Label>Preferred Hospital</Label>
+                          <Input
+                            value={emergencyPlan.preferredHospital}
+                            onChange={e => setEmergencyPlan((p: any) => ({ ...p, preferredHospital: e.target.value }))}
+                            placeholder="Hospital name"
+                            className="mt-1"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Review Dates */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <Label>Last Reviewed Date</Label>
+                          <Input
+                            type="date"
+                            value={emergencyPlan.lastReviewedAt}
+                            onChange={e => setEmergencyPlan((p: any) => ({ ...p, lastReviewedAt: e.target.value }))}
+                            className="mt-1"
+                          />
+                        </div>
+                        <div>
+                          <Label>Next Review Due</Label>
+                          <Input
+                            type="date"
+                            value={emergencyPlan.nextReviewDue}
+                            onChange={e => setEmergencyPlan((p: any) => ({ ...p, nextReviewDue: e.target.value }))}
+                            className="mt-1"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="flex justify-end pt-2">
+                        <Button
+                          onClick={() => saveEmergencyPlanMutation.mutate(client?.officeId || "")}
+                          disabled={saveEmergencyPlanMutation.isPending || !client?.officeId}
+                        >
+                          <Save className="w-4 h-4 mr-2" />
+                          {saveEmergencyPlanMutation.isPending ? "Saving..." : "Save Emergency Plan"}
+                        </Button>
+                      </div>
                     </CardContent>
                   </Card>
                 </div>

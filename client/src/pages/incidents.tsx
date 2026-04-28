@@ -19,13 +19,15 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { insertIncidentReportSchema, type IncidentReport } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
-import { AlertTriangle, Plus, Search, Eye, Calendar, User, MapPin, Clock } from "lucide-react";
-import { format } from "date-fns";
+import { AlertTriangle, Plus, Search, Eye, Calendar, User, MapPin, Clock, FileWarning, CheckCircle2, AlertCircle } from "lucide-react";
+import { format, differenceInHours, differenceInCalendarDays } from "date-fns";
 import { z } from "zod";
 
 const incidentFormSchema = insertIncidentReportSchema.extend({
   incidentDate: z.string().min(1, "Incident date is required"),
   followUpDate: z.string().optional(),
+  cirClass: z.string().optional(),
+  dohSubmissionStatus: z.string().optional(),
 }).omit({ reportedBy: true });
 
 type IncidentFormData = z.infer<typeof incidentFormSchema>;
@@ -55,6 +57,23 @@ export default function IncidentsPage() {
 
   const { data: users = [] } = useQuery<any[]>({
     queryKey: ["/api/users"],
+  });
+
+  const markDohSubmittedMutation = useMutation({
+    mutationFn: async (incidentId: string) => {
+      const response = await fetch(`/api/incident-reports/${incidentId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ dohSubmissionStatus: "submitted", dohSubmittedAt: new Date().toISOString() }),
+      });
+      if (!response.ok) throw new Error("Failed to update");
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/incident-reports", selectedOfficeId] });
+      toast({ title: "DOH Submission Recorded", description: "Incident marked as submitted to DOH" });
+    },
   });
 
   const createIncidentMutation = useMutation({
@@ -119,14 +138,43 @@ export default function IncidentsPage() {
       notifiedAgency: false,
       status: "open",
       resolution: "",
+      cirClass: "not_applicable",
+      dohSubmissionStatus: "not_required",
     },
   });
 
   const entityType = form.watch("entityType");
   const followUpRequired = form.watch("followUpRequired");
+  const cirClass = form.watch("cirClass");
+
+  const getCirDeadlineHours = (cls: string | undefined) => {
+    if (cls === "class_1") return 24;
+    if (cls === "class_2") return 120; // 5 calendar days
+    return null;
+  };
+
+  const getCirDeadlineCountdown = (incident: IncidentReport) => {
+    const inc = incident as any;
+    if (!inc.dohReportDue || inc.dohSubmissionStatus === "submitted" || inc.dohSubmissionStatus === "acknowledged" || inc.dohSubmissionStatus === "not_required") return null;
+    const due = new Date(inc.dohReportDue);
+    const now = new Date();
+    const hoursLeft = differenceInHours(due, now);
+    const daysLeft = differenceInCalendarDays(due, now);
+    if (hoursLeft < 0) return { label: `Overdue by ${Math.abs(daysLeft)} day${Math.abs(daysLeft) !== 1 ? "s" : ""}`, variant: "overdue" as const };
+    if (hoursLeft < 24) return { label: `Due in ${hoursLeft}h`, variant: "urgent" as const };
+    return { label: `Due in ${daysLeft} day${daysLeft !== 1 ? "s" : ""}`, variant: "warning" as const };
+  };
 
   const onSubmit = (data: IncidentFormData) => {
-    createIncidentMutation.mutate(data);
+    const deadlineHours = getCirDeadlineHours(data.cirClass);
+    const payload: any = { ...data };
+    if (deadlineHours && data.incidentDate) {
+      const incDate = new Date(data.incidentDate);
+      incDate.setHours(incDate.getHours() + deadlineHours);
+      payload.dohReportDue = incDate.toISOString();
+      payload.dohSubmissionStatus = "pending";
+    }
+    createIncidentMutation.mutate(payload);
   };
 
   const filteredIncidents = incidents.filter((incident: IncidentReport) => {
@@ -598,6 +646,48 @@ export default function IncidentsPage() {
                   )}
                 </div>
 
+                {/* DOH CIR Classification */}
+                <div className="border rounded-lg p-4 bg-red-50 dark:bg-red-950/20 space-y-4">
+                  <div className="flex items-center gap-2">
+                    <FileWarning className="h-4 w-4 text-red-600" />
+                    <h4 className="font-medium text-sm text-red-800 dark:text-red-300">DOH Critical Incident Report (CIR) Classification</h4>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <FormField
+                      control={form.control}
+                      name="cirClass"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>CIR Classification</FormLabel>
+                          <Select onValueChange={field.onChange} defaultValue={field.value || "not_applicable"}>
+                            <FormControl>
+                              <SelectTrigger data-testid="select-cir-class">
+                                <SelectValue placeholder="Select classification" />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              <SelectItem value="not_applicable">Not Applicable</SelectItem>
+                              <SelectItem value="class_1">Class I — Death or Serious Injury (24-hr report)</SelectItem>
+                              <SelectItem value="class_2">Class II — Less Serious (5-day report)</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    {cirClass && cirClass !== "not_applicable" && (
+                      <div className="flex items-end pb-2">
+                        <div className={`text-sm px-3 py-2 rounded-md w-full ${cirClass === "class_1" ? "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200" : "bg-orange-100 text-orange-800 dark:bg-orange-900/40 dark:text-orange-200"}`}>
+                          <div className="font-medium">
+                            {cirClass === "class_1" ? "⚠ Class I — DOH report required within 24 hours" : "⚠ Class II — DOH report required within 5 calendar days"}
+                          </div>
+                          <div className="text-xs mt-1 opacity-80">Deadline auto-calculated from incident date/time</div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
                 <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end sm:space-x-4">
                   <Button type="button" variant="outline" onClick={() => setOpen(false)}>
                     Cancel
@@ -691,7 +781,7 @@ export default function IncidentsPage() {
                   <div className="flex-1 space-y-3">
                     <div className="flex items-start justify-between">
                       <div className="space-y-1">
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <h3 className="font-semibold text-lg">{incident.incidentType}</h3>
                           <Badge variant={getSeverityColor(incident.severity as any)}>
                             {incident.severity}
@@ -699,6 +789,35 @@ export default function IncidentsPage() {
                           <Badge variant={getStatusColor(incident.status as any)}>
                             {incident.status?.replace('_', ' ') || 'open'}
                           </Badge>
+                          {(incident as any).cirClass && (incident as any).cirClass !== "not_applicable" && (
+                            <Badge variant={(incident as any).cirClass === "class_1" ? "destructive" : "default"} className="gap-1">
+                              <FileWarning className="h-3 w-3" />
+                              {(incident as any).cirClass === "class_1" ? "CIR Class I" : "CIR Class II"}
+                            </Badge>
+                          )}
+                          {(() => {
+                            const countdown = getCirDeadlineCountdown(incident);
+                            if (!countdown) {
+                              if ((incident as any).dohSubmissionStatus === "submitted" || (incident as any).dohSubmissionStatus === "acknowledged") {
+                                return (
+                                  <Badge variant="outline" className="gap-1 border-green-500 text-green-700">
+                                    <CheckCircle2 className="h-3 w-3" />
+                                    DOH Submitted
+                                  </Badge>
+                                );
+                              }
+                              return null;
+                            }
+                            return (
+                              <Badge
+                                variant="outline"
+                                className={`gap-1 ${countdown.variant === "overdue" ? "border-red-600 text-red-700 bg-red-50" : countdown.variant === "urgent" ? "border-orange-500 text-orange-700 bg-orange-50" : "border-yellow-500 text-yellow-700 bg-yellow-50"}`}
+                              >
+                                <AlertCircle className="h-3 w-3" />
+                                {countdown.label}
+                              </Badge>
+                            );
+                          })()}
                         </div>
                         <div className="flex items-center gap-4 text-sm text-muted-foreground">
                           <div className="flex items-center gap-1">
@@ -751,11 +870,24 @@ export default function IncidentsPage() {
                     )}
                   </div>
 
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-col items-end gap-2">
                     <Button variant="outline" size="sm" data-testid={`button-view-incident-${incident.id}`}>
                       <Eye className="mr-2 h-4 w-4" />
                       View Details
                     </Button>
+                    {(incident as any).dohSubmissionStatus === "pending" && canMutate && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="border-green-500 text-green-700 hover:bg-green-50"
+                        onClick={() => markDohSubmittedMutation.mutate(incident.id)}
+                        disabled={markDohSubmittedMutation.isPending}
+                        data-testid={`button-doh-submit-${incident.id}`}
+                      >
+                        <CheckCircle2 className="mr-2 h-4 w-4" />
+                        Mark DOH Submitted
+                      </Button>
+                    )}
                   </div>
                 </div>
               </CardContent>

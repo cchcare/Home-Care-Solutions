@@ -58,6 +58,11 @@ import {
   Wrench,
   LifeBuoy,
   ClipboardCheck,
+  ShieldAlert,
+  Clipboard,
+  Star,
+  Biohazard,
+  Activity,
 } from "lucide-react";
 
 interface NavItem {
@@ -177,7 +182,19 @@ export function Sidebar() {
           { name: "Compliance", href: "/compliance", icon: Shield },
           { name: "Incident Reports", href: "/incidents", icon: AlertTriangle },
           { name: "Training & Resources", href: "/training", icon: GraduationCap },
-          { name: "DOH Audit Assessment", href: "/audit-assessment", icon: ClipboardCheck },
+          {
+            name: "DOH Compliance",
+            icon: ShieldCheck,
+            children: [
+              { name: "Survey Readiness Hub", href: "/survey-readiness", icon: ShieldAlert },
+              { name: "DOH Audit Assessment", href: "/audit-assessment", icon: ClipboardCheck },
+              { name: "Supervisory Visits", href: "/supervisory-visits", icon: Clipboard },
+              { name: "Policy Management", href: "/policy-management", icon: FileText },
+              { name: "QAPI", href: "/qapi", icon: BarChart3 },
+              { name: "Infection Control", href: "/infection-control", icon: Biohazard },
+              { name: "Client Surveys", href: "/client-satisfaction-surveys", icon: Star },
+            ]
+          },
         ]
       },
       {

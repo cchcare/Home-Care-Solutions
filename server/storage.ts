@@ -358,6 +358,30 @@ import {
   type InsertDohAuditDocument,
   type DohAuditCustomItem,
   type InsertDohAuditCustomItem,
+  supervisoryVisits,
+  type SupervisoryVisit,
+  type InsertSupervisoryVisit,
+  policyDocuments,
+  type PolicyDocument,
+  type InsertPolicyDocument,
+  policyAcknowledgments,
+  type PolicyAcknowledgment,
+  type InsertPolicyAcknowledgment,
+  qapiMeetings,
+  type QapiMeeting,
+  type InsertQapiMeeting,
+  infectionControlLogs,
+  type InfectionControlLog,
+  type InsertInfectionControlLog,
+  clientEmergencyPlans,
+  type ClientEmergencyPlan,
+  type InsertClientEmergencyPlan,
+  clientSatisfactionSurveys,
+  type ClientSatisfactionSurvey,
+  type InsertClientSatisfactionSurvey,
+  clientSurveyResponses,
+  type ClientSurveyResponse,
+  type InsertClientSurveyResponse,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, asc, and, or, count, sql, like, gte, lte, inArray } from "drizzle-orm";
@@ -1205,6 +1229,51 @@ export interface IStorage {
   getDohAuditCustomItems(auditId: string): Promise<DohAuditCustomItem[]>;
   createDohAuditCustomItem(item: InsertDohAuditCustomItem): Promise<DohAuditCustomItem>;
   deleteDohAuditCustomItem(id: string): Promise<void>;
+
+  // Supervisory Visits
+  getSupervisoryVisits(officeId: string, filters?: { caregiverId?: string }): Promise<SupervisoryVisit[]>;
+  getSupervisoryVisit(id: string): Promise<SupervisoryVisit | undefined>;
+  createSupervisoryVisit(visit: InsertSupervisoryVisit): Promise<SupervisoryVisit>;
+  updateSupervisoryVisit(id: string, visit: Partial<InsertSupervisoryVisit>): Promise<SupervisoryVisit>;
+  deleteSupervisoryVisit(id: string): Promise<void>;
+
+  // Policy Documents & Acknowledgments
+  getPolicyDocuments(officeId: string): Promise<PolicyDocument[]>;
+  getPolicyDocument(id: string): Promise<PolicyDocument | undefined>;
+  createPolicyDocument(doc: InsertPolicyDocument): Promise<PolicyDocument>;
+  updatePolicyDocument(id: string, doc: Partial<InsertPolicyDocument>): Promise<PolicyDocument>;
+  deletePolicyDocument(id: string): Promise<void>;
+  getPolicyAcknowledgments(policyId: string): Promise<PolicyAcknowledgment[]>;
+  getUserPolicyAcknowledgments(userId: string): Promise<PolicyAcknowledgment[]>;
+  createPolicyAcknowledgment(ack: InsertPolicyAcknowledgment): Promise<PolicyAcknowledgment>;
+
+  // QAPI Meetings
+  getQapiMeetings(officeId: string): Promise<QapiMeeting[]>;
+  getQapiMeeting(id: string): Promise<QapiMeeting | undefined>;
+  createQapiMeeting(meeting: InsertQapiMeeting): Promise<QapiMeeting>;
+  updateQapiMeeting(id: string, meeting: Partial<InsertQapiMeeting>): Promise<QapiMeeting>;
+  deleteQapiMeeting(id: string): Promise<void>;
+
+  // Infection Control Logs
+  getInfectionControlLogs(officeId: string): Promise<InfectionControlLog[]>;
+  getInfectionControlLog(id: string): Promise<InfectionControlLog | undefined>;
+  createInfectionControlLog(log: InsertInfectionControlLog): Promise<InfectionControlLog>;
+  updateInfectionControlLog(id: string, log: Partial<InsertInfectionControlLog>): Promise<InfectionControlLog>;
+  deleteInfectionControlLog(id: string): Promise<void>;
+
+  // Client Emergency Plans
+  getClientEmergencyPlan(clientId: string): Promise<ClientEmergencyPlan | undefined>;
+  getClientEmergencyPlans(officeId: string): Promise<ClientEmergencyPlan[]>;
+  upsertClientEmergencyPlan(plan: InsertClientEmergencyPlan): Promise<ClientEmergencyPlan>;
+
+  // Client Satisfaction Surveys
+  getClientSatisfactionSurveys(officeId: string): Promise<ClientSatisfactionSurvey[]>;
+  getClientSatisfactionSurvey(id: string): Promise<ClientSatisfactionSurvey | undefined>;
+  createClientSatisfactionSurvey(survey: InsertClientSatisfactionSurvey): Promise<ClientSatisfactionSurvey>;
+  updateClientSatisfactionSurvey(id: string, survey: Partial<InsertClientSatisfactionSurvey>): Promise<ClientSatisfactionSurvey>;
+  deleteClientSatisfactionSurvey(id: string): Promise<void>;
+  getClientSurveyResponses(surveyId: string): Promise<ClientSurveyResponse[]>;
+  createClientSurveyResponse(response: InsertClientSurveyResponse): Promise<ClientSurveyResponse>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -7425,6 +7494,140 @@ export class DatabaseStorage implements IStorage {
   async deleteDohAuditCustomItem(id: string): Promise<void> {
     await db.delete(dohAuditCustomItems).where(eq(dohAuditCustomItems.id, id));
     await db.delete(dohAuditResponses).where(eq(dohAuditResponses.itemKey, id));
+  }
+
+  // ─── Supervisory Visits ─────────────────────────────────────────────────────
+  async getSupervisoryVisits(officeId: string, filters?: { caregiverId?: string }): Promise<SupervisoryVisit[]> {
+    const conditions = [eq(supervisoryVisits.officeId, officeId)];
+    if (filters?.caregiverId) conditions.push(eq(supervisoryVisits.caregiverId, filters.caregiverId));
+    return db.select().from(supervisoryVisits).where(and(...conditions)).orderBy(desc(supervisoryVisits.visitDate));
+  }
+  async getSupervisoryVisit(id: string): Promise<SupervisoryVisit | undefined> {
+    const [row] = await db.select().from(supervisoryVisits).where(eq(supervisoryVisits.id, id));
+    return row;
+  }
+  async createSupervisoryVisit(visit: InsertSupervisoryVisit): Promise<SupervisoryVisit> {
+    const [row] = await db.insert(supervisoryVisits).values(visit).returning();
+    return row;
+  }
+  async updateSupervisoryVisit(id: string, visit: Partial<InsertSupervisoryVisit>): Promise<SupervisoryVisit> {
+    const [row] = await db.update(supervisoryVisits).set({ ...visit, updatedAt: new Date() }).where(eq(supervisoryVisits.id, id)).returning();
+    return row;
+  }
+  async deleteSupervisoryVisit(id: string): Promise<void> {
+    await db.delete(supervisoryVisits).where(eq(supervisoryVisits.id, id));
+  }
+
+  // ─── Policy Documents & Acknowledgments ────────────────────────────────────
+  async getPolicyDocuments(officeId: string): Promise<PolicyDocument[]> {
+    return db.select().from(policyDocuments).where(eq(policyDocuments.officeId, officeId)).orderBy(desc(policyDocuments.createdAt));
+  }
+  async getPolicyDocument(id: string): Promise<PolicyDocument | undefined> {
+    const [row] = await db.select().from(policyDocuments).where(eq(policyDocuments.id, id));
+    return row;
+  }
+  async createPolicyDocument(doc: InsertPolicyDocument): Promise<PolicyDocument> {
+    const [row] = await db.insert(policyDocuments).values(doc).returning();
+    return row;
+  }
+  async updatePolicyDocument(id: string, doc: Partial<InsertPolicyDocument>): Promise<PolicyDocument> {
+    const [row] = await db.update(policyDocuments).set({ ...doc, updatedAt: new Date() }).where(eq(policyDocuments.id, id)).returning();
+    return row;
+  }
+  async deletePolicyDocument(id: string): Promise<void> {
+    await db.delete(policyDocuments).where(eq(policyDocuments.id, id));
+  }
+  async getPolicyAcknowledgments(policyId: string): Promise<PolicyAcknowledgment[]> {
+    return db.select().from(policyAcknowledgments).where(eq(policyAcknowledgments.policyId, policyId)).orderBy(desc(policyAcknowledgments.acknowledgedAt));
+  }
+  async getUserPolicyAcknowledgments(userId: string): Promise<PolicyAcknowledgment[]> {
+    return db.select().from(policyAcknowledgments).where(eq(policyAcknowledgments.userId, userId));
+  }
+  async createPolicyAcknowledgment(ack: InsertPolicyAcknowledgment): Promise<PolicyAcknowledgment> {
+    const [row] = await db.insert(policyAcknowledgments).values({ ...ack, acknowledgedAt: new Date() }).returning();
+    return row;
+  }
+
+  // ─── QAPI Meetings ──────────────────────────────────────────────────────────
+  async getQapiMeetings(officeId: string): Promise<QapiMeeting[]> {
+    return db.select().from(qapiMeetings).where(eq(qapiMeetings.officeId, officeId)).orderBy(desc(qapiMeetings.meetingDate));
+  }
+  async getQapiMeeting(id: string): Promise<QapiMeeting | undefined> {
+    const [row] = await db.select().from(qapiMeetings).where(eq(qapiMeetings.id, id));
+    return row;
+  }
+  async createQapiMeeting(meeting: InsertQapiMeeting): Promise<QapiMeeting> {
+    const [row] = await db.insert(qapiMeetings).values(meeting).returning();
+    return row;
+  }
+  async updateQapiMeeting(id: string, meeting: Partial<InsertQapiMeeting>): Promise<QapiMeeting> {
+    const [row] = await db.update(qapiMeetings).set({ ...meeting, updatedAt: new Date() }).where(eq(qapiMeetings.id, id)).returning();
+    return row;
+  }
+  async deleteQapiMeeting(id: string): Promise<void> {
+    await db.delete(qapiMeetings).where(eq(qapiMeetings.id, id));
+  }
+
+  // ─── Infection Control Logs ─────────────────────────────────────────────────
+  async getInfectionControlLogs(officeId: string): Promise<InfectionControlLog[]> {
+    return db.select().from(infectionControlLogs).where(eq(infectionControlLogs.officeId, officeId)).orderBy(desc(infectionControlLogs.incidentDate));
+  }
+  async getInfectionControlLog(id: string): Promise<InfectionControlLog | undefined> {
+    const [row] = await db.select().from(infectionControlLogs).where(eq(infectionControlLogs.id, id));
+    return row;
+  }
+  async createInfectionControlLog(log: InsertInfectionControlLog): Promise<InfectionControlLog> {
+    const [row] = await db.insert(infectionControlLogs).values(log).returning();
+    return row;
+  }
+  async updateInfectionControlLog(id: string, log: Partial<InsertInfectionControlLog>): Promise<InfectionControlLog> {
+    const [row] = await db.update(infectionControlLogs).set({ ...log, updatedAt: new Date() }).where(eq(infectionControlLogs.id, id)).returning();
+    return row;
+  }
+  async deleteInfectionControlLog(id: string): Promise<void> {
+    await db.delete(infectionControlLogs).where(eq(infectionControlLogs.id, id));
+  }
+
+  // ─── Client Emergency Plans ─────────────────────────────────────────────────
+  async getClientEmergencyPlan(clientId: string): Promise<ClientEmergencyPlan | undefined> {
+    const [row] = await db.select().from(clientEmergencyPlans).where(eq(clientEmergencyPlans.clientId, clientId));
+    return row;
+  }
+  async getClientEmergencyPlans(officeId: string): Promise<ClientEmergencyPlan[]> {
+    return db.select().from(clientEmergencyPlans).where(eq(clientEmergencyPlans.officeId, officeId));
+  }
+  async upsertClientEmergencyPlan(plan: InsertClientEmergencyPlan): Promise<ClientEmergencyPlan> {
+    const [row] = await db.insert(clientEmergencyPlans).values(plan)
+      .onConflictDoUpdate({ target: clientEmergencyPlans.clientId, set: { ...plan, updatedAt: new Date() } })
+      .returning();
+    return row;
+  }
+
+  // ─── Client Satisfaction Surveys ────────────────────────────────────────────
+  async getClientSatisfactionSurveys(officeId: string): Promise<ClientSatisfactionSurvey[]> {
+    return db.select().from(clientSatisfactionSurveys).where(eq(clientSatisfactionSurveys.officeId, officeId)).orderBy(desc(clientSatisfactionSurveys.createdAt));
+  }
+  async getClientSatisfactionSurvey(id: string): Promise<ClientSatisfactionSurvey | undefined> {
+    const [row] = await db.select().from(clientSatisfactionSurveys).where(eq(clientSatisfactionSurveys.id, id));
+    return row;
+  }
+  async createClientSatisfactionSurvey(survey: InsertClientSatisfactionSurvey): Promise<ClientSatisfactionSurvey> {
+    const [row] = await db.insert(clientSatisfactionSurveys).values(survey).returning();
+    return row;
+  }
+  async updateClientSatisfactionSurvey(id: string, survey: Partial<InsertClientSatisfactionSurvey>): Promise<ClientSatisfactionSurvey> {
+    const [row] = await db.update(clientSatisfactionSurveys).set({ ...survey, updatedAt: new Date() }).where(eq(clientSatisfactionSurveys.id, id)).returning();
+    return row;
+  }
+  async deleteClientSatisfactionSurvey(id: string): Promise<void> {
+    await db.delete(clientSatisfactionSurveys).where(eq(clientSatisfactionSurveys.id, id));
+  }
+  async getClientSurveyResponses(surveyId: string): Promise<ClientSurveyResponse[]> {
+    return db.select().from(clientSurveyResponses).where(eq(clientSurveyResponses.surveyId, surveyId)).orderBy(desc(clientSurveyResponses.submittedAt));
+  }
+  async createClientSurveyResponse(response: InsertClientSurveyResponse): Promise<ClientSurveyResponse> {
+    const [row] = await db.insert(clientSurveyResponses).values(response).returning();
+    return row;
   }
 }
 

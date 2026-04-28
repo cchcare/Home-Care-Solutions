@@ -17085,6 +17085,362 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ─── Supervisory Visits ─────────────────────────────────────────────────────
+  app.get("/api/supervisory-visits", isAuthenticated, async (req: any, res) => {
+    try {
+      const { officeId, caregiverId } = req.query;
+      const visits = await storage.getSupervisoryVisits(officeId as string, caregiverId ? { caregiverId: caregiverId as string } : undefined);
+      res.json(visits);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+  app.get("/api/supervisory-visits/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const visit = await storage.getSupervisoryVisit(req.params.id);
+      if (!visit) return res.status(404).json({ message: "Not found" });
+      res.json(visit);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+  app.post("/api/supervisory-visits", isAuthenticated, async (req: any, res) => {
+    try {
+      const visit = await storage.createSupervisoryVisit({ ...req.body, createdBy: req.session.user?.id });
+      res.status(201).json(visit);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+  app.patch("/api/supervisory-visits/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const visit = await storage.updateSupervisoryVisit(req.params.id, req.body);
+      res.json(visit);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+  app.delete("/api/supervisory-visits/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      await storage.deleteSupervisoryVisit(req.params.id);
+      res.json({ success: true });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // ─── Policy Documents ───────────────────────────────────────────────────────
+  const policyUpload = multer({ dest: "uploads/policies/", limits: { fileSize: 25 * 1024 * 1024 } });
+  app.get("/api/policy-documents", isAuthenticated, async (req: any, res) => {
+    try {
+      const docs = await storage.getPolicyDocuments(req.query.officeId as string);
+      res.json(docs);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+  app.get("/api/policy-documents/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const doc = await storage.getPolicyDocument(req.params.id);
+      if (!doc) return res.status(404).json({ message: "Not found" });
+      res.json(doc);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+  app.post("/api/policy-documents", isAuthenticated, policyUpload.single("file"), async (req: any, res) => {
+    try {
+      const { title, category, version, effectiveDate, reviewDate, content, requiresAcknowledgment, acknowledgmentDueDays, officeId } = req.body;
+      const doc = await storage.createPolicyDocument({
+        title, category, version: version || "1.0",
+        effectiveDate: effectiveDate || null, reviewDate: reviewDate || null,
+        content: content || null,
+        fileUrl: req.file ? `/uploads/policies/${req.file.filename}` : null,
+        fileName: req.file ? req.file.originalname : null,
+        officeId, requiresAcknowledgment: requiresAcknowledgment !== "false",
+        acknowledgmentDueDays: parseInt(acknowledgmentDueDays) || 7,
+        status: "draft", createdBy: req.session.user?.id,
+      });
+      res.status(201).json(doc);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+  app.patch("/api/policy-documents/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const updates: any = { ...req.body };
+      if (updates.status === "active" && !updates.publishedAt) updates.publishedAt = new Date();
+      const doc = await storage.updatePolicyDocument(req.params.id, updates);
+      res.json(doc);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+  app.delete("/api/policy-documents/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      await storage.deletePolicyDocument(req.params.id);
+      res.json({ success: true });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+  app.get("/api/policy-documents/:id/acknowledgments", isAuthenticated, async (req: any, res) => {
+    try {
+      const acks = await storage.getPolicyAcknowledgments(req.params.id);
+      res.json(acks);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+  app.post("/api/policy-documents/:id/acknowledge", isAuthenticated, async (req: any, res) => {
+    try {
+      const ack = await storage.createPolicyAcknowledgment({
+        policyId: req.params.id,
+        userId: req.session.user?.id,
+        method: req.body.method || "digital",
+        notes: req.body.notes || null,
+      });
+      res.status(201).json(ack);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // ─── QAPI Meetings ──────────────────────────────────────────────────────────
+  app.get("/api/qapi-meetings", isAuthenticated, async (req: any, res) => {
+    try {
+      const meetings = await storage.getQapiMeetings(req.query.officeId as string);
+      res.json(meetings);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+  app.get("/api/qapi-meetings/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const m = await storage.getQapiMeeting(req.params.id);
+      if (!m) return res.status(404).json({ message: "Not found" });
+      res.json(m);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+  app.post("/api/qapi-meetings", isAuthenticated, async (req: any, res) => {
+    try {
+      const meeting = await storage.createQapiMeeting({ ...req.body, createdBy: req.session.user?.id });
+      res.status(201).json(meeting);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+  app.patch("/api/qapi-meetings/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const m = await storage.updateQapiMeeting(req.params.id, req.body);
+      res.json(m);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+  app.delete("/api/qapi-meetings/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      await storage.deleteQapiMeeting(req.params.id);
+      res.json({ success: true });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // ─── Infection Control Logs ─────────────────────────────────────────────────
+  app.get("/api/infection-control", isAuthenticated, async (req: any, res) => {
+    try {
+      const logs = await storage.getInfectionControlLogs(req.query.officeId as string);
+      res.json(logs);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+  app.get("/api/infection-control/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const log = await storage.getInfectionControlLog(req.params.id);
+      if (!log) return res.status(404).json({ message: "Not found" });
+      res.json(log);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+  app.post("/api/infection-control", isAuthenticated, async (req: any, res) => {
+    try {
+      const log = await storage.createInfectionControlLog({ ...req.body, reportedBy: req.body.reportedBy || req.session.user?.id });
+      res.status(201).json(log);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+  app.patch("/api/infection-control/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const log = await storage.updateInfectionControlLog(req.params.id, req.body);
+      res.json(log);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+  app.delete("/api/infection-control/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      await storage.deleteInfectionControlLog(req.params.id);
+      res.json({ success: true });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // ─── Client Emergency Plans ─────────────────────────────────────────────────
+  app.get("/api/clients/:clientId/emergency-plan", isAuthenticated, async (req: any, res) => {
+    try {
+      const plan = await storage.getClientEmergencyPlan(req.params.clientId);
+      res.json(plan || null);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+  app.put("/api/clients/:clientId/emergency-plan", isAuthenticated, async (req: any, res) => {
+    try {
+      const plan = await storage.upsertClientEmergencyPlan({
+        ...req.body,
+        clientId: req.params.clientId,
+        reviewedBy: req.session.user?.id,
+      });
+      res.json(plan);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+  app.get("/api/emergency-plans", isAuthenticated, async (req: any, res) => {
+    try {
+      const plans = await storage.getClientEmergencyPlans(req.query.officeId as string);
+      res.json(plans);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // ─── Client Satisfaction Surveys ────────────────────────────────────────────
+  app.get("/api/client-surveys", isAuthenticated, async (req: any, res) => {
+    try {
+      const surveys = await storage.getClientSatisfactionSurveys(req.query.officeId as string);
+      res.json(surveys);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+  app.get("/api/client-surveys/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const survey = await storage.getClientSatisfactionSurvey(req.params.id);
+      if (!survey) return res.status(404).json({ message: "Not found" });
+      const responses = await storage.getClientSurveyResponses(req.params.id);
+      res.json({ ...survey, responses });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+  app.post("/api/client-surveys", isAuthenticated, async (req: any, res) => {
+    try {
+      const survey = await storage.createClientSatisfactionSurvey({ ...req.body, createdBy: req.session.user?.id });
+      res.status(201).json(survey);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+  app.patch("/api/client-surveys/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const updates: any = { ...req.body };
+      if (updates.status === "active" && !updates.sentAt) updates.sentAt = new Date();
+      if (updates.status === "closed" && !updates.closedAt) updates.closedAt = new Date();
+      const survey = await storage.updateClientSatisfactionSurvey(req.params.id, updates);
+      res.json(survey);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+  app.delete("/api/client-surveys/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      await storage.deleteClientSatisfactionSurvey(req.params.id);
+      res.json({ success: true });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+  app.post("/api/client-surveys/:id/responses", async (req: any, res) => {
+    try {
+      const response = await storage.createClientSurveyResponse({ ...req.body, surveyId: req.params.id });
+      res.status(201).json(response);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // ─── Survey Readiness API ────────────────────────────────────────────────────
+  app.get("/api/survey-readiness", isAuthenticated, async (req: any, res) => {
+    try {
+      const officeId = req.query.officeId as string;
+      if (!officeId) return res.status(400).json({ message: "officeId required" });
+
+      const now = new Date();
+      const ninetyDaysAgo = new Date(now.getTime() - 90 * 24 * 3600000);
+      const thirtyDaysFromNow = new Date(now.getTime() + 30 * 24 * 3600000);
+
+      const [allCaregivers, allClients, allIncidents, allVisits, allPolicies] = await Promise.all([
+        storage.getCaregivers(officeId),
+        storage.getClients(officeId),
+        storage.getIncidentReports(officeId),
+        storage.getSupervisoryVisits(officeId),
+        storage.getPolicyDocuments(officeId),
+      ]);
+
+      // Caregiver compliance gaps
+      const caregiverGaps: any[] = [];
+      const activeCaregivers = allCaregivers.filter((c: any) => c.status === "active");
+      for (const cg of activeCaregivers) {
+        const cgAny = cg as any;
+        if (!cgAny.backgroundCheckDate || new Date(cgAny.backgroundCheckDate) < ninetyDaysAgo) {
+          caregiverGaps.push({ type: "background_check", caregiverId: cg.id, name: `${cg.firstName} ${cg.lastName}`, severity: "high" });
+        }
+        if (!cgAny.tbTestDate || new Date(cgAny.tbTestDate) < new Date(now.getFullYear() - 1, now.getMonth(), now.getDate())) {
+          caregiverGaps.push({ type: "tb_test", caregiverId: cg.id, name: `${cg.firstName} ${cg.lastName}`, severity: "high" });
+        }
+        if (!cgAny.cprCertDate || new Date(cgAny.cprCertDate) < now) {
+          caregiverGaps.push({ type: "cpr_expired", caregiverId: cg.id, name: `${cg.firstName} ${cg.lastName}`, severity: "medium" });
+        }
+      }
+
+      // Supervisory visit gaps (require visit within last 90 days per active caregiver)
+      const visitGaps: any[] = [];
+      const visitsByCaregiver = new Map<string, Date>();
+      for (const v of allVisits) {
+        if (v.status === "completed") {
+          const d = new Date(v.visitDate);
+          const existing = visitsByCaregiver.get(v.caregiverId);
+          if (!existing || d > existing) visitsByCaregiver.set(v.caregiverId, d);
+        }
+      }
+      for (const cg of activeCaregivers) {
+        const lastVisit = visitsByCaregiver.get(cg.id);
+        if (!lastVisit || lastVisit < ninetyDaysAgo) {
+          visitGaps.push({ type: "supervisory_visit_overdue", caregiverId: cg.id, name: `${cg.firstName} ${cg.lastName}`, lastVisit, severity: "high" });
+        }
+      }
+
+      // CIR overdue reports
+      const cirGaps: any[] = [];
+      for (const inc of allIncidents) {
+        const incAny = inc as any;
+        if (incAny.cirClass === "class_1" && incAny.dohSubmissionStatus === "pending") {
+          const dueDate = incAny.dohReportDue ? new Date(incAny.dohReportDue) : null;
+          if (dueDate && dueDate < now) {
+            cirGaps.push({ type: "cir_class1_overdue", incidentId: inc.id, severity: "critical", dueDate });
+          }
+        }
+        if (incAny.cirClass === "class_2" && incAny.dohSubmissionStatus === "pending") {
+          const dueDate = incAny.dohReportDue ? new Date(incAny.dohReportDue) : null;
+          if (dueDate && dueDate < now) {
+            cirGaps.push({ type: "cir_class2_overdue", incidentId: inc.id, severity: "high", dueDate });
+          }
+        }
+      }
+
+      // Policy acknowledgment gaps
+      const policyGaps: any[] = [];
+      const activePolicies = allPolicies.filter((p: any) => p.status === "active" && p.requiresAcknowledgment);
+      for (const policy of activePolicies) {
+        const acks = await storage.getPolicyAcknowledgments(policy.id);
+        const ackUserIds = new Set(acks.map((a: any) => a.userId));
+        const missing = activeCaregivers.filter((cg: any) => {
+          const userIdForCg = (cg as any).userId;
+          return userIdForCg && !ackUserIds.has(userIdForCg);
+        });
+        if (missing.length > 0) {
+          policyGaps.push({ type: "policy_unacknowledged", policyId: policy.id, policyTitle: policy.title, missingCount: missing.length, severity: "medium" });
+        }
+      }
+
+      // Client file gaps (clients without emergency plans)
+      const emergencyPlans = await storage.getClientEmergencyPlans(officeId);
+      const plansClientIds = new Set(emergencyPlans.map((p: any) => p.clientId));
+      const activeClients = allClients.filter((c: any) => c.status === "active");
+      const clientsWithoutPlans = activeClients.filter((c: any) => !plansClientIds.has(c.id));
+
+      // Compute score (weighted)
+      const totalChecks = 5;
+      let score = 100;
+      const criticalGaps = cirGaps.filter(g => g.severity === "critical").length;
+      const highGaps = [...caregiverGaps, ...visitGaps, ...cirGaps].filter(g => g.severity === "high").length;
+      const medGaps = policyGaps.length + clientsWithoutPlans.length;
+
+      score -= criticalGaps * 15;
+      score -= highGaps * 5;
+      score -= medGaps * 2;
+      score = Math.max(0, Math.min(100, score));
+
+      const readinessLevel = score >= 90 ? "excellent" : score >= 75 ? "good" : score >= 60 ? "fair" : score >= 40 ? "poor" : "critical";
+
+      res.json({
+        score,
+        readinessLevel,
+        gaps: {
+          caregiverGaps,
+          visitGaps,
+          cirGaps,
+          policyGaps,
+          clientsWithoutEmergencyPlans: clientsWithoutPlans.map(c => ({ clientId: c.id, name: `${(c as any).firstName} ${(c as any).lastName}` })),
+        },
+        summary: {
+          activeCaregivers: activeCaregivers.length,
+          activeClients: activeClients.length,
+          openIncidents: allIncidents.filter((i: any) => i.status === "open").length,
+          overdueVisits: visitGaps.length,
+          unapprovedPolicies: policyGaps.reduce((s: number, p: any) => s + p.missingCount, 0),
+          clientsNeedingPlans: clientsWithoutPlans.length,
+        },
+      });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }
