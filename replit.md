@@ -63,3 +63,4 @@ Preferred communication style: Simple, everyday language.
 -   **TypeScript**: Programming language for type safety.
 -   **Vite & ESBuild**: Build tools.
 -   **Drizzle Kit**: Database schema management.
+-   **Vitest**: Unit-test runner. Configured via `vitest.config.ts` (server-only, node environment). Run with `npm test` (or `bash scripts/run-tests.sh`). Suites live under `server/__tests__/*.test.ts`.
