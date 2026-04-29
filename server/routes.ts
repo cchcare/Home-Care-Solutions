@@ -1326,6 +1326,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       // Don't let callers reassign the row to a different user
       const { userId: _ignored, ...patch } = parsed.data;
+      // Reserve `__default` for column-prefs rows only — never let a regular saved
+      // view be renamed to `__default` (would shadow column prefs).
+      if (patch.name !== undefined && patch.name === "__default" && existing.name !== "__default") {
+        return res.status(400).json({ message: "'__default' is a reserved view name" });
+      }
+      // Lock down `page` reassignment to the same allowed set as POST
+      if (patch.page !== undefined) {
+        const allowedPages = ["caregivers", "clients"];
+        if (!allowedPages.includes(patch.page)) {
+          return res.status(400).json({ message: "page must be one of: caregivers, clients" });
+        }
+      }
       const view = await storage.updateUserSavedView(req.params.id, patch);
       res.json(view);
     } catch (error) {

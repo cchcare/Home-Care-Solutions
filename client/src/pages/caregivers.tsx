@@ -209,22 +209,35 @@ export default function Caregivers() {
 
   const { data: caregivers = [], isLoading } = useQuery<EnrichedCaregiver[]>({
     queryKey: ["/api/caregivers", queryParams],
-    queryFn: () =>
-      fetch(queryParams ? `/api/caregivers?${queryParams}` : "/api/caregivers", {
-        credentials: "include",
-      }).then((r) => r.json()),
+    queryFn: async () => {
+      const r = await fetch(
+        queryParams ? `/api/caregivers?${queryParams}` : "/api/caregivers",
+        { credentials: "include" }
+      );
+      if (!r.ok) {
+        const body = await r.json().catch(() => ({}));
+        throw new Error(body?.message || `Failed to load caregivers (${r.status})`);
+      }
+      return r.json();
+    },
     retry: false,
   });
 
   const { data: allCaregivers = [] } = useQuery<EnrichedCaregiver[]>({
     queryKey: ["/api/caregivers", "specializations-source", selectedOfficeId],
-    queryFn: () =>
-      fetch(
+    queryFn: async () => {
+      const r = await fetch(
         selectedOfficeId !== "all"
           ? `/api/caregivers?officeId=${encodeURIComponent(selectedOfficeId)}`
           : "/api/caregivers",
         { credentials: "include" }
-      ).then((r) => r.json()),
+      );
+      if (!r.ok) {
+        const body = await r.json().catch(() => ({}));
+        throw new Error(body?.message || `Failed to load caregivers (${r.status})`);
+      }
+      return r.json();
+    },
     retry: false,
     staleTime: 60_000,
   });

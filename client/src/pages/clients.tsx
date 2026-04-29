@@ -447,7 +447,14 @@ export default function Clients() {
 
   const { data: clients = [], isLoading } = useQuery<Client[]>({
     queryKey: ["/api/clients", queryParams],
-    queryFn: () => fetch(`/api/clients?${queryParams}`, { credentials: "include" }).then(r => r.json()),
+    queryFn: async () => {
+      const r = await fetch(`/api/clients?${queryParams}`, { credentials: "include" });
+      if (!r.ok) {
+        const body = await r.json().catch(() => ({}));
+        throw new Error(body?.message || `Failed to load clients (${r.status})`);
+      }
+      return r.json();
+    },
     retry: false,
   });
 
