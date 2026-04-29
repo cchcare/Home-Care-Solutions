@@ -974,6 +974,21 @@ tr.unmatched-separator-row > td {
   background: var(--preview-unmatched-bg);
   border-left: 3px solid var(--preview-unmatched-border);
 }
+/* Inline accessibility warning shown next to a swatch when the chosen
+   color is hard to read against the row text, or when the matched and
+   unmatched colors are too similar to tell apart. */
+.row-swatch-warning {
+  display: none;
+  margin-left: 2px;
+  font-size: 13px;
+  line-height: 1;
+  color: #B45309;
+  cursor: help;
+  user-select: none;
+}
+.row-swatch-warning[data-active="true"] {
+  display: inline-block;
+}
 .empty-state {
   padding: 48px 20px;
   text-align: center;
@@ -1491,11 +1506,13 @@ tr.unmatched-separator-row > td {
           Matched:
           <input type="color" id="matchedColor" value="#C6EFCE" title="Matched row color" style="width:28px;height:24px;padding:1px;border:1px solid var(--border2);border-radius:4px;cursor:pointer;background:none">
           <span class="row-swatch matched" title="Live preview of a matched row" aria-hidden="true"></span>
+          <span class="row-swatch-warning" id="matchedColorWarn" role="img" aria-label="" title="">⚠</span>
         </label>
         <label style="font-weight:500;white-space:nowrap;color:var(--text2);display:flex;align-items:center;gap:4px">
           Unmatched:
           <input type="color" id="unmatchedColor" value="#FFC7CE" title="Unmatched row color" style="width:28px;height:24px;padding:1px;border:1px solid var(--border2);border-radius:4px;cursor:pointer;background:none">
           <span class="row-swatch unmatched" title="Live preview of an unmatched row" aria-hidden="true"></span>
+          <span class="row-swatch-warning" id="unmatchedColorWarn" role="img" aria-label="" title="">⚠</span>
         </label>
         <button type="button" id="resetColorsBtn" title="Reset highlight colors to defaults" style="font-size:12px;padding:4px 8px;border:1px solid var(--border2);border-radius:6px;background:var(--card);color:var(--text2);font-family:'Inter',sans-serif;cursor:pointer;display:inline-flex;align-items:center;gap:4px;line-height:1">
           <span style="font-size:14px;line-height:1">↺</span> Reset
@@ -3084,6 +3101,134 @@ setupDragDrop();
     return parseInt(m[1], 16) + ', ' + parseInt(m[2], 16) + ', ' + parseInt(m[3], 16);
   }
 
+  // ── Color readability helpers ───────────────────────────────────────────
+  // Preview rows render the picked color at 0.55 alpha over the white card,
+  // so we evaluate the *blended* color the user actually sees, not the raw
+  // hex from the picker.
+  const PREVIEW_ALPHA = 0.55;
+  // Matches the page's --text token (hsl(210, 40%, 8%)).
+  const ROW_TEXT_RGB = { r: 12, g: 20, b: 29 };
+  // WCAG 2.1 AA for normal body text; the row text in the export preview
+  // is small so we use the stricter 4.5:1 cutoff.
+  const MIN_CONTRAST_RATIO = 4.5;
+  // CIE76 ΔE between matched/unmatched bg below which the two highlight
+  // tints are hard to tell apart at a glance.
+  const MIN_DELTA_E = 12;
+
+  function hexToRgb(hex) {
+    const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(String(hex || ''));
+    if (!m) return null;
+    return { r: parseInt(m[1], 16), g: parseInt(m[2], 16), b: parseInt(m[3], 16) };
+  }
+
+  function blendOnWhite(rgb, alpha) {
+    if (!rgb) return null;
+    return {
+      r: Math.round(alpha * rgb.r + (1 - alpha) * 255),
+      g: Math.round(alpha * rgb.g + (1 - alpha) * 255),
+      b: Math.round(alpha * rgb.b + (1 - alpha) * 255)
+    };
+  }
+
+  function relLuminance(rgb) {
+    function ch(v) {
+      v = v / 255;
+      return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+    }
+    return 0.2126 * ch(rgb.r) + 0.7152 * ch(rgb.g) + 0.0722 * ch(rgb.b);
+  }
+
+  function contrastRatio(c1, c2) {
+    const L1 = relLuminance(c1);
+    const L2 = relLuminance(c2);
+    const hi = Math.max(L1, L2);
+    const lo = Math.min(L1, L2);
+    return (hi + 0.05) / (lo + 0.05);
+  }
+
+  function rgbToLab(rgb) {
+    function lin(v) {
+      v = v / 255;
+      return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+    }
+    const R = lin(rgb.r), G = lin(rgb.g), B = lin(rgb.b);
+    const X = R * 0.4124564 + G * 0.3575761 + B * 0.1804375;
+    const Y = R * 0.2126729 + G * 0.7151522 + B * 0.0721750;
+    const Z = R * 0.0193339 + G * 0.1191920 + B * 0.9503041;
+    const Xn = 0.95047, Yn = 1.0, Zn = 1.08883;
+    function f(t) { return t > 0.008856 ? Math.cbrt(t) : (7.787 * t + 16 / 116); }
+    const fx = f(X / Xn), fy = f(Y / Yn), fz = f(Z / Zn);
+    return { L: 116 * fy - 16, a: 500 * (fx - fy), b: 200 * (fy - fz) };
+  }
+
+  function deltaE76(c1, c2) {
+    const dL = c1.L - c2.L, da = c1.a - c2.a, db = c1.b - c2.b;
+    return Math.sqrt(dL * dL + da * da + db * db);
+  }
+
+  function setSwatchWarning(elId, msg) {
+    const el = document.getElementById(elId);
+    if (!el) return;
+    if (msg) {
+      el.title = msg;
+      el.setAttribute('aria-label', 'Warning: ' + msg);
+      el.dataset.active = 'true';
+    } else {
+      el.title = '';
+      el.setAttribute('aria-label', '');
+      delete el.dataset.active;
+    }
+  }
+
+  // Inspect the current matched/unmatched colors and surface inline warnings
+  // for two common accessibility pitfalls:
+  //   1. The blended highlight has poor contrast against the row text.
+  //   2. The matched and unmatched highlights look almost identical.
+  function evaluateColorReadability() {
+    const mode = (highlightSel && highlightSel.value) || 'colored';
+    if (mode !== 'colored') {
+      setSwatchWarning('matchedColorWarn', null);
+      setSwatchWarning('unmatchedColorWarn', null);
+      return;
+    }
+
+    const matchedHex   = (matchedColorEl   && matchedColorEl.value)   || '#C6EFCE';
+    const unmatchedHex = (unmatchedColorEl && unmatchedColorEl.value) || '#FFC7CE';
+
+    const matchedBg   = blendOnWhite(hexToRgb(matchedHex),   PREVIEW_ALPHA);
+    const unmatchedBg = blendOnWhite(hexToRgb(unmatchedHex), PREVIEW_ALPHA);
+
+    let matchedMsg = null;
+    let unmatchedMsg = null;
+
+    if (matchedBg) {
+      const cr = contrastRatio(matchedBg, ROW_TEXT_RGB);
+      if (cr < MIN_CONTRAST_RATIO) {
+        matchedMsg = 'Low text contrast (' + cr.toFixed(1) + ':1, below WCAG AA 4.5:1). ' +
+                     'Pick a lighter shade so matched-row text stays readable.';
+      }
+    }
+    if (unmatchedBg) {
+      const cr = contrastRatio(unmatchedBg, ROW_TEXT_RGB);
+      if (cr < MIN_CONTRAST_RATIO) {
+        unmatchedMsg = 'Low text contrast (' + cr.toFixed(1) + ':1, below WCAG AA 4.5:1). ' +
+                       'Pick a lighter shade so unmatched-row text stays readable.';
+      }
+    }
+    if (matchedBg && unmatchedBg) {
+      const dE = deltaE76(rgbToLab(matchedBg), rgbToLab(unmatchedBg));
+      if (dE < MIN_DELTA_E) {
+        const similarMsg = 'Matched and unmatched colors look almost identical — ' +
+                           'pick more distinct colors so the two row types are easy to tell apart.';
+        if (!matchedMsg)   matchedMsg   = similarMsg;
+        if (!unmatchedMsg) unmatchedMsg = similarMsg;
+      }
+    }
+
+    setSwatchWarning('matchedColorWarn', matchedMsg);
+    setSwatchWarning('unmatchedColorWarn', unmatchedMsg);
+  }
+
   // Apply current highlight settings to the preview table via CSS variables.
   // Mirrors the logic used when writing the Excel export so the in-page
   // preview is WYSIWYG with the user's color choices.
@@ -3099,6 +3244,7 @@ setupDragDrop();
       root.setProperty('--preview-unmatched-bg',       'transparent');
       root.setProperty('--preview-unmatched-bg-hover', 'rgba(0,0,0,0.04)');
       root.setProperty('--preview-unmatched-border',   'transparent');
+      evaluateColorReadability();
       return;
     }
 
@@ -3109,6 +3255,7 @@ setupDragDrop();
       root.setProperty('--preview-unmatched-bg',       'rgba(120, 120, 120, 0.12)');
       root.setProperty('--preview-unmatched-bg-hover', 'rgba(120, 120, 120, 0.20)');
       root.setProperty('--preview-unmatched-border',   'rgba(120, 120, 120, 0.55)');
+      evaluateColorReadability();
       return;
     }
 
@@ -3129,6 +3276,7 @@ setupDragDrop();
       unmatchedRgb ? `rgba(${unmatchedRgb}, 0.80)` : unmatchedHex
     );
     root.setProperty('--preview-unmatched-border', unmatchedHex);
+    evaluateColorReadability();
   }
 
   if (highlightSel) {
