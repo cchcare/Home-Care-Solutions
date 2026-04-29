@@ -2154,8 +2154,9 @@ export default function AuditAssessment() {
                 </TabsTrigger>
               </TabsList>
 
-              {CHECKLIST.map(cat => (
-                <TabsContent key={cat.id} value={cat.id}>
+              {CHECKLIST.map((cat, idx) => (
+                <TabsContent key={cat.id} value={cat.id} forceMount className={`print-tab-section${idx === 0 ? " print-tab-first" : ""}`}>
+                  <h2 className="hidden print:block text-base font-semibold mb-2 border-b pb-1">{cat.label}</h2>
                   <CategorySection
                     category={cat}
                     responsesMap={responsesMap}
@@ -2173,7 +2174,8 @@ export default function AuditAssessment() {
                 </TabsContent>
               ))}
 
-              <TabsContent value="deficiencies">
+              <TabsContent value="deficiencies" forceMount className="print-tab-section">
+                <h2 className="hidden print:block text-base font-semibold mb-2 border-b pb-1">Deficiencies</h2>
                 <DeficienciesSection
                   responsesMap={responsesMap}
                   notesMap={notesMap}
@@ -2187,7 +2189,8 @@ export default function AuditAssessment() {
                 />
               </TabsContent>
 
-              <TabsContent value="documents">
+              <TabsContent value="documents" forceMount className="print-tab-section">
+                <h2 className="hidden print:block text-base font-semibold mb-2 border-b pb-1">Documents</h2>
                 <DocumentsSection
                   auditId={activeAuditId!}
                   documents={auditDocuments}

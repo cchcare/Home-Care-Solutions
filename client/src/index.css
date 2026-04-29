@@ -139,4 +139,18 @@
     page-break-inside: avoid;
     break-inside: avoid;
   }
+
+  /* Show every tab section when printing, regardless of which tab is active */
+  .print-tab-section {
+    display: block !important;
+    visibility: visible !important;
+    page-break-before: always;
+    break-before: page;
+  }
+
+  /* First tab section should not force a redundant page break */
+  .print-tab-first {
+    page-break-before: auto;
+    break-before: auto;
+  }
 }
