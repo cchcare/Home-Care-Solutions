@@ -504,8 +504,11 @@ export default function HhaxIntegration() {
                     </TableBody>
                   </Table>
                   <p className="text-xs text-muted-foreground">
-                    The importer picks the most recently modified file whose name contains
-                    "caregiver"/"aide" (caregivers), "patient"/"client" (clients), or "schedule"/"visit" (schedules).
+                    The importer picks the most recently modified file whose name contains any of:
+                    <span className="font-mono"> caregiver / aide / employee / staff / worker</span> (caregivers),
+                    <span className="font-mono"> patient / client / member / admission</span> (clients), or
+                    <span className="font-mono"> schedule / visit / shift / authorization / plan</span> (schedules).
+                    Matching is case-insensitive.
                   </p>
                 </div>
               )}
