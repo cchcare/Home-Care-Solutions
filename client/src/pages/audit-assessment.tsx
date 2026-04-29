@@ -1958,25 +1958,55 @@ export default function AuditAssessment() {
     <div className="flex h-screen bg-background print:block print:h-auto print:overflow-visible">
       <Sidebar />
       <div className="flex-1 overflow-auto p-6 max-w-5xl mx-auto print:overflow-visible print:p-0 print:max-w-full">
-        {/* Print-only branded logo header — mirrors the agency logo placement
-            on the PDF export's cover page. Falls back to the CCHC Solutions
-            wordmark when the office has no logo uploaded or the file fails to
-            load. */}
-        <div className="hidden print:flex items-center mb-4 print-avoid-break">
-          <img
-            key={printLogoSrc}
-            src={printLogoSrc}
-            alt={printLogoAlt}
-            onError={(e) => {
-              const img = e.currentTarget;
-              if (!img.dataset.fallback && img.src !== cchcLogo) {
-                img.dataset.fallback = "1";
-                img.src = cchcLogo;
-                img.alt = "CCHC Solutions";
-              }
-            }}
-            className="h-16 w-auto max-w-[260px] object-contain object-left"
-          />
+        {/* ── Print-only report header ──────────────────────────────────────
+            Shown only when printing. The screen view is completely unchanged.
+            Includes agency logo + name, the audit title as the report title,
+            and a metadata row (surveyor, audit date, survey period).          */}
+        <div className="hidden print:block mb-6 print-avoid-break print-report-header">
+          {/* Top row: logo left, agency name right */}
+          <div className="flex items-center justify-between gap-4 mb-3">
+            <img
+              key={printLogoSrc}
+              src={printLogoSrc}
+              alt={printLogoAlt}
+              onError={(e) => {
+                const img = e.currentTarget;
+                if (!img.dataset.fallback && img.src !== cchcLogo) {
+                  img.dataset.fallback = "1";
+                  img.src = cchcLogo;
+                  img.alt = "CCHC Solutions";
+                }
+              }}
+              className="h-14 w-auto max-w-[220px] object-contain object-left"
+            />
+            {currentOffice?.name && (
+              <span className="text-sm font-semibold text-right leading-tight max-w-[260px]">
+                {currentOffice.name}
+              </span>
+            )}
+          </div>
+
+          {/* Audit title */}
+          <h1 className="text-2xl font-bold leading-tight mb-2">
+            {activeAudit?.title || "DOH Audit Assessment"}
+          </h1>
+
+          {/* Metadata row */}
+          {(activeAudit?.surveyorName || activeAudit?.auditDate || activeAudit?.surveyPeriod) && (
+            <div className="flex flex-wrap gap-x-6 gap-y-1 text-xs text-gray-600 mb-3">
+              {activeAudit?.surveyorName && (
+                <span><strong>Surveyor:</strong> {activeAudit.surveyorName}</span>
+              )}
+              {activeAudit?.auditDate && (
+                <span><strong>Audit Date:</strong> {activeAudit.auditDate}</span>
+              )}
+              {activeAudit?.surveyPeriod && (
+                <span><strong>Survey Period:</strong> {activeAudit.surveyPeriod}</span>
+              )}
+            </div>
+          )}
+
+          <hr className="border-gray-800" />
         </div>
 
         {/* Header */}
@@ -2976,6 +3006,19 @@ function DeficienciesSection({
           ))}
         </CardContent>
       </Card>
+
+        {/* ── Print-only report footer ──────────────────────────────────────
+            Fallback footer for browsers (Firefox, Safari) that don't support
+            CSS @page named margin boxes. In Chrome/Edge the @bottom-center
+            page counter from index.css takes precedence and this provides
+            an extra line of context at the end of the document.           */}
+        <div className="hidden print:flex items-center justify-between mt-8 pt-3 border-t border-gray-300 text-[9pt] text-gray-500 print-avoid-break">
+          <span>
+            {currentOffice?.name ? `${currentOffice.name} · ` : ""}
+            {activeAudit?.title || "DOH Audit Assessment"}
+          </span>
+          <span>Confidential</span>
+        </div>
     </div>
   );
 }

@@ -89,7 +89,26 @@
 
 @media print {
   @page {
-    margin: 0.5in;
+    margin: 0.6in 0.5in 0.7in;
+
+    @bottom-center {
+      content: "Page " counter(page) " of " counter(pages);
+      font-family: Inter, system-ui, sans-serif;
+      font-size: 9pt;
+      color: #555555;
+    }
+
+    @top-right {
+      content: string(report-header-running);
+      font-family: Inter, system-ui, sans-serif;
+      font-size: 8pt;
+      color: #666666;
+    }
+  }
+
+  /* Running header string set from the report title on the first page */
+  .print-report-header h1 {
+    string-set: report-header-running content();
   }
 
   html,
