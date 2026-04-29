@@ -2,7 +2,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { db } from "./db";
-import { eq, and, desc, asc, ilike, or, isNull, gte, lte, inArray, sql } from "drizzle-orm";
+import { eq, and, desc, asc, ilike, or, isNull, gte, lte, inArray, sql, type SQL } from "drizzle-orm";
 import { setupAuth, isAuthenticated, hashPassword } from "./localAuth";
 import { setupMobileApi } from "./mobileApi";
 import { setupTwilioWebhooks } from "./twilio";
@@ -1624,7 +1624,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         createdWithinDays,
       } = req.query as Record<string, string | undefined>;
 
-      const conditions: any[] = [];
+      const conditions: SQL[] = [];
 
       if (officeId && officeId !== 'all') {
         conditions.push(eq(clients.officeId, officeId));
@@ -1662,14 +1662,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       if (coordinatorIds) {
         const ids = coordinatorIds.split(',').map((s) => s.trim()).filter(Boolean);
-        if (ids.length > 0 && ids.length <= 50) {
-          conditions.push(inArray(clients.coordinatorId, ids));
+        if (ids.length === 0 || ids.length > 50) {
+          return res.status(400).json({ message: "coordinatorIds must contain 1–50 values" });
         }
+        const idCond = inArray(clients.coordinatorId, ids);
+        if (idCond) conditions.push(idCond);
       }
 
-      if (city) conditions.push(ilike(clients.city, `%${city.trim()}%`));
-      if (county) conditions.push(ilike(clients.county, `%${county.trim()}%`));
-      if (zipCode) conditions.push(ilike(clients.zipCode, `%${zipCode.trim()}%`));
+      if (city) {
+        if (city.length > 100) return res.status(400).json({ message: "city is too long" });
+        conditions.push(ilike(clients.city, `%${city.trim()}%`));
+      }
+      if (county) {
+        if (county.length > 100) return res.status(400).json({ message: "county is too long" });
+        conditions.push(ilike(clients.county, `%${county.trim()}%`));
+      }
+      if (zipCode) {
+        if (zipCode.length > 20) return res.status(400).json({ message: "zipCode is too long" });
+        conditions.push(ilike(clients.zipCode, `%${zipCode.trim()}%`));
+      }
 
       if (snapStatus && snapStatus !== 'all') {
         const allowed = ['active', 'pending', 'expired', 'not_enrolled', 'unknown'];
@@ -1685,47 +1696,57 @@ export async function registerRoutes(app: Express): Promise<Server> {
         !snapStatus || snapStatus === 'all' || ['active', 'pending', 'expired'].includes(snapStatus);
       if (snapExpiresWithinDays && expiryAllowedForStatus) {
         const days = Number(snapExpiresWithinDays);
-        if (Number.isFinite(days) && days >= 0 && days <= 3650) {
-          const cutoff = new Date();
-          cutoff.setDate(cutoff.getDate() + days);
-          conditions.push(and(
-            sql`${clients.snapExpiryDate} IS NOT NULL`,
-            lte(clients.snapExpiryDate, cutoff),
-          ));
+        if (!Number.isFinite(days) || days < 0 || days > 3650) {
+          return res.status(400).json({ message: "snapExpiresWithinDays must be 0–3650" });
         }
+        const cutoff = new Date();
+        cutoff.setDate(cutoff.getDate() + days);
+        const cond = and(
+          sql`${clients.snapExpiryDate} IS NOT NULL`,
+          lte(clients.snapExpiryDate, cutoff),
+        );
+        if (cond) conditions.push(cond);
       }
 
       if (ageMin) {
         const min = Number(ageMin);
-        if (Number.isFinite(min) && min >= 0 && min <= 150) {
-          const maxBirthDate = new Date();
-          maxBirthDate.setFullYear(maxBirthDate.getFullYear() - min);
-          conditions.push(and(
-            sql`${clients.dateOfBirth} IS NOT NULL`,
-            lte(clients.dateOfBirth, maxBirthDate),
-          ));
+        if (!Number.isFinite(min) || min < 0 || min > 150) {
+          return res.status(400).json({ message: "ageMin must be 0–150" });
         }
+        const maxBirthDate = new Date();
+        maxBirthDate.setFullYear(maxBirthDate.getFullYear() - min);
+        const cond = and(
+          sql`${clients.dateOfBirth} IS NOT NULL`,
+          lte(clients.dateOfBirth, maxBirthDate),
+        );
+        if (cond) conditions.push(cond);
       }
       if (ageMax) {
         const max = Number(ageMax);
-        if (Number.isFinite(max) && max >= 0 && max <= 150) {
-          const minBirthDate = new Date();
-          minBirthDate.setFullYear(minBirthDate.getFullYear() - (max + 1));
-          minBirthDate.setDate(minBirthDate.getDate() + 1);
-          conditions.push(and(
-            sql`${clients.dateOfBirth} IS NOT NULL`,
-            gte(clients.dateOfBirth, minBirthDate),
-          ));
+        if (!Number.isFinite(max) || max < 0 || max > 150) {
+          return res.status(400).json({ message: "ageMax must be 0–150" });
         }
+        const minBirthDate = new Date();
+        minBirthDate.setFullYear(minBirthDate.getFullYear() - (max + 1));
+        minBirthDate.setDate(minBirthDate.getDate() + 1);
+        const cond = and(
+          sql`${clients.dateOfBirth} IS NOT NULL`,
+          gte(clients.dateOfBirth, minBirthDate),
+        );
+        if (cond) conditions.push(cond);
+      }
+      if (ageMin && ageMax && Number(ageMin) > Number(ageMax)) {
+        return res.status(400).json({ message: "ageMin cannot be greater than ageMax" });
       }
 
       if (createdWithinDays) {
         const days = Number(createdWithinDays);
-        if (Number.isFinite(days) && days > 0 && days <= 3650) {
-          const cutoff = new Date();
-          cutoff.setDate(cutoff.getDate() - days);
-          conditions.push(gte(clients.createdAt, cutoff));
+        if (!Number.isFinite(days) || days <= 0 || days > 3650) {
+          return res.status(400).json({ message: "createdWithinDays must be 1–3650" });
         }
+        const cutoff = new Date();
+        cutoff.setDate(cutoff.getDate() - days);
+        conditions.push(gte(clients.createdAt, cutoff));
       }
 
       let query = db.select().from(clients);
@@ -2287,7 +2308,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         certExpiresWithinDays,
       } = req.query as Record<string, string | undefined>;
 
-      const conditions: any[] = [];
+      const conditions: SQL[] = [];
 
       if (officeId && officeId !== 'all') {
         conditions.push(eq(caregivers.officeId, officeId));
@@ -2320,29 +2341,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       if (coordinatorIds) {
         const ids = coordinatorIds.split(',').map((s) => s.trim()).filter(Boolean);
-        if (ids.length > 0 && ids.length <= 50) {
-          conditions.push(inArray(caregivers.coordinatorId, ids));
+        if (ids.length === 0 || ids.length > 50) {
+          return res.status(400).json({ message: "coordinatorIds must contain 1–50 values" });
         }
+        const idCond = inArray(caregivers.coordinatorId, ids);
+        if (idCond) conditions.push(idCond);
       }
 
       if (specializations) {
         const specs = specializations.split(',').map((s) => s.trim()).filter(Boolean);
-        if (specs.length > 0 && specs.length <= 50) {
-          // caregivers.specializations is text[] — overlap if any of the requested values present
-          conditions.push(sql`${caregivers.specializations} && ${specs}::text[]`);
+        if (specs.length === 0 || specs.length > 50) {
+          return res.status(400).json({ message: "specializations must contain 1–50 values" });
         }
+        // caregivers.specializations is text[] — overlap if any of the requested values present
+        conditions.push(sql`${caregivers.specializations} && ${specs}::text[]`);
       }
 
       if (certType) {
-        const certConditions: any[] = [eq(certifications.certificationType, certType)];
+        if (certType.length > 100) {
+          return res.status(400).json({ message: "certType is too long" });
+        }
+        const certConditions: SQL[] = [eq(certifications.certificationType, certType)];
         if (certExpiresWithinDays) {
           const days = Number(certExpiresWithinDays);
-          if (Number.isFinite(days) && days >= 0 && days <= 3650) {
-            const cutoff = new Date();
-            cutoff.setDate(cutoff.getDate() + days);
-            certConditions.push(sql`${certifications.expirationDate} IS NOT NULL`);
-            certConditions.push(lte(certifications.expirationDate, cutoff));
+          if (!Number.isFinite(days) || days < 0 || days > 3650) {
+            return res.status(400).json({ message: "certExpiresWithinDays must be 0–3650" });
           }
+          const cutoff = new Date();
+          cutoff.setDate(cutoff.getDate() + days);
+          certConditions.push(sql`${certifications.expirationDate} IS NOT NULL`);
+          certConditions.push(lte(certifications.expirationDate, cutoff));
         }
         const matchingRows = await db
           .selectDistinct({ caregiverId: certifications.caregiverId })
