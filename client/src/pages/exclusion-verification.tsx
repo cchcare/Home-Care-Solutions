@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogDescription } from "@/components/ui/dialog";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
@@ -33,7 +34,8 @@ import {
   Trash2,
   Check,
   X,
-  BarChart3
+  BarChart3,
+  AlertCircle,
 } from "lucide-react";
 
 interface DashboardStats {
@@ -93,6 +95,62 @@ interface ExclusionReport {
   status: "completed" | "pending";
 }
 
+interface ImportResultState {
+  source: "medicheck" | "sam";
+  ok: boolean;
+  status: number;
+  recordCount: number;
+  warnings: string[];
+  errors: string[];
+}
+
+async function uploadExclusionCsv(
+  url: string,
+  file: File,
+): Promise<Omit<ImportResultState, "source">> {
+  const formData = new FormData();
+  formData.append("file", file);
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: "POST",
+      body: formData,
+      credentials: "include",
+    });
+  } catch (networkErr: any) {
+    return {
+      ok: false,
+      status: 0,
+      recordCount: 0,
+      warnings: [],
+      errors: [networkErr?.message || "Network error while uploading"],
+    };
+  }
+  let body: any = null;
+  try {
+    body = await res.json();
+  } catch {
+    body = null;
+  }
+  const errors: string[] = Array.isArray(body?.errors)
+    ? body.errors.filter((e: unknown): e is string => typeof e === "string")
+    : [];
+  const warnings: string[] = Array.isArray(body?.warnings)
+    ? body.warnings.filter((w: unknown): w is string => typeof w === "string")
+    : [];
+  if (!res.ok && errors.length === 0) {
+    errors.push(
+      typeof body?.message === "string" && body.message
+        ? body.message
+        : `Upload failed (HTTP ${res.status})`,
+    );
+  }
+  const recordCount =
+    typeof body?.recordCount === "number" ? body.recordCount : 0;
+  const ok = res.ok && body?.success !== false;
+  return { ok, status: res.status, recordCount, warnings, errors };
+}
+
 export default function ExclusionVerification() {
   const { toast } = useToast();
   const [activeTab, setActiveTab] = useState("dashboard");
@@ -103,6 +161,7 @@ export default function ExclusionVerification() {
   const medicheckFileRef = useRef<HTMLInputElement>(null);
   const samFileRef = useRef<HTMLInputElement>(null);
   const [medicheckRecordsOpen, setMedicheckRecordsOpen] = useState(false);
+  const [importResult, setImportResult] = useState<ImportResultState | null>(null);
 
   const { data: dashboardStats, isLoading: loadingStats } = useQuery<DashboardStats>({
     queryKey: ["/api/exclusions/dashboard"],
@@ -140,61 +199,54 @@ export default function ExclusionVerification() {
   });
 
   const uploadMedicheckMutation = useMutation({
-    mutationFn: async (file: File) => {
-      const formData = new FormData();
-      formData.append("file", file);
-      const response = await apiRequest("POST", "/api/exclusions/upload/medicheck", formData);
-      return response.json() as Promise<{
-        success: boolean;
-        recordCount: number;
-        errors: string[];
-        warnings?: string[];
-      }>;
-    },
+    mutationFn: (file: File) =>
+      uploadExclusionCsv("/api/exclusions/upload/medicheck", file),
     onSuccess: (result) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/exclusions/sources"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/exclusions/dashboard"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/exclusions/records", { sourceType: "medicheck" }] });
-      // Defensive: a 2xx response with success=false should still be shown as
-      // an error (the server should never do this, but guard so a future
-      // regression cannot silently mask a failed import).
-      if (result?.success === false) {
-        toast({
-          title: "Failed to upload Medicheck CSV",
-          description: result.errors?.[0] || "Unknown error",
-          variant: "destructive",
-        });
-        return;
+      // Only refetch the dependent lists when the import actually changed
+      // server-side state — failed uploads leave the source untouched.
+      if (result.ok) {
+        queryClient.invalidateQueries({ queryKey: ["/api/exclusions/sources"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/exclusions/dashboard"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/exclusions/records", { sourceType: "medicheck" }] });
       }
-      const warnings = result?.warnings ?? [];
-      const desc =
-        `Imported ${result?.recordCount ?? 0} record${result?.recordCount === 1 ? "" : "s"}.` +
-        (warnings.length ? ` ${warnings.join(" ")}` : "");
-      toast({ title: "Medicheck CSV uploaded", description: desc });
+      setImportResult({ source: "medicheck", ...result });
     },
     onError: (err: any) => {
-      toast({
-        title: "Failed to upload Medicheck CSV",
-        description: err?.message || "Unknown error",
-        variant: "destructive",
+      // Defensive: uploadExclusionCsv catches network errors itself, but if
+      // anything ever throws we still surface the result panel so the user
+      // never loses feedback.
+      setImportResult({
+        source: "medicheck",
+        ok: false,
+        status: 0,
+        recordCount: 0,
+        warnings: [],
+        errors: [err?.message || "Unknown error"],
       });
     },
   });
 
   const uploadSamMutation = useMutation({
-    mutationFn: async (file: File) => {
-      const formData = new FormData();
-      formData.append("file", file);
-      const response = await apiRequest("POST", "/api/exclusions/upload/sam", formData);
-      return response.json();
+    mutationFn: (file: File) =>
+      uploadExclusionCsv("/api/exclusions/upload/sam", file),
+    onSuccess: (result) => {
+      if (result.ok) {
+        queryClient.invalidateQueries({ queryKey: ["/api/exclusions/sources"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/exclusions/dashboard"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/exclusions/records", { sourceType: "sam" }] });
+      }
+      setImportResult({ source: "sam", ...result });
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/exclusions/sources"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/exclusions/dashboard"] });
-      toast({ title: "Success", description: "SAM.gov CSV uploaded successfully" });
-    },
-    onError: () => {
-      toast({ title: "Error", description: "Failed to upload SAM.gov CSV", variant: "destructive" });
+    onError: (err: any) => {
+      // See comment above — fallback panel for unexpected throws only.
+      setImportResult({
+        source: "sam",
+        ok: false,
+        status: 0,
+        recordCount: 0,
+        warnings: [],
+        errors: [err?.message || "Unknown error"],
+      });
     },
   });
 
@@ -901,7 +953,156 @@ export default function ExclusionVerification() {
         open={medicheckRecordsOpen}
         onOpenChange={setMedicheckRecordsOpen}
       />
+
+      <ImportResultDialog
+        result={importResult}
+        onOpenChange={(open) => {
+          if (!open) setImportResult(null);
+        }}
+      />
     </div>
+  );
+}
+
+function ImportResultDialog({
+  result,
+  onOpenChange,
+}: {
+  result: ImportResultState | null;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const open = result !== null;
+  const sourceLabel = result?.source === "sam" ? "SAM.gov" : "MediCheck";
+  const isSuccess = result?.ok ?? false;
+  const recordCount = result?.recordCount ?? 0;
+  const warnings = result?.warnings ?? [];
+  const errors = result?.errors ?? [];
+  const hasIssues = warnings.length > 0 || errors.length > 0;
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent
+        className="sm:max-w-[640px] max-h-[80vh] overflow-y-auto"
+        data-testid="dialog-import-result"
+      >
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            {isSuccess ? (
+              <CheckCircle className="w-5 h-5 text-green-600" />
+            ) : (
+              <XCircle className="w-5 h-5 text-red-600" />
+            )}
+            <span data-testid="text-import-result-title">
+              {isSuccess
+                ? `${sourceLabel} CSV uploaded`
+                : `${sourceLabel} CSV upload failed`}
+            </span>
+          </DialogTitle>
+          <DialogDescription>
+            {isSuccess ? (
+              <span data-testid="text-import-result-summary">
+                Imported {recordCount} record{recordCount === 1 ? "" : "s"}
+                {hasIssues
+                  ? `. Review the warnings${errors.length ? " and errors" : ""} below.`
+                  : "."}
+              </span>
+            ) : (
+              <span data-testid="text-import-result-summary">
+                The import was rejected. No records were changed for this source.
+              </span>
+            )}
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4">
+          <div className="flex items-center gap-3 text-sm">
+            <Badge
+              variant="outline"
+              data-testid="badge-import-record-count"
+            >
+              {recordCount} record{recordCount === 1 ? "" : "s"} imported
+            </Badge>
+            {result?.status ? (
+              <Badge
+                variant="outline"
+                data-testid="badge-import-status-code"
+              >
+                HTTP {result.status}
+              </Badge>
+            ) : null}
+          </div>
+
+          {errors.length > 0 ? (
+            <div
+              className="rounded-md border border-red-200 bg-red-50 p-3"
+              data-testid="section-import-errors"
+            >
+              <div className="flex items-center gap-2 mb-2">
+                <AlertCircle className="w-4 h-4 text-red-600" />
+                <span className="font-medium text-red-900 text-sm">
+                  Errors ({errors.length})
+                </span>
+              </div>
+              <ScrollArea className="max-h-48 pr-3">
+                <ul className="space-y-1 text-sm text-red-900">
+                  {errors.map((err, idx) => (
+                    <li
+                      key={idx}
+                      className="leading-snug whitespace-pre-wrap break-words"
+                      data-testid={`item-import-error-${idx}`}
+                    >
+                      • {err}
+                    </li>
+                  ))}
+                </ul>
+              </ScrollArea>
+            </div>
+          ) : null}
+
+          {warnings.length > 0 ? (
+            <div
+              className="rounded-md border border-amber-200 bg-amber-50 p-3"
+              data-testid="section-import-warnings"
+            >
+              <div className="flex items-center gap-2 mb-2">
+                <AlertTriangle className="w-4 h-4 text-amber-600" />
+                <span className="font-medium text-amber-900 text-sm">
+                  Warnings ({warnings.length})
+                </span>
+              </div>
+              <ScrollArea className="max-h-48 pr-3">
+                <ul className="space-y-1 text-sm text-amber-900">
+                  {warnings.map((warn, idx) => (
+                    <li
+                      key={idx}
+                      className="leading-snug whitespace-pre-wrap break-words"
+                      data-testid={`item-import-warning-${idx}`}
+                    >
+                      • {warn}
+                    </li>
+                  ))}
+                </ul>
+              </ScrollArea>
+            </div>
+          ) : null}
+
+          {isSuccess && !hasIssues ? (
+            <div className="text-sm text-muted-foreground" data-testid="text-import-clean">
+              No warnings or errors were reported. All rows were accepted.
+            </div>
+          ) : null}
+        </div>
+
+        <DialogFooter>
+          <Button
+            onClick={() => onOpenChange(false)}
+            data-testid="button-close-import-result"
+          >
+            Close
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

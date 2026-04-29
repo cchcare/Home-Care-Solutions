@@ -13705,7 +13705,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!user || (user.role !== "admin" && user.role !== "supervisor" && user.role !== "super_admin")) {
         return res.status(403).json({ message: "Unauthorized: Admin role required" });
       }
-      if (!req.file) return res.status(400).json({ message: "No file uploaded" });
+      if (!req.file) {
+        return res.status(400).json({
+          success: false,
+          recordCount: 0,
+          errors: ["No file uploaded"],
+          warnings: [],
+          message: "No file uploaded",
+        });
+      }
       const csvContent = req.file.buffer.toString('utf-8');
       const { exclusionService, MedicheckImportValidationError } = await import('./exclusion-service');
       try {
@@ -13732,7 +13740,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         throw importErr;
       }
     } catch (error: any) {
-      res.status(500).json({ message: error.message || "Failed to upload Medicheck data" });
+      res.status(500).json({
+        success: false,
+        recordCount: 0,
+        errors: [error.message || "Failed to upload Medicheck data"],
+        warnings: [],
+        message: error.message || "Failed to upload Medicheck data",
+      });
     }
   });
 
@@ -13742,13 +13756,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!user || (user.role !== "admin" && user.role !== "supervisor" && user.role !== "super_admin")) {
         return res.status(403).json({ message: "Unauthorized: Admin role required" });
       }
-      if (!req.file) return res.status(400).json({ message: "No file uploaded" });
+      if (!req.file) {
+        return res.status(400).json({
+          success: false,
+          recordCount: 0,
+          errors: ["No file uploaded"],
+          warnings: [],
+          message: "No file uploaded",
+        });
+      }
       const csvContent = req.file.buffer.toString('utf-8');
       const { exclusionService } = await import('./exclusion-service');
       const result = await exclusionService.importSamCsv(csvContent);
+      if (!result.success) {
+        return res.status(500).json({
+          message: result.errors[0] || "SAM.gov CSV import failed",
+          ...result,
+        });
+      }
       res.json(result);
     } catch (error: any) {
-      res.status(500).json({ message: error.message || "Failed to upload SAM data" });
+      res.status(500).json({
+        success: false,
+        recordCount: 0,
+        errors: [error.message || "Failed to upload SAM data"],
+        warnings: [],
+        message: error.message || "Failed to upload SAM data",
+      });
     }
   });
 

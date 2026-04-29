@@ -934,8 +934,9 @@ export class ExclusionService {
     return { success: errors.length === 0, recordCount, errors, warnings };
   }
 
-  async importSamCsv(csvContent: string): Promise<{ success: boolean; recordCount: number; errors: string[] }> {
+  async importSamCsv(csvContent: string): Promise<{ success: boolean; recordCount: number; errors: string[]; warnings: string[] }> {
     const errors: string[] = [];
+    const warnings: string[] = [];
     let recordCount = 0;
 
     try {
@@ -947,6 +948,11 @@ export class ExclusionService {
 
       const records = await this.parseSamCsv(csvContent);
       console.log(`[Exclusion Service] Parsed ${records.length} SAM records`);
+
+      if (records.length === 0) {
+        warnings.push('SAM.gov CSV had no data rows; existing records were left untouched.');
+        return { success: true, recordCount: 0, errors, warnings };
+      }
 
       await storage.deleteExclusionRecordsBySource(samSource.id);
 
@@ -981,7 +987,7 @@ export class ExclusionService {
       errors.push(error.message);
     }
 
-    return { success: errors.length === 0, recordCount, errors };
+    return { success: errors.length === 0, recordCount, errors, warnings };
   }
 
   private async parseMedicheckCsv(
