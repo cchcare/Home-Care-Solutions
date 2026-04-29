@@ -2869,6 +2869,33 @@ function DeficienciesSection({
 
 type DiffResult = "improved" | "regressed" | "unchanged_pass" | "unchanged_fail" | "unchanged_other";
 
+async function loadImageForExcel(
+  url: string,
+): Promise<{ base64: string; extension: "png" | "jpeg" | "gif" } | null> {
+  try {
+    const res = await fetch(url, { credentials: "include" });
+    if (!res.ok) return null;
+    const blob = await res.blob();
+    const mime = (blob.type || "").toLowerCase();
+    // ExcelJS only accepts png / jpeg / gif. Reject everything else (e.g. svg,
+    // webp) so the caller can fall back to the bundled CCHC wordmark instead
+    // of producing a corrupt workbook.
+    let extension: "png" | "jpeg" | "gif";
+    if (mime.includes("png")) extension = "png";
+    else if (mime.includes("jpeg") || mime.includes("jpg")) extension = "jpeg";
+    else if (mime.includes("gif")) extension = "gif";
+    else return null;
+    const arrayBuffer = await blob.arrayBuffer();
+    const bytes = new Uint8Array(arrayBuffer);
+    let binary = "";
+    for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+    const base64 = btoa(binary);
+    return { base64, extension };
+  } catch {
+    return null;
+  }
+}
+
 async function exportComparisonToExcel(
   audit1: AuditAssessment,
   audit2: AuditAssessment,
@@ -2883,6 +2910,8 @@ async function exportComparisonToExcel(
   notesMap1: Record<string, string> = {},
   notesMap2: Record<string, string> = {},
   correctiveActions2: AuditCorrectiveAction[] = [],
+  officeLogoUrl?: string,
+  fallbackLogoUrl?: string,
 ) {
   const workbook = new ExcelJS.Workbook();
   workbook.creator = "CCHC Solutions";
@@ -2945,10 +2974,36 @@ async function exportComparisonToExcel(
     { key: "audit2", width: 28 },
   ];
 
+  // Try the office logo first, then the bundled CCHC wordmark. Falling through
+  // to the wordmark keeps the export branded even when no office logo is
+  // configured (or the upload is in an unsupported format like SVG).
+  const logoCandidates: string[] = [];
+  if (officeLogoUrl) logoCandidates.push(officeLogoUrl);
+  if (fallbackLogoUrl && fallbackLogoUrl !== officeLogoUrl) logoCandidates.push(fallbackLogoUrl);
+
+  for (const candidate of logoCandidates) {
+    const img = await loadImageForExcel(candidate);
+    if (!img) continue;
+    try {
+      const imageId = workbook.addImage({ base64: img.base64, extension: img.extension });
+      const logoRow = wsSummary.addRow([" ", "", ""]);
+      logoRow.height = 50;
+      wsSummary.addImage(imageId, {
+        tl: { col: 0, row: 0 },
+        ext: { width: 180, height: 60 },
+        editAs: "oneCell",
+      });
+      break;
+    } catch {
+      // Try the next candidate (e.g. fall back to the wordmark on failure)
+    }
+  }
+
   const titleRow = wsSummary.addRow(["Audit Comparison Report", "", ""]);
+  const titleRowNum = titleRow.number;
   titleRow.getCell(1).font = { bold: true, size: 14, color: { argb: "FF1E40AF" } };
   titleRow.getCell(1).alignment = { horizontal: "left" };
-  wsSummary.mergeCells(`A1:C1`);
+  wsSummary.mergeCells(titleRowNum, 1, titleRowNum, 3);
 
   wsSummary.addRow([]);
 
@@ -3330,6 +3385,21 @@ function CompareView({
     enabled: !!officeIdForList,
   });
 
+  // Office lookup for the branded comparison-report header (Excel export
+  // and the print-only logo banner). Falls back to the bundled CCHC
+  // Solutions wordmark when no office logo is configured. We track
+  // `officesLoading` so the export button waits for it to resolve and
+  // reliably embeds the office logo on the first click.
+  const { data: offices = [], isLoading: officesLoading } = useQuery<Office[]>({ queryKey: ["/api/offices"] });
+  const compareOffice = offices.find((o: Office) => o.id === officeIdForList);
+  const compareOfficeLogoUrl = compareOffice?.logoFileName
+    ? `/uploads/${compareOffice.logoFileName}`
+    : undefined;
+  const comparePrintLogoSrc = compareOfficeLogoUrl || cchcLogo;
+  const comparePrintLogoAlt = compareOffice?.name
+    ? `${compareOffice.name} logo`
+    : "CCHC Solutions";
+
   const existingSaved = savedComparisons.find(c =>
     (c.auditId1 === auditId1 && c.auditId2 === auditId2) ||
     (c.auditId1 === auditId2 && c.auditId2 === auditId1)
@@ -3426,7 +3496,7 @@ function CompareView({
     if (!audit1 || !audit2) return;
     setExporting(true);
     try {
-      await exportComparisonToExcel(audit1, audit2, map1, map2, customItems1, customItems2, stats1, stats2, diffCounts, passRateDiff, notesMap1, notesMap2, correctiveActions2);
+      await exportComparisonToExcel(audit1, audit2, map1, map2, customItems1, customItems2, stats1, stats2, diffCounts, passRateDiff, notesMap1, notesMap2, correctiveActions2, compareOfficeLogoUrl, cchcLogo);
       toast({ title: "Export complete", description: "Comparison report downloaded successfully." });
     } catch {
       toast({ title: "Export failed", description: "Could not generate the comparison report.", variant: "destructive" });
@@ -3436,10 +3506,31 @@ function CompareView({
   }
 
   return (
-    <div className="flex-1 overflow-auto p-6 max-w-6xl mx-auto">
+    <div className="flex-1 overflow-auto p-6 max-w-6xl mx-auto print:overflow-visible print:p-0 print:max-w-full">
+      {/* Print-only branded logo header — mirrors the agency logo placement
+          on the single-audit print/PDF cover. Falls back to the CCHC
+          Solutions wordmark when the office has no logo uploaded or the
+          file fails to load. */}
+      <div className="hidden print:flex items-center mb-4 print-avoid-break">
+        <img
+          key={comparePrintLogoSrc}
+          src={comparePrintLogoSrc}
+          alt={comparePrintLogoAlt}
+          onError={(e) => {
+            const img = e.currentTarget;
+            if (!img.dataset.fallback && img.src !== cchcLogo) {
+              img.dataset.fallback = "1";
+              img.src = cchcLogo;
+              img.alt = "CCHC Solutions";
+            }
+          }}
+          className="h-16 w-auto max-w-[260px] object-contain object-left"
+        />
+      </div>
+
       {/* Header */}
       <div className="flex items-start gap-3 mb-6">
-        <Button variant="ghost" size="icon" onClick={onBack} className="mt-0.5 shrink-0">
+        <Button variant="ghost" size="icon" onClick={onBack} className="mt-0.5 shrink-0 print:hidden">
           <ArrowLeft size={18} />
         </Button>
         <div className="flex-1 min-w-0">
@@ -3453,7 +3544,7 @@ function CompareView({
           )}
         </div>
         {!loading && audit1 && audit2 && (
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center gap-2 shrink-0 print:hidden">
             <Button
               variant="outline"
               size="sm"
@@ -3481,7 +3572,8 @@ function CompareView({
               size="sm"
               className="gap-1.5"
               onClick={handleExport}
-              disabled={exporting}
+              disabled={exporting || officesLoading}
+              title={officesLoading ? "Loading branding…" : undefined}
             >
               <FileSpreadsheet size={15} />
               {exporting ? "Exporting…" : "Export Excel"}
