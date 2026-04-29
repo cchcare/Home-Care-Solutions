@@ -456,6 +456,7 @@ export default function Clients() {
     columnPrefs,
     saveView,
     deleteView,
+    renameView,
     setColumnPrefs,
   } = useSavedViews("clients");
 
@@ -940,8 +941,22 @@ export default function Clients() {
                   />
 
                   <Select
-                    value={createdWithinDays || "any"}
-                    onValueChange={(v) => url.setOne("createdWithinDays", v === "any" ? null : v)}
+                    value={
+                      !createdWithinDays
+                        ? "any"
+                        : ["7", "30", "90"].includes(createdWithinDays)
+                          ? createdWithinDays
+                          : "custom"
+                    }
+                    onValueChange={(v) => {
+                      if (v === "any") url.setOne("createdWithinDays", null);
+                      else if (v === "custom") {
+                        // Default the custom field if there isn't already a value.
+                        if (!createdWithinDays || ["7", "30", "90"].includes(createdWithinDays)) {
+                          url.setOne("createdWithinDays", "14");
+                        }
+                      } else url.setOne("createdWithinDays", v);
+                    }}
                   >
                     <SelectTrigger className="w-[160px]" data-testid="select-created-within">
                       <SelectValue placeholder="Recently added" />
@@ -951,8 +966,33 @@ export default function Clients() {
                       <SelectItem value="7">Last 7 days</SelectItem>
                       <SelectItem value="30">Last 30 days</SelectItem>
                       <SelectItem value="90">Last 90 days</SelectItem>
+                      <SelectItem value="custom">Custom…</SelectItem>
                     </SelectContent>
                   </Select>
+                  {createdWithinDays && !["7", "30", "90"].includes(createdWithinDays) && (
+                    <div className="flex items-center gap-1">
+                      <Input
+                        type="number"
+                        min={1}
+                        max={3650}
+                        value={createdWithinDays}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          if (!v) {
+                            url.setOne("createdWithinDays", null);
+                          } else {
+                            const n = Number(v);
+                            if (Number.isFinite(n) && n >= 1 && n <= 3650) {
+                              url.setOne("createdWithinDays", String(n));
+                            }
+                          }
+                        }}
+                        className="w-[80px]"
+                        data-testid="input-created-within-days"
+                      />
+                      <span className="text-xs text-muted-foreground">days</span>
+                    </div>
+                  )}
 
                   <Select
                     value={sortOption}
@@ -986,6 +1026,7 @@ export default function Clients() {
                       onApply={applySavedView}
                       onSave={(input) => saveView.mutateAsync(input)}
                       onDelete={(id) => deleteView.mutateAsync(id)}
+                      onRename={(input) => renameView.mutateAsync(input)}
                     />
                     <ColumnsMenu
                       columns={CLIENT_COLUMN_DEFS}

@@ -241,6 +241,7 @@ export default function Caregivers() {
     columnPrefs,
     saveView,
     deleteView,
+    renameView,
     setColumnPrefs,
   } = useSavedViews("caregivers");
 
@@ -596,6 +597,7 @@ export default function Caregivers() {
                       onApply={applySavedView}
                       onSave={(input) => saveView.mutateAsync(input)}
                       onDelete={(id) => deleteView.mutateAsync(id)}
+                      onRename={(input) => renameView.mutateAsync(input)}
                     />
                     <ColumnsMenu
                       columns={COLUMN_DEFS}
