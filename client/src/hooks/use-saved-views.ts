@@ -79,6 +79,7 @@ export function useSavedViews(page: string) {
         name: DEFAULT_VIEW_NAME,
         filters: {},
         columns: cols,
+        __columnPrefs: true,
       });
       return res.json() as Promise<UserSavedView>;
     },

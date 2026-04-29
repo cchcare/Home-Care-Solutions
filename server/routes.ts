@@ -1273,7 +1273,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const userId = req.session?.user?.id;
       if (!userId) return res.status(401).json({ message: "Unauthorized" });
       const page = String(req.query.page || "");
-      if (!page) return res.status(400).json({ message: "page query param required" });
+      const allowedPages = ["caregivers", "clients"];
+      if (!allowedPages.includes(page)) {
+        return res.status(400).json({ message: "page must be one of: caregivers, clients" });
+      }
       const views = await storage.getUserSavedViews(userId, page);
       res.json(views);
     } catch (error) {
@@ -1289,6 +1292,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const parsed = insertUserSavedViewSchema.safeParse({ ...req.body, userId });
       if (!parsed.success) {
         return res.status(400).json({ message: "Invalid view data", errors: parsed.error.flatten() });
+      }
+      const allowedPages = ["caregivers", "clients"];
+      if (!allowedPages.includes(parsed.data.page)) {
+        return res.status(400).json({ message: "page must be one of: caregivers, clients" });
+      }
+      // `__default` is reserved for the per-page column-visibility row written
+      // by the columns menu. Block reuse from the user-named saved-views API
+      // so a regular saved view can never shadow column prefs.
+      const isColumnPrefsCall = req.body?.__columnPrefs === true;
+      if (parsed.data.name === "__default" && !isColumnPrefsCall) {
+        return res.status(400).json({ message: "'__default' is a reserved view name" });
       }
       // Use upsert so a repeat save overwrites the same (user, page, name)
       const view = await storage.upsertUserSavedView(parsed.data);
