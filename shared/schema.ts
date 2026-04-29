@@ -116,6 +116,21 @@ export const users = pgTable("users", {
   index("idx_users_google_id").on(table.googleId),
 ]);
 
+// Per-user saved views and column visibility for list pages
+export const userSavedViews = pgTable("user_saved_views", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  page: varchar("page").notNull(), // e.g. "caregivers", "clients"
+  name: varchar("name").notNull(), // user-supplied; "__default" reserved for column prefs
+  filters: jsonb("filters").$type<Record<string, unknown>>().default({}),
+  columns: jsonb("columns").$type<Record<string, boolean>>().default({}),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  uniqueIndex("uniq_user_saved_view").on(table.userId, table.page, table.name),
+  index("idx_user_saved_views_user_page").on(table.userId, table.page),
+]);
+
 // Client management
 export const clients = pgTable("clients", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -973,6 +988,14 @@ export type InsertFile = typeof files.$inferInsert;
 export const insertFileSchema = createInsertSchema(files);
 
 export const insertUserSchema = createInsertSchema(users);
+
+export type UserSavedView = typeof userSavedViews.$inferSelect;
+export type InsertUserSavedView = typeof userSavedViews.$inferInsert;
+export const insertUserSavedViewSchema = createInsertSchema(userSavedViews).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
 
 export type FamilyMember = typeof familyMembers.$inferSelect;
 export type InsertFamilyMember = typeof familyMembers.$inferInsert;

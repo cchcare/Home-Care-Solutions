@@ -2,7 +2,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { db } from "./db";
-import { eq, and, desc, asc, ilike, or, isNull, gte, lte } from "drizzle-orm";
+import { eq, and, desc, asc, ilike, or, isNull, gte, lte, inArray, sql } from "drizzle-orm";
 import { setupAuth, isAuthenticated, hashPassword } from "./localAuth";
 import { setupMobileApi } from "./mobileApi";
 import { setupTwilioWebhooks } from "./twilio";
@@ -65,7 +65,10 @@ import {
   insertClientAuthorizationSchema,
   clientAuthorizations,
   clients,
+  caregivers,
+  certifications,
   users,
+  insertUserSavedViewSchema,
   staffTimeRecords,
   staffTimeAuditLogs,
   insertCoordinatorSchema,
@@ -1264,6 +1267,74 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Saved views (per-user list page filters / column prefs)
+  app.get("/api/saved-views", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.session?.user?.id;
+      if (!userId) return res.status(401).json({ message: "Unauthorized" });
+      const page = String(req.query.page || "");
+      if (!page) return res.status(400).json({ message: "page query param required" });
+      const views = await storage.getUserSavedViews(userId, page);
+      res.json(views);
+    } catch (error) {
+      console.error("Error fetching saved views:", error);
+      res.status(500).json({ message: "Failed to fetch saved views" });
+    }
+  });
+
+  app.post("/api/saved-views", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.session?.user?.id;
+      if (!userId) return res.status(401).json({ message: "Unauthorized" });
+      const parsed = insertUserSavedViewSchema.safeParse({ ...req.body, userId });
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid view data", errors: parsed.error.flatten() });
+      }
+      // Use upsert so a repeat save overwrites the same (user, page, name)
+      const view = await storage.upsertUserSavedView(parsed.data);
+      res.json(view);
+    } catch (error) {
+      console.error("Error saving view:", error);
+      res.status(500).json({ message: "Failed to save view" });
+    }
+  });
+
+  app.patch("/api/saved-views/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.session?.user?.id;
+      if (!userId) return res.status(401).json({ message: "Unauthorized" });
+      const existing = await storage.getUserSavedView(req.params.id);
+      if (!existing) return res.status(404).json({ message: "View not found" });
+      if (existing.userId !== userId) return res.status(403).json({ message: "Forbidden" });
+      const parsed = insertUserSavedViewSchema.partial().safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid view data", errors: parsed.error.flatten() });
+      }
+      // Don't let callers reassign the row to a different user
+      const { userId: _ignored, ...patch } = parsed.data;
+      const view = await storage.updateUserSavedView(req.params.id, patch);
+      res.json(view);
+    } catch (error) {
+      console.error("Error updating view:", error);
+      res.status(500).json({ message: "Failed to update view" });
+    }
+  });
+
+  app.delete("/api/saved-views/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.session?.user?.id;
+      if (!userId) return res.status(401).json({ message: "Unauthorized" });
+      const existing = await storage.getUserSavedView(req.params.id);
+      if (!existing) return res.status(404).json({ message: "View not found" });
+      if (existing.userId !== userId) return res.status(403).json({ message: "Forbidden" });
+      await storage.deleteUserSavedView(req.params.id);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting view:", error);
+      res.status(500).json({ message: "Failed to delete view" });
+    }
+  });
+
   // Office routes
   app.get("/api/offices", isAuthenticated, async (req: any, res) => {
     try {
@@ -1535,61 +1606,146 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Client routes
   app.get("/api/clients", isAuthenticated, async (req, res) => {
     try {
-      const { search, officeId, mcoId, sortField, sortDirection } = req.query;
-      
-      // Build filter conditions array
-      const conditions = [];
-      
-      // Office filtering
-      if (officeId && officeId !== 'all' && typeof officeId === 'string') {
+      const {
+        search,
+        officeId,
+        mcoId,
+        sortField,
+        sortDirection,
+        status,
+        coordinatorIds,
+        city,
+        county,
+        zipCode,
+        snapStatus,
+        snapExpiresWithinDays,
+        ageMin,
+        ageMax,
+        createdWithinDays,
+      } = req.query as Record<string, string | undefined>;
+
+      const conditions: any[] = [];
+
+      if (officeId && officeId !== 'all') {
         conditions.push(eq(clients.officeId, officeId));
       }
-      
-      // MCO filtering
-      if (mcoId && mcoId !== 'all' && typeof mcoId === 'string') {
+      if (mcoId && mcoId !== 'all') {
         conditions.push(eq(clients.mcoId, mcoId));
       }
-      
-      // Search filtering (firstName, lastName, phone)
-      if (search && typeof search === 'string') {
+
+      if (search) {
         if (search.length > 100 || search.trim().length === 0) {
           return res.status(400).json({ message: "Invalid search parameter" });
         }
-        const searchPattern = `%${search.trim()}%`;
+        const pattern = `%${search.trim()}%`;
         conditions.push(
           or(
-            ilike(clients.firstName, searchPattern),
-            ilike(clients.lastName, searchPattern),
-            ilike(clients.phone, searchPattern)
+            ilike(clients.firstName, pattern),
+            ilike(clients.lastName, pattern),
+            ilike(clients.phone, pattern),
+            ilike(clients.memberId, pattern),
+            ilike(clients.hhaxAdmissionId, pattern),
+            ilike(clients.address, pattern),
+            ilike(clients.city, pattern),
+            sql`to_char(${clients.dateOfBirth}, 'YYYY-MM-DD') ILIKE ${pattern}`,
           )
         );
       }
-      
-      // Build query with filters
+
+      if (status && status !== 'all') {
+        const allowed = ['active', 'inactive', 'pending', 'discharged'];
+        if (!allowed.includes(status)) {
+          return res.status(400).json({ message: "Invalid status value" });
+        }
+        conditions.push(eq(clients.status, status));
+      }
+
+      if (coordinatorIds) {
+        const ids = coordinatorIds.split(',').map((s) => s.trim()).filter(Boolean);
+        if (ids.length > 0 && ids.length <= 50) {
+          conditions.push(inArray(clients.coordinatorId, ids));
+        }
+      }
+
+      if (city) conditions.push(ilike(clients.city, `%${city.trim()}%`));
+      if (county) conditions.push(ilike(clients.county, `%${county.trim()}%`));
+      if (zipCode) conditions.push(ilike(clients.zipCode, `%${zipCode.trim()}%`));
+
+      if (snapStatus && snapStatus !== 'all') {
+        const allowed = ['active', 'pending', 'expired', 'not_enrolled', 'unknown'];
+        if (!allowed.includes(snapStatus)) {
+          return res.status(400).json({ message: "Invalid snapStatus value" });
+        }
+        conditions.push(eq(clients.snapStatus, snapStatus));
+      }
+
+      // The expiry-window filter only makes sense for statuses that have an expiry date.
+      // Ignore it when status is "not_enrolled" / "unknown" so the UI never produces an empty result by accident.
+      const expiryAllowedForStatus =
+        !snapStatus || snapStatus === 'all' || ['active', 'pending', 'expired'].includes(snapStatus);
+      if (snapExpiresWithinDays && expiryAllowedForStatus) {
+        const days = Number(snapExpiresWithinDays);
+        if (Number.isFinite(days) && days >= 0 && days <= 3650) {
+          const cutoff = new Date();
+          cutoff.setDate(cutoff.getDate() + days);
+          conditions.push(and(
+            sql`${clients.snapExpiryDate} IS NOT NULL`,
+            lte(clients.snapExpiryDate, cutoff),
+          ));
+        }
+      }
+
+      if (ageMin) {
+        const min = Number(ageMin);
+        if (Number.isFinite(min) && min >= 0 && min <= 150) {
+          const maxBirthDate = new Date();
+          maxBirthDate.setFullYear(maxBirthDate.getFullYear() - min);
+          conditions.push(and(
+            sql`${clients.dateOfBirth} IS NOT NULL`,
+            lte(clients.dateOfBirth, maxBirthDate),
+          ));
+        }
+      }
+      if (ageMax) {
+        const max = Number(ageMax);
+        if (Number.isFinite(max) && max >= 0 && max <= 150) {
+          const minBirthDate = new Date();
+          minBirthDate.setFullYear(minBirthDate.getFullYear() - (max + 1));
+          minBirthDate.setDate(minBirthDate.getDate() + 1);
+          conditions.push(and(
+            sql`${clients.dateOfBirth} IS NOT NULL`,
+            gte(clients.dateOfBirth, minBirthDate),
+          ));
+        }
+      }
+
+      if (createdWithinDays) {
+        const days = Number(createdWithinDays);
+        if (Number.isFinite(days) && days > 0 && days <= 3650) {
+          const cutoff = new Date();
+          cutoff.setDate(cutoff.getDate() - days);
+          conditions.push(gte(clients.createdAt, cutoff));
+        }
+      }
+
       let query = db.select().from(clients);
-      
       if (conditions.length > 0) {
         query = query.where(and(...conditions)) as typeof query;
       }
-      
-      // Apply sorting at database level
+
       if (sortField === 'name') {
-        if (sortDirection === 'desc') {
-          query = query.orderBy(desc(clients.lastName), desc(clients.firstName)) as typeof query;
-        } else {
-          query = query.orderBy(asc(clients.lastName), asc(clients.firstName)) as typeof query;
-        }
+        query = query.orderBy(
+          sortDirection === 'desc' ? desc(clients.lastName) : asc(clients.lastName),
+          sortDirection === 'desc' ? desc(clients.firstName) : asc(clients.firstName),
+        ) as typeof query;
       } else if (sortField === 'serviceStartDate') {
-        if (sortDirection === 'desc') {
-          query = query.orderBy(desc(clients.serviceStartDate)) as typeof query;
-        } else {
-          query = query.orderBy(asc(clients.serviceStartDate)) as typeof query;
-        }
+        query = query.orderBy(
+          sortDirection === 'desc' ? desc(clients.serviceStartDate) : asc(clients.serviceStartDate),
+        ) as typeof query;
       } else {
-        // Default sorting by lastName, firstName
         query = query.orderBy(asc(clients.lastName), asc(clients.firstName)) as typeof query;
       }
-      
+
       const result = await query;
       res.json(result);
     } catch (error) {
@@ -2121,17 +2277,100 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Caregiver routes
   app.get("/api/caregivers", isAuthenticated, async (req, res) => {
     try {
-      const { officeId } = req.query;
-      const officeFilter = officeId && officeId !== 'all' ? String(officeId) : undefined;
-      const caregivers = await storage.getAllCaregivers(officeFilter);
-      
+      const {
+        officeId,
+        search,
+        status,
+        coordinatorIds,
+        specializations,
+        certType,
+        certExpiresWithinDays,
+      } = req.query as Record<string, string | undefined>;
+
+      const conditions: any[] = [];
+
+      if (officeId && officeId !== 'all') {
+        conditions.push(eq(caregivers.officeId, officeId));
+      }
+
+      if (search) {
+        if (search.length > 100 || search.trim().length === 0) {
+          return res.status(400).json({ message: "Invalid search parameter" });
+        }
+        const pattern = `%${search.trim()}%`;
+        conditions.push(
+          or(
+            ilike(caregivers.firstName, pattern),
+            ilike(caregivers.lastName, pattern),
+            ilike(caregivers.hhaxCaregiverCode, pattern),
+            ilike(caregivers.npi, pattern),
+            ilike(caregivers.adpCode, pattern),
+            ilike(caregivers.employeeId, pattern),
+            ilike(caregivers.email, pattern),
+            ilike(caregivers.phone, pattern),
+          )
+        );
+      }
+
+      if (status && status !== 'all') {
+        if (status === 'active') conditions.push(eq(caregivers.isActive, true));
+        else if (status === 'inactive') conditions.push(eq(caregivers.isActive, false));
+        else return res.status(400).json({ message: "Invalid status value" });
+      }
+
+      if (coordinatorIds) {
+        const ids = coordinatorIds.split(',').map((s) => s.trim()).filter(Boolean);
+        if (ids.length > 0 && ids.length <= 50) {
+          conditions.push(inArray(caregivers.coordinatorId, ids));
+        }
+      }
+
+      if (specializations) {
+        const specs = specializations.split(',').map((s) => s.trim()).filter(Boolean);
+        if (specs.length > 0 && specs.length <= 50) {
+          // caregivers.specializations is text[] — overlap if any of the requested values present
+          conditions.push(sql`${caregivers.specializations} && ${specs}::text[]`);
+        }
+      }
+
+      if (certType) {
+        const certConditions: any[] = [eq(certifications.certificationType, certType)];
+        if (certExpiresWithinDays) {
+          const days = Number(certExpiresWithinDays);
+          if (Number.isFinite(days) && days >= 0 && days <= 3650) {
+            const cutoff = new Date();
+            cutoff.setDate(cutoff.getDate() + days);
+            certConditions.push(sql`${certifications.expirationDate} IS NOT NULL`);
+            certConditions.push(lte(certifications.expirationDate, cutoff));
+          }
+        }
+        const matchingRows = await db
+          .selectDistinct({ caregiverId: certifications.caregiverId })
+          .from(certifications)
+          .where(and(...certConditions));
+        const matchingIds = matchingRows
+          .map((r) => r.caregiverId)
+          .filter((id): id is string => Boolean(id));
+        if (matchingIds.length === 0) {
+          // No caregivers match this cert filter — short-circuit to empty result
+          return res.json([]);
+        }
+        conditions.push(inArray(caregivers.id, matchingIds));
+      }
+
+      let cgQuery = db.select().from(caregivers);
+      if (conditions.length > 0) {
+        cgQuery = cgQuery.where(and(...conditions)) as typeof cgQuery;
+      }
+      const filteredCaregivers = await cgQuery.orderBy(desc(caregivers.createdAt));
+
       // Fetch all offices for enrichment
       const offices = await storage.getAllOffices();
       const officeMap = new Map(offices.map(o => [o.id, o]));
-      
+
       // Enrich caregivers with user data and office info
       const enrichedCaregivers = await Promise.all(
-        caregivers.map(async (caregiver) => {
+        filteredCaregivers.map(async (caregiver) => {
           let userInfo = { firstName: caregiver.firstName || null, lastName: caregiver.lastName || null, email: null as string | null };
           if (caregiver.userId) {
             const user = await storage.getUser(caregiver.userId);

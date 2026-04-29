@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -6,6 +6,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Sidebar } from "@/components/sidebar";
 import { TopBar } from "@/components/topbar";
 import { AddCaregiverModal } from "@/components/add-caregiver-modal";
@@ -13,21 +20,20 @@ import { OcrUploadDialog } from "@/components/ocr-upload-dialog";
 import { OfficeSelector } from "@/components/office-selector";
 import { BulkUpdateCaregiverModal } from "@/components/bulk-update-caregiver-modal";
 import { useOffice } from "@/context/office-context";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { apiRequest } from "@/lib/queryClient";
 import { isUnauthorizedError } from "@/lib/authUtils";
 import { useLocation } from "wouter";
-import { 
-  Plus, 
-  Search, 
-  UserCheck, 
-  Calendar, 
+import {
+  Plus,
+  Search,
+  UserCheck,
   Award,
   AlertCircle,
   Eye,
   Edit,
   Scan,
   Trash2,
-  RefreshCw
+  RefreshCw,
 } from "lucide-react";
 import type { Caregiver, Coordinator } from "@shared/schema";
 import {
@@ -40,37 +46,235 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-
-type EnrichedCaregiver = Caregiver & { firstName?: string | null; lastName?: string | null; email?: string | null };
 import { ExcelImport } from "@/components/excel-import";
 import { ExcelExport } from "@/components/excel-export";
+import { useUrlState } from "@/hooks/use-url-state";
+import { useSavedViews } from "@/hooks/use-saved-views";
+import { MultiSelectPopover } from "@/components/filters/multi-select-popover";
+import {
+  ActiveFilterChips,
+  type FilterChip,
+} from "@/components/filters/active-filter-chips";
+import { ColumnsMenu, type ColumnDef } from "@/components/filters/columns-menu";
+import { SavedViewsMenu } from "@/components/filters/saved-views-menu";
+
+type EnrichedCaregiver = Caregiver & {
+  firstName?: string | null;
+  lastName?: string | null;
+  email?: string | null;
+};
+
+const COMMON_CERT_TYPES = [
+  "HHA",
+  "PCA",
+  "CPR",
+  "First Aid",
+  "TB Test",
+  "Physical",
+  "Background Check",
+  "BLS",
+  "CNA",
+];
+
+const COLUMN_DEFS: ColumnDef[] = [
+  { key: "info", label: "Caregiver Information" },
+  { key: "startDate", label: "Start Date" },
+  { key: "phone", label: "Phone Number" },
+  { key: "coordinator", label: "Coordinator" },
+  { key: "status", label: "Status" },
+  { key: "actions", label: "Actions" },
+];
+
+// Always-on columns the user can't hide
+const REQUIRED_COLUMNS = new Set(["info", "actions"]);
+
+function downloadCaregiversCsv(
+  rows: EnrichedCaregiver[],
+  coordinators: Coordinator[],
+  visibility: Record<string, boolean>,
+) {
+  const coordById = new Map(coordinators.map((c) => [c.id, c]));
+  const fmtDate = (d: unknown) => (d ? new Date(d as string).toISOString().slice(0, 10) : "");
+  const isVisible = (k: string) => visibility[k] !== false;
+  type Field = { header: string; accessor: (c: EnrichedCaregiver) => unknown };
+  const fields: Field[] = [];
+  if (isVisible("info")) {
+    fields.push(
+      { header: "First Name", accessor: (c) => c.firstName },
+      { header: "Last Name", accessor: (c) => c.lastName },
+      { header: "Employee ID", accessor: (c) => c.employeeId },
+      { header: "HHA Caregiver Code", accessor: (c) => c.hhaxCaregiverCode },
+      { header: "ADP Code", accessor: (c) => c.adpCode },
+      { header: "NPI", accessor: (c) => c.npi },
+      { header: "Email", accessor: (c) => c.email },
+      { header: "Address", accessor: (c) => c.address },
+      { header: "City", accessor: (c) => c.city },
+      { header: "State", accessor: (c) => c.state },
+      { header: "ZIP", accessor: (c) => c.zipCode },
+      { header: "County", accessor: (c) => c.county },
+      { header: "Specializations", accessor: (c) => (c.specializations ?? []).join("; ") },
+    );
+  }
+  if (isVisible("startDate")) {
+    fields.push(
+      { header: "Hire Date", accessor: (c) => fmtDate(c.hireDate) },
+      { header: "Start Date", accessor: (c) => fmtDate(c.startDate) },
+    );
+  }
+  if (isVisible("phone")) {
+    fields.push({ header: "Phone", accessor: (c) => c.phone });
+  }
+  if (isVisible("coordinator")) {
+    fields.push({
+      header: "Coordinator",
+      accessor: (c) => {
+        const coord = c.coordinatorId ? coordById.get(c.coordinatorId) : null;
+        return coord ? `${coord.firstName ?? ""} ${coord.lastName ?? ""}`.trim() : "";
+      },
+    });
+  }
+  if (isVisible("status")) {
+    fields.push({ header: "Status", accessor: (c) => (c.isActive ? "Active" : "Inactive") });
+  }
+  const escape = (v: unknown): string => {
+    if (v === null || v === undefined) return "";
+    const s = typeof v === "string" ? v : String(v);
+    if (s.includes(",") || s.includes("\"") || s.includes("\n")) {
+      return `"${s.replace(/"/g, '""')}"`;
+    }
+    return s;
+  };
+  const lines = [fields.map((f) => f.header).join(",")];
+  for (const c of rows) {
+    lines.push(fields.map((f) => escape(f.accessor(c))).join(","));
+  }
+  const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `caregivers-${new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
 
 export default function Caregivers() {
-  const [searchTerm, setSearchTerm] = useState("");
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const { selectedOfficeId, setSelectedOfficeId } = useOffice();
+  const [, navigate] = useLocation();
+
+  // URL-as-source-of-truth filters
+  const url = useUrlState("/caregivers");
+  const search = url.getString("search");
+  const status = url.getString("status", "all");
+  const coordinatorIds = url.getList("coordinatorIds");
+  const specializations = url.getList("specializations");
+  const certType = url.getString("certType");
+  const certExpiresWithinDays = url.getString("certExpiresWithinDays");
+
+  // Local state for the search input (debounced into URL)
+  const [searchInput, setSearchInput] = useState(search);
+  useEffect(() => setSearchInput(search), [search]);
+  useEffect(() => {
+    const handle = setTimeout(() => {
+      if (searchInput.trim() !== search) {
+        url.setOne("search", searchInput.trim() || null);
+      }
+    }, 300);
+    return () => clearTimeout(handle);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchInput]);
+
+  // Modal/selection state
   const [showAddModal, setShowAddModal] = useState(false);
   const [showOcrDialog, setShowOcrDialog] = useState(false);
   const [ocrExtractedData, setOcrExtractedData] = useState<any>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [showBulkUpdateModal, setShowBulkUpdateModal] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-  const { toast } = useToast();
-  const queryClient = useQueryClient();
-  const { selectedOfficeId, setSelectedOfficeId } = useOffice();
-  const [, navigate] = useLocation();
 
-  const officeQuery = selectedOfficeId !== "all" ? `?officeId=${selectedOfficeId}` : "";
+  const queryParams = useMemo(() => {
+    const p = new URLSearchParams();
+    if (selectedOfficeId !== "all") p.set("officeId", selectedOfficeId);
+    if (search) p.set("search", search);
+    if (status && status !== "all") p.set("status", status);
+    if (coordinatorIds.length) p.set("coordinatorIds", coordinatorIds.join(","));
+    if (specializations.length) p.set("specializations", specializations.join(","));
+    if (certType) p.set("certType", certType);
+    if (certType && certExpiresWithinDays) p.set("certExpiresWithinDays", certExpiresWithinDays);
+    return p.toString();
+  }, [selectedOfficeId, search, status, coordinatorIds, specializations, certType, certExpiresWithinDays]);
 
   const { data: caregivers = [], isLoading } = useQuery<EnrichedCaregiver[]>({
-    queryKey: ["/api/caregivers", selectedOfficeId],
-    queryFn: () => fetch(`/api/caregivers${officeQuery}`).then(r => r.json()),
+    queryKey: ["/api/caregivers", queryParams],
+    queryFn: () =>
+      fetch(queryParams ? `/api/caregivers?${queryParams}` : "/api/caregivers", {
+        credentials: "include",
+      }).then((r) => r.json()),
     retry: false,
+  });
+
+  const { data: allCaregivers = [] } = useQuery<EnrichedCaregiver[]>({
+    queryKey: ["/api/caregivers", "specializations-source", selectedOfficeId],
+    queryFn: () =>
+      fetch(
+        selectedOfficeId !== "all"
+          ? `/api/caregivers?officeId=${encodeURIComponent(selectedOfficeId)}`
+          : "/api/caregivers",
+        { credentials: "include" }
+      ).then((r) => r.json()),
+    retry: false,
+    staleTime: 60_000,
   });
 
   const { data: coordinators = [] } = useQuery<Coordinator[]>({
     queryKey: ["/api/coordinators"],
-    queryFn: () => fetch("/api/coordinators").then(r => r.json()),
+    queryFn: () => fetch("/api/coordinators").then((r) => r.json()),
     retry: false,
   });
+
+  // Saved views and column prefs
+  const {
+    views,
+    columnPrefs,
+    saveView,
+    deleteView,
+    setColumnPrefs,
+  } = useSavedViews("caregivers");
+
+  const visibility = useMemo(() => {
+    const out: Record<string, boolean> = {};
+    for (const c of COLUMN_DEFS) {
+      out[c.key] = columnPrefs[c.key] !== false;
+    }
+    return out;
+  }, [columnPrefs]);
+
+  const isVisible = (key: string) => visibility[key] !== false;
+
+  const specOptions = useMemo(() => {
+    const set = new Set<string>();
+    for (const cg of allCaregivers) {
+      for (const s of cg.specializations ?? []) {
+        if (s) set.add(s);
+      }
+    }
+    return Array.from(set)
+      .sort()
+      .map((s) => ({ value: s, label: s }));
+  }, [allCaregivers]);
+
+  const coordinatorOptions = useMemo(
+    () =>
+      coordinators.map((c) => ({
+        value: c.id,
+        label: `${c.firstName ?? ""} ${c.lastName ?? ""}`.trim() || c.email || c.id,
+        description: c.email ?? undefined,
+      })),
+    [coordinators]
+  );
 
   const createCaregiverMutation = useMutation({
     mutationFn: async (caregiverData: any) => {
@@ -81,10 +285,7 @@ export default function Caregivers() {
       queryClient.invalidateQueries({ queryKey: ["/api/caregivers"] });
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard/metrics"] });
       setShowAddModal(false);
-      toast({
-        title: "Success",
-        description: "Caregiver added successfully",
-      });
+      toast({ title: "Success", description: "Caregiver added successfully" });
     },
     onError: (error) => {
       if (isUnauthorizedError(error as Error)) {
@@ -136,23 +337,25 @@ export default function Caregivers() {
       const message = error?.message || "Failed to delete caregivers";
       toast({
         title: "Error",
-        description: message.includes("permissions") ? "You don't have permission to delete caregivers" : message,
+        description: message.includes("permissions")
+          ? "You don't have permission to delete caregivers"
+          : message,
         variant: "destructive",
       });
     },
   });
 
   const toggleSelection = (id: string) => {
-    setSelectedIds(prev => 
-      prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
+    setSelectedIds((prev) =>
+      prev.includes(id) ? prev.filter((i) => i !== id) : [...prev, id]
     );
   };
 
   const toggleSelectAll = () => {
-    if (selectedIds.length === filteredCaregivers.length) {
+    if (selectedIds.length === caregivers.length) {
       setSelectedIds([]);
     } else {
-      setSelectedIds(filteredCaregivers.map(c => c.id));
+      setSelectedIds(caregivers.map((c) => c.id));
     }
   };
 
@@ -162,22 +365,101 @@ export default function Caregivers() {
     setShowBulkUpdateModal(false);
   };
 
-  const filteredCaregivers = caregivers.filter((caregiver: Caregiver) =>
-    searchTerm === "" || 
-    caregiver.employeeId?.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  // Build chips from active filters
+  const activeFilters: Record<string, unknown> = {
+    search: search || undefined,
+    status: status !== "all" ? status : undefined,
+    coordinatorIds: coordinatorIds.length ? coordinatorIds : undefined,
+    specializations: specializations.length ? specializations : undefined,
+    certType: certType || undefined,
+    certExpiresWithinDays: certExpiresWithinDays || undefined,
+  };
+
+  const chips: FilterChip[] = [];
+  if (search) {
+    chips.push({
+      key: "search",
+      label: "Search",
+      value: search,
+      onRemove: () => url.setOne("search", null),
+    });
+  }
+  if (status !== "all") {
+    chips.push({
+      key: "status",
+      label: "Status",
+      value: status === "active" ? "Active" : "Inactive",
+      onRemove: () => url.setOne("status", null),
+    });
+  }
+  if (coordinatorIds.length) {
+    const labels = coordinatorIds
+      .map((id) => coordinatorOptions.find((o) => o.value === id)?.label ?? id)
+      .join(", ");
+    chips.push({
+      key: "coordinatorIds",
+      label: "Coordinator",
+      value: labels,
+      onRemove: () => url.setOne("coordinatorIds", null),
+    });
+  }
+  if (specializations.length) {
+    chips.push({
+      key: "specializations",
+      label: "Specializations",
+      value: specializations.join(", "),
+      onRemove: () => url.setOne("specializations", null),
+    });
+  }
+  if (certType) {
+    const days = certExpiresWithinDays ? Number(certExpiresWithinDays) : null;
+    chips.push({
+      key: "certType",
+      label: "Certification",
+      value: days != null && Number.isFinite(days)
+        ? `${certType} expiring ≤ ${days}d`
+        : certType,
+      onRemove: () => {
+        url.setMany({ certType: null, certExpiresWithinDays: null });
+      },
+    });
+  }
+
+  const applySavedView = (filters: Record<string, unknown>) => {
+    const next: Record<string, string | string[] | null> = {
+      search: null,
+      status: null,
+      coordinatorIds: null,
+      specializations: null,
+      certType: null,
+      certExpiresWithinDays: null,
+    };
+    for (const [k, v] of Object.entries(filters)) {
+      if (Array.isArray(v)) next[k] = v as string[];
+      else if (v == null) next[k] = null;
+      else next[k] = String(v);
+    }
+    url.setMany(next);
+  };
+
+  const handleExportCsv = () => {
+    if (caregivers.length === 0) {
+      toast({ title: "No caregivers to export", description: "Adjust your filters and try again." });
+      return;
+    }
+    downloadCaregiversCsv(caregivers, coordinators, visibility);
+  };
 
   return (
     <div className="flex h-screen overflow-hidden">
       <Sidebar />
-      
+
       <main className="flex-1 flex flex-col overflow-hidden">
-        <TopBar 
+        <TopBar
           title="Caregiver Management"
           subtitle="Manage caregiver profiles and certifications"
         />
-        
-        {/* Header */}
+
         <header className="bg-card border-b border-border h-16 flex items-center justify-between px-6 flex-shrink-0">
           <div className="flex items-center space-x-4">
             <OfficeSelector
@@ -188,13 +470,13 @@ export default function Caregivers() {
           </div>
           <div className="flex items-center space-x-2">
             <ExcelExport type="caregivers" data={caregivers} disabled={isLoading} />
-            <ExcelImport 
-              type="caregivers" 
+            <ExcelImport
+              type="caregivers"
               officeId={selectedOfficeId !== "all" ? selectedOfficeId : undefined}
               onImportComplete={() => {
                 queryClient.invalidateQueries({ queryKey: ["/api/caregivers"] });
                 queryClient.invalidateQueries({ queryKey: ["/api/dashboard/metrics"] });
-              }} 
+              }}
             />
             <Button variant="outline" onClick={() => setShowOcrDialog(true)} data-testid="button-scan-caregiver">
               <Scan className="w-4 h-4 mr-2" />
@@ -207,50 +489,159 @@ export default function Caregivers() {
           </div>
         </header>
 
-        {/* Content */}
         <div className="flex-1 overflow-auto p-6 bg-background">
           <div className="max-w-7xl mx-auto space-y-6">
-            
             {/* Search and Filters */}
             <Card>
-              <CardContent className="p-6">
-                <div className="flex items-center space-x-4">
-                  <div className="flex-1 relative">
+              <CardContent className="p-6 space-y-4">
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="flex-1 min-w-[260px] relative">
                     <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                    <Input 
-                      placeholder="Search caregivers by employee ID..."
-                      value={searchTerm}
-                      onChange={(e) => setSearchTerm(e.target.value)}
+                    <Input
+                      placeholder="Search by name, HHA code, NPI, ADP, employee ID, email, or phone…"
+                      value={searchInput}
+                      onChange={(e) => setSearchInput(e.target.value)}
                       className="pl-10"
                       data-testid="input-search-caregivers"
                     />
                   </div>
-                  {selectedIds.length > 0 && (
-                    <div className="flex items-center space-x-2">
-                      <span className="text-sm text-muted-foreground">
-                        {selectedIds.length} selected
-                      </span>
-                      <Button 
-                        variant="outline" 
-                        size="sm"
-                        onClick={() => setShowBulkUpdateModal(true)}
-                        data-testid="button-bulk-update"
-                      >
-                        <RefreshCw className="w-4 h-4 mr-2" />
-                        Bulk Update
-                      </Button>
-                      <Button 
-                        variant="destructive" 
-                        size="sm"
-                        onClick={() => setShowDeleteConfirm(true)}
-                        data-testid="button-bulk-delete"
-                      >
-                        <Trash2 className="w-4 h-4 mr-2" />
-                        Delete
-                      </Button>
-                    </div>
+
+                  <Select
+                    value={status}
+                    onValueChange={(v) => url.setOne("status", v === "all" ? null : v)}
+                  >
+                    <SelectTrigger className="w-[140px]" data-testid="select-status">
+                      <SelectValue placeholder="Status" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All status</SelectItem>
+                      <SelectItem value="active">Active</SelectItem>
+                      <SelectItem value="inactive">Inactive</SelectItem>
+                    </SelectContent>
+                  </Select>
+
+                  <MultiSelectPopover
+                    label="Coordinator"
+                    placeholder="Coordinator"
+                    options={coordinatorOptions}
+                    values={coordinatorIds}
+                    onChange={(next) => url.setOne("coordinatorIds", next.length ? next : null)}
+                    testId="filter-coordinator"
+                  />
+
+                  <MultiSelectPopover
+                    label="Specializations"
+                    placeholder="Specializations"
+                    options={specOptions}
+                    values={specializations}
+                    onChange={(next) => url.setOne("specializations", next.length ? next : null)}
+                    testId="filter-specializations"
+                  />
+
+                  <Select
+                    value={certType || "none"}
+                    onValueChange={(v) => {
+                      if (v === "none") {
+                        url.setMany({ certType: null, certExpiresWithinDays: null });
+                      } else {
+                        url.setOne("certType", v);
+                      }
+                    }}
+                  >
+                    <SelectTrigger className="w-[160px]" data-testid="select-cert-type">
+                      <SelectValue placeholder="Certification" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">Any certification</SelectItem>
+                      {COMMON_CERT_TYPES.map((c) => (
+                        <SelectItem key={c} value={c}>
+                          {c}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+
+                  {certType && (
+                    <Select
+                      value={certExpiresWithinDays || "any"}
+                      onValueChange={(v) =>
+                        url.setOne("certExpiresWithinDays", v === "any" ? null : v)
+                      }
+                    >
+                      <SelectTrigger className="w-[180px]" data-testid="select-cert-window">
+                        <SelectValue placeholder="Expiry window" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="any">Any expiry</SelectItem>
+                        <SelectItem value="0">Already expired</SelectItem>
+                        <SelectItem value="30">Expiring in 30 days</SelectItem>
+                        <SelectItem value="60">Expiring in 60 days</SelectItem>
+                        <SelectItem value="90">Expiring in 90 days</SelectItem>
+                      </SelectContent>
+                    </Select>
                   )}
+
+                  <div className="flex items-center gap-2 ml-auto">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleExportCsv}
+                      data-testid="button-export-csv"
+                    >
+                      Export CSV
+                    </Button>
+                    <SavedViewsMenu
+                      views={views}
+                      currentFilters={activeFilters}
+                      onApply={applySavedView}
+                      onSave={(input) => saveView.mutateAsync(input)}
+                      onDelete={(id) => deleteView.mutateAsync(id)}
+                    />
+                    <ColumnsMenu
+                      columns={COLUMN_DEFS}
+                      visibility={visibility}
+                      onChange={(next) => {
+                        // Required columns can't be hidden
+                        const sanitized = { ...next };
+                        Array.from(REQUIRED_COLUMNS).forEach((k) => {
+                          sanitized[k] = true;
+                        });
+                        setColumnPrefs.mutate(sanitized);
+                      }}
+                    />
+                  </div>
                 </div>
+
+                <ActiveFilterChips
+                  chips={chips}
+                  onClearAll={chips.length > 0 ? () => url.clearAll() : undefined}
+                />
+
+                {selectedIds.length > 0 && (
+                  <div className="flex items-center gap-2 pt-2 border-t">
+                    <span className="text-sm text-muted-foreground">
+                      {selectedIds.length} selected
+                    </span>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setShowBulkUpdateModal(true)}
+                      data-testid="button-bulk-update"
+                    >
+                      <RefreshCw className="w-4 h-4 mr-2" />
+                      Bulk Update
+                    </Button>
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      onClick={() => setShowDeleteConfirm(true)}
+                      data-testid="button-bulk-delete"
+                    >
+                      <Trash2 className="w-4 h-4 mr-2" />
+                      Delete
+                    </Button>
+                  </div>
+                )}
               </CardContent>
             </Card>
 
@@ -326,112 +717,176 @@ export default function Caregivers() {
                     <thead className="bg-muted/50">
                       <tr>
                         <th className="w-12 p-4">
-                          <Checkbox 
-                            checked={filteredCaregivers.length > 0 && selectedIds.length === filteredCaregivers.length}
+                          <Checkbox
+                            checked={
+                              caregivers.length > 0 && selectedIds.length === caregivers.length
+                            }
                             onCheckedChange={toggleSelectAll}
                             data-testid="checkbox-select-all"
                           />
                         </th>
-                        <th className="text-left p-4 text-sm font-medium text-muted-foreground">Caregiver Information</th>
-                        <th className="text-left p-4 text-sm font-medium text-muted-foreground">Start Date</th>
-                        <th className="text-left p-4 text-sm font-medium text-muted-foreground">Phone Number</th>
-                        <th className="text-left p-4 text-sm font-medium text-muted-foreground">Coordinator</th>
-                        <th className="text-left p-4 text-sm font-medium text-muted-foreground">Status</th>
-                        <th className="text-left p-4 text-sm font-medium text-muted-foreground">Actions</th>
+                        {isVisible("info") && (
+                          <th className="text-left p-4 text-sm font-medium text-muted-foreground">
+                            Caregiver Information
+                          </th>
+                        )}
+                        {isVisible("startDate") && (
+                          <th className="text-left p-4 text-sm font-medium text-muted-foreground">
+                            Start Date
+                          </th>
+                        )}
+                        {isVisible("phone") && (
+                          <th className="text-left p-4 text-sm font-medium text-muted-foreground">
+                            Phone Number
+                          </th>
+                        )}
+                        {isVisible("coordinator") && (
+                          <th className="text-left p-4 text-sm font-medium text-muted-foreground">
+                            Coordinator
+                          </th>
+                        )}
+                        {isVisible("status") && (
+                          <th className="text-left p-4 text-sm font-medium text-muted-foreground">
+                            Status
+                          </th>
+                        )}
+                        {isVisible("actions") && (
+                          <th className="text-left p-4 text-sm font-medium text-muted-foreground">
+                            Actions
+                          </th>
+                        )}
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-border">
                       {isLoading ? (
                         <tr>
-                          <td colSpan={7} className="p-8 text-center text-muted-foreground">
+                          <td colSpan={8} className="p-8 text-center text-muted-foreground">
                             Loading caregivers...
                           </td>
                         </tr>
-                      ) : filteredCaregivers.length > 0 ? (
-                        filteredCaregivers.map((caregiver: EnrichedCaregiver) => {
+                      ) : caregivers.length > 0 ? (
+                        caregivers.map((caregiver: EnrichedCaregiver) => {
                           const startDate = caregiver.startDate || caregiver.hireDate;
-                          const coordinator = caregiver.coordinatorId ? coordinators.find((c) => c.id === caregiver.coordinatorId) : null;
-                          const coordinatorName = coordinator ? `${coordinator.firstName} ${coordinator.lastName}` : null;
+                          const coordinator = caregiver.coordinatorId
+                            ? coordinators.find((c) => c.id === caregiver.coordinatorId)
+                            : null;
+                          const coordinatorName = coordinator
+                            ? `${coordinator.firstName} ${coordinator.lastName}`
+                            : null;
                           return (
-                          <tr key={caregiver.id} className="hover:bg-muted/25 transition-colors" data-testid={`row-caregiver-${caregiver.id}`}>
-                            <td className="p-4">
-                              <Checkbox 
-                                checked={selectedIds.includes(caregiver.id)}
-                                onCheckedChange={() => toggleSelection(caregiver.id)}
-                                data-testid={`checkbox-caregiver-${caregiver.id}`}
-                              />
-                            </td>
-                            <td className="p-4">
-                              <div className="flex items-center space-x-3">
-                                <div className="w-12 h-12 bg-accent rounded-full flex items-center justify-center">
-                                  <UserCheck className="w-6 h-6 text-accent-foreground" />
-                                </div>
-                                <div>
-                                  <p 
-                                    className="font-medium text-foreground hover:text-primary cursor-pointer hover:underline" 
-                                    onClick={() => navigate(`/caregivers/${caregiver.id}`)}
-                                    data-testid={`text-caregiver-name-${caregiver.id}`}
+                            <tr
+                              key={caregiver.id}
+                              className="hover:bg-muted/25 transition-colors"
+                              data-testid={`row-caregiver-${caregiver.id}`}
+                            >
+                              <td className="p-4">
+                                <Checkbox
+                                  checked={selectedIds.includes(caregiver.id)}
+                                  onCheckedChange={() => toggleSelection(caregiver.id)}
+                                  data-testid={`checkbox-caregiver-${caregiver.id}`}
+                                />
+                              </td>
+                              {isVisible("info") && (
+                                <td className="p-4">
+                                  <div className="flex items-center space-x-3">
+                                    <div className="w-12 h-12 bg-accent rounded-full flex items-center justify-center">
+                                      <UserCheck className="w-6 h-6 text-accent-foreground" />
+                                    </div>
+                                    <div>
+                                      <p
+                                        className="font-medium text-foreground hover:text-primary cursor-pointer hover:underline"
+                                        onClick={() => navigate(`/caregivers/${caregiver.id}`)}
+                                        data-testid={`text-caregiver-name-${caregiver.id}`}
+                                      >
+                                        {caregiver.firstName && caregiver.lastName
+                                          ? `${caregiver.firstName} ${caregiver.lastName}`
+                                          : `Employee #${caregiver.employeeId || "N/A"}`}
+                                      </p>
+                                      <p
+                                        className="text-sm text-muted-foreground"
+                                        data-testid={`text-caregiver-hha-id-${caregiver.id}`}
+                                      >
+                                        HHA ID: {caregiver.hhaxCaregiverCode || "Not provided"}
+                                      </p>
+                                    </div>
+                                  </div>
+                                </td>
+                              )}
+                              {isVisible("startDate") && (
+                                <td className="p-4">
+                                  <p
+                                    className="text-sm text-foreground"
+                                    data-testid={`text-caregiver-start-date-${caregiver.id}`}
                                   >
-                                    {caregiver.firstName && caregiver.lastName 
-                                      ? `${caregiver.firstName} ${caregiver.lastName}` 
-                                      : `Employee #${caregiver.employeeId || 'N/A'}`}
+                                    {startDate ? new Date(startDate).toLocaleDateString() : "Not set"}
                                   </p>
-                                  <p className="text-sm text-muted-foreground" data-testid={`text-caregiver-hha-id-${caregiver.id}`}>
-                                    HHA ID: {caregiver.hhaxCaregiverCode || "Not provided"}
+                                </td>
+                              )}
+                              {isVisible("phone") && (
+                                <td className="p-4">
+                                  <p
+                                    className="text-sm text-foreground"
+                                    data-testid={`text-caregiver-phone-${caregiver.id}`}
+                                  >
+                                    {caregiver.phone || (
+                                      <span className="text-muted-foreground">Not provided</span>
+                                    )}
                                   </p>
-                                </div>
-                              </div>
-                            </td>
-                            <td className="p-4">
-                              <p className="text-sm text-foreground" data-testid={`text-caregiver-start-date-${caregiver.id}`}>
-                                {startDate ? new Date(startDate).toLocaleDateString() : "Not set"}
-                              </p>
-                            </td>
-                            <td className="p-4">
-                              <p className="text-sm text-foreground" data-testid={`text-caregiver-phone-${caregiver.id}`}>
-                                {caregiver.phone || <span className="text-muted-foreground">Not provided</span>}
-                              </p>
-                            </td>
-                            <td className="p-4">
-                              <p className="text-sm text-foreground" data-testid={`text-caregiver-coordinator-${caregiver.id}`}>
-                                {coordinatorName || <span className="text-muted-foreground">Unassigned</span>}
-                              </p>
-                            </td>
-                            <td className="p-4">
-                              <Badge 
-                                variant={caregiver.isActive ? "default" : "secondary"}
-                                data-testid={`badge-caregiver-status-${caregiver.id}`}
-                              >
-                                {caregiver.isActive ? "Active" : "Inactive"}
-                              </Badge>
-                            </td>
-                            <td className="p-4">
-                              <div className="flex space-x-2">
-                                <Button 
-                                  variant="ghost" 
-                                  size="sm"
-                                  onClick={() => navigate(`/caregivers/${caregiver.id}`)}
-                                  data-testid={`button-view-caregiver-${caregiver.id}`}
-                                >
-                                  <Eye className="w-4 h-4" />
-                                </Button>
-                                <Button 
-                                  variant="ghost" 
-                                  size="sm"
-                                  onClick={() => navigate(`/caregivers/${caregiver.id}`)}
-                                  data-testid={`button-edit-caregiver-${caregiver.id}`}
-                                >
-                                  <Edit className="w-4 h-4" />
-                                </Button>
-                              </div>
-                            </td>
-                          </tr>
+                                </td>
+                              )}
+                              {isVisible("coordinator") && (
+                                <td className="p-4">
+                                  <p
+                                    className="text-sm text-foreground"
+                                    data-testid={`text-caregiver-coordinator-${caregiver.id}`}
+                                  >
+                                    {coordinatorName || (
+                                      <span className="text-muted-foreground">Unassigned</span>
+                                    )}
+                                  </p>
+                                </td>
+                              )}
+                              {isVisible("status") && (
+                                <td className="p-4">
+                                  <Badge
+                                    variant={caregiver.isActive ? "default" : "secondary"}
+                                    data-testid={`badge-caregiver-status-${caregiver.id}`}
+                                  >
+                                    {caregiver.isActive ? "Active" : "Inactive"}
+                                  </Badge>
+                                </td>
+                              )}
+                              {isVisible("actions") && (
+                                <td className="p-4">
+                                  <div className="flex space-x-2">
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      onClick={() => navigate(`/caregivers/${caregiver.id}`)}
+                                      data-testid={`button-view-caregiver-${caregiver.id}`}
+                                    >
+                                      <Eye className="w-4 h-4" />
+                                    </Button>
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      onClick={() => navigate(`/caregivers/${caregiver.id}`)}
+                                      data-testid={`button-edit-caregiver-${caregiver.id}`}
+                                    >
+                                      <Edit className="w-4 h-4" />
+                                    </Button>
+                                  </div>
+                                </td>
+                              )}
+                            </tr>
                           );
                         })
                       ) : (
                         <tr>
-                          <td colSpan={7} className="p-8 text-center text-muted-foreground">
-                            {searchTerm ? "No caregivers found matching your search" : "No caregivers found"}
+                          <td colSpan={8} className="p-8 text-center text-muted-foreground">
+                            {chips.length > 0
+                              ? "No caregivers match your filters"
+                              : "No caregivers found"}
                           </td>
                         </tr>
                       )}
@@ -445,7 +900,7 @@ export default function Caregivers() {
       </main>
 
       {/* Modals */}
-      <AddCaregiverModal 
+      <AddCaregiverModal
         isOpen={showAddModal}
         onClose={() => {
           setShowAddModal(false);
@@ -483,8 +938,8 @@ export default function Caregivers() {
           <AlertDialogHeader>
             <AlertDialogTitle>Delete Caregivers</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to delete {selectedIds.length} caregiver(s)? 
-              This action cannot be undone and will remove all associated data.
+              Are you sure you want to delete {selectedIds.length} caregiver(s)? This action cannot
+              be undone and will remove all associated data.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

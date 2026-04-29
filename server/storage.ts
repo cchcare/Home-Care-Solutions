@@ -1,5 +1,8 @@
 import {
   users,
+  userSavedViews,
+  type UserSavedView,
+  type InsertUserSavedView,
   offices,
   clients,
   caregivers,
@@ -413,6 +416,14 @@ export interface IStorage {
   getUserByEmail(email: string): Promise<User | undefined>;
   linkGoogleAccount(userId: string, googleId: string): Promise<void>;
   createGoogleUser(userData: { email: string; firstName: string; lastName: string; profileImageUrl?: string; googleId: string }): Promise<User>;
+
+  // Saved views (per-user list page filters / column prefs)
+  getUserSavedViews(userId: string, page: string): Promise<UserSavedView[]>;
+  getUserSavedView(id: string): Promise<UserSavedView | undefined>;
+  createUserSavedView(view: InsertUserSavedView): Promise<UserSavedView>;
+  upsertUserSavedView(view: InsertUserSavedView): Promise<UserSavedView>;
+  updateUserSavedView(id: string, view: Partial<InsertUserSavedView>): Promise<UserSavedView>;
+  deleteUserSavedView(id: string): Promise<void>;
 
   // Office operations
   getAllOffices(): Promise<Office[]>;
@@ -1446,6 +1457,54 @@ export class DatabaseStorage implements IStorage {
       isActive: true,
     }).returning();
     return user;
+  }
+
+  // Saved views (per-user list page filters / column prefs)
+  async getUserSavedViews(userId: string, page: string): Promise<UserSavedView[]> {
+    return await db
+      .select()
+      .from(userSavedViews)
+      .where(and(eq(userSavedViews.userId, userId), eq(userSavedViews.page, page)))
+      .orderBy(asc(userSavedViews.name));
+  }
+
+  async getUserSavedView(id: string): Promise<UserSavedView | undefined> {
+    const [view] = await db.select().from(userSavedViews).where(eq(userSavedViews.id, id));
+    return view;
+  }
+
+  async createUserSavedView(view: InsertUserSavedView): Promise<UserSavedView> {
+    const [created] = await db.insert(userSavedViews).values(view).returning();
+    return created;
+  }
+
+  async upsertUserSavedView(view: InsertUserSavedView): Promise<UserSavedView> {
+    const [upserted] = await db
+      .insert(userSavedViews)
+      .values(view)
+      .onConflictDoUpdate({
+        target: [userSavedViews.userId, userSavedViews.page, userSavedViews.name],
+        set: {
+          filters: view.filters ?? {},
+          columns: view.columns ?? {},
+          updatedAt: new Date(),
+        },
+      })
+      .returning();
+    return upserted;
+  }
+
+  async updateUserSavedView(id: string, view: Partial<InsertUserSavedView>): Promise<UserSavedView> {
+    const [updated] = await db
+      .update(userSavedViews)
+      .set({ ...view, updatedAt: new Date() })
+      .where(eq(userSavedViews.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteUserSavedView(id: string): Promise<void> {
+    await db.delete(userSavedViews).where(eq(userSavedViews.id, id));
   }
 
   // Office operations
