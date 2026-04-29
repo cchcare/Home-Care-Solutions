@@ -17367,50 +17367,97 @@ export async function registerRoutes(app: Express): Promise<Server> {
   const OFFICE_BOUNDARY_METERS = 152.4; // 500 feet in meters
 
   // ── Kiosk PIN brute-force lockout ────────────────────────────────────────
-  // Tracks failed PIN attempts keyed by (lower-cased staffId | client IP).
-  // After KIOSK_PIN_MAX_FAILURES attempts inside KIOSK_PIN_WINDOW_MS, the key
-  // is locked for KIOSK_PIN_LOCKOUT_MS. Works the same way for unknown staff
-  // IDs so a brute-forcer can't enumerate accounts via timing.
+  // Tracks failed PIN attempts. We use TWO independent throttles:
+  //   1. (staffId|ip)  — fast lock for the common case (one tablet, one bad
+  //      actor). 5 failures / 15 min → 15 min lockout.
+  //   2. staffId-only  — defense-in-depth backstop in case an attacker spoofs
+  //      X-Forwarded-For to evade the IP-keyed counter. 20 failures / 30 min
+  //      → 30 min lockout, regardless of IP.
+  // Same throttle counter is used for missing-user / disabled-user / no-pin /
+  // bad-pin so attackers can't enumerate accounts by timing/lockout shape.
   const kioskPinAttempts = new Map<string, { count: number; firstAt: number; lockedUntil: number }>();
   const KIOSK_PIN_MAX_FAILURES = 5;
   const KIOSK_PIN_WINDOW_MS = 15 * 60 * 1000;   // 15 min rolling window
   const KIOSK_PIN_LOCKOUT_MS = 15 * 60 * 1000;  // 15 min lockout once tripped
 
+  const kioskPinAttemptsByStaff = new Map<string, { count: number; firstAt: number; lockedUntil: number }>();
+  const KIOSK_STAFF_MAX_FAILURES = 20;
+  const KIOSK_STAFF_WINDOW_MS = 30 * 60 * 1000;
+  const KIOSK_STAFF_LOCKOUT_MS = 30 * 60 * 1000;
+
   function kioskAttemptKey(staffId: string, ip: string): string {
     return `${staffId.toLowerCase()}|${ip}`;
   }
+  function kioskStaffKey(staffId: string): string {
+    return staffId.toLowerCase();
+  }
 
-  function checkKioskLockout(key: string): { locked: boolean; retryAfterSec: number } {
-    const entry = kioskPinAttempts.get(key);
+  function checkLockoutMap(
+    map: Map<string, { count: number; firstAt: number; lockedUntil: number }>,
+    key: string,
+    windowMs: number,
+  ): { locked: boolean; retryAfterSec: number } {
+    const entry = map.get(key);
     if (!entry) return { locked: false, retryAfterSec: 0 };
     const now = Date.now();
     if (entry.lockedUntil > now) {
       return { locked: true, retryAfterSec: Math.ceil((entry.lockedUntil - now) / 1000) };
     }
-    // Window expired — clear stale entry so the user gets a fresh allotment.
-    if (now - entry.firstAt > KIOSK_PIN_WINDOW_MS && entry.lockedUntil <= now) {
-      kioskPinAttempts.delete(key);
+    if (now - entry.firstAt > windowMs && entry.lockedUntil <= now) {
+      map.delete(key);
     }
     return { locked: false, retryAfterSec: 0 };
   }
 
-  function recordKioskFailure(key: string): { lockedNow: boolean; retryAfterSec: number } {
+  function recordFailureInMap(
+    map: Map<string, { count: number; firstAt: number; lockedUntil: number }>,
+    key: string,
+    windowMs: number,
+    maxFailures: number,
+    lockoutMs: number,
+  ): { lockedNow: boolean; retryAfterSec: number } {
     const now = Date.now();
-    const existing = kioskPinAttempts.get(key);
-    if (!existing || now - existing.firstAt > KIOSK_PIN_WINDOW_MS) {
-      kioskPinAttempts.set(key, { count: 1, firstAt: now, lockedUntil: 0 });
+    const existing = map.get(key);
+    if (!existing || now - existing.firstAt > windowMs) {
+      map.set(key, { count: 1, firstAt: now, lockedUntil: 0 });
       return { lockedNow: false, retryAfterSec: 0 };
     }
     existing.count++;
-    if (existing.count >= KIOSK_PIN_MAX_FAILURES) {
-      existing.lockedUntil = now + KIOSK_PIN_LOCKOUT_MS;
-      return { lockedNow: true, retryAfterSec: Math.ceil(KIOSK_PIN_LOCKOUT_MS / 1000) };
+    if (existing.count >= maxFailures) {
+      existing.lockedUntil = now + lockoutMs;
+      return { lockedNow: true, retryAfterSec: Math.ceil(lockoutMs / 1000) };
     }
     return { lockedNow: false, retryAfterSec: 0 };
   }
 
-  function clearKioskFailures(key: string): void {
+  function checkKioskLockout(key: string): { locked: boolean; retryAfterSec: number } {
+    return checkLockoutMap(kioskPinAttempts, key, KIOSK_PIN_WINDOW_MS);
+  }
+
+  function checkKioskStaffLockout(staffId: string): { locked: boolean; retryAfterSec: number } {
+    return checkLockoutMap(kioskPinAttemptsByStaff, kioskStaffKey(staffId), KIOSK_STAFF_WINDOW_MS);
+  }
+
+  function recordKioskFailure(key: string, staffId: string): { lockedNow: boolean; retryAfterSec: number } {
+    const ipResult = recordFailureInMap(
+      kioskPinAttempts, key, KIOSK_PIN_WINDOW_MS, KIOSK_PIN_MAX_FAILURES, KIOSK_PIN_LOCKOUT_MS,
+    );
+    const staffResult = recordFailureInMap(
+      kioskPinAttemptsByStaff, kioskStaffKey(staffId), KIOSK_STAFF_WINDOW_MS, KIOSK_STAFF_MAX_FAILURES, KIOSK_STAFF_LOCKOUT_MS,
+    );
+    // If either backstop trips, surface the longer wait.
+    if (ipResult.lockedNow || staffResult.lockedNow) {
+      return {
+        lockedNow: true,
+        retryAfterSec: Math.max(ipResult.retryAfterSec, staffResult.retryAfterSec),
+      };
+    }
+    return { lockedNow: false, retryAfterSec: 0 };
+  }
+
+  function clearKioskFailures(key: string, staffId: string): void {
     kioskPinAttempts.delete(key);
+    kioskPinAttemptsByStaff.delete(kioskStaffKey(staffId));
   }
 
   async function verifyKioskCredentials(
@@ -17422,12 +17469,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
     | { error: string; locked?: boolean; retryAfterSec?: number; user?: never }
   > {
     const key = kioskAttemptKey(staffId, ip);
-    const lock = checkKioskLockout(key);
-    if (lock.locked) {
+    // Either the (staff|ip) lock OR the staff-only backstop trips a 429.
+    const ipLock = checkKioskLockout(key);
+    const staffLock = checkKioskStaffLockout(staffId);
+    if (ipLock.locked || staffLock.locked) {
+      const retryAfterSec = Math.max(ipLock.retryAfterSec, staffLock.retryAfterSec);
       return {
-        error: `Too many failed attempts. Please wait ${Math.ceil(lock.retryAfterSec / 60)} minute(s) before trying again, or ask a supervisor for help.`,
+        error: `Too many failed attempts. Please wait ${Math.ceil(retryAfterSec / 60)} minute(s) before trying again, or ask a supervisor for help.`,
         locked: true,
-        retryAfterSec: lock.retryAfterSec,
+        retryAfterSec,
       };
     }
     const [user] = await db.select({
@@ -17448,7 +17498,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     // error. We deliberately use the same throttle counter for missing-user,
     // disabled-user, no-pin, and bad-pin so attackers can't enumerate accounts.
     const fail = (message: string) => {
-      const f = recordKioskFailure(key);
+      const f = recordKioskFailure(key, staffId);
       if (f.lockedNow) {
         return {
           error: `Too many failed attempts. Please wait ${Math.ceil(f.retryAfterSec / 60)} minute(s) before trying again, or ask a supervisor for help.`,
@@ -17468,7 +17518,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     // Success — clear the bad-attempt counter for this key so the next genuine
     // mistake doesn't get penalized by old failures.
-    clearKioskFailures(key);
+    clearKioskFailures(key, staffId);
     return { user };
   }
 
@@ -17593,8 +17643,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { staffId, pin } = req.body;
       if (!staffId || !pin) return res.status(400).json({ message: "Staff ID and PIN are required" });
-      const result = await verifyKioskCredentials(staffId.trim(), pin.trim());
-      if (result.error) return res.status(401).json({ message: result.error });
+      const ip = getClientIp(req);
+      const result = await verifyKioskCredentials(staffId.trim(), pin.trim(), ip);
+      if (result.error) {
+        const status = result.locked ? 429 : 401;
+        if (result.locked && result.retryAfterSec) res.setHeader("Retry-After", String(result.retryAfterSec));
+        return res.status(status).json({ message: result.error, locked: !!result.locked, retryAfterSec: result.retryAfterSec });
+      }
       const { user } = result;
       // Check if currently clocked in
       const [active] = await db.select().from(staffTimeRecords)
@@ -17682,13 +17737,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // POST /api/kiosk/clock-in  (public)
   app.post("/api/kiosk/clock-in", async (req: any, res) => {
     try {
-      const { staffId, pin, photo, video, faceMismatch, latitude, longitude, supervisorBypass, supervisorName } = req.body;
+      const { staffId, pin, photo, video, faceMismatch, latitude, longitude, supervisorBypass, supervisorName, clientCapturedAt, queuedOffline } = req.body;
       if (!staffId || !pin) return res.status(400).json({ message: "Staff ID and PIN are required" });
       if (!latitude || !longitude) return res.status(400).json({ message: "GPS location is required to clock in. Please allow location access and try again." });
-      const result = await verifyKioskCredentials(staffId.trim(), pin.trim());
-      if (result.error) return res.status(401).json({ message: result.error });
-      const { user } = result;
       const ip = getClientIp(req);
+      const result = await verifyKioskCredentials(staffId.trim(), pin.trim(), ip);
+      if (result.error) {
+        const status = result.locked ? 429 : 401;
+        if (result.locked && result.retryAfterSec) res.setHeader("Retry-After", String(result.retryAfterSec));
+        return res.status(status).json({ message: result.error, locked: !!result.locked, retryAfterSec: result.retryAfterSec });
+      }
+      const { user } = result;
 
       const existing = await db.select().from(staffTimeRecords)
         .where(and(eq(staffTimeRecords.userId, user.id), isNull(staffTimeRecords.clockOutTime)))
@@ -17752,10 +17811,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
         } catch { /* silently skip boundary check on error */ }
       }
 
+      // Use the client-provided capture time if it falls inside the trusted
+      // window (offline queue replay), otherwise stamp authoritative server now.
+      const { ts: clockInTime, usedClientTime } = resolveKioskTimestamp(clientCapturedAt);
+      if (queuedOffline || usedClientTime) {
+        isFlagged = true;
+        const offlineNote = `Submitted from offline queue — captured ${clockInTime.toISOString()}, synced ${new Date().toISOString()}.`;
+        flagReason = flagReason ? `${flagReason} | ${offlineNote}` : offlineNote;
+      }
+
       const [record] = await db.insert(staffTimeRecords).values({
         userId: user.id,
         officeId: user.primaryOfficeId || null,
-        clockInTime: new Date(),
+        clockInTime,
         status: 'active',
         clockInIpAddress: ip,
         clockInPhoto: photo || null,
@@ -17789,20 +17857,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // POST /api/kiosk/clock-out  (public)
   app.post("/api/kiosk/clock-out", async (req: any, res) => {
     try {
-      const { staffId, pin, photo, video, faceMismatch, breakMinutes, latitude, longitude, supervisorBypass, supervisorName } = req.body;
+      const { staffId, pin, photo, video, faceMismatch, breakMinutes, latitude, longitude, supervisorBypass, supervisorName, clientCapturedAt, queuedOffline } = req.body;
       if (!staffId || !pin) return res.status(400).json({ message: "Staff ID and PIN are required" });
       if (!latitude || !longitude) return res.status(400).json({ message: "GPS location is required to clock out. Please allow location access and try again." });
-      const result = await verifyKioskCredentials(staffId.trim(), pin.trim());
-      if (result.error) return res.status(401).json({ message: result.error });
-      const { user } = result;
       const ip = getClientIp(req);
+      const result = await verifyKioskCredentials(staffId.trim(), pin.trim(), ip);
+      if (result.error) {
+        const status = result.locked ? 429 : 401;
+        if (result.locked && result.retryAfterSec) res.setHeader("Retry-After", String(result.retryAfterSec));
+        return res.status(status).json({ message: result.error, locked: !!result.locked, retryAfterSec: result.retryAfterSec });
+      }
+      const { user } = result;
 
       const [existing] = await db.select().from(staffTimeRecords)
         .where(and(eq(staffTimeRecords.userId, user.id), isNull(staffTimeRecords.clockOutTime)))
         .orderBy(desc(staffTimeRecords.clockInTime)).limit(1);
       if (!existing) return res.status(400).json({ message: "No active clock-in found." });
 
-      const clockOutTime = new Date();
+      const { ts: clockOutTime, usedClientTime: clockOutUsedClient } = resolveKioskTimestamp(clientCapturedAt);
       const hoursWorked = (clockOutTime.getTime() - new Date(existing.clockInTime).getTime()) / 3600000;
       const longShift = hoursWorked > 16;
 
@@ -17816,7 +17888,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Preserve existing flag from clock-in — never downgrade
       const wasAlreadyFlagged = !!existing.isFlagged;
-      const isFlagged = wasAlreadyFlagged || longShift || clockOutFaceMismatch || !!supervisorBypass;
+      const offlineQueued = !!queuedOffline || clockOutUsedClient;
+      const isFlagged = wasAlreadyFlagged || longShift || clockOutFaceMismatch || !!supervisorBypass || offlineQueued;
 
       // Build flag reason: preserve prior reason, append new reasons (use canonical text)
       const newReasons: string[] = [];
@@ -17828,6 +17901,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         newReasons.push(`Camera bypass — supervisor ${supervisorName || "unknown"} authorized clock-out without selfie photo. Manager review required.`);
       } else if (clockOutFaceMismatch && !existing.flagReason?.includes("face verification")) {
         newReasons.push("Kiosk face verification failed — photo does not match profile. Manager review required.");
+      }
+      if (offlineQueued) {
+        newReasons.push(`Submitted from offline queue — captured ${clockOutTime.toISOString()}, synced ${new Date().toISOString()}.`);
       }
       const flagReason = newReasons.length > 0 ? newReasons.join(" | ") : null;
 

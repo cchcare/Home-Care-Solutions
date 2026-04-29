@@ -6,6 +6,7 @@ import { format } from "date-fns";
 import {
   Camera, LogIn, LogOut, CheckCircle, XCircle, RotateCcw, Eye, EyeOff,
   Delete, AlertTriangle, Video, RefreshCw, ShieldCheck, ShieldAlert, MapPin, Info, Shield,
+  Wifi, WifiOff, Maximize2, Minimize2, Lock, CloudUpload,
 } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -204,6 +205,262 @@ function PinPad({ value, onChange }: { value: string; onChange: (v: string) => v
   );
 }
 
+// ─── Idle auto-reset ─────────────────────────────────────────────────────────
+// Resets to login if no user activity within `ms` while `active` is true.
+// Returns the seconds remaining (rounded up) so the UI can show a countdown.
+function useIdleReset(active: boolean, onReset: () => void, ms = 60000) {
+  const [secondsLeft, setSecondsLeft] = useState<number>(Math.ceil(ms / 1000));
+  const lastActivityRef = useRef<number>(Date.now());
+  // Keep latest callback in a ref so effect identity isn't tied to render cycle
+  const onResetRef = useRef(onReset);
+  useEffect(() => { onResetRef.current = onReset; }, [onReset]);
+
+  useEffect(() => {
+    if (!active) return;
+    lastActivityRef.current = Date.now();
+    setSecondsLeft(Math.ceil(ms / 1000));
+    const bump = () => { lastActivityRef.current = Date.now(); };
+    const events: (keyof DocumentEventMap)[] = ["pointerdown", "keydown", "touchstart"];
+    events.forEach(e => document.addEventListener(e, bump, { passive: true }));
+    const tick = setInterval(() => {
+      const elapsed = Date.now() - lastActivityRef.current;
+      const remaining = Math.max(0, ms - elapsed);
+      setSecondsLeft(Math.ceil(remaining / 1000));
+      if (remaining <= 0) onResetRef.current();
+    }, 500);
+    return () => {
+      events.forEach(e => document.removeEventListener(e, bump));
+      clearInterval(tick);
+    };
+  }, [active, ms]);
+
+  return secondsLeft;
+}
+
+// ─── Offline submission queue ────────────────────────────────────────────────
+// Stores pending kiosk submissions in localStorage so they can be replayed
+// after the network comes back. Photos are kept (small JPEGs); video is
+// dropped to stay under the localStorage quota. Supervisor-bypass and
+// auth-style errors should NOT be queued — only true network failures.
+type OfflineQueueItem = {
+  id: string;
+  endpoint: string;
+  body: any;
+  label: string; // e.g. "Clock In — 2:14 PM" for status display
+  enqueuedAt: number;
+  attempts: number;
+};
+
+const OFFLINE_QUEUE_KEY = "kiosk-offline-queue-v1";
+
+function loadOfflineQueue(): OfflineQueueItem[] {
+  try {
+    const raw = localStorage.getItem(OFFLINE_QUEUE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch { return []; }
+}
+
+function saveOfflineQueue(q: OfflineQueueItem[]) {
+  try { localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(q)); }
+  catch { /* quota — silently drop */ }
+}
+
+function useKioskOfflineQueue() {
+  const [queue, setQueue] = useState<OfflineQueueItem[]>(() => loadOfflineQueue());
+  const [online, setOnline] = useState<boolean>(typeof navigator !== "undefined" ? navigator.onLine : true);
+  const [flushing, setFlushing] = useState(false);
+  const [lastSyncMessage, setLastSyncMessage] = useState<string | null>(null);
+  const flushingRef = useRef(false);
+
+  const persist = useCallback((next: OfflineQueueItem[]) => {
+    setQueue(next);
+    saveOfflineQueue(next);
+  }, []);
+
+  const enqueue = useCallback((endpoint: string, body: any, label: string) => {
+    // Strip volatile/heavy fields before persisting
+    const safeBody = { ...body };
+    delete safeBody.video;
+    delete safeBody.faceMatchToken;
+    safeBody.queuedOffline = true;
+    if (!safeBody.clientCapturedAt) safeBody.clientCapturedAt = new Date().toISOString();
+    const item: OfflineQueueItem = {
+      id: crypto.randomUUID(),
+      endpoint,
+      body: safeBody,
+      label,
+      enqueuedAt: Date.now(),
+      attempts: 0,
+    };
+    const next = [...loadOfflineQueue(), item];
+    persist(next);
+    return item;
+  }, [persist]);
+
+  const flush = useCallback(async () => {
+    if (flushingRef.current) return;
+    if (typeof navigator !== "undefined" && !navigator.onLine) return;
+    flushingRef.current = true;
+    setFlushing(true);
+    try {
+      const snapshot = loadOfflineQueue();
+      // Track per-item outcomes by id so we can merge against the latest
+      // queue at write time (preserving any items enqueued during flush).
+      const syncedIds = new Set<string>();
+      const droppedIds = new Set<string>();
+      const bumpedAttempts = new Map<string, number>();
+      let stopped = false;
+
+      for (const item of snapshot) {
+        if (stopped) continue;
+        try {
+          const res = await fetch(item.endpoint, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(item.body),
+          });
+          if (res.ok) { syncedIds.add(item.id); continue; }
+          // 4xx auth/validation errors won't fix themselves — drop with log.
+          if (res.status >= 400 && res.status < 500 && res.status !== 408 && res.status !== 429) {
+            droppedIds.add(item.id);
+            console.warn("[kiosk] offline submission rejected, dropping", item.label, res.status);
+            continue;
+          }
+          // 5xx / 429 — keep for next attempt with bumped attempts
+          bumpedAttempts.set(item.id, item.attempts + 1);
+        } catch {
+          // Network error — keep this with bumped attempts and stop processing.
+          bumpedAttempts.set(item.id, item.attempts + 1);
+          stopped = true;
+        }
+      }
+
+      // Merge against the LATEST queue (re-read at write time) so concurrent
+      // enqueues are preserved instead of clobbered by our stale snapshot.
+      const latest = loadOfflineQueue();
+      const next = latest
+        .filter(it => !syncedIds.has(it.id) && !droppedIds.has(it.id))
+        .map(it => bumpedAttempts.has(it.id)
+          ? { ...it, attempts: bumpedAttempts.get(it.id)! }
+          : it);
+      persist(next);
+
+      const synced = syncedIds.size;
+      const failed = droppedIds.size;
+      if (synced > 0 || failed > 0) {
+        const parts: string[] = [];
+        if (synced > 0) parts.push(`${synced} synced`);
+        if (failed > 0) parts.push(`${failed} dropped (rejected)`);
+        setLastSyncMessage(parts.join(", "));
+      }
+    } finally {
+      flushingRef.current = false;
+      setFlushing(false);
+    }
+  }, [persist]);
+
+  // React to connectivity changes
+  useEffect(() => {
+    const goOnline = () => { setOnline(true); flush(); };
+    const goOffline = () => setOnline(false);
+    window.addEventListener("online", goOnline);
+    window.addEventListener("offline", goOffline);
+    // Initial best-effort flush in case there's a backlog from a previous session.
+    if (typeof navigator === "undefined" || navigator.onLine) flush();
+    return () => {
+      window.removeEventListener("online", goOnline);
+      window.removeEventListener("offline", goOffline);
+    };
+  }, [flush]);
+
+  // Periodic retry while we have items + we're online (handles flaky DNS/etc.)
+  useEffect(() => {
+    if (queue.length === 0 || !online) return;
+    const id = setInterval(() => { flush(); }, 30000);
+    return () => clearInterval(id);
+  }, [queue.length, online, flush]);
+
+  return { queue, online, flushing, lastSyncMessage, enqueue, flush, clearLastSyncMessage: () => setLastSyncMessage(null) };
+}
+
+// ─── Kiosk-mode hardening ────────────────────────────────────────────────────
+// When enabled: keeps the screen awake, requests fullscreen, blocks the
+// context menu, and warns on accidental tab close. Exiting fullscreen
+// (e.g. user hits Esc) clears the kiosk-mode flag automatically so the
+// admin/manager can leave the kiosk without an extra confirmation.
+function useKioskHardening(enabled: boolean, onExitedFullscreen: () => void) {
+  const wakeLockRef = useRef<any>(null);
+  // Stable ref so effect doesn't re-run when caller passes an inline callback
+  const onExitedRef = useRef(onExitedFullscreen);
+  useEffect(() => { onExitedRef.current = onExitedFullscreen; }, [onExitedFullscreen]);
+
+  // Wake Lock — keep screen awake while enabled
+  useEffect(() => {
+    if (!enabled) return;
+    let cancelled = false;
+    const acquire = async () => {
+      try {
+        const anyNav: any = navigator;
+        if (anyNav.wakeLock?.request) {
+          const lock = await anyNav.wakeLock.request("screen");
+          if (cancelled) { lock.release?.(); return; }
+          wakeLockRef.current = lock;
+          lock.addEventListener?.("release", () => { wakeLockRef.current = null; });
+        }
+      } catch { /* not supported / blocked — no-op */ }
+    };
+    acquire();
+    // Re-acquire when the page becomes visible again (browsers auto-release on hide).
+    const onVis = () => { if (document.visibilityState === "visible" && !wakeLockRef.current) acquire(); };
+    document.addEventListener("visibilitychange", onVis);
+    return () => {
+      cancelled = true;
+      document.removeEventListener("visibilitychange", onVis);
+      try { wakeLockRef.current?.release?.(); } catch { /* no-op */ }
+      wakeLockRef.current = null;
+    };
+  }, [enabled]);
+
+  // Fullscreen + context menu + close-warning
+  useEffect(() => {
+    if (!enabled) return;
+    const tryFullscreen = async () => {
+      try {
+        if (!document.fullscreenElement && document.documentElement.requestFullscreen) {
+          await document.documentElement.requestFullscreen();
+        }
+      } catch { /* not allowed without a gesture — ignored */ }
+    };
+    tryFullscreen();
+
+    const blockContext = (e: MouseEvent) => e.preventDefault();
+    document.addEventListener("contextmenu", blockContext);
+
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "Kiosk mode is active. Are you sure you want to leave?";
+      return e.returnValue;
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+
+    const onFsChange = () => {
+      if (!document.fullscreenElement) onExitedRef.current();
+    };
+    document.addEventListener("fullscreenchange", onFsChange);
+
+    return () => {
+      document.removeEventListener("contextmenu", blockContext);
+      window.removeEventListener("beforeunload", onBeforeUnload);
+      document.removeEventListener("fullscreenchange", onFsChange);
+      if (document.fullscreenElement && document.exitFullscreen) {
+        document.exitFullscreen().catch(() => {});
+      }
+    };
+  }, [enabled]);
+}
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export default function Kiosk() {
@@ -245,12 +502,30 @@ export default function Kiosk() {
   const [supervisorPin, setSupervisorPin] = useState("");
   const [supervisorVerified, setSupervisorVerified] = useState<{ name: string; role: string } | null>(null);
   const [supervisorBypassUsed, setSupervisorBypassUsed] = useState(false);
+  const [pinLocked, setPinLocked] = useState<{ retryAfterSec: number } | null>(null);
+  const [offlineSubmitted, setOfflineSubmitted] = useState(false);
+  const [kioskMode, setKioskMode] = useState(false);
+  const offlineQueue = useKioskOfflineQueue();
+  useKioskHardening(kioskMode, () => setKioskMode(false));
 
   // Live clock
   useEffect(() => {
     const id = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(id);
   }, []);
+
+  // PIN lockout countdown — refresh every second so the user sees it tick.
+  useEffect(() => {
+    if (!pinLocked) return;
+    const id = setInterval(() => {
+      setPinLocked(prev => {
+        if (!prev) return prev;
+        if (prev.retryAfterSec <= 1) return null;
+        return { retryAfterSec: prev.retryAfterSec - 1 };
+      });
+    }, 1000);
+    return () => clearInterval(id);
+  }, [pinLocked]);
 
   // Auto-reset after success/error
   useEffect(() => {
@@ -259,6 +534,15 @@ export default function Kiosk() {
       return () => clearTimeout(t);
     }
   }, [step]);
+
+  // Idle auto-reset on action and camera screens (60s of no interaction).
+  // Skipped while a request is in flight so we don't yank the screen mid-submit,
+  // and skipped after photo capture so the user has time to review.
+  const idleSecondsLeft = useIdleReset(
+    (step === "action" || (step === "camera" && !capturedPhoto)) && !loading,
+    () => reset(),
+    60000,
+  );
 
   // Cleanup on unmount
   useEffect(() => () => {
@@ -282,6 +566,7 @@ export default function Kiosk() {
 
   async function handleVerify() {
     if (!staffId.trim() || !pin.trim()) { setErrorMsg("Please enter your Staff ID and PIN"); return; }
+    if (pinLocked) { setErrorMsg(`Locked — try again in ${pinLocked.retryAfterSec}s.`); return; }
     setLoading(true); setErrorMsg("");
     try {
       const res = await fetch("/api/kiosk/verify", {
@@ -290,6 +575,13 @@ export default function Kiosk() {
         body: JSON.stringify({ staffId: staffId.trim(), pin: pin.trim() }),
       });
       const data = await res.json();
+      if (res.status === 429 && data.locked) {
+        setPinLocked({ retryAfterSec: data.retryAfterSec || 900 });
+        setErrorMsg(data.message || "Too many failed attempts. Please wait.");
+        setPin("");
+        setLoading(false);
+        return;
+      }
       if (!res.ok) { setErrorMsg(data.message || "Verification failed"); setLoading(false); return; }
       setVerifiedUser(data.user);
       setFaceMatchToken(data.faceMatchToken || null);
@@ -297,7 +589,13 @@ export default function Kiosk() {
       setOfficeInfo(data.officeInfo || null);
       setPendingAction(data.activeRecord ? "clock-out" : "clock-in");
       setStep("action");
-    } catch { setErrorMsg("Network error. Please try again."); }
+    } catch {
+      // Verify is real-time only — we can't sensibly queue a "may I sign in?"
+      // call. Tell the user to check connectivity.
+      setErrorMsg(offlineQueue.online
+        ? "Network error. Please try again."
+        : "You're offline. Reconnect to clock in/out, or ask a supervisor for help.");
+    }
     setLoading(false);
   }
 
@@ -459,23 +757,49 @@ export default function Kiosk() {
       return;
     }
     setLoading(true); setErrorMsg("");
-    try {
-      const endpoint = pendingAction === "clock-in" ? "/api/kiosk/clock-in" : "/api/kiosk/clock-out";
-      const body: any = {
-        staffId: staffId.trim(), pin: pin.trim(),
-        photo: capturedPhoto,
-        faceMismatch: faceMatchStatus === "mismatch",
-        latitude: geoLatitude ?? undefined,
-        longitude: geoLongitude ?? undefined,
-      };
-      if (pendingAction === "clock-out") body.breakMinutes = parseInt(breakMinutes) || 0;
+    const capturedAt = new Date().toISOString();
+    const endpoint = pendingAction === "clock-in" ? "/api/kiosk/clock-in" : "/api/kiosk/clock-out";
+    const body: any = {
+      staffId: staffId.trim(), pin: pin.trim(),
+      photo: capturedPhoto,
+      faceMismatch: faceMatchStatus === "mismatch",
+      latitude: geoLatitude ?? undefined,
+      longitude: geoLongitude ?? undefined,
+      clientCapturedAt: capturedAt,
+    };
+    if (pendingAction === "clock-out") body.breakMinutes = parseInt(breakMinutes) || 0;
 
+    const queueAndAck = (reason: string) => {
+      const label = `${pendingAction === "clock-in" ? "Clock In" : "Clock Out"} — ${format(new Date(capturedAt), "h:mm a")}`;
+      offlineQueue.enqueue(endpoint, body, label);
+      const name = verifiedUser ? `${verifiedUser.firstName || ""} ${verifiedUser.lastName || ""}`.trim() : "";
+      setSuccessMsg(
+        pendingAction === "clock-in"
+          ? `${name || "Your"} clock-in saved at ${format(new Date(capturedAt), "h:mm a")} — will sync when back online.`
+          : `${name || "Your"} clock-out saved at ${format(new Date(capturedAt), "h:mm a")} — will sync when back online.`,
+      );
+      setOfflineSubmitted(true);
+      webcam.stop();
+      setStep("success");
+    };
+
+    // Already offline — go straight to queue.
+    if (!offlineQueue.online) { queueAndAck("offline"); setLoading(false); return; }
+
+    try {
       const res = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({} as any));
+      if (res.status === 429 && data.locked) {
+        setPinLocked({ retryAfterSec: data.retryAfterSec || 900 });
+        setErrorMsg(data.message || "Too many failed attempts. Please wait.");
+        setStep("error");
+        setLoading(false);
+        return;
+      }
       if (!res.ok) { setErrorMsg(data.message || "Action failed"); setStep("error"); setLoading(false); return; }
 
       const name = `${data.user?.firstName || ""} ${data.user?.lastName || ""}`.trim();
@@ -491,7 +815,10 @@ export default function Kiosk() {
       if (data.faceMismatchDetected && faceMatchStatus !== "mismatch") setFaceMatchStatus("mismatch");
       webcam.stop();
       setStep("success");
-    } catch { setErrorMsg("Network error. Please try again."); setStep("error"); }
+    } catch {
+      // Network failure — queue locally instead of losing the punch.
+      queueAndAck("network-error");
+    }
     setLoading(false);
   }
 
@@ -540,16 +867,57 @@ export default function Kiosk() {
     <div className="h-screen overflow-auto bg-gradient-to-br from-blue-900 via-blue-800 to-indigo-900 flex flex-col select-none">
 
         {/* Header */}
-        <div className="flex items-center justify-between px-8 py-4 bg-black/20">
+        <div className="flex items-center justify-between px-8 py-4 bg-black/20 gap-4">
           <div>
             <h1 className="text-white font-bold text-xl tracking-wide">Care Crafter Home Care</h1>
             <p className="text-blue-200 text-sm">Staff Clock-In / Clock-Out Kiosk</p>
           </div>
-          <div className="text-right">
-            <p className="text-white text-3xl font-mono font-bold">{format(now, "h:mm:ss a")}</p>
-            <p className="text-blue-200 text-sm">{format(now, "EEEE, MMMM d, yyyy")}</p>
+          <div className="flex items-center gap-3">
+            {/* Online / offline indicator */}
+            <div
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${offlineQueue.online ? "bg-emerald-500/20 text-emerald-200" : "bg-amber-500/20 text-amber-200"}`}
+              title={offlineQueue.online ? "Connected" : "Offline — submissions will be saved locally"}
+              aria-label={offlineQueue.online ? "Connected" : "Offline"}
+            >
+              {offlineQueue.online ? <Wifi className="w-3.5 h-3.5" /> : <WifiOff className="w-3.5 h-3.5" />}
+              <span>{offlineQueue.online ? "Online" : "Offline"}</span>
+            </div>
+            {/* Pending offline submissions */}
+            {offlineQueue.queue.length > 0 && (
+              <div
+                className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-blue-500/20 text-blue-100"
+                title={`${offlineQueue.queue.length} punch${offlineQueue.queue.length === 1 ? "" : "es"} waiting to sync`}
+              >
+                <CloudUpload className={`w-3.5 h-3.5 ${offlineQueue.flushing ? "animate-pulse" : ""}`} />
+                <span>{offlineQueue.queue.length} pending</span>
+              </div>
+            )}
+            {/* Kiosk-mode toggle (must be a user gesture for fullscreen to work) */}
+            <button
+              type="button"
+              onClick={() => setKioskMode(v => !v)}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${kioskMode ? "bg-emerald-500/30 text-emerald-100 hover:bg-emerald-500/40" : "bg-white/10 text-white hover:bg-white/20"}`}
+              title={kioskMode
+                ? "Kiosk mode is active — screen stays awake, fullscreen is enforced. Click to exit."
+                : "Lock into kiosk mode — keeps screen awake, enters fullscreen, blocks accidental navigation."}
+              aria-pressed={kioskMode}
+            >
+              {kioskMode ? <Lock className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+              <span>{kioskMode ? "Kiosk Locked" : "Lock Kiosk"}</span>
+            </button>
+            <div className="text-right">
+              <p className="text-white text-3xl font-mono font-bold">{format(now, "h:mm:ss a")}</p>
+              <p className="text-blue-200 text-sm">{format(now, "EEEE, MMMM d, yyyy")}</p>
+            </div>
           </div>
         </div>
+        {/* Last-sync toast (auto-clears via dismiss button) */}
+        {offlineQueue.lastSyncMessage && (
+          <div className="px-8 py-2 bg-blue-900/40 text-blue-100 text-xs flex items-center justify-between">
+            <span><CloudUpload className="w-3.5 h-3.5 inline mr-1" /> Offline queue: {offlineQueue.lastSyncMessage}</span>
+            <button onClick={offlineQueue.clearLastSyncMessage} className="underline">Dismiss</button>
+          </div>
+        )}
 
         {/* Main content */}
         <div className="flex-1 flex items-center justify-center p-6">
@@ -607,15 +975,25 @@ export default function Kiosk() {
                   )}
                 </div>
 
-                {errorMsg && (
-                  <div className="flex items-center gap-2 text-red-600 bg-red-50 rounded-lg p-3 text-sm">
+                {pinLocked && (
+                  <div className="flex items-start gap-2 text-amber-800 bg-amber-50 border border-amber-300 rounded-lg p-3 text-sm" role="alert">
+                    <Lock className="w-4 h-4 shrink-0 mt-0.5" />
+                    <div>
+                      <p className="font-semibold">Too many failed attempts</p>
+                      <p className="mt-0.5">Try again in <span className="font-mono">{Math.floor(pinLocked.retryAfterSec / 60)}:{String(pinLocked.retryAfterSec % 60).padStart(2, "0")}</span>, or ask a supervisor for help.</p>
+                    </div>
+                  </div>
+                )}
+
+                {!pinLocked && errorMsg && (
+                  <div className="flex items-center gap-2 text-red-600 bg-red-50 rounded-lg p-3 text-sm" role="alert">
                     <XCircle className="w-4 h-4 shrink-0" /> {errorMsg}
                   </div>
                 )}
 
                 <Button className="w-full h-12 text-lg bg-blue-600 hover:bg-blue-700"
-                  onClick={handleVerify} disabled={loading || !staffId.trim() || !pin.trim()}>
-                  {loading ? "Verifying..." : "Continue →"}
+                  onClick={handleVerify} disabled={loading || !staffId.trim() || !pin.trim() || !!pinLocked}>
+                  {loading ? "Verifying..." : pinLocked ? "Locked" : "Continue →"}
                 </Button>
               </div>
             </div>
@@ -694,6 +1072,11 @@ export default function Kiosk() {
                 <Button variant="outline" className="w-full" onClick={reset}>
                   <RotateCcw className="w-4 h-4 mr-2" /> Cancel
                 </Button>
+                {idleSecondsLeft <= 15 && (
+                  <p className="text-xs text-amber-600 dark:text-amber-400 text-center" aria-live="polite">
+                    Returning to login in {idleSecondsLeft}s — touch the screen to stay.
+                  </p>
+                )}
               </div>
             </div>
           )}
