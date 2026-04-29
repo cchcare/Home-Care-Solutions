@@ -8,6 +8,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { useAuth } from "@/hooks/useAuth";
 import { OfficeProvider } from "@/context/office-context";
 import NotFound from "@/pages/not-found";
+import SearchPage from "@/pages/search";
 import Landing from "@/pages/landing";
 import Dashboard from "@/pages/dashboard";
 import Clients from "@/pages/clients";
@@ -202,6 +203,7 @@ function Router() {
           <Route path="/my-support-tickets" component={MySupportTickets} />
           <Route path="/error-log" component={ErrorLog} />
           <Route path="/help-center-admin" component={HelpCenterAdmin} />
+          <Route path="/search" component={SearchPage} />
           <Route path="/audit-assessment" component={AuditAssessment} />
           <Route path="/survey-readiness" component={SurveyReadiness} />
           <Route path="/supervisory-visits" component={SupervisoryVisits} />

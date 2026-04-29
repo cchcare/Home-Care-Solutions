@@ -1987,6 +1987,137 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Global site search — aggregates clients, caregivers, offices, and
+  // coordinators behind a single endpoint for the top-bar typeahead and
+  // the dedicated /search page. Page/report results are produced
+  // client-side from a static catalog.
+  app.get("/api/search", isAuthenticated, async (req: any, res) => {
+    try {
+      const rawQ = (req.query.q ?? "").toString().trim();
+      const limitRaw = parseInt((req.query.limit ?? "5").toString(), 10);
+      const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(limitRaw, 1), 50) : 5;
+
+      const empty = { q: rawQ, clients: [], caregivers: [], offices: [], coordinators: [] };
+      if (!rawQ) return res.json(empty);
+      if (rawQ.length > 100) {
+        return res.status(400).json({ message: "Search query too long" });
+      }
+
+      const currentUser = req.session?.user;
+      const isSuperAdmin = currentUser?.role === "super_admin";
+      const officeScope: string | undefined = isSuperAdmin
+        ? undefined
+        : currentUser?.primaryOfficeId || undefined;
+
+      // Hard guard: non-super-admin without a primary office assignment must
+      // not be able to search across all offices. Return empty groups so
+      // there is no cross-tenant data exposure.
+      if (!isSuperAdmin && !officeScope) {
+        return res.json({ q: rawQ, clients: [], caregivers: [], offices: [], coordinators: [] });
+      }
+
+      const term = rawQ.toLowerCase();
+
+      // Clients — use SQL search where possible, then office-scope.
+      let clientResults: Array<any> = [];
+      try {
+        const found = await storage.searchClients(rawQ, officeScope);
+        clientResults = found.slice(0, limit).map((c) => ({
+          id: c.id,
+          firstName: c.firstName,
+          lastName: c.lastName,
+          memberId: (c as any).memberId ?? null,
+          phone: c.phone ?? null,
+        }));
+      } catch (err) {
+        console.error("[Search] client search failed", err);
+      }
+
+      // Caregivers — in-memory filter on the office-scoped list across
+      // name, HHAX caregiver code, NPI, email and phone.
+      let caregiverResults: Array<any> = [];
+      try {
+        const allCgs = await storage.getAllCaregivers(officeScope);
+        const matchCg = (c: any) => {
+          const fields = [
+            c.firstName,
+            c.lastName,
+            `${c.firstName ?? ""} ${c.lastName ?? ""}`,
+            c.hhaxCaregiverCode,
+            c.npi,
+            c.email,
+            c.phone,
+          ];
+          return fields.some((f) => typeof f === "string" && f.toLowerCase().includes(term));
+        };
+        caregiverResults = allCgs
+          .filter(matchCg)
+          .slice(0, limit)
+          .map((c: any) => ({
+            id: c.id,
+            firstName: c.firstName,
+            lastName: c.lastName,
+            hhaxCaregiverCode: c.hhaxCaregiverCode ?? null,
+            phone: c.phone ?? null,
+            email: c.email ?? null,
+          }));
+      } catch (err) {
+        console.error("[Search] caregiver search failed", err);
+      }
+
+      // Offices — super_admin sees all; others only their primary office.
+      let officeResults: Array<any> = [];
+      try {
+        const allOffices = await storage.getAllOffices();
+        const visible = currentUser?.role === "super_admin"
+          ? allOffices
+          : allOffices.filter((o) => o.id === currentUser?.primaryOfficeId);
+        officeResults = visible
+          .filter((o) => (o.name ?? "").toLowerCase().includes(term))
+          .slice(0, limit)
+          .map((o) => ({ id: o.id, name: o.name }));
+      } catch (err) {
+        console.error("[Search] office search failed", err);
+      }
+
+      // Coordinators — name/email match, office-scoped.
+      let coordinatorResults: Array<any> = [];
+      try {
+        const allCoords = await storage.getAllCoordinators(officeScope);
+        coordinatorResults = allCoords
+          .filter((c: any) => {
+            const fields = [
+              c.firstName,
+              c.lastName,
+              `${c.firstName ?? ""} ${c.lastName ?? ""}`,
+              c.email,
+            ];
+            return fields.some((f) => typeof f === "string" && f.toLowerCase().includes(term));
+          })
+          .slice(0, limit)
+          .map((c: any) => ({
+            id: c.id,
+            firstName: c.firstName,
+            lastName: c.lastName,
+            email: c.email ?? null,
+          }));
+      } catch (err) {
+        console.error("[Search] coordinator search failed", err);
+      }
+
+      res.json({
+        q: rawQ,
+        clients: clientResults,
+        caregivers: caregiverResults,
+        offices: officeResults,
+        coordinators: coordinatorResults,
+      });
+    } catch (error: any) {
+      console.error("[Search] aggregator failed", error);
+      res.status(500).json({ message: error.message || "Search failed" });
+    }
+  });
+
   // Caregiver routes
   app.get("/api/caregivers", isAuthenticated, async (req, res) => {
     try {
