@@ -598,15 +598,30 @@ input.finput::placeholder { color: var(--text3); }
 
 /* ── REDUCED MOTION ── */
 /* Honor users who enabled the OS-level "reduce motion" accessibility setting.
-   Rows and cards still appear in their final styled state; only the motion is
-   suppressed (animations resolve instantly with no delay). */
+   Elements still appear in their final styled state; only the motion is
+   suppressed (animations and transitions resolve instantly with no delay).
+   The processing spinner is replaced with a static dot so progress is still
+   communicated visually without spinning. */
 @media (prefers-reduced-motion: reduce) {
-  .stat-card.card-animate,
-  .summary-stat-card.card-animate,
-  .table-row-animate {
+  *, *::before, *::after {
     animation-duration: 0.001ms !important;
     animation-delay: 0ms !important;
     animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    transition-delay: 0ms !important;
+    scroll-behavior: auto !important;
+  }
+  /* Keep the live-status pulse dot visible at full opacity (no pulsing). */
+  .pulse {
+    opacity: 1;
+    transform: none !important;
+  }
+  /* Replace the spinning processing indicator with a non-animated solid dot
+     so users still see that work is underway without rotational motion. */
+  .proc-spinner {
+    border-color: var(--teal) !important;
+    background: var(--teal);
+    opacity: 0.85;
   }
 }
 
