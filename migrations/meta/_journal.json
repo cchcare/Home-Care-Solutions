@@ -43,6 +43,13 @@
       "when": 1777387454536,
       "tag": "0005_military_thundra",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1777465516025,
+      "tag": "0006_panoramic_nicolaos",
+      "breakpoints": true
     }
   ]
 }
