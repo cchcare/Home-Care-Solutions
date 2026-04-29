@@ -1033,6 +1033,25 @@ async function exportAuditToPDF(
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
+// Helpers for per-audit "last opened tab" persistence in localStorage. Defined
+// at module scope so their references are stable across renders (keeps the
+// hydration effect's dependency array honest without a lint suppression).
+const tabStorageKeyFor = (auditId: string) => `audit-active-tab:${auditId}`;
+const isValidTabId = (id: string): boolean => {
+  if (id === "deficiencies" || id === "documents") return true;
+  return CHECKLIST.some(c => c.id === id);
+};
+const readStoredTab = (auditId: string | null): string => {
+  if (!auditId || typeof window === "undefined") return CHECKLIST[0].id;
+  try {
+    const raw = window.localStorage.getItem(tabStorageKeyFor(auditId));
+    if (raw && isValidTabId(raw)) return raw;
+  } catch {
+    // ignore (e.g. private mode / disabled storage)
+  }
+  return CHECKLIST[0].id;
+};
+
 export default function AuditAssessment() {
   const { selectedOfficeId } = useOffice();
   const { user } = useAuth();
@@ -1040,6 +1059,28 @@ export default function AuditAssessment() {
   const queryClient = useQueryClient();
 
   const [activeAuditId, setActiveAuditId] = useState<string | null>(null);
+
+  // Per-audit "last opened tab" persistence (helpers live at module scope).
+  const [activeTab, setActiveTabState] = useState<string>(() => readStoredTab(activeAuditId));
+
+  // Re-hydrate when the user opens a different audit so each audit has its own
+  // remembered tab.
+  useEffect(() => {
+    setActiveTabState(readStoredTab(activeAuditId));
+  }, [activeAuditId]);
+
+  // Persist only on explicit user action so we don't overwrite a sibling
+  // audit's saved preference during hydration.
+  const setActiveTab = (next: string) => {
+    setActiveTabState(next);
+    if (!activeAuditId || typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem(tabStorageKeyFor(activeAuditId), next);
+    } catch {
+      // ignore (e.g. quota exceeded, private mode)
+    }
+  };
+
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [deleteAuditId, setDeleteAuditId] = useState<string | null>(null);
   const [newTitle, setNewTitle] = useState("");
@@ -2150,7 +2191,7 @@ export default function AuditAssessment() {
             </div>
 
             {/* Category Tabs + Deficiencies + Documents tab */}
-            <Tabs defaultValue={CHECKLIST[0].id}>
+            <Tabs value={activeTab} onValueChange={setActiveTab}>
               <TabsList className="flex flex-wrap h-auto gap-1 mb-4 bg-muted p-1 print:hidden">
                 {CHECKLIST.map(cat => {
                   const cs = categoryStats(cat.id, responsesMap, customItems);

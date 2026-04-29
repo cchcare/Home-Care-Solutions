@@ -87,6 +87,17 @@
   }
 }
 
+/* Hide inactive print-tab-section panels on screen.
+   These panels use Radix Tabs `forceMount` so every section stays mounted in
+   the DOM (needed so all sections can be rendered together for printing).
+   With forceMount Radix does not set the `hidden` attribute on inactive
+   panels, so without this rule every section would be visible at once on
+   screen. The @media print block below overrides this with display:block
+   so all sections still print together. */
+.print-tab-section[data-state="inactive"] {
+  display: none;
+}
+
 @media print {
   @page {
     margin: 0.6in 0.5in 0.7in;
