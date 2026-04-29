@@ -244,49 +244,292 @@ export class ExclusionService {
   async fetchSamData(): Promise<{ success: boolean; recordCount: number; errors: string[] }> {
     const errors: string[] = [];
     let recordCount = 0;
+    let samSource: Awaited<ReturnType<typeof storage.getExclusionSourceByType>> | undefined;
 
     try {
-      console.log('[Exclusion Service] SAM.gov data requires downloading a large ZIP file.');
-      console.log('[Exclusion Service] For production, implement ZIP download from: https://sam.gov/data-services/Exclusions');
-      
-      const samSource = await storage.getExclusionSourceByType('sam');
-      if (samSource) {
-        await storage.updateExclusionSource(samSource.id, {
-          lastFetchedAt: new Date(),
-        });
+      console.log('[Exclusion Service] Fetching SAM.gov exclusions via API...');
+      samSource = await storage.getExclusionSourceByType('sam');
+      if (!samSource) {
+        throw new Error('SAM exclusion source not found in database');
       }
-      
-      errors.push('SAM.gov bulk download not implemented - requires ZIP file processing');
+
+      const apiKey = process.env.SAM_API_KEY;
+      if (!apiKey) {
+        throw new Error('SAM_API_KEY environment variable is not set');
+      }
+
+      const baseUrl = 'https://api.sam.gov/entity-information/v3/exclusions';
+      const pageSize = 100;
+      const maxPages = 1000; // safety cap (~100k records max)
+      const collected: NonNullable<ReturnType<typeof this.mapSamApiEntity>>[] = [];
+      let totalRecords: number | null = null;
+      let lastPageReturned = pageSize;
+      let lastPageFetched = -1;
+
+      for (let page = 0; page < maxPages; page++) {
+        const url = `${baseUrl}?api_key=${encodeURIComponent(apiKey)}&size=${pageSize}&page=${page}`;
+        const response = await fetch(url, {
+          headers: { Accept: 'application/json' },
+        });
+
+        if (!response.ok) {
+          const body = await response.text().catch(() => '');
+          throw new Error(
+            `SAM.gov API request failed (page ${page}): ${response.status} ${response.statusText}` +
+              (body ? ` - ${body.slice(0, 200)}` : '')
+          );
+        }
+
+        const json: any = await response.json();
+        const entities: any[] =
+          (Array.isArray(json?.excludedEntity) && json.excludedEntity) ||
+          (Array.isArray(json?.excluded) && json.excluded) ||
+          (Array.isArray(json?.entityData) && json.entityData) ||
+          [];
+
+        if (totalRecords === null) {
+          totalRecords =
+            typeof json?.totalRecords === 'number'
+              ? json.totalRecords
+              : typeof json?.totalElements === 'number'
+                ? json.totalElements
+                : null;
+          console.log(
+            `[Exclusion Service] SAM.gov reports ${totalRecords ?? 'unknown'} total records; page size ${pageSize}`
+          );
+        }
+
+        for (const entity of entities) {
+          const mapped = this.mapSamApiEntity(entity, samSource.id);
+          if (mapped) collected.push(mapped);
+        }
+
+        lastPageReturned = entities.length;
+        lastPageFetched = page;
+
+        // Stop when this page returned fewer than pageSize rows (last page) or
+        // when we've collected at least the reported total.
+        if (entities.length < pageSize) break;
+        if (totalRecords !== null && collected.length >= totalRecords) break;
+      }
+
+      // Detect silent truncation: if we hit the page-cap but the last page
+      // was still full (and either totalRecords says there's more, or it's
+      // unknown), fail loudly so monitoring catches it instead of silently
+      // shipping a partial dataset to the matcher.
+      const hitCap = lastPageFetched === maxPages - 1;
+      const moreLikely =
+        lastPageReturned === pageSize &&
+        (totalRecords === null || collected.length < totalRecords);
+      if (hitCap && moreLikely) {
+        throw new Error(
+          `SAM.gov pagination hit safety cap (maxPages=${maxPages}, pageSize=${pageSize}, ` +
+          `collected=${collected.length}, reportedTotal=${totalRecords ?? 'unknown'}); ` +
+          `refusing to truncate. Increase maxPages and re-run.`
+        );
+      }
+
+      console.log(`[Exclusion Service] Mapped ${collected.length} SAM.gov records`);
+
+      if (collected.length === 0) {
+        // Defensive: never wipe existing records on a zero-row response.
+        throw new Error('SAM.gov API returned 0 records; refusing to replace existing records.');
+      }
+
+      await storage.deleteExclusionRecordsBySource(samSource.id);
+      recordCount = await storage.createExclusionRecordsBulk(collected);
+
+      console.log(`[Exclusion Service] Successfully imported ${recordCount} SAM.gov records`);
     } catch (error: any) {
-      console.error('[Exclusion Service] Error with SAM data:', error);
-      errors.push(error.message);
+      console.error('[Exclusion Service] Error fetching SAM data:', error);
+      errors.push(error?.message || String(error));
+    } finally {
+      // Always update lastFetchedAt AND lastRecordCount so the data-sources
+      // tab reflects the most recent attempt — even on partial failure. The
+      // tab's displayed record count comes from a live SELECT COUNT against
+      // exclusion_records (see routes /api/exclusions/sources), so writing
+      // recordCount = 0 here on a failed attempt does not zero out the
+      // displayed count; it just records what this attempt produced.
+      if (samSource) {
+        try {
+          await storage.updateExclusionSource(samSource.id, {
+            lastFetchedAt: new Date(),
+            lastRecordCount: recordCount,
+          });
+        } catch (updateErr: any) {
+          console.error('[Exclusion Service] Failed to update SAM source metadata:', updateErr);
+          errors.push(`Failed to update SAM source metadata: ${updateErr?.message || updateErr}`);
+        }
+      }
     }
 
-    return { success: false, recordCount, errors };
+    return { success: errors.length === 0, recordCount, errors };
+  }
+
+  /**
+   * Map a single SAM.gov API entity record to the exclusion-record insert
+   * payload. Defensive against minor response-shape variations between the
+   * v3 endpoint's documented structure and what we receive in practice.
+   */
+  private mapSamApiEntity(entity: any, sourceId: string): {
+    sourceId: string;
+    externalIdentifier: string | null;
+    firstName: string | null;
+    lastName: string | null;
+    middleName: string | null;
+    title: string | null;
+    suffix: string | null;
+    businessName: string | null;
+    npi: string | null;
+    address: string | null;
+    city: string | null;
+    state: string | null;
+    zipCode: string | null;
+    exclusionType: string | null;
+    exclusionDate: Date | null;
+    reinstateDate: Date | null;
+    rawPayload: Record<string, unknown>;
+    isActive: boolean;
+  } | null {
+    if (!entity || typeof entity !== 'object') return null;
+
+    const ident = entity.exclusionIdentification || entity.identification || {};
+    const details = entity.exclusionDetails || entity.details || {};
+    const addr = entity.exclusionAddress || entity.address || {};
+    const actions = entity.exclusionActions || entity.actions || {};
+
+    const str = (v: unknown): string | null => {
+      if (v === undefined || v === null) return null;
+      const s = String(v).trim();
+      return s.length > 0 ? s : null;
+    };
+
+    const classification: string | null = str(
+      ident.classificationType ?? ident.exclusionType ?? entity.classificationType
+    );
+    const isIndividual = !classification || /individual|person/i.test(classification);
+
+    // Person name parts vs. business name. SAM individuals carry first/last;
+    // entities (firms/vessels) carry a combined "name" field.
+    const firstName = str(ident.firstName ?? ident.first_name);
+    const lastName = str(ident.lastName ?? ident.last_name);
+    const middleName = str(ident.middleName ?? ident.middle_name ?? ident.middleInitial);
+    const title = str(ident.title);
+    const suffix = str(ident.suffix);
+    const entityName = str(ident.name ?? entity.name ?? entity.legalBusinessName);
+    const businessName = !isIndividual ? entityName : null;
+
+    const samNumber = str(
+      ident.samNumber ?? ident.sam_number ?? entity.samNumber ?? entity.ueiSAM
+    );
+    const npi = str(ident.npiNumber ?? ident.npi ?? entity.npi);
+    const externalIdentifier = samNumber || npi;
+
+    const address = str(addr.addressLine1 ?? addr.address1 ?? addr.line1);
+    const city = str(addr.city);
+    const state = str(addr.stateOrProvince ?? addr.state);
+    const zipCode = str(addr.zipCode ?? addr.zip);
+
+    const exclusionType = str(details.exclusionType ?? ident.exclusionType);
+    const exclusionDateRaw = str(actions.activeDate ?? actions.creationDate ?? actions.exclusionDate);
+    const reinstateDateRaw = str(actions.terminationDate ?? actions.reinstateDate);
+
+    // Skip rows that are entirely empty (no name, no business, no identifier).
+    if (!firstName && !lastName && !businessName && !samNumber && !npi) {
+      return null;
+    }
+
+    return {
+      sourceId,
+      externalIdentifier,
+      firstName,
+      lastName,
+      middleName,
+      title,
+      suffix,
+      businessName,
+      npi,
+      address,
+      city,
+      state,
+      zipCode,
+      exclusionType,
+      exclusionDate: exclusionDateRaw ? this.parseDate(exclusionDateRaw) : null,
+      reinstateDate: reinstateDateRaw ? this.parseDate(reinstateDateRaw) : null,
+      rawPayload: entity as Record<string, unknown>,
+      isActive: true,
+    };
   }
 
   async fetchMedicheckData(): Promise<{ success: boolean; recordCount: number; errors: string[] }> {
     const errors: string[] = [];
     let recordCount = 0;
+    let medicheckSource: Awaited<ReturnType<typeof storage.getExclusionSourceByType>> | undefined;
+    let didImport = false;
 
     try {
-      console.log('[Exclusion Service] PA Medicheck requires manual CSV upload or web scraping.');
-      console.log('[Exclusion Service] The PA DHS website does not provide a direct CSV download.');
-      
-      const medicheckSource = await storage.getExclusionSourceByType('medicheck');
-      if (medicheckSource) {
-        await storage.updateExclusionSource(medicheckSource.id, {
-          lastFetchedAt: new Date(),
-        });
+      console.log('[Exclusion Service] Fetching PA MediCheck CSV...');
+      medicheckSource = await storage.getExclusionSourceByType('medicheck');
+      if (!medicheckSource) {
+        throw new Error('Medicheck exclusion source not found in database');
       }
 
-      errors.push('Medicheck data requires manual upload - no bulk download available');
+      const url = 'https://www.humanservices.dhs.pa.gov/Medchk/MedchkSearch/Medchk';
+      const response = await fetch(url, {
+        headers: {
+          // Some PA DHS endpoints reject requests without a UA.
+          'User-Agent': 'CareCoordinator-ExclusionFetcher/1.0',
+          Accept: 'text/csv,application/octet-stream,*/*',
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(
+          `PA MediCheck request failed: ${response.status} ${response.statusText}`
+        );
+      }
+
+      const csvText = await response.text();
+      if (!csvText || csvText.trim().length === 0) {
+        throw new Error('PA MediCheck returned an empty response body');
+      }
+
+      // importMedicheckCsv handles parsing, validation, wipe+replace, AND
+      // updates lastFetchedAt/lastRecordCount on the medicheck source.
+      const result = await this.importMedicheckCsv(csvText);
+      didImport = true;
+      recordCount = result.recordCount;
+      if (result.errors.length > 0) {
+        errors.push(...result.errors);
+      }
+      console.log(
+        `[Exclusion Service] PA MediCheck import complete: ${recordCount} records, ${result.warnings.length} warnings`
+      );
     } catch (error: any) {
-      console.error('[Exclusion Service] Error with Medicheck data:', error);
-      errors.push(error.message);
+      console.error('[Exclusion Service] Error fetching MediCheck data:', error);
+      errors.push(error?.message || String(error));
+    } finally {
+      // If importMedicheckCsv ran, it already stamped lastFetchedAt and
+      // lastRecordCount. When the import did NOT run (network/HTTP failure),
+      // stamp BOTH lastFetchedAt and lastRecordCount (= 0 for the failed
+      // attempt) so the data-sources tab reflects the attempt even on
+      // partial failure. The displayed record count on that tab comes from
+      // a live COUNT(*) against exclusion_records, not from this column, so
+      // writing 0 here does not zero out the visible badge.
+      if (medicheckSource && !didImport) {
+        try {
+          await storage.updateExclusionSource(medicheckSource.id, {
+            lastFetchedAt: new Date(),
+            lastRecordCount: recordCount,
+          });
+        } catch (updateErr: any) {
+          console.error('[Exclusion Service] Failed to update MediCheck source metadata:', updateErr);
+          errors.push(`Failed to update MediCheck source metadata: ${updateErr?.message || updateErr}`);
+        }
+      }
     }
 
-    return { success: false, recordCount, errors };
+    return { success: errors.length === 0, recordCount, errors };
   }
 
   async refreshAllSources(): Promise<{

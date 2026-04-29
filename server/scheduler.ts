@@ -5,7 +5,7 @@ import { expirationAlertService } from "./expiration-alert-service";
 
 const BIRTHDAY_NOTIFICATION_CRON = process.env.BIRTHDAY_CRON_SCHEDULE || "0 8 * * *";
 const BIRTHDAY_NOTIFICATION_HOUR = parseInt(process.env.BIRTHDAY_NOTIFICATION_HOUR || "8", 10);
-const EXCLUSION_CHECK_CRON = process.env.EXCLUSION_CHECK_CRON || "0 2 1 * *";
+const EXCLUSION_CHECK_CRON = process.env.EXCLUSION_CHECK_CRON || "0 2 1,15 * *";
 const EXPIRATION_ALERT_CRON = process.env.EXPIRATION_ALERT_CRON || "0 7 * * *";
 
 async function runBirthdayJob() {
