@@ -266,6 +266,7 @@ interface SavedComparison {
   auditId2: string;
   createdBy: string | null;
   createdAt: string;
+  createdByName: string | null;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -1052,6 +1053,7 @@ export default function AuditAssessment() {
   const [compareMode, setCompareMode] = useState(false);
   const [selectedForCompare, setSelectedForCompare] = useState<string[]>([]);
   const [compareViewIds, setCompareViewIds] = useState<[string, string] | null>(null);
+  const [savedComparisonsFilter, setSavedComparisonsFilter] = useState<"all" | "mine">("all");
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -1458,75 +1460,122 @@ export default function AuditAssessment() {
             )}
 
             {/* Saved comparisons */}
-            {!compareMode && savedComparisons.length > 0 && (
-              <Card className="mb-4 border-blue-100 dark:border-blue-900/40 bg-blue-50/40 dark:bg-blue-950/10" data-testid="card-saved-comparisons">
-                <CardHeader className="pb-2">
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-2">
-                      <Bookmark size={15} className="text-blue-600 dark:text-blue-400 fill-current" />
-                      <CardTitle className="text-sm">Saved Comparisons</CardTitle>
-                      <Badge variant="outline" className="text-xs">{savedComparisons.length}</Badge>
-                    </div>
-                  </div>
-                  <CardDescription className="text-xs">
-                    Quick links to your saved before/after audit comparisons
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="pt-0">
-                  <div className="space-y-1.5">
-                    {savedComparisons.map(sc => {
-                      const a1 = audits.find(a => a.id === sc.auditId1);
-                      const a2 = audits.find(a => a.id === sc.auditId2);
-                      const auditsExist = !!a1 && !!a2;
-                      return (
-                        <div
-                          key={sc.id}
-                          className="flex items-center justify-between gap-2 p-2 rounded-md bg-background border border-border hover:border-blue-300 dark:hover:border-blue-700 transition-colors"
-                          data-testid={`saved-comparison-${sc.id}`}
+            {!compareMode && savedComparisons.length > 0 && (() => {
+              const filteredComparisons = savedComparisonsFilter === "mine"
+                ? savedComparisons.filter(sc => sc.createdBy === user?.id)
+                : savedComparisons;
+              return (
+                <Card className="mb-4 border-blue-100 dark:border-blue-900/40 bg-blue-50/40 dark:bg-blue-950/10" data-testid="card-saved-comparisons">
+                  <CardHeader className="pb-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <Bookmark size={15} className="text-blue-600 dark:text-blue-400 fill-current" />
+                        <CardTitle className="text-sm">Saved Comparisons</CardTitle>
+                        <Badge variant="outline" className="text-xs">{filteredComparisons.length}</Badge>
+                      </div>
+                      <div className="flex items-center rounded-md border border-border overflow-hidden text-xs" data-testid="saved-comparisons-filter">
+                        <button
+                          type="button"
+                          onClick={() => setSavedComparisonsFilter("all")}
+                          className={`px-2.5 py-1 transition-colors ${savedComparisonsFilter === "all" ? "bg-blue-600 text-white" : "bg-background text-muted-foreground hover:bg-muted"}`}
+                          data-testid="filter-all-comparisons"
                         >
-                          <button
-                            type="button"
-                            onClick={() => auditsExist && enterCompareView(sc.auditId1, sc.auditId2)}
-                            disabled={!auditsExist}
-                            className="flex-1 min-w-0 text-left disabled:opacity-50 disabled:cursor-not-allowed"
-                          >
-                            <p className="text-sm font-medium truncate">{sc.name}</p>
-                            <p className="text-xs text-muted-foreground truncate">
-                              {auditsExist
-                                ? <>{a1!.title} <ArrowLeftRight size={10} className="inline mx-1" /> {a2!.title}</>
-                                : <span className="italic">One or both audits no longer available</span>}
-                            </p>
-                          </button>
-                          <div className="flex items-center gap-1 shrink-0">
-                            {auditsExist && (
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                className="h-7 gap-1 text-blue-600 dark:text-blue-400 hover:text-blue-700"
-                                onClick={() => enterCompareView(sc.auditId1, sc.auditId2)}
-                                data-testid={`button-open-saved-comparison-${sc.id}`}
-                              >
-                                <ArrowLeftRight size={12} /> Open
-                              </Button>
-                            )}
-                            <Button
-                              size="icon"
-                              variant="ghost"
-                              className="h-7 w-7 text-muted-foreground hover:text-destructive"
-                              onClick={() => setDeleteSavedId(sc.id)}
-                              title="Remove saved comparison"
-                              data-testid={`button-delete-saved-comparison-${sc.id}`}
+                          All
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setSavedComparisonsFilter("mine")}
+                          className={`px-2.5 py-1 transition-colors ${savedComparisonsFilter === "mine" ? "bg-blue-600 text-white" : "bg-background text-muted-foreground hover:bg-muted"}`}
+                          data-testid="filter-mine-comparisons"
+                        >
+                          Mine
+                        </button>
+                      </div>
+                    </div>
+                    <CardDescription className="text-xs">
+                      Quick links to your saved before/after audit comparisons
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="pt-0">
+                    {filteredComparisons.length === 0 ? (
+                      <p className="text-xs text-muted-foreground italic py-1">
+                        {savedComparisonsFilter === "mine"
+                          ? "You haven't saved any comparisons yet. Switch to \"All\" to see comparisons saved by your teammates."
+                          : "No saved comparisons yet."}
+                      </p>
+                    ) : (
+                      <div className="space-y-1.5">
+                        {filteredComparisons.map(sc => {
+                          const a1 = audits.find(a => a.id === sc.auditId1);
+                          const a2 = audits.find(a => a.id === sc.auditId2);
+                          const auditsExist = !!a1 && !!a2;
+                          const savedDate = sc.createdAt
+                            ? new Date(sc.createdAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })
+                            : null;
+                          const creatorLabel = sc.createdByName || (sc.createdBy ? "a team member" : null);
+                          const tooltipText = [
+                            creatorLabel ? `Saved by ${creatorLabel}` : null,
+                            savedDate ? `on ${savedDate}` : null,
+                          ].filter(Boolean).join(" ");
+                          return (
+                            <div
+                              key={sc.id}
+                              className="flex items-center justify-between gap-2 p-2 rounded-md bg-background border border-border hover:border-blue-300 dark:hover:border-blue-700 transition-colors"
+                              data-testid={`saved-comparison-${sc.id}`}
                             >
-                              <Trash2 size={13} />
-                            </Button>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </CardContent>
-              </Card>
-            )}
+                              <button
+                                type="button"
+                                onClick={() => auditsExist && enterCompareView(sc.auditId1, sc.auditId2)}
+                                disabled={!auditsExist}
+                                className="flex-1 min-w-0 text-left disabled:opacity-50 disabled:cursor-not-allowed"
+                                title={tooltipText || undefined}
+                              >
+                                <p className="text-sm font-medium truncate">{sc.name}</p>
+                                <p className="text-xs text-muted-foreground truncate">
+                                  {auditsExist
+                                    ? <>{a1!.title} <ArrowLeftRight size={10} className="inline mx-1" /> {a2!.title}</>
+                                    : <span className="italic">One or both audits no longer available</span>}
+                                </p>
+                                {(creatorLabel || savedDate) && (
+                                  <p className="text-xs text-muted-foreground/70 truncate mt-0.5">
+                                    {creatorLabel && <span>Saved by {creatorLabel}</span>}
+                                    {creatorLabel && savedDate && <span> · </span>}
+                                    {savedDate && <span>{savedDate}</span>}
+                                  </p>
+                                )}
+                              </button>
+                              <div className="flex items-center gap-1 shrink-0">
+                                {auditsExist && (
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    className="h-7 gap-1 text-blue-600 dark:text-blue-400 hover:text-blue-700"
+                                    onClick={() => enterCompareView(sc.auditId1, sc.auditId2)}
+                                    data-testid={`button-open-saved-comparison-${sc.id}`}
+                                  >
+                                    <ArrowLeftRight size={12} /> Open
+                                  </Button>
+                                )}
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                                  onClick={() => setDeleteSavedId(sc.id)}
+                                  title="Remove saved comparison"
+                                  data-testid={`button-delete-saved-comparison-${sc.id}`}
+                                >
+                                  <Trash2 size={13} />
+                                </Button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              );
+            })()}
 
             {/* Archived toggle */}
             <div className="flex items-center gap-2 mb-4">

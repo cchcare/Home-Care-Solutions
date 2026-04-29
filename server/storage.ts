@@ -1238,7 +1238,7 @@ export interface IStorage {
   getDohAuditCorrectiveActions(auditId: string): Promise<DohAuditCorrectiveAction[]>;
   upsertDohAuditCorrectiveAction(auditId: string, itemKey: string, data: { responsibleParty?: string | null; targetDate?: string | null; completionDate?: string | null; actionSteps?: string | null; status?: string }): Promise<DohAuditCorrectiveAction>;
   deleteDohAuditCorrectiveAction(id: string, auditId: string): Promise<void>;
-  getDohSavedComparisons(officeId: string): Promise<DohSavedComparison[]>;
+  getDohSavedComparisons(officeId: string): Promise<(DohSavedComparison & { createdByName: string | null })[]>;
   getDohSavedComparison(id: string): Promise<DohSavedComparison | undefined>;
   createDohSavedComparison(comparison: InsertDohSavedComparison): Promise<DohSavedComparison>;
   deleteDohSavedComparison(id: string): Promise<void>;
@@ -7613,10 +7613,35 @@ export class DatabaseStorage implements IStorage {
       .where(and(eq(dohAuditCorrectiveActions.id, id), eq(dohAuditCorrectiveActions.auditId, auditId)));
   }
 
-  async getDohSavedComparisons(officeId: string): Promise<DohSavedComparison[]> {
-    return db.select().from(dohSavedComparisons)
+  async getDohSavedComparisons(officeId: string): Promise<(DohSavedComparison & { createdByName: string | null })[]> {
+    const rows = await db
+      .select({
+        id: dohSavedComparisons.id,
+        officeId: dohSavedComparisons.officeId,
+        name: dohSavedComparisons.name,
+        auditId1: dohSavedComparisons.auditId1,
+        auditId2: dohSavedComparisons.auditId2,
+        createdBy: dohSavedComparisons.createdBy,
+        createdAt: dohSavedComparisons.createdAt,
+        creatorFirstName: users.firstName,
+        creatorLastName: users.lastName,
+      })
+      .from(dohSavedComparisons)
+      .leftJoin(users, eq(dohSavedComparisons.createdBy, users.id))
       .where(eq(dohSavedComparisons.officeId, officeId))
       .orderBy(desc(dohSavedComparisons.createdAt));
+    return rows.map(r => ({
+      id: r.id,
+      officeId: r.officeId,
+      name: r.name,
+      auditId1: r.auditId1,
+      auditId2: r.auditId2,
+      createdBy: r.createdBy,
+      createdAt: r.createdAt,
+      createdByName: r.creatorFirstName || r.creatorLastName
+        ? [r.creatorFirstName, r.creatorLastName].filter(Boolean).join(" ")
+        : null,
+    }));
   }
 
   async getDohSavedComparison(id: string): Promise<DohSavedComparison | undefined> {
