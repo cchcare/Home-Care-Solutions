@@ -36,7 +36,7 @@ import {
   Printer, Upload, Paperclip, Download, X, File, Image, Sheet,
   MoreVertical, Archive, ArchiveRestore, FileSpreadsheet, User,
   ArrowLeftRight, TrendingUp, TrendingDown, Minus, Link2,
-  Bookmark, BookmarkPlus,
+  Bookmark, BookmarkPlus, Pencil,
 } from "lucide-react";
 import ExcelJS from "exceljs";
 import jsPDF from "jspdf";
@@ -1129,6 +1129,19 @@ export default function AuditAssessment() {
   });
 
   const [deleteSavedId, setDeleteSavedId] = useState<string | null>(null);
+  const [renameSavedId, setRenameSavedId] = useState<string | null>(null);
+  const [renameSavedName, setRenameSavedName] = useState("");
+
+  const renameSavedComparisonMutation = useMutation({
+    mutationFn: ({ id, name }: { id: string; name: string }) =>
+      apiRequest("PATCH", `/api/doh-saved-comparisons/${id}`, { name }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/doh-saved-comparisons", officeId] });
+      toast({ title: "Comparison renamed" });
+      setRenameSavedId(null);
+    },
+    onError: () => toast({ title: "Error", description: "Failed to rename saved comparison.", variant: "destructive" }),
+  });
 
   const { data: activeAudit, isLoading: auditLoading } = useQuery<AuditAssessment & { responses: AuditResponse[]; documents: AuditDocument[]; customItems: AuditCustomItem[] }>({
     queryKey: ["/api/doh-audits", activeAuditId],
@@ -1559,6 +1572,16 @@ export default function AuditAssessment() {
                                 <Button
                                   size="icon"
                                   variant="ghost"
+                                  className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                                  onClick={() => { setRenameSavedId(sc.id); setRenameSavedName(sc.name); }}
+                                  title="Rename saved comparison"
+                                  data-testid={`button-rename-saved-comparison-${sc.id}`}
+                                >
+                                  <Pencil size={13} />
+                                </Button>
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
                                   className="h-7 w-7 text-muted-foreground hover:text-destructive"
                                   onClick={() => setDeleteSavedId(sc.id)}
                                   title="Remove saved comparison"
@@ -1859,6 +1882,46 @@ export default function AuditAssessment() {
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
+
+        <Dialog open={!!renameSavedId} onOpenChange={(open) => { if (!open) setRenameSavedId(null); }}>
+          <DialogContent className="max-w-sm">
+            <DialogHeader>
+              <DialogTitle>Rename comparison</DialogTitle>
+            </DialogHeader>
+            <div className="py-2">
+              <Label htmlFor="rename-saved-comparison-input" className="text-sm mb-1.5 block">New name</Label>
+              <Input
+                id="rename-saved-comparison-input"
+                value={renameSavedName}
+                onChange={e => setRenameSavedName(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === "Enter" && renameSavedName.trim() && !renameSavedComparisonMutation.isPending && renameSavedId) {
+                    renameSavedComparisonMutation.mutate({ id: renameSavedId, name: renameSavedName.trim() });
+                  }
+                }}
+                placeholder="Enter a new name"
+                data-testid="input-rename-saved-comparison"
+                autoFocus
+              />
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setRenameSavedId(null)} disabled={renameSavedComparisonMutation.isPending}>
+                Cancel
+              </Button>
+              <Button
+                onClick={() => {
+                  if (renameSavedId && renameSavedName.trim()) {
+                    renameSavedComparisonMutation.mutate({ id: renameSavedId, name: renameSavedName.trim() });
+                  }
+                }}
+                disabled={!renameSavedName.trim() || renameSavedComparisonMutation.isPending}
+                data-testid="button-confirm-rename-saved-comparison"
+              >
+                {renameSavedComparisonMutation.isPending ? "Saving…" : "Rename"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
         <AlertDialog open={!!deleteSavedId} onOpenChange={() => setDeleteSavedId(null)}>
           <AlertDialogContent>

@@ -1241,6 +1241,7 @@ export interface IStorage {
   getDohSavedComparisons(officeId: string): Promise<(DohSavedComparison & { createdByName: string | null })[]>;
   getDohSavedComparison(id: string): Promise<DohSavedComparison | undefined>;
   createDohSavedComparison(comparison: InsertDohSavedComparison): Promise<DohSavedComparison>;
+  updateDohSavedComparison(id: string, data: { name: string }): Promise<DohSavedComparison | undefined>;
   deleteDohSavedComparison(id: string): Promise<void>;
 
   // Supervisory Visits
@@ -7651,6 +7652,11 @@ export class DatabaseStorage implements IStorage {
 
   async createDohSavedComparison(comparison: InsertDohSavedComparison): Promise<DohSavedComparison> {
     const [row] = await db.insert(dohSavedComparisons).values(comparison).returning();
+    return row;
+  }
+
+  async updateDohSavedComparison(id: string, data: { name: string }): Promise<DohSavedComparison | undefined> {
+    const [row] = await db.update(dohSavedComparisons).set({ name: data.name }).where(eq(dohSavedComparisons.id, id)).returning();
     return row;
   }
 

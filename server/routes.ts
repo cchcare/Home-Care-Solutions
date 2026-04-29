@@ -17782,6 +17782,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // PATCH /api/doh-saved-comparisons/:id
+  app.patch("/api/doh-saved-comparisons/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const { name } = req.body;
+      if (!name || typeof name !== "string" || !name.trim()) {
+        return res.status(400).json({ message: "name is required" });
+      }
+      const trimmedName = name.trim().slice(0, 200);
+      if (!trimmedName) {
+        return res.status(400).json({ message: "name is required" });
+      }
+      const comparison = await storage.getDohSavedComparison(req.params.id);
+      if (!comparison) return res.status(404).json({ message: "Saved comparison not found" });
+      const user = req.session?.user;
+      const auth = await authorizeOfficeAccess(user, comparison.officeId);
+      if (auth !== true) return res.status(auth.status).json({ message: auth.message });
+      const updated = await storage.updateDohSavedComparison(req.params.id, { name: trimmedName });
+      if (!updated) return res.status(404).json({ message: "Saved comparison not found" });
+      res.json(updated);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to rename saved comparison" });
+    }
+  });
+
   // DELETE /api/doh-saved-comparisons/:id
   app.delete("/api/doh-saved-comparisons/:id", isAuthenticated, async (req: any, res) => {
     try {
