@@ -1327,9 +1327,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Don't let callers reassign the row to a different user
       const { userId: _ignored, ...patch } = parsed.data;
       // Reserve `__default` for column-prefs rows only — never let a regular saved
-      // view be renamed to `__default` (would shadow column prefs).
-      if (patch.name !== undefined && patch.name === "__default" && existing.name !== "__default") {
-        return res.status(400).json({ message: "'__default' is a reserved view name" });
+      // view be renamed to `__default` (would shadow column prefs), and never let
+      // an existing `__default` row be renamed away from that reserved slot.
+      if (patch.name !== undefined && patch.name !== existing.name) {
+        if (patch.name === "__default") {
+          return res.status(400).json({ message: "'__default' is a reserved view name" });
+        }
+        if (existing.name === "__default") {
+          return res.status(400).json({ message: "Cannot rename the reserved '__default' row" });
+        }
       }
       // Lock down `page` reassignment to the same allowed set as POST
       if (patch.page !== undefined) {
