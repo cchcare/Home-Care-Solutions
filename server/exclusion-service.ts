@@ -18,6 +18,22 @@ export class MedicheckImportValidationError extends Error {
   }
 }
 
+/**
+ * Thrown when a SAM.gov CSV upload is rejected because of bad input
+ * (unrecognized headers, no data rows, etc). Mirrors
+ * MedicheckImportValidationError so the route layer can return a 4xx
+ * without resorting to message-string matching, and ensures we never
+ * wipe existing SAM records when the file is malformed.
+ */
+export class SamImportValidationError extends Error {
+  readonly statusCode: number;
+  constructor(message: string, statusCode = 400) {
+    super(message);
+    this.name = 'SamImportValidationError';
+    this.statusCode = statusCode;
+  }
+}
+
 interface OigRecord {
   LASTNAME: string;
   FIRSTNAME: string;
@@ -60,7 +76,11 @@ interface SamRecord {
   'Termination Date'?: string;
   'Record Status'?: string;
   'Cross-Reference'?: string;
+  // SAM.gov bulk extracts use either spaced or underscored variants in the
+  // wild; accept both so the mapper does not silently drop the identifier.
+  'SAM Number'?: string;
   SAM_Number?: string;
+  'CAGE Code'?: string;
   CAGE_Code?: string;
   NPI?: string;
 }
@@ -946,19 +966,41 @@ export class ExclusionService {
         throw new Error('SAM exclusion source not found in database');
       }
 
-      const records = await this.parseSamCsv(csvContent);
+      const { records, headers } = await this.parseSamCsv(csvContent);
       console.log(`[Exclusion Service] Parsed ${records.length} SAM records`);
 
-      if (records.length === 0) {
-        warnings.push('SAM.gov CSV had no data rows; existing records were left untouched.');
-        return { success: true, recordCount: 0, errors, warnings };
+      // Validate the file actually has at least one column we recognize, BEFORE
+      // any destructive operation. Run this check whether or not data rows are
+      // present, so that header-only/empty/malformed files do not wipe
+      // existing records.
+      const RECOGNIZED_HEADERS = [
+        'First Name', 'Last Name', 'Middle Name', 'Name',
+        'SAM Number', 'SAM_Number', 'CAGE Code', 'CAGE_Code',
+        'Exclusion Type', 'Exclusion Program', 'Excluding Agency',
+        'Exclusion Date', 'Termination Date',
+        'NPI', 'Address1', 'City', 'State', 'Zip',
+      ];
+      const headerSet = new Set<string>(headers);
+      const hasAnyRecognizedHeader = RECOGNIZED_HEADERS.some(h => headerSet.has(h));
+      if (!hasAnyRecognizedHeader) {
+        throw new SamImportValidationError(
+          'Unrecognized SAM.gov CSV format. Expected columns like ' +
+          'First Name / Last Name / SAM Number / Exclusion Type. ' +
+          `Got: ${headers.slice(0, 12).join(', ') || '(no headers parsed)'}`
+        );
       }
-
-      await storage.deleteExclusionRecordsBySource(samSource.id);
+      if (records.length === 0) {
+        throw new SamImportValidationError(
+          'SAM.gov CSV had recognized headers but no data rows; refusing to ' +
+          'replace existing records.'
+        );
+      }
 
       const exclusionRecords = records.map((record: SamRecord) => ({
         sourceId: samSource.id,
-        externalIdentifier: record.SAM_Number || record.CAGE_Code || null,
+        externalIdentifier:
+          record['SAM Number'] || record.SAM_Number ||
+          record['CAGE Code'] || record.CAGE_Code || null,
         firstName: record['First Name'] || null,
         lastName: record['Last Name'] || null,
         middleName: record['Middle Name'] || null,
@@ -974,6 +1016,9 @@ export class ExclusionService {
         isActive: true,
       }));
 
+      // Only after validation passes do we wipe + replace existing records.
+      await storage.deleteExclusionRecordsBySource(samSource.id);
+
       recordCount = await storage.createExclusionRecordsBulk(exclusionRecords);
 
       await storage.updateExclusionSource(samSource.id, {
@@ -984,6 +1029,12 @@ export class ExclusionService {
       console.log(`[Exclusion Service] Successfully imported ${recordCount} SAM records`);
     } catch (error: any) {
       console.error('[Exclusion Service] Error importing SAM CSV:', error);
+      // Surface validation failures to the route layer so it can return a
+      // proper 4xx HTTP status. Other (unexpected) errors are still flattened
+      // into the result envelope so callers don't crash.
+      if (error instanceof SamImportValidationError) {
+        throw error;
+      }
       errors.push(error.message);
     }
 
@@ -1022,11 +1073,21 @@ export class ExclusionService {
     });
   }
 
-  private async parseSamCsv(csvText: string): Promise<SamRecord[]> {
+  private async parseSamCsv(
+    csvText: string
+  ): Promise<{ records: SamRecord[]; headers: string[] }> {
     return new Promise((resolve, reject) => {
       const records: SamRecord[] = [];
+      let headers: string[] = [];
       const parser = parse({
-        columns: true,
+        columns: (header: string[]) => {
+          // Strip a leading BOM from the first column header (some SAM.gov
+          // exports are UTF-8 with BOM) and trim whitespace so header
+          // recognition works regardless of how the file was saved.
+          headers = header.map(h => (h ?? '').replace(/^\uFEFF/, '').trim());
+          return headers;
+        },
+        bom: true,
         skip_empty_lines: true,
         trim: true,
         relax_column_count: true,
@@ -1040,7 +1101,7 @@ export class ExclusionService {
       });
 
       parser.on('error', (err) => reject(err));
-      parser.on('end', () => resolve(records));
+      parser.on('end', () => resolve({ records, headers }));
 
       const stream = Readable.from(csvText);
       stream.pipe(parser);

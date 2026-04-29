@@ -161,6 +161,7 @@ export default function ExclusionVerification() {
   const medicheckFileRef = useRef<HTMLInputElement>(null);
   const samFileRef = useRef<HTMLInputElement>(null);
   const [medicheckRecordsOpen, setMedicheckRecordsOpen] = useState(false);
+  const [samRecordsOpen, setSamRecordsOpen] = useState(false);
   const [importResult, setImportResult] = useState<ImportResultState | null>(null);
 
   const { data: dashboardStats, isLoading: loadingStats } = useQuery<DashboardStats>({
@@ -687,6 +688,16 @@ export default function ExclusionVerification() {
                         {uploadSamMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Upload className="w-4 h-4 mr-2" />}
                         Upload CSV
                       </Button>
+                      <Button
+                        className="w-full"
+                        variant="outline"
+                        onClick={() => setSamRecordsOpen(true)}
+                        disabled={(dataSources.find(s => s.type === "sam")?.recordCount || 0) === 0}
+                        data-testid="button-view-sam-records"
+                      >
+                        <Eye className="w-4 h-4 mr-2" />
+                        View Records
+                      </Button>
                     </CardContent>
                   </Card>
                 </div>
@@ -949,9 +960,16 @@ export default function ExclusionVerification() {
         </DialogContent>
       </Dialog>
 
-      <MedicheckRecordsDialog
+      <ExclusionRecordsDialog
         open={medicheckRecordsOpen}
         onOpenChange={setMedicheckRecordsOpen}
+        sourceType="medicheck"
+      />
+
+      <ExclusionRecordsDialog
+        open={samRecordsOpen}
+        onOpenChange={setSamRecordsOpen}
+        sourceType="sam"
       />
 
       <ImportResultDialog
@@ -1106,7 +1124,7 @@ function ImportResultDialog({
   );
 }
 
-interface MedicheckRecord {
+interface ExclusionRecordRow {
   id: string;
   firstName: string | null;
   lastName: string | null;
@@ -1114,35 +1132,92 @@ interface MedicheckRecord {
   businessName: string | null;
   npi: string | null;
   licenseNumber: string | null;
+  externalIdentifier: string | null;
   fein: string | null;
+  exclusionType: string | null;
   exclusionStatus: string | null;
   exclusionDate: string | null;
   reinstateDate: string | null;
+  city: string | null;
+  state: string | null;
 }
 
-function MedicheckRecordsDialog({
+const RECORDS_DIALOG_CONFIG = {
+  medicheck: {
+    title: "Medicheck Records",
+    sourceLabel: "Medicheck",
+    testIdPrefix: "medicheck",
+    secondColumnHeader: "Business Name",
+    identifierHeader: "License Number",
+    statusHeader: "Status",
+    beginDateHeader: "Begin Date",
+    endDateHeader: "End Date",
+  },
+  sam: {
+    title: "SAM.gov Records",
+    sourceLabel: "SAM.gov",
+    testIdPrefix: "sam",
+    secondColumnHeader: "City / State",
+    identifierHeader: "SAM Number",
+    statusHeader: "Exclusion Type",
+    beginDateHeader: "Exclusion Date",
+    endDateHeader: "Termination Date",
+  },
+} as const;
+
+function ExclusionRecordsDialog({
   open,
   onOpenChange,
+  sourceType,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  sourceType: "medicheck" | "sam";
 }) {
-  const { data: records = [], isLoading } = useQuery<MedicheckRecord[]>({
-    queryKey: ["/api/exclusions/records", { sourceType: "medicheck" }],
+  const config = RECORDS_DIALOG_CONFIG[sourceType];
+  const { data: records = [], isLoading } = useQuery<ExclusionRecordRow[]>({
+    queryKey: ["/api/exclusions/records", { sourceType }],
     queryFn: async () => {
-      const res = await fetch("/api/exclusions/records?sourceType=medicheck&limit=200", {
-        credentials: "include",
-      });
-      if (!res.ok) throw new Error("Failed to load Medicheck records");
+      const res = await fetch(
+        `/api/exclusions/records?sourceType=${sourceType}&limit=200`,
+        { credentials: "include" },
+      );
+      if (!res.ok) throw new Error(`Failed to load ${config.sourceLabel} records`);
       return res.json();
     },
     enabled: open,
   });
 
-  const formatPersonName = (r: MedicheckRecord) => {
+  const formatPersonName = (r: ExclusionRecordRow) => {
     const parts = [r.lastName, r.firstName].filter(Boolean).join(", ");
     if (parts) return parts;
     return "—";
+  };
+
+  // SAM rows rarely have a businessName; fall back to City / State so the
+  // row is still recognizable. MediCheck rows almost always have a business
+  // name when present, so we use it directly.
+  const formatSecondColumn = (r: ExclusionRecordRow) => {
+    if (sourceType === "medicheck") {
+      return r.businessName || "—";
+    }
+    if (r.businessName) return r.businessName;
+    const cityState = [r.city, r.state].filter(Boolean).join(", ");
+    return cityState || "—";
+  };
+
+  // MediCheck stores license # in licenseNumber; SAM stores SAM_Number /
+  // CAGE_Code in externalIdentifier. Pick whichever the source uses.
+  const formatIdentifier = (r: ExclusionRecordRow) => {
+    if (sourceType === "medicheck") return r.licenseNumber || "—";
+    return r.externalIdentifier || "—";
+  };
+
+  // MediCheck reports a separate exclusionStatus field; SAM reports
+  // exclusionType (e.g. "Reciprocal", "Procurement").
+  const formatStatus = (r: ExclusionRecordRow) => {
+    const value = sourceType === "medicheck" ? r.exclusionStatus : r.exclusionType;
+    return value ? <Badge variant="outline">{value}</Badge> : "—";
   };
 
   const formatDate = (d: string | null) => (d ? format(new Date(d), "MMM d, yyyy") : "—");
@@ -1151,10 +1226,10 @@ function MedicheckRecordsDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[1000px] max-h-[80vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Medicheck Records</DialogTitle>
+          <DialogTitle>{config.title}</DialogTitle>
           <DialogDescription>
             Most recent {records.length} record{records.length === 1 ? "" : "s"} imported from
-            the Medicheck CSV.
+            the {config.sourceLabel} CSV.
           </DialogDescription>
         </DialogHeader>
         {isLoading ? (
@@ -1163,39 +1238,33 @@ function MedicheckRecordsDialog({
           </div>
         ) : records.length === 0 ? (
           <div className="text-center py-8 text-muted-foreground">
-            No records yet. Upload a Medicheck CSV to populate this list.
+            No records yet. Upload a {config.sourceLabel} CSV to populate this list.
           </div>
         ) : (
-          <Table data-testid="table-medicheck-records">
+          <Table data-testid={`table-${config.testIdPrefix}-records`}>
             <TableHeader>
               <TableRow>
                 <TableHead>Name</TableHead>
-                <TableHead>Business Name</TableHead>
-                <TableHead>License Number</TableHead>
+                <TableHead>{config.secondColumnHeader}</TableHead>
+                <TableHead>{config.identifierHeader}</TableHead>
                 <TableHead>NPI</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Begin Date</TableHead>
-                <TableHead>End Date</TableHead>
+                <TableHead>{config.statusHeader}</TableHead>
+                <TableHead>{config.beginDateHeader}</TableHead>
+                <TableHead>{config.endDateHeader}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {records.map((r) => (
-                <TableRow key={r.id} data-testid={`row-medicheck-${r.id}`}>
-                  <TableCell className="font-medium" data-testid={`cell-medicheck-name-${r.id}`}>
+                <TableRow key={r.id} data-testid={`row-${config.testIdPrefix}-${r.id}`}>
+                  <TableCell className="font-medium" data-testid={`cell-${config.testIdPrefix}-name-${r.id}`}>
                     {formatPersonName(r)}
                   </TableCell>
-                  <TableCell data-testid={`cell-medicheck-business-${r.id}`}>
-                    {r.businessName || "—"}
+                  <TableCell data-testid={`cell-${config.testIdPrefix}-business-${r.id}`}>
+                    {formatSecondColumn(r)}
                   </TableCell>
-                  <TableCell>{r.licenseNumber || "—"}</TableCell>
+                  <TableCell>{formatIdentifier(r)}</TableCell>
                   <TableCell>{r.npi || "—"}</TableCell>
-                  <TableCell>
-                    {r.exclusionStatus ? (
-                      <Badge variant="outline">{r.exclusionStatus}</Badge>
-                    ) : (
-                      "—"
-                    )}
-                  </TableCell>
+                  <TableCell>{formatStatus(r)}</TableCell>
                   <TableCell>{formatDate(r.exclusionDate)}</TableCell>
                   <TableCell>{formatDate(r.reinstateDate)}</TableCell>
                 </TableRow>

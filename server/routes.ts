@@ -13750,7 +13750,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/exclusions/upload/sam", isAuthenticated, excelUpload.single('file'), async (req: any, res) => {
+  app.post("/api/exclusions/upload/sam", isAuthenticated, csvUpload.single('file'), async (req: any, res) => {
     try {
       const user = req.session?.user;
       if (!user || (user.role !== "admin" && user.role !== "supervisor" && user.role !== "super_admin")) {
@@ -13766,15 +13766,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
       const csvContent = req.file.buffer.toString('utf-8');
-      const { exclusionService } = await import('./exclusion-service');
-      const result = await exclusionService.importSamCsv(csvContent);
-      if (!result.success) {
-        return res.status(500).json({
-          message: result.errors[0] || "SAM.gov CSV import failed",
-          ...result,
-        });
+      const { exclusionService, SamImportValidationError } = await import('./exclusion-service');
+      try {
+        const result = await exclusionService.importSamCsv(csvContent);
+        // Any importer-rejected file should surface as a non-2xx so the UI
+        // shows an error toast, not a success one.
+        if (!result.success) {
+          return res.status(500).json({
+            message: result.errors[0] || "SAM.gov CSV import failed",
+            ...result,
+          });
+        }
+        res.json(result);
+      } catch (importErr: unknown) {
+        if (importErr instanceof SamImportValidationError) {
+          return res.status(importErr.statusCode).json({
+            success: false,
+            recordCount: 0,
+            errors: [importErr.message],
+            warnings: [],
+            message: importErr.message,
+          });
+        }
+        throw importErr;
       }
-      res.json(result);
     } catch (error: any) {
       res.status(500).json({
         success: false,
