@@ -12943,6 +12943,64 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Helper: persist a single import-stage result to hhax_sync_logs.
+  const persistHhaxSyncLog = async (params: {
+    syncType: 'caregivers' | 'clients' | 'schedules';
+    userId: string;
+    fallbackOfficeId?: string;
+    result: {
+      success: boolean;
+      recordsTotal: number;
+      recordsCreated: number;
+      recordsUpdated: number;
+      recordsSkipped: number;
+      recordsFailed: number;
+      errors: string[];
+      fileName?: string | null;
+      unrecognizedHeaders?: string[];
+    };
+  }) => {
+    const { syncType, userId, fallbackOfficeId, result } = params;
+    const created = await storage.createHhaxSyncLog(
+      insertHhaxSyncLogSchema.parse({
+        syncType,
+        status: 'in_progress',
+        fileName: result.fileName || null,
+        initiatedBy: userId,
+        officeId: fallbackOfficeId || null,
+      }),
+    );
+    // We treat "no file found" as failed; everything else with at least one
+    // row written becomes completed (or partial if any rows failed).
+    let status: 'completed' | 'failed' | 'partial';
+    if (!result.success) {
+      status = 'failed';
+    } else if (result.recordsFailed > 0) {
+      status = 'partial';
+    } else {
+      status = 'completed';
+    }
+    const errorPayload =
+      result.errors.length > 0 || (result.unrecognizedHeaders?.length ?? 0) > 0
+        ? {
+            errors: result.errors,
+            unrecognizedHeaders: result.unrecognizedHeaders ?? [],
+          }
+        : null;
+    await storage.updateHhaxSyncLog(created.id, {
+      status,
+      recordsTotal: result.recordsTotal,
+      recordsCreated: result.recordsCreated,
+      recordsUpdated: result.recordsUpdated,
+      recordsSkipped: result.recordsSkipped,
+      recordsFailed: result.recordsFailed,
+      errorDetails: errorPayload,
+      fileName: result.fileName || null,
+      completedAt: new Date(),
+    });
+    return created.id;
+  };
+
   // Import caregivers from HHAX
   app.post("/api/hhax/import/caregivers", isAuthenticated, async (req: any, res) => {
     try {
@@ -12950,32 +13008,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!user || (user.role !== "admin" && user.role !== "supervisor" && user.role !== "super_admin")) {
         return res.status(403).json({ message: "Unauthorized: Admin, supervisor, or super_admin role required" });
       }
-      
       const { hhaxSftpService } = await import('./hhax-sftp-service');
-      const { fileName, fallbackOfficeId } = req.body;
-      
-      const syncLogData = insertHhaxSyncLogSchema.parse({
-        syncType: 'caregivers',
-        status: 'in_progress',
-        fileName: fileName || null,
-        initiatedBy: user.id,
+      const { fileName, fallbackOfficeId } = req.body || {};
+      const result = await hhaxSftpService.importCaregivers({ fileName, fallbackOfficeId });
+      const syncLogId = await persistHhaxSyncLog({
+        syncType: 'caregivers', userId: user.id, fallbackOfficeId, result,
       });
-      const syncLog = await storage.createHhaxSyncLog(syncLogData);
-      
-      const result = await hhaxSftpService.importCaregivers(fileName, fallbackOfficeId);
-      
-      await storage.updateHhaxSyncLog(syncLog.id, {
-        status: result.success ? 'completed' : 'failed',
-        recordsTotal: result.recordsTotal,
-        recordsCreated: result.recordsCreated,
-        recordsUpdated: result.recordsUpdated,
-        recordsSkipped: result.recordsSkipped,
-        recordsFailed: result.recordsFailed,
-        errorDetails: result.errors.length > 0 ? result.errors : null,
-        completedAt: new Date(),
-      });
-      
-      res.json({ syncLogId: syncLog.id, ...result });
+      res.json({ syncLogId, ...result });
     } catch (error: any) {
       console.error("Error importing caregivers from HHAX:", error);
       res.status(500).json({ message: error.message || "Failed to import caregivers" });
@@ -12989,32 +13028,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!user || (user.role !== "admin" && user.role !== "supervisor" && user.role !== "super_admin")) {
         return res.status(403).json({ message: "Unauthorized: Admin, supervisor, or super_admin role required" });
       }
-      
       const { hhaxSftpService } = await import('./hhax-sftp-service');
-      const { fileName, fallbackOfficeId } = req.body;
-      
-      const syncLogData = insertHhaxSyncLogSchema.parse({
-        syncType: 'clients',
-        status: 'in_progress',
-        fileName: fileName || null,
-        initiatedBy: user.id,
+      const { fileName, fallbackOfficeId } = req.body || {};
+      const result = await hhaxSftpService.importClients({ fileName, fallbackOfficeId });
+      const syncLogId = await persistHhaxSyncLog({
+        syncType: 'clients', userId: user.id, fallbackOfficeId, result,
       });
-      const syncLog = await storage.createHhaxSyncLog(syncLogData);
-      
-      const result = await hhaxSftpService.importClients(fileName, fallbackOfficeId);
-      
-      await storage.updateHhaxSyncLog(syncLog.id, {
-        status: result.success ? 'completed' : 'failed',
-        recordsTotal: result.recordsTotal,
-        recordsCreated: result.recordsCreated,
-        recordsUpdated: result.recordsUpdated,
-        recordsSkipped: result.recordsSkipped,
-        recordsFailed: result.recordsFailed,
-        errorDetails: result.errors.length > 0 ? result.errors : null,
-        completedAt: new Date(),
-      });
-      
-      res.json({ syncLogId: syncLog.id, ...result });
+      res.json({ syncLogId, ...result });
     } catch (error: any) {
       console.error("Error importing clients from HHAX:", error);
       res.status(500).json({ message: error.message || "Failed to import clients" });
@@ -13028,78 +13048,68 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!user || (user.role !== "admin" && user.role !== "supervisor" && user.role !== "super_admin")) {
         return res.status(403).json({ message: "Unauthorized: Admin, supervisor, or super_admin role required" });
       }
-      
       const { hhaxSftpService } = await import('./hhax-sftp-service');
-      const { fileName, fallbackOfficeId } = req.body;
-      
-      const syncLogData = insertHhaxSyncLogSchema.parse({
-        syncType: 'schedules',
-        status: 'in_progress',
-        fileName: fileName || null,
-        initiatedBy: user.id,
+      const { fileName, fallbackOfficeId } = req.body || {};
+      const result = await hhaxSftpService.importSchedules({ fileName, fallbackOfficeId });
+      const syncLogId = await persistHhaxSyncLog({
+        syncType: 'schedules', userId: user.id, fallbackOfficeId, result,
       });
-      const syncLog = await storage.createHhaxSyncLog(syncLogData);
-      
-      const result = await hhaxSftpService.importSchedules(fileName, fallbackOfficeId);
-      
-      await storage.updateHhaxSyncLog(syncLog.id, {
-        status: result.success ? 'completed' : 'failed',
-        recordsTotal: result.recordsTotal,
-        recordsCreated: result.recordsCreated,
-        recordsUpdated: result.recordsUpdated,
-        recordsSkipped: result.recordsSkipped,
-        recordsFailed: result.recordsFailed,
-        errorDetails: result.errors.length > 0 ? result.errors : null,
-        completedAt: new Date(),
-      });
-      
-      res.json({ syncLogId: syncLog.id, ...result });
+      res.json({ syncLogId, ...result });
     } catch (error: any) {
       console.error("Error importing schedules from HHAX:", error);
       res.status(500).json({ message: error.message || "Failed to import schedules" });
     }
   });
 
-  // Run full HHAX sync (all data types)
+  // Run full HHAX sync (all data types). Writes one sync_log row per stage.
   app.post("/api/hhax/sync-all", isAuthenticated, async (req: any, res) => {
     try {
       const user = req.session?.user;
       if (!user || (user.role !== "admin" && user.role !== "supervisor" && user.role !== "super_admin")) {
         return res.status(403).json({ message: "Unauthorized: Admin, supervisor, or super_admin role required" });
       }
-      
       const { hhaxSftpService } = await import('./hhax-sftp-service');
-      const { fallbackOfficeId } = req.body;
-      
-      const syncLogData = insertHhaxSyncLogSchema.parse({
-        syncType: 'clients',
-        status: 'in_progress',
-        initiatedBy: user.id,
+      const { fallbackOfficeId } = req.body || {};
+      const results = await hhaxSftpService.runFullSync(fallbackOfficeId);
+      const [clientsLogId, caregiversLogId, schedulesLogId] = await Promise.all([
+        persistHhaxSyncLog({ syncType: 'clients',    userId: user.id, fallbackOfficeId, result: results.clients }),
+        persistHhaxSyncLog({ syncType: 'caregivers', userId: user.id, fallbackOfficeId, result: results.caregivers }),
+        persistHhaxSyncLog({ syncType: 'schedules',  userId: user.id, fallbackOfficeId, result: results.schedules }),
+      ]);
+      res.json({
+        results,
+        syncLogIds: { clients: clientsLogId, caregivers: caregiversLogId, schedules: schedulesLogId },
       });
-      const syncLog = await storage.createHhaxSyncLog(syncLogData);
-      
-      const results = await hhaxSftpService.runFullSync(syncLog.id, user.id, fallbackOfficeId);
-      
-      const totalRecords = results.caregivers.recordsTotal + results.clients.recordsTotal + results.schedules.recordsTotal;
-      const totalCreated = results.caregivers.recordsCreated + results.clients.recordsCreated + results.schedules.recordsCreated;
-      const totalUpdated = results.caregivers.recordsUpdated + results.clients.recordsUpdated + results.schedules.recordsUpdated;
-      const totalFailed = results.caregivers.recordsFailed + results.clients.recordsFailed + results.schedules.recordsFailed;
-      const allErrors = [...results.caregivers.errors, ...results.clients.errors, ...results.schedules.errors];
-      
-      await storage.updateHhaxSyncLog(syncLog.id, {
-        status: allErrors.length === 0 ? 'completed' : 'partial',
-        recordsTotal: totalRecords,
-        recordsCreated: totalCreated,
-        recordsUpdated: totalUpdated,
-        recordsFailed: totalFailed,
-        errorDetails: allErrors.length > 0 ? allErrors : null,
-        completedAt: new Date(),
-      });
-      
-      res.json({ syncLogId: syncLog.id, results });
     } catch (error: any) {
       console.error("Error running full HHAX sync:", error);
       res.status(500).json({ message: error.message || "Failed to run full sync" });
+    }
+  });
+
+  // Validate a sample file uploaded by the user. Runs the chosen importer in
+  // dry-run mode against the uploaded buffer; nothing is written to the DB.
+  app.post("/api/hhax/validate-file", isAuthenticated, csvUpload.single('file'), async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      if (!user || (user.role !== "admin" && user.role !== "supervisor" && user.role !== "super_admin")) {
+        return res.status(403).json({ message: "Unauthorized: Admin, supervisor, or super_admin role required" });
+      }
+      const file = req.file as Express.Multer.File | undefined;
+      if (!file) return res.status(400).json({ message: "No file uploaded" });
+      const type = String(req.body?.type || '').toLowerCase();
+      if (!['caregivers', 'clients', 'schedules'].includes(type)) {
+        return res.status(400).json({ message: "type must be one of: caregivers, clients, schedules" });
+      }
+      const { hhaxSftpService } = await import('./hhax-sftp-service');
+      const opts = { buffer: file.buffer, fileName: file.originalname, dryRun: true };
+      let result;
+      if (type === 'caregivers') result = await hhaxSftpService.importCaregivers(opts);
+      else if (type === 'clients') result = await hhaxSftpService.importClients(opts);
+      else result = await hhaxSftpService.importSchedules(opts);
+      res.json(result);
+    } catch (error: any) {
+      console.error("Error validating HHAX file:", error);
+      res.status(500).json({ message: error.message || "Failed to validate file" });
     }
   });
 

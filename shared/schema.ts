@@ -146,6 +146,10 @@ export const clients = pgTable("clients", {
   zipCode: varchar("zip_code"),
   county: varchar("county"),
   hhaxAdmissionId: varchar("hhax_admission_id").unique(),
+  // HHAX PatientCode (per-patient, distinct from per-admission AdmissionID).
+  // Stored separately so the schedule importer can match schedules.PatientCode
+  // back to clients even when AdmissionID was also present in the patient export.
+  hhaxPatientCode: varchar("hhax_patient_code"),
   emergencyContactName: varchar("emergency_contact_name"),
   emergencyContactPhone: varchar("emergency_contact_phone"),
   emergencyContactRelation: varchar("emergency_contact_relation"),
