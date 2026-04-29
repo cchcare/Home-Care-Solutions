@@ -17366,7 +17366,70 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   const OFFICE_BOUNDARY_METERS = 152.4; // 500 feet in meters
 
-  async function verifyKioskCredentials(staffId: string, pin: string) {
+  // ── Kiosk PIN brute-force lockout ────────────────────────────────────────
+  // Tracks failed PIN attempts keyed by (lower-cased staffId | client IP).
+  // After KIOSK_PIN_MAX_FAILURES attempts inside KIOSK_PIN_WINDOW_MS, the key
+  // is locked for KIOSK_PIN_LOCKOUT_MS. Works the same way for unknown staff
+  // IDs so a brute-forcer can't enumerate accounts via timing.
+  const kioskPinAttempts = new Map<string, { count: number; firstAt: number; lockedUntil: number }>();
+  const KIOSK_PIN_MAX_FAILURES = 5;
+  const KIOSK_PIN_WINDOW_MS = 15 * 60 * 1000;   // 15 min rolling window
+  const KIOSK_PIN_LOCKOUT_MS = 15 * 60 * 1000;  // 15 min lockout once tripped
+
+  function kioskAttemptKey(staffId: string, ip: string): string {
+    return `${staffId.toLowerCase()}|${ip}`;
+  }
+
+  function checkKioskLockout(key: string): { locked: boolean; retryAfterSec: number } {
+    const entry = kioskPinAttempts.get(key);
+    if (!entry) return { locked: false, retryAfterSec: 0 };
+    const now = Date.now();
+    if (entry.lockedUntil > now) {
+      return { locked: true, retryAfterSec: Math.ceil((entry.lockedUntil - now) / 1000) };
+    }
+    // Window expired — clear stale entry so the user gets a fresh allotment.
+    if (now - entry.firstAt > KIOSK_PIN_WINDOW_MS && entry.lockedUntil <= now) {
+      kioskPinAttempts.delete(key);
+    }
+    return { locked: false, retryAfterSec: 0 };
+  }
+
+  function recordKioskFailure(key: string): { lockedNow: boolean; retryAfterSec: number } {
+    const now = Date.now();
+    const existing = kioskPinAttempts.get(key);
+    if (!existing || now - existing.firstAt > KIOSK_PIN_WINDOW_MS) {
+      kioskPinAttempts.set(key, { count: 1, firstAt: now, lockedUntil: 0 });
+      return { lockedNow: false, retryAfterSec: 0 };
+    }
+    existing.count++;
+    if (existing.count >= KIOSK_PIN_MAX_FAILURES) {
+      existing.lockedUntil = now + KIOSK_PIN_LOCKOUT_MS;
+      return { lockedNow: true, retryAfterSec: Math.ceil(KIOSK_PIN_LOCKOUT_MS / 1000) };
+    }
+    return { lockedNow: false, retryAfterSec: 0 };
+  }
+
+  function clearKioskFailures(key: string): void {
+    kioskPinAttempts.delete(key);
+  }
+
+  async function verifyKioskCredentials(
+    staffId: string,
+    pin: string,
+    ip: string,
+  ): Promise<
+    | { user: any; error?: never; locked?: never }
+    | { error: string; locked?: boolean; retryAfterSec?: number; user?: never }
+  > {
+    const key = kioskAttemptKey(staffId, ip);
+    const lock = checkKioskLockout(key);
+    if (lock.locked) {
+      return {
+        error: `Too many failed attempts. Please wait ${Math.ceil(lock.retryAfterSec / 60)} minute(s) before trying again, or ask a supervisor for help.`,
+        locked: true,
+        retryAfterSec: lock.retryAfterSec,
+      };
+    }
     const [user] = await db.select({
       id: users.id,
       firstName: users.firstName,
@@ -17380,13 +17443,55 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }).from(users).where(
       or(eq(users.username, staffId), eq(users.email, staffId))
     ).limit(1);
-    if (!user) return { error: "Staff ID not found" };
-    if (user.kioskEnabled !== true) return { error: "Kiosk access not enabled for this account" };
-    if (!user.kioskPin) return { error: "No kiosk PIN configured for this account" };
+
+    // Helper: count this attempt against the throttle and return a normalized
+    // error. We deliberately use the same throttle counter for missing-user,
+    // disabled-user, no-pin, and bad-pin so attackers can't enumerate accounts.
+    const fail = (message: string) => {
+      const f = recordKioskFailure(key);
+      if (f.lockedNow) {
+        return {
+          error: `Too many failed attempts. Please wait ${Math.ceil(f.retryAfterSec / 60)} minute(s) before trying again, or ask a supervisor for help.`,
+          locked: true,
+          retryAfterSec: f.retryAfterSec,
+        };
+      }
+      return { error: message };
+    };
+
+    if (!user) return fail("Staff ID not found");
+    if (user.kioskEnabled !== true) return fail("Kiosk access not enabled for this account");
+    if (!user.kioskPin) return fail("No kiosk PIN configured for this account");
     const { verifyPassword } = await import("./localAuth");
     const valid = await verifyPassword(pin, user.kioskPin);
-    if (!valid) return { error: "Incorrect PIN" };
+    if (!valid) return fail("Incorrect PIN");
+
+    // Success — clear the bad-attempt counter for this key so the next genuine
+    // mistake doesn't get penalized by old failures.
+    clearKioskFailures(key);
     return { user };
+  }
+
+  /**
+   * Resolve the timestamp to record for a kiosk action. Accepts an optional
+   * client-provided ISO string (used by the offline queue so a clock-in saved
+   * on a tablet during a network outage retains its real time when it
+   * eventually syncs). The value is sanity-bounded: not in the future, not
+   * older than 24h, and ignored otherwise (falls back to server now).
+   */
+  function resolveKioskTimestamp(clientCapturedAt: unknown): { ts: Date; usedClientTime: boolean } {
+    const now = Date.now();
+    if (typeof clientCapturedAt === "string" && clientCapturedAt.length > 0) {
+      const parsed = Date.parse(clientCapturedAt);
+      if (!Number.isNaN(parsed)) {
+        const drift = now - parsed;
+        // Allow up to 24h late (queued offline) and 2min early (clock skew).
+        if (drift >= -2 * 60 * 1000 && drift <= 24 * 60 * 60 * 1000) {
+          return { ts: new Date(parsed), usedClientTime: true };
+        }
+      }
+    }
+    return { ts: new Date(now), usedClientTime: false };
   }
 
   // Session token store for kiosk face-match UX preview (time-limited, multi-use, user-bound)
