@@ -1481,6 +1481,12 @@ tr.unmatched-separator-row > td {
             <option value="pastel">Soft Pastel</option>
           </select>
         </label>
+        <button type="button" id="savePresetBtn" title="Save the current Matched/Unmatched colors as a named preset" style="font-size:12px;padding:4px 8px;border:1px solid var(--border2);border-radius:6px;background:var(--card);color:var(--text2);font-family:'Inter',sans-serif;cursor:pointer;display:inline-flex;align-items:center;gap:4px;line-height:1">
+          <span style="font-size:13px;line-height:1">+</span> Save current as preset…
+        </button>
+        <button type="button" id="deletePresetBtn" title="Delete the selected custom preset" style="font-size:12px;padding:4px 8px;border:1px solid var(--border2);border-radius:6px;background:var(--card);color:var(--text2);font-family:'Inter',sans-serif;cursor:pointer;display:none;align-items:center;gap:4px;line-height:1">
+          <span style="font-size:13px;line-height:1">🗑</span> Delete preset
+        </button>
         <label style="font-weight:500;white-space:nowrap;color:var(--text2);display:flex;align-items:center;gap:4px">
           Matched:
           <input type="color" id="matchedColor" value="#C6EFCE" title="Matched row color" style="width:28px;height:24px;padding:1px;border:1px solid var(--border2);border-radius:4px;cursor:pointer;background:none">
@@ -2977,7 +2983,59 @@ setupDragDrop();
     pastel:     { matched: '#D4F1D4', unmatched: '#FCD5CE' }
   };
 
+  // User-defined custom presets, keyed by display name. Persisted as JSON in
+  // localStorage so they survive reloads. The dropdown <option>'s value uses
+  // a "user:<name>" prefix to avoid colliding with the built-in preset keys.
+  const CUSTOM_PRESETS_KEY = 'paysync_customColorPresets';
+  function loadCustomPresets() {
+    try {
+      const raw = localStorage.getItem(CUSTOM_PRESETS_KEY);
+      if (!raw) return {};
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== 'object') return {};
+      const out = {};
+      Object.keys(parsed).forEach(function (name) {
+        const p = parsed[name];
+        if (p && typeof p.matched === 'string' && typeof p.unmatched === 'string') {
+          out[name] = { matched: p.matched, unmatched: p.unmatched };
+        }
+      });
+      return out;
+    } catch (_) {
+      return {};
+    }
+  }
+  function saveCustomPresets(presets) {
+    try {
+      localStorage.setItem(CUSTOM_PRESETS_KEY, JSON.stringify(presets));
+    } catch (_) {}
+  }
+  let customPresets = loadCustomPresets();
+
+  // Rebuild the <optgroup> for custom presets at the bottom of the dropdown
+  // so newly saved/deleted entries show up without a page reload.
+  function renderCustomPresetOptions() {
+    if (!presetSelectEl) return;
+    const existing = presetSelectEl.querySelector('optgroup[data-custom]');
+    if (existing) existing.remove();
+    const names = Object.keys(customPresets).sort(function (a, b) {
+      return a.toLowerCase().localeCompare(b.toLowerCase());
+    });
+    if (!names.length) return;
+    const group = document.createElement('optgroup');
+    group.label = 'My presets';
+    group.setAttribute('data-custom', '1');
+    names.forEach(function (name) {
+      const opt = document.createElement('option');
+      opt.value = 'user:' + name;
+      opt.textContent = name;
+      group.appendChild(opt);
+    });
+    presetSelectEl.appendChild(group);
+  }
+
   // Find a preset name whose colors match the given hex pair (case-insensitive).
+  // Built-in presets win over custom ones if a user happens to save a duplicate.
   function detectPresetName(matchedHex, unmatchedHex) {
     const m = String(matchedHex || '').toLowerCase();
     const u = String(unmatchedHex || '').toLowerCase();
@@ -2987,7 +3045,21 @@ setupDragDrop();
         return name;
       }
     }
+    for (const name in customPresets) {
+      const p = customPresets[name];
+      if (p.matched.toLowerCase() === m && p.unmatched.toLowerCase() === u) {
+        return 'user:' + name;
+      }
+    }
     return 'custom';
+  }
+
+  // Show the Delete button only when the active selection is a custom preset.
+  function syncDeleteButtonVisibility() {
+    const btn = document.getElementById('deletePresetBtn');
+    if (!btn || !presetSelectEl) return;
+    const isCustom = String(presetSelectEl.value || '').indexOf('user:') === 0;
+    btn.style.display = isCustom ? 'inline-flex' : 'none';
   }
 
   // Keep the preset dropdown in sync with whatever colors are currently set,
@@ -2997,6 +3069,7 @@ setupDragDrop();
     const m = matchedColorEl   ? matchedColorEl.value   : '';
     const u = unmatchedColorEl ? unmatchedColorEl.value : '';
     presetSelectEl.value = detectPresetName(m, u);
+    syncDeleteButtonVisibility();
   }
 
   function syncColorPickerVisibility() {
@@ -3103,10 +3176,17 @@ setupDragDrop();
     // The preset selection is always derived from whatever colors are
     // currently loaded — no separate "preset" key is persisted, since the
     // saved matched/unmatched colors are the source of truth.
+    renderCustomPresetOptions();
     refreshPresetSelection();
 
     presetSelectEl.addEventListener('change', function () {
-      const preset = COLOR_PRESETS[presetSelectEl.value];
+      const val = presetSelectEl.value;
+      let preset = null;
+      if (val.indexOf('user:') === 0) {
+        preset = customPresets[val.slice(5)] || null;
+      } else {
+        preset = COLOR_PRESETS[val] || null;
+      }
       if (preset) {
         if (matchedColorEl) {
           matchedColorEl.value = preset.matched;
@@ -3118,7 +3198,100 @@ setupDragDrop();
         }
       }
       // "custom" leaves the colors as-is — user keeps tweaking from here.
+      syncDeleteButtonVisibility();
       applyPreviewHighlight();
+    });
+  }
+
+  // Display labels of built-in presets (lowercased) so we also reject names
+  // that look like a built-in even if the internal key differs.
+  const BUILTIN_DISPLAY_LABELS = (function () {
+    const set = {};
+    if (presetSelectEl) {
+      Array.prototype.forEach.call(presetSelectEl.options, function (opt) {
+        if (opt.value && opt.value !== 'custom') {
+          set[String(opt.textContent || '').trim().toLowerCase()] = true;
+        }
+      });
+    }
+    return set;
+  })();
+
+  // Case-insensitive lookup of an existing custom preset name. Returns the
+  // canonical key as stored, or null if no match.
+  function findCustomPresetName(candidate) {
+    const target = String(candidate || '').toLowerCase();
+    const keys = Object.keys(customPresets);
+    for (let i = 0; i < keys.length; i++) {
+      if (keys[i].toLowerCase() === target) return keys[i];
+    }
+    return null;
+  }
+
+  const savePresetBtn = document.getElementById('savePresetBtn');
+  if (savePresetBtn) {
+    savePresetBtn.addEventListener('click', function () {
+      const matched   = matchedColorEl   ? matchedColorEl.value   : '#C6EFCE';
+      const unmatched = unmatchedColorEl ? unmatchedColorEl.value : '#FFC7CE';
+      const suggested = 'My preset ' + (Object.keys(customPresets).length + 1);
+      const raw = window.prompt('Name this color preset:', suggested);
+      if (raw === null) return; // cancelled
+      const name = String(raw).trim();
+      if (!name) {
+        window.alert('Preset name cannot be empty.');
+        return;
+      }
+      if (name.length > 40) {
+        window.alert('Preset name must be 40 characters or fewer.');
+        return;
+      }
+      // Block names that collide with built-in preset keys or their display
+      // labels (case-insensitive) to avoid confusion in the dropdown.
+      const lower = name.toLowerCase();
+      if (Object.prototype.hasOwnProperty.call(COLOR_PRESETS, lower) || BUILTIN_DISPLAY_LABELS[lower]) {
+        window.alert('That name is reserved for a built-in preset. Please choose another.');
+        return;
+      }
+      const existing = findCustomPresetName(name);
+      if (existing) {
+        const ok = window.confirm('A preset named "' + existing + '" already exists. Overwrite it?');
+        if (!ok) return;
+        // Overwrite under the existing canonical key so the dropdown order
+        // and any in-memory references stay stable.
+        customPresets[existing] = { matched: matched, unmatched: unmatched };
+        saveCustomPresets(customPresets);
+        renderCustomPresetOptions();
+        if (presetSelectEl) {
+          presetSelectEl.value = 'user:' + existing;
+          syncDeleteButtonVisibility();
+        }
+        return;
+      }
+      customPresets[name] = { matched: matched, unmatched: unmatched };
+      saveCustomPresets(customPresets);
+      renderCustomPresetOptions();
+      if (presetSelectEl) {
+        presetSelectEl.value = 'user:' + name;
+        syncDeleteButtonVisibility();
+      }
+    });
+  }
+
+  const deletePresetBtn = document.getElementById('deletePresetBtn');
+  if (deletePresetBtn) {
+    deletePresetBtn.addEventListener('click', function () {
+      if (!presetSelectEl) return;
+      const val = presetSelectEl.value;
+      if (val.indexOf('user:') !== 0) return;
+      const name = val.slice(5);
+      if (!Object.prototype.hasOwnProperty.call(customPresets, name)) return;
+      const ok = window.confirm('Delete the preset "' + name + '"? This cannot be undone.');
+      if (!ok) return;
+      delete customPresets[name];
+      saveCustomPresets(customPresets);
+      renderCustomPresetOptions();
+      // Colors stay as-is; just re-detect to show "Custom" or a matching built-in.
+      refreshPresetSelection();
     });
   }
 
