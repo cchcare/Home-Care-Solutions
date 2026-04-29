@@ -1626,8 +1626,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const conditions: SQL[] = [];
 
-      if (officeId && officeId !== 'all') {
-        conditions.push(eq(clients.officeId, officeId));
+      // Server-side office scoping: only super_admin may see across offices.
+      // Non-super-admin is locked to their primaryOfficeId regardless of any
+      // client-supplied `officeId` query param.
+      const currentUser = req.session?.user;
+      const isSuperAdmin = currentUser?.role === "super_admin";
+      if (isSuperAdmin) {
+        if (officeId && officeId !== 'all') {
+          conditions.push(eq(clients.officeId, officeId));
+        }
+      } else {
+        const scope = currentUser?.primaryOfficeId;
+        if (!scope) {
+          return res.json([]);
+        }
+        conditions.push(eq(clients.officeId, scope));
       }
       if (mcoId && mcoId !== 'all') {
         conditions.push(eq(clients.mcoId, mcoId));
@@ -2310,8 +2323,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const conditions: SQL[] = [];
 
-      if (officeId && officeId !== 'all') {
-        conditions.push(eq(caregivers.officeId, officeId));
+      // Server-side office scoping: only super_admin may see across offices.
+      // Non-super-admin is locked to their primaryOfficeId regardless of any
+      // client-supplied `officeId` query param.
+      const currentUser = req.session?.user;
+      const isSuperAdmin = currentUser?.role === "super_admin";
+      if (isSuperAdmin) {
+        if (officeId && officeId !== 'all') {
+          conditions.push(eq(caregivers.officeId, officeId));
+        }
+      } else {
+        const scope = currentUser?.primaryOfficeId;
+        if (!scope) {
+          return res.json([]);
+        }
+        conditions.push(eq(caregivers.officeId, scope));
       }
 
       if (search) {
