@@ -56,7 +56,9 @@ const CAREGIVER_HEADER_ALIASES: Record<string, string[]> = {
   Languages: ['languages', 'language'],
   HireDate: ['hiredate', 'starteddate', 'startdate'],
   TerminationDate: ['terminationdate', 'termdate', 'enddate'],
-  Status: ['status', 'state', 'employmentstatus'],
+  // NOTE: Do NOT include 'state' here — it collides with the State (address)
+  // alias above and would silently overwrite address.state during import.
+  Status: ['status', 'employmentstatus', 'caregiverstatus', 'workstatus'],
   Branch: ['branch', 'office', 'officebranch', 'location', 'site'],
 };
 
@@ -683,20 +685,29 @@ export class HhaxSftpService {
           );
           for (const h of unknownHeaders) allUnknown.add(h);
 
-          if (!record.ScheduleID || !record.PatientCode || !record.CaregiverCode) {
+          // Schedule rows must identify the visit, the caregiver, and the
+          // patient — but the patient may be identified by EITHER
+          // AdmissionID or PatientCode, depending on the customer's HHAX
+          // export configuration.
+          const hasPatientIdentifier = Boolean(record.AdmissionID || record.PatientCode);
+          if (!record.ScheduleID || !record.CaregiverCode || !hasPatientIdentifier) {
             result.recordsSkipped++;
             continue;
           }
 
-          // Try to match by AdmissionID, then PatientCode (which may be stored
-          // as either hhaxPatientCode or, for older imports, hhaxAdmissionId).
+          // Try to match by AdmissionID first, then PatientCode (which may
+          // live in either hhaxPatientCode or, for older imports,
+          // hhaxAdmissionId).
           const client = await this.findClient(record.AdmissionID, record.PatientCode);
           const caregiver = await storage.getCaregiverByHhaxCode(record.CaregiverCode);
 
           if (!client || !caregiver) {
             result.recordsSkipped++;
             const missing: string[] = [];
-            if (!client) missing.push(`patient ${record.PatientCode}`);
+            if (!client) {
+              const patientLabel = record.AdmissionID || record.PatientCode || '(unknown)';
+              missing.push(`patient ${patientLabel}`);
+            }
             if (!caregiver) missing.push(`caregiver ${record.CaregiverCode}`);
             result.errors.push(
               `Schedule ${record.ScheduleID}: skipped — ${missing.join(' and ')} not found. Import patients and caregivers first.`,
