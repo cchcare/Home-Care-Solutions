@@ -47,6 +47,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { ExcelImport } from "@/components/excel-import";
+import { IdentifierImportDialog } from "@/components/identifier-import-dialog";
 import { ExcelExport } from "@/components/excel-export";
 import { useUrlState } from "@/hooks/use-url-state";
 import { useSavedViews } from "@/hooks/use-saved-views";
@@ -490,6 +491,11 @@ export default function Caregivers() {
               onImportComplete={() => {
                 queryClient.invalidateQueries({ queryKey: ["/api/caregivers"] });
                 queryClient.invalidateQueries({ queryKey: ["/api/dashboard/metrics"] });
+              }}
+            />
+            <IdentifierImportDialog
+              onImportComplete={() => {
+                queryClient.invalidateQueries({ queryKey: ["/api/caregivers"] });
               }}
             />
             <Button variant="outline" onClick={() => setShowOcrDialog(true)} data-testid="button-scan-caregiver">

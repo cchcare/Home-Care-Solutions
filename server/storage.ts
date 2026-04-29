@@ -460,6 +460,7 @@ export interface IStorage {
   getCaregiver(id: string): Promise<Caregiver | undefined>;
   getCaregiverByUserId(userId: string): Promise<Caregiver | undefined>;
   getCaregiverByEmail(email: string): Promise<Caregiver | undefined>;
+  getCaregiverByEmployeeId(employeeId: string): Promise<Caregiver | undefined>;
   createCaregiver(caregiver: InsertCaregiver): Promise<Caregiver>;
   updateCaregiver(id: string, caregiver: Partial<InsertCaregiver>): Promise<Caregiver>;
   updateCaregiversBulk(caregiverIds: string[], updates: Partial<InsertCaregiver>): Promise<Caregiver[]>;
@@ -1759,6 +1760,11 @@ export class DatabaseStorage implements IStorage {
 
   async getCaregiverByEmail(email: string): Promise<Caregiver | undefined> {
     const [caregiver] = await db.select().from(caregivers).where(eq(caregivers.email, email));
+    return caregiver;
+  }
+
+  async getCaregiverByEmployeeId(employeeId: string): Promise<Caregiver | undefined> {
+    const [caregiver] = await db.select().from(caregivers).where(eq(caregivers.employeeId, employeeId));
     return caregiver;
   }
 

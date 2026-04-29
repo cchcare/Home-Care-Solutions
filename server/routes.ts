@@ -3111,6 +3111,256 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Bulk-import caregiver identifiers (NPI + certificate license numbers).
+  // Used by the "Import Identifiers" action on the caregivers page so agencies
+  // onboarding existing staff can populate the identifiers the License/NPI
+  // exclusion matcher relies on without editing each profile by hand.
+  app.post("/api/caregivers/bulk-import-identifiers", isAuthenticated, async (req: any, res) => {
+    try {
+      const currentUser = req.session?.user;
+      if (!currentUser) {
+        return res.status(401).json({ message: "Unauthorized" });
+      }
+
+      // Coordinators / admins only - mirrors the role gate used for other
+      // bulk caregiver mutations (bulk-delete etc.).
+      const allowedRoles = ["super_admin", "admin", "office_admin", "supervisor"];
+      if (!allowedRoles.includes(currentUser.role)) {
+        return res
+          .status(403)
+          .json({ message: "You do not have permission to bulk-import caregiver identifiers" });
+      }
+
+      // Office scoping: super_admin can update any caregiver, everyone else
+      // is locked to caregivers in their primary office.
+      const isSuperAdmin = currentUser.role === "super_admin";
+      const userOfficeId = currentUser.primaryOfficeId || currentUser.officeId || null;
+      if (!isSuperAdmin && !userOfficeId) {
+        return res
+          .status(403)
+          .json({ message: "Your account is not associated with an office" });
+      }
+
+      const { rows, unmappedRequiredHeaders } = req.body || {};
+
+      if (!Array.isArray(rows) || rows.length === 0) {
+        return res.status(400).json({ message: "rows must be a non-empty array" });
+      }
+
+      // The frontend mapping step should always pass at least one identifier
+      // column (NPI or License Number). Refuse to silently drop work if the
+      // mapping is incomplete.
+      if (Array.isArray(unmappedRequiredHeaders) && unmappedRequiredHeaders.length > 0) {
+        return res.status(400).json({
+          message: `Required columns are not mapped: ${unmappedRequiredHeaders.join(", ")}`,
+        });
+      }
+
+      interface RowResult {
+        row: number;
+        status: "updated" | "skipped" | "error";
+        caregiverId?: string;
+        caregiverName?: string;
+        npiUpdated?: boolean;
+        certificationCreated?: boolean;
+        certificationUpdated?: boolean;
+        message?: string;
+      }
+
+      const summary = {
+        totalRows: rows.length,
+        caregiversUpdated: 0,
+        npisUpdated: 0,
+        certificatesCreated: 0,
+        certificatesUpdated: 0,
+        errors: 0,
+        results: [] as RowResult[],
+      };
+
+      const norm = (v: unknown) =>
+        typeof v === "string" ? v.trim() : v == null ? "" : String(v).trim();
+
+      for (let i = 0; i < rows.length; i++) {
+        const raw = rows[i] || {};
+        const rowNumber = i + 1;
+        const employeeId = norm(raw.employeeId);
+        const email = norm(raw.email).toLowerCase();
+        // NPI is normalized to digits-only and must be exactly 10 digits per
+        // the CMS NPPES spec. We reject malformed values up front instead of
+        // writing garbage to the caregiver record.
+        const npiRaw = norm(raw.npi);
+        const npi = npiRaw.replace(/\D/g, "");
+        const licenseNumber = norm(raw.licenseNumber);
+        const certificationType = norm(raw.certificationType) || "License";
+
+        // Refuse silent skips: every row must have a way to identify the
+        // caregiver and must carry at least one identifier value to import.
+        if (!employeeId && !email) {
+          summary.errors++;
+          summary.results.push({
+            row: rowNumber,
+            status: "error",
+            message: "Row is missing both Employee ID and Email - cannot match caregiver",
+          });
+          continue;
+        }
+
+        // Validate NPI format before falling through to the "no identifiers"
+        // check so a user who supplied a malformed NPI gets a precise error
+        // instead of "neither NPI nor License Number to import".
+        if (npiRaw && npi.length !== 10) {
+          summary.errors++;
+          summary.results.push({
+            row: rowNumber,
+            status: "error",
+            message: `NPI "${npiRaw}" is not a valid 10-digit National Provider Identifier`,
+          });
+          continue;
+        }
+
+        if (!npi && !licenseNumber) {
+          summary.errors++;
+          summary.results.push({
+            row: rowNumber,
+            status: "error",
+            message: "Row has neither NPI nor License Number to import",
+          });
+          continue;
+        }
+
+        try {
+          let caregiver = undefined as Awaited<ReturnType<typeof storage.getCaregiverByEmployeeId>>;
+
+          if (employeeId) {
+            caregiver = await storage.getCaregiverByEmployeeId(employeeId);
+          }
+          if (!caregiver && email) {
+            caregiver = await storage.getCaregiverByEmail(email);
+          }
+
+          if (!caregiver) {
+            summary.errors++;
+            summary.results.push({
+              row: rowNumber,
+              status: "error",
+              message: `No caregiver matched (Employee ID "${employeeId || "-"}" / Email "${email || "-"}")`,
+            });
+            continue;
+          }
+
+          // Office scoping: non-super-admins can only update caregivers in
+          // their own office. We treat out-of-scope matches as "not found"
+          // so we don't leak information about which records exist outside
+          // the user's tenant.
+          if (!isSuperAdmin && caregiver.officeId !== userOfficeId) {
+            summary.errors++;
+            summary.results.push({
+              row: rowNumber,
+              status: "error",
+              message: `No caregiver matched (Employee ID "${employeeId || "-"}" / Email "${email || "-"}")`,
+            });
+            continue;
+          }
+
+          const caregiverName = `${caregiver.firstName || ""} ${caregiver.lastName || ""}`.trim() || caregiver.id;
+          let npiUpdated = false;
+          let certificationCreated = false;
+          let certificationUpdated = false;
+
+          if (npi && caregiver.npi !== npi) {
+            await storage.updateCaregiver(caregiver.id, { npi });
+            npiUpdated = true;
+            summary.npisUpdated++;
+          }
+
+          if (licenseNumber) {
+            const existing = await storage.getCertificationsByCaregiver(caregiver.id);
+            const matchType = existing.find(
+              (c) => (c.certificationType || "").toLowerCase() === certificationType.toLowerCase(),
+            );
+            const matchNumber = existing.find(
+              (c) => (c.certificateNumber || "") === licenseNumber,
+            );
+            const existingCert = matchType || matchNumber;
+
+            if (existingCert) {
+              if (existingCert.certificateNumber !== licenseNumber) {
+                await storage.updateCertification(existingCert.id, {
+                  certificateNumber: licenseNumber,
+                });
+                certificationUpdated = true;
+                summary.certificatesUpdated++;
+              }
+            } else {
+              await storage.createCertification({
+                caregiverId: caregiver.id,
+                certificationType,
+                certificateNumber: licenseNumber,
+                status: "active",
+              });
+              certificationCreated = true;
+              summary.certificatesCreated++;
+            }
+          }
+
+          if (npiUpdated || certificationCreated || certificationUpdated) {
+            summary.caregiversUpdated++;
+
+            await storage.createAuditLog({
+              userId: req.session?.user?.id,
+              action: "bulk_import_identifiers",
+              entityType: "caregiver",
+              entityId: caregiver.id,
+              newValues: {
+                employeeId: employeeId || undefined,
+                email: email || undefined,
+                npi: npiUpdated ? npi : undefined,
+                licenseNumber:
+                  certificationCreated || certificationUpdated ? licenseNumber : undefined,
+                certificationType:
+                  certificationCreated || certificationUpdated ? certificationType : undefined,
+              },
+              ipAddress: req.ip,
+              userAgent: req.get("User-Agent"),
+            });
+
+            summary.results.push({
+              row: rowNumber,
+              status: "updated",
+              caregiverId: caregiver.id,
+              caregiverName,
+              npiUpdated,
+              certificationCreated,
+              certificationUpdated,
+            });
+          } else {
+            summary.results.push({
+              row: rowNumber,
+              status: "skipped",
+              caregiverId: caregiver.id,
+              caregiverName,
+              message: "No changes - identifiers already match",
+            });
+          }
+        } catch (rowError: any) {
+          summary.errors++;
+          summary.results.push({
+            row: rowNumber,
+            status: "error",
+            message: rowError?.message || "Failed to update row",
+          });
+        }
+      }
+
+      res.json(summary);
+    } catch (error: any) {
+      console.error("Error during caregiver identifier import:", error);
+      res
+        .status(500)
+        .json({ message: error.message || "Failed to import caregiver identifiers" });
+    }
+  });
+
   // Caregiver bulk update
   app.post("/api/caregivers/bulk-update", isAuthenticated, async (req: any, res) => {
     try {
