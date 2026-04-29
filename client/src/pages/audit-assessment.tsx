@@ -36,7 +36,7 @@ import {
   Printer, Upload, Paperclip, Download, X, File, Image, Sheet,
   MoreVertical, Archive, ArchiveRestore, FileSpreadsheet, User,
   ArrowLeftRight, TrendingUp, TrendingDown, Minus, Link2,
-  Bookmark, BookmarkPlus, Pencil,
+  Bookmark, BookmarkPlus, Pencil, Search, ArrowUpDown,
 } from "lucide-react";
 import ExcelJS from "exceljs";
 import jsPDF from "jspdf";
@@ -2257,6 +2257,8 @@ export default function AuditAssessment() {
                   onSaveCorrectiveAction={(data) => correctiveActionMutation.mutate(data)}
                   onDeleteCorrectiveAction={(actionId) => deleteCorrectiveActionMutation.mutate(actionId)}
                   isSaving={correctiveActionMutation.isPending}
+                  currentOffice={currentOffice}
+                  activeAudit={activeAudit}
                 />
               </TabsContent>
 
@@ -2813,6 +2815,7 @@ function CorrectiveActionPanel({
 function DeficienciesSection({
   responsesMap, notesMap, customItems, auditDocuments, auditId,
   correctiveActions, onSaveCorrectiveAction, onDeleteCorrectiveAction, isSaving,
+  currentOffice, activeAudit,
 }: {
   responsesMap: Record<string, ItemStatus>;
   notesMap: Record<string, string>;
@@ -2823,12 +2826,20 @@ function DeficienciesSection({
   onSaveCorrectiveAction: (data: { itemKey: string; responsibleParty?: string; targetDate?: string; completionDate?: string; actionSteps?: string; status?: string }) => void;
   onDeleteCorrectiveAction: (actionId: string) => void;
   isSaving: boolean;
+  currentOffice?: Office | null;
+  activeAudit?: AuditAssessment | null;
 }) {
   type DeficiencyFilter = "all" | "open" | "in_progress" | "resolved";
+  type DeficiencySort = "default" | "category" | "status" | "oldest_open" | "responsible_party";
   const filterStorageKey = `audit-deficiency-filter:${auditId}`;
+  const sortStorageKey = `audit-deficiency-sort:${auditId}`;
   const parseStoredFilter = (raw: string | null): DeficiencyFilter => {
     if (raw === "all" || raw === "open" || raw === "in_progress" || raw === "resolved") return raw;
     return "all";
+  };
+  const parseStoredSort = (raw: string | null): DeficiencySort => {
+    if (raw === "default" || raw === "category" || raw === "status" || raw === "oldest_open" || raw === "responsible_party") return raw;
+    return "default";
   };
   const readStoredFilter = (key: string): DeficiencyFilter => {
     if (typeof window === "undefined") return "all";
@@ -2838,12 +2849,24 @@ function DeficienciesSection({
       return "all";
     }
   };
+  const readStoredSort = (key: string): DeficiencySort => {
+    if (typeof window === "undefined") return "default";
+    try {
+      return parseStoredSort(window.localStorage.getItem(key));
+    } catch {
+      return "default";
+    }
+  };
   const [filterStatus, setFilterStatusState] = useState<DeficiencyFilter>(() => readStoredFilter(filterStorageKey));
+  const [sortBy, setSortByState] = useState<DeficiencySort>(() => readStoredSort(sortStorageKey));
+  const [searchQuery, setSearchQuery] = useState("");
 
   // Re-hydrate when the audit changes (e.g. user navigates between audits without unmounting)
   useEffect(() => {
     setFilterStatusState(readStoredFilter(filterStorageKey));
-  }, [filterStorageKey]);
+    setSortByState(readStoredSort(sortStorageKey));
+    setSearchQuery("");
+  }, [filterStorageKey, sortStorageKey]);
 
   // Persist only on explicit user action, never as a side effect of hydration,
   // so we don't accidentally overwrite another audit's saved preference.
@@ -2852,6 +2875,15 @@ function DeficienciesSection({
     if (typeof window === "undefined") return;
     try {
       window.localStorage.setItem(filterStorageKey, next);
+    } catch {
+      // ignore (e.g. quota exceeded, private mode)
+    }
+  };
+  const setSortBy = (next: DeficiencySort) => {
+    setSortByState(next);
+    if (typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem(sortStorageKey, next);
     } catch {
       // ignore (e.g. quota exceeded, private mode)
     }
@@ -2921,9 +2953,64 @@ function DeficienciesSection({
     return "open";
   };
 
-  const filteredItems = filterStatus === "all"
+  const trimmedQuery = searchQuery.trim().toLowerCase();
+  const statusFiltered = filterStatus === "all"
     ? deficientItems
     : deficientItems.filter(item => getItemCaStatus(item.key) === filterStatus);
+  const searchFiltered = trimmedQuery === ""
+    ? statusFiltered
+    : statusFiltered.filter(item => {
+        const haystack = [
+          item.label,
+          item.category,
+          item.reference || "",
+          item.notes,
+          caMap.get(item.key)?.actionSteps || "",
+          caMap.get(item.key)?.responsibleParty || "",
+        ].join(" ").toLowerCase();
+        return haystack.includes(trimmedQuery);
+      });
+
+  const statusOrder: Record<"open" | "in_progress" | "resolved", number> = {
+    open: 0,
+    in_progress: 1,
+    resolved: 2,
+  };
+  const filteredItems = (() => {
+    if (sortBy === "default") return searchFiltered;
+    const sorted = [...searchFiltered];
+    if (sortBy === "category") {
+      sorted.sort((a, b) =>
+        a.category.localeCompare(b.category) || a.label.localeCompare(b.label)
+      );
+    } else if (sortBy === "status") {
+      sorted.sort((a, b) =>
+        statusOrder[getItemCaStatus(a.key)] - statusOrder[getItemCaStatus(b.key)]
+        || a.label.localeCompare(b.label)
+      );
+    } else if (sortBy === "oldest_open") {
+      // Items with the earliest target date first; items with no target date go last.
+      sorted.sort((a, b) => {
+        const aDate = caMap.get(a.key)?.targetDate || "";
+        const bDate = caMap.get(b.key)?.targetDate || "";
+        if (!aDate && !bDate) return a.label.localeCompare(b.label);
+        if (!aDate) return 1;
+        if (!bDate) return -1;
+        return aDate.localeCompare(bDate);
+      });
+    } else if (sortBy === "responsible_party") {
+      // Alphabetical by responsible party; items with no party go last.
+      sorted.sort((a, b) => {
+        const aParty = caMap.get(a.key)?.responsibleParty || "";
+        const bParty = caMap.get(b.key)?.responsibleParty || "";
+        if (!aParty && !bParty) return a.label.localeCompare(b.label);
+        if (!aParty) return 1;
+        if (!bParty) return -1;
+        return aParty.localeCompare(bParty) || a.label.localeCompare(b.label);
+      });
+    }
+    return sorted;
+  })();
 
   return (
     <div className="space-y-3">
@@ -2988,10 +3075,55 @@ function DeficienciesSection({
               </button>
             ))}
           </div>
+          {/* Search + sort controls */}
+          <div className="flex flex-col sm:flex-row gap-2 pt-2 print:hidden">
+            <div className="relative flex-1">
+              <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+              <Input
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                placeholder="Search by item, category, reference, or notes…"
+                className="h-8 text-sm pl-8 pr-8"
+                aria-label="Search deficiencies"
+                autoComplete="off"
+                data-testid="input-deficiency-search"
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery("")}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  aria-label="Clear search"
+                  data-testid="button-clear-deficiency-search"
+                >
+                  <X size={13} />
+                </button>
+              )}
+            </div>
+            <div className="flex items-center gap-1.5 sm:w-56">
+              <ArrowUpDown size={13} className="text-muted-foreground shrink-0" />
+              <Select value={sortBy} onValueChange={(v) => setSortBy(v as DeficiencySort)}>
+                <SelectTrigger className="h-8 text-xs" data-testid="select-deficiency-sort" aria-label="Sort deficiencies">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="default">Default order</SelectItem>
+                  <SelectItem value="category">Category (A–Z)</SelectItem>
+                  <SelectItem value="status">Status (Open first)</SelectItem>
+                  <SelectItem value="oldest_open">Oldest target date first</SelectItem>
+                  <SelectItem value="responsible_party">Responsible party (A–Z)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
         </CardHeader>
         <CardContent className="space-y-3">
           {filteredItems.length === 0 && (
-            <p className="text-sm text-muted-foreground text-center py-6">No deficiencies match the selected filter.</p>
+            <p className="text-sm text-muted-foreground text-center py-6">
+              {trimmedQuery
+                ? `No deficiencies match "${searchQuery.trim()}".`
+                : "No deficiencies match the selected filter."}
+            </p>
           )}
           {filteredItems.map((item, idx) => (
             <div key={item.key} className="border-l-4 border-l-red-400 bg-red-50/40 dark:bg-red-950/20 rounded-r-lg px-3 py-3 print-avoid-break">
