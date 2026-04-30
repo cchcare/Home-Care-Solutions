@@ -1481,10 +1481,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Coordinator routes
-  app.get("/api/coordinators", isAuthenticated, async (req, res) => {
+  app.get("/api/coordinators", isAuthenticated, async (req: any, res) => {
     try {
-      const { officeId } = req.query;
-      const officeFilter = officeId && officeId !== 'all' ? String(officeId) : undefined;
+      const currentUser = req.session?.user;
+      const isSuperAdmin = currentUser?.role === "super_admin";
+      const { officeId } = req.query as Record<string, string | undefined>;
+      let officeFilter: string | undefined;
+      if (isSuperAdmin) {
+        officeFilter = officeId && officeId !== 'all' ? String(officeId) : undefined;
+      } else {
+        const scope = currentUser?.primaryOfficeId;
+        if (!scope) return res.json([]);
+        officeFilter = scope;
+      }
       const coordinators = await storage.getAllCoordinators(officeFilter);
       res.json(coordinators);
     } catch (error) {
@@ -1636,7 +1645,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Client routes
-  app.get("/api/clients", isAuthenticated, async (req, res) => {
+  app.get("/api/clients", isAuthenticated, async (req: any, res) => {
     try {
       const {
         search,
@@ -1693,7 +1702,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             ilike(clients.address, pattern),
             ilike(clients.city, pattern),
             sql`to_char(${clients.dateOfBirth}, 'YYYY-MM-DD') ILIKE ${pattern}`,
-          )
+          )!
         );
       }
 
@@ -2341,7 +2350,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Caregiver routes
-  app.get("/api/caregivers", isAuthenticated, async (req, res) => {
+  app.get("/api/caregivers", isAuthenticated, async (req: any, res) => {
     try {
       const {
         officeId,
@@ -2387,7 +2396,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             ilike(caregivers.employeeId, pattern),
             ilike(caregivers.email, pattern),
             ilike(caregivers.phone, pattern),
-          )
+          )!
         );
       }
 
@@ -6996,9 +7005,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // MCOs routes - public endpoint for billing/payroll
-  app.get("/api/mcos", isAuthenticated, async (req, res) => {
+  app.get("/api/mcos", isAuthenticated, async (req: any, res) => {
     try {
-      const mcos = await storage.getAllMcos();
+      const currentUser = req.session?.user;
+      const isSuperAdmin = currentUser?.role === "super_admin";
+      if (isSuperAdmin) {
+        const mcos = await storage.getAllMcos();
+        return res.json(mcos);
+      }
+      const scope = currentUser?.primaryOfficeId;
+      if (!scope) return res.json([]);
+      const mcos = await storage.getMcosByOffice(scope);
       res.json(mcos);
     } catch (error) {
       console.error("Error fetching MCOs:", error);

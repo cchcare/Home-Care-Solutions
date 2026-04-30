@@ -186,7 +186,7 @@ export default function Caregivers() {
     }, 300);
     return () => clearTimeout(handle);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchInput]);
+  }, [searchInput, search]);
 
   // Modal/selection state
   const [showAddModal, setShowAddModal] = useState(false);

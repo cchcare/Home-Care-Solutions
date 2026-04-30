@@ -388,7 +388,7 @@ export default function Clients() {
     }, 300);
     return () => clearTimeout(handle);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchInput]);
+  }, [searchInput, search]);
 
   // Local state for free-text geo filters (debounced into URL)
   const [cityInput, setCityInput] = useState(cityFilter);
@@ -407,7 +407,7 @@ export default function Clients() {
     }, 300);
     return () => clearTimeout(handle);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cityInput, countyInput, zipInput]);
+  }, [cityInput, countyInput, zipInput, cityFilter, countyFilter, zipFilter]);
 
   const { data: mcos = [] } = useQuery<Mco[]>({
     queryKey: ["/api/mcos"],
