@@ -4,7 +4,10 @@ import { useAuth } from "@/hooks/useAuth";
 import { useFeatures } from "@/hooks/use-features";
 import { Button } from "@/components/ui/button";
 import { useIsMobile } from "@/hooks/use-mobile";
-import { 
+import { useSidebarCollapsed } from "@/hooks/use-sidebar-collapsed";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
   Heart,
   LayoutDashboard,
   Users,
@@ -24,6 +27,9 @@ import {
   Cog,
   ChevronDown,
   ChevronRight,
+  ChevronLeft,
+  PanelLeftClose,
+  PanelLeftOpen,
   ShieldCheck,
   UserCog,
   Key,
@@ -82,6 +88,8 @@ export function Sidebar() {
   const [expandedMenus, setExpandedMenus] = useState<string[]>(["Admin"]);
   const [expandedSubMenus, setExpandedSubMenus] = useState<string[]>([]);
   const isMobile = useIsMobile();
+  const [collapsedRaw, , toggleCollapsed] = useSidebarCollapsed();
+  const collapsed = !isMobile && collapsedRaw;
 
   const toggleMenu = (menuName: string) => {
     setExpandedMenus(prev =>
@@ -283,7 +291,6 @@ export function Sidebar() {
     );
   };
 
-  // Render a leaf link (no children)
   const renderLeaf = (child: NavItem, depth: number) => {
     const ChildIcon = child.icon;
     const isActive = isActiveRoute(child.href);
@@ -324,7 +331,6 @@ export function Sidebar() {
     );
   };
 
-  // Render a child item — either a leaf or a nested sub-group
   const renderChild = (child: NavItem, depth = 1) => {
     if (!child.children) return renderLeaf(child, depth);
 
@@ -359,6 +365,83 @@ export function Sidebar() {
     );
   };
 
+  const renderCollapsedItem = (item: NavItem) => {
+    const Icon = item.icon;
+    const isActive = isActiveRoute(item.href);
+    const hasActive = item.children ? hasActiveDescendant(item) : false;
+
+    if (item.children) {
+      return (
+        <Popover key={item.name}>
+          <Tooltip delayDuration={150}>
+            <PopoverTrigger asChild>
+              <TooltipTrigger asChild>
+                <button
+                  className={`w-full flex items-center justify-center p-3 rounded-lg transition-colors ${
+                    hasActive
+                      ? "bg-sidebar-accent text-sidebar-primary"
+                      : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                  }`}
+                  data-testid={`nav-menu-${item.name.toLowerCase().replace(/\s+/g, '-')}`}
+                  aria-label={item.name}
+                >
+                  <Icon className="w-5 h-5" />
+                </button>
+              </TooltipTrigger>
+            </PopoverTrigger>
+            <TooltipContent side="right">{item.name}</TooltipContent>
+          </Tooltip>
+          <PopoverContent
+            side="right"
+            align="start"
+            className="w-64 p-2"
+            sideOffset={8}
+          >
+            <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+              {item.name}
+            </div>
+            <div className="space-y-1">
+              {item.children.map(child => renderChild(child, 1))}
+            </div>
+          </PopoverContent>
+        </Popover>
+      );
+    }
+
+    const trigger = item.external ? (
+      <a
+        href={item.href}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="w-full flex items-center justify-center p-3 rounded-lg transition-colors text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+        data-testid={`nav-link-${item.name.toLowerCase().replace(/\s+/g, '-')}`}
+        aria-label={item.name}
+      >
+        <Icon className="w-5 h-5" />
+      </a>
+    ) : (
+      <Link
+        href={item.href || "#"}
+        className={`w-full flex items-center justify-center p-3 rounded-lg transition-colors ${
+          isActive
+            ? "bg-sidebar-primary text-sidebar-primary-foreground"
+            : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+        }`}
+        data-testid={`nav-link-${item.name.toLowerCase().replace(/\s+/g, '-')}`}
+        aria-label={item.name}
+      >
+        <Icon className="w-5 h-5" />
+      </Link>
+    );
+
+    return (
+      <Tooltip key={item.name} delayDuration={150}>
+        <TooltipTrigger asChild>{trigger}</TooltipTrigger>
+        <TooltipContent side="right">{item.name}</TooltipContent>
+      </Tooltip>
+    );
+  };
+
   return (
     <>
       {isMobile && (
@@ -382,29 +465,38 @@ export function Sidebar() {
 
       <aside
         className={`
-          bg-sidebar border-r border-sidebar-border w-64 flex-shrink-0 sidebar-transition print:hidden
+          bg-sidebar border-r border-sidebar-border flex-shrink-0 sidebar-transition print:hidden
+          transition-[width] duration-200 ease-in-out
+          ${collapsed ? "w-16" : "w-64"}
           ${isMobile ? "fixed inset-y-0 left-0 z-50" : ""}
           ${isMobile && !isOpen ? "sidebar-closed" : ""}
         `}
         data-testid="sidebar"
+        data-collapsed={collapsed ? "true" : "false"}
       >
         <div className="flex flex-col h-full">
-          <div className="flex items-center justify-between p-6 border-b border-sidebar-border">
-            <div className="flex flex-col">
-              <div className="flex items-center space-x-3">
-                <div className="w-8 h-8 bg-sidebar-primary rounded-lg flex items-center justify-center">
-                  <Heart className="w-5 h-5 text-sidebar-primary-foreground" />
-                </div>
-                <h1 className="text-xl font-bold text-sidebar-foreground">Home Care</h1>
+          <div className={`flex items-center ${collapsed ? "justify-center" : "justify-between"} ${collapsed ? "p-3" : "p-6"} border-b border-sidebar-border`}>
+            {collapsed ? (
+              <div className="w-8 h-8 bg-sidebar-primary rounded-lg flex items-center justify-center" aria-label="Home Care">
+                <Heart className="w-5 h-5 text-sidebar-primary-foreground" />
               </div>
-              {(user as any)?.role === "super_admin" && (
-                <div className="ml-11 mt-1">
-                  <span className="text-xs font-medium text-blue-600 bg-blue-100 px-2 py-1 rounded-full">
-                    Super Admin
-                  </span>
+            ) : (
+              <div className="flex flex-col">
+                <div className="flex items-center space-x-3">
+                  <div className="w-8 h-8 bg-sidebar-primary rounded-lg flex items-center justify-center">
+                    <Heart className="w-5 h-5 text-sidebar-primary-foreground" />
+                  </div>
+                  <h1 className="text-xl font-bold text-sidebar-foreground">Home Care</h1>
                 </div>
-              )}
-            </div>
+                {(user as any)?.role === "super_admin" && (
+                  <div className="ml-11 mt-1">
+                    <span className="text-xs font-medium text-blue-600 bg-blue-100 px-2 py-1 rounded-full">
+                      Super Admin
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
             {isMobile && (
               <Button
                 variant="ghost"
@@ -417,8 +509,35 @@ export function Sidebar() {
             )}
           </div>
 
-          <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
+          {!isMobile && (
+            <div className={`flex ${collapsed ? "justify-center" : "justify-end"} px-2 py-1 border-b border-sidebar-border`}>
+              <Tooltip delayDuration={150}>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={toggleCollapsed}
+                    className="text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground h-7 px-2"
+                    data-testid="button-toggle-sidebar-collapse"
+                    aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+                    aria-expanded={!collapsed}
+                  >
+                    {collapsed ? <PanelLeftOpen className="w-4 h-4" /> : <PanelLeftClose className="w-4 h-4" />}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="right">
+                  {collapsed ? "Expand sidebar" : "Collapse sidebar"}
+                </TooltipContent>
+              </Tooltip>
+            </div>
+          )}
+
+          <nav className={`flex-1 ${collapsed ? "p-2" : "p-4"} space-y-1 overflow-y-auto`}>
             {navigation.map((item) => {
+              if (collapsed) {
+                return renderCollapsedItem(item);
+              }
+
               const Icon = item.icon;
 
               if (item.children) {
@@ -494,45 +613,76 @@ export function Sidebar() {
             })}
           </nav>
 
-          <div className="px-4 py-2 border-t border-sidebar-border">
-            <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-sidebar-foreground/60">
-              <Link href="/privacy-policy" className="hover:text-sidebar-foreground" data-testid="link-privacy-policy">
-                Privacy
-              </Link>
-              <Link href="/terms-of-use" className="hover:text-sidebar-foreground" data-testid="link-terms-of-use">
-                Terms
-              </Link>
-              <Link href="/system-status" className="hover:text-sidebar-foreground" data-testid="link-system-status">
-                Status
-              </Link>
+          {!collapsed && (
+            <div className="px-4 py-2 border-t border-sidebar-border">
+              <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-sidebar-foreground/60">
+                <Link href="/privacy-policy" className="hover:text-sidebar-foreground" data-testid="link-privacy-policy">
+                  Privacy
+                </Link>
+                <Link href="/terms-of-use" className="hover:text-sidebar-foreground" data-testid="link-terms-of-use">
+                  Terms
+                </Link>
+                <Link href="/system-status" className="hover:text-sidebar-foreground" data-testid="link-system-status">
+                  Status
+                </Link>
+              </div>
             </div>
-          </div>
+          )}
 
-          <div className="p-4 border-t border-sidebar-border">
-            <div className="flex items-center space-x-3 p-3 rounded-lg bg-sidebar-accent">
-              <div className="w-8 h-8 bg-accent rounded-full flex items-center justify-center">
-                <span className="text-accent-foreground text-sm font-medium">
-                  {user?.firstName?.[0]}{user?.lastName?.[0]}
-                </span>
+          <div className={`${collapsed ? "p-2" : "p-4"} border-t border-sidebar-border`}>
+            {collapsed ? (
+              <Tooltip delayDuration={150}>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={handleLogout}
+                    className="w-full flex items-center justify-center p-2 rounded-lg bg-sidebar-accent hover:bg-sidebar-accent/80 transition-colors"
+                    data-testid="button-logout"
+                    aria-label={
+                      user?.firstName || user?.lastName
+                        ? `Sign out (${[user?.firstName, user?.lastName].filter(Boolean).join(" ")})`
+                        : "Sign out"
+                    }
+                  >
+                    <div className="w-8 h-8 bg-accent rounded-full flex items-center justify-center">
+                      <span className="text-accent-foreground text-sm font-medium">
+                        {user?.firstName?.[0]}{user?.lastName?.[0]}
+                      </span>
+                    </div>
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="right">
+                  <div className="flex flex-col">
+                    <span className="font-medium">{user?.firstName} {user?.lastName}</span>
+                    <span className="text-xs opacity-80">{user?.role || "Staff"} · Sign out</span>
+                  </div>
+                </TooltipContent>
+              </Tooltip>
+            ) : (
+              <div className="flex items-center space-x-3 p-3 rounded-lg bg-sidebar-accent">
+                <div className="w-8 h-8 bg-accent rounded-full flex items-center justify-center">
+                  <span className="text-accent-foreground text-sm font-medium">
+                    {user?.firstName?.[0]}{user?.lastName?.[0]}
+                  </span>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-sidebar-foreground">
+                    {user?.firstName} {user?.lastName}
+                  </p>
+                  <p className="text-xs text-sidebar-foreground/70">
+                    {user?.role || "Staff"}
+                  </p>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleLogout}
+                  className="text-sidebar-foreground hover:text-sidebar-foreground"
+                  data-testid="button-logout"
+                >
+                  <Settings className="w-4 h-4" />
+                </Button>
               </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-sidebar-foreground">
-                  {user?.firstName} {user?.lastName}
-                </p>
-                <p className="text-xs text-sidebar-foreground/70">
-                  {user?.role || "Staff"}
-                </p>
-              </div>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={handleLogout}
-                className="text-sidebar-foreground hover:text-sidebar-foreground"
-                data-testid="button-logout"
-              >
-                <Settings className="w-4 h-4" />
-              </Button>
-            </div>
+            )}
           </div>
         </div>
       </aside>
