@@ -291,22 +291,21 @@ export default function SurveyReadiness() {
       return apiRequest("POST", "/api/survey-readiness/send-reminder", { caregiverId, gapType });
     },
     onSuccess: (_data, vars) => {
-      const key = `${vars.caregiverId}:${vars.gapType}`;
+      // Backend rate-limits per caregiver per 24h regardless of gap type;
+      // mirror that here by disabling all reminder buttons for the caregiver.
       setRecentlySent(prev => {
         const next = new Set(prev);
-        next.add(key);
+        next.add(vars.caregiverId);
         return next;
       });
       toast({ title: "Reminder sent", description: "The caregiver has been emailed." });
     },
     onError: (err: any, vars) => {
       const msg = err?.message || "Please try again.";
-      // Mark as sent locally if backend rate-limited (already sent in last 24h)
       if (/already sent/i.test(msg) || /429/.test(msg)) {
-        const key = `${vars.caregiverId}:${vars.gapType}`;
         setRecentlySent(prev => {
           const next = new Set(prev);
-          next.add(key);
+          next.add(vars.caregiverId);
           return next;
         });
       }
@@ -325,9 +324,8 @@ export default function SurveyReadiness() {
   };
 
   const renderCaregiverGap = (g: any, i: number) => {
-    const key = `${g.caregiverId}:${g.type}`;
-    const sent = recentlySent.has(key);
-    const isPending = sendReminder.isPending && sendReminder.variables?.caregiverId === g.caregiverId && sendReminder.variables?.gapType === g.type;
+    const sent = recentlySent.has(g.caregiverId);
+    const isPending = sendReminder.isPending && sendReminder.variables?.caregiverId === g.caregiverId;
     const reminderEligible = ["background_check", "tb_test", "cpr_expired", "supervisory_visit_overdue"].includes(g.type);
     const action = reminderEligible && g.email ? (
       <Button
@@ -446,9 +444,8 @@ export default function SurveyReadiness() {
                     gaps={data.gaps.visitGaps}
                     searchKey={(g) => g.name || ""}
                     renderGap={(g, i) => {
-                      const key = `${g.caregiverId}:${g.type}`;
-                      const sent = recentlySent.has(key);
-                      const isPending = sendReminder.isPending && sendReminder.variables?.caregiverId === g.caregiverId && sendReminder.variables?.gapType === g.type;
+                      const sent = recentlySent.has(g.caregiverId);
+                      const isPending = sendReminder.isPending && sendReminder.variables?.caregiverId === g.caregiverId;
                       const action = g.email ? (
                         <Button
                           size="sm"
@@ -523,7 +520,6 @@ export default function SurveyReadiness() {
                     icon={ClipboardList}
                     iconColor="text-orange-600 dark:text-orange-400"
                     gaps={data.gaps.clientsWithoutEmergencyPlans}
-                    hasSeverity={false}
                     searchKey={(g) => g.name || ""}
                     renderGap={(g, i) => (
                       <GapRow
