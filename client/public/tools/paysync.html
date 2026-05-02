@@ -734,12 +734,31 @@ input.finput::placeholder { color: var(--text3); }
   flex: 1;
   min-width: 0;
 }
+.proc-label-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
 .proc-label {
   font-size: 13px;
   font-weight: 600;
   color: var(--text);
-  margin-bottom: 8px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
+.proc-meta {
+  font-size: 11px;
+  font-family: 'DM Mono', monospace;
+  color: var(--text3);
+  white-space: nowrap;
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+.proc-meta:empty { display: none; }
 .proc-bar-track {
   height: 5px;
   background: var(--border);
@@ -1434,7 +1453,10 @@ tr.unmatched-separator-row > td {
     <div id="processingIndicator">
       <div class="proc-spinner"></div>
       <div class="proc-info">
-        <div class="proc-label" id="procLabel">Processing payroll data…</div>
+        <div class="proc-label-row">
+          <div class="proc-label" id="procLabel">Processing payroll data…</div>
+          <div class="proc-meta" id="procMeta"></div>
+        </div>
         <div class="proc-bar-track">
           <div class="proc-bar-fill" id="procBarFill"></div>
         </div>
@@ -2026,6 +2048,8 @@ function cancelProcess() {
   if (cb) { cb.disabled = true; cb.textContent = 'Cancelling…'; }
   const _lbl = document.getElementById('procLabel');
   if (_lbl) _lbl.textContent = 'Cancelling…';
+  const _meta = document.getElementById('procMeta');
+  if (_meta) _meta.textContent = '';
 }
 
 async function runProcess() {
@@ -2038,6 +2062,8 @@ async function runProcess() {
     _pi.classList.add('visible');
     const _lblReset = document.getElementById('procLabel');
     if (_lblReset) _lblReset.textContent = 'Processing payroll data…';
+    const _metaReset = document.getElementById('procMeta');
+    if (_metaReset) _metaReset.textContent = '';
     if (_barReset) _barReset.style.width = '0%';
     document.getElementById('genBtn').disabled = true;
     setTimeout(runProcess, 32);
@@ -2046,6 +2072,33 @@ async function runProcess() {
 
   const _lbl = document.getElementById('procLabel');
   const _bar = document.getElementById('procBarFill');
+  const _meta = document.getElementById('procMeta');
+
+  // Elapsed-time + rows-processed readout next to the stage label.
+  // _rowProcessed/_rowTotal are updated by setSubProgress so the readout
+  // reflects current progress inside long-running loops (matching, summary fill).
+  const _startTime = Date.now();
+  let _rowProcessed = 0, _rowTotal = 0;
+  const _formatElapsed = (ms) => {
+    const s = Math.max(0, Math.floor(ms / 1000));
+    return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+  };
+  const _renderMeta = () => {
+    if (!_meta) return;
+    // Once the user has clicked Cancel we leave the meta empty so the
+    // ticker can't briefly repopulate the readout while we're still waiting
+    // for the loop to reach its next yield/cancel checkpoint.
+    if (_processingCancelled) { _meta.textContent = ''; return; }
+    const elapsed = _formatElapsed(Date.now() - _startTime);
+    _meta.textContent = _rowTotal > 0
+      ? `${_rowProcessed.toLocaleString()} / ${_rowTotal.toLocaleString()} rows · ${elapsed} elapsed`
+      : `${elapsed} elapsed`;
+  };
+  _renderMeta();
+  // Tick the elapsed-time display once per second so users see the timer move
+  // even between row updates. Cleared in the finally block below.
+  const _metaTimer = setInterval(_renderMeta, 1000);
+
   // Set label (and optionally advance progress bar) then yield so browser can repaint before heavy work begins.
   // Also acts as a cancellation checkpoint between processing stages.
   const setLabel = (text, pct) => new Promise((resolve, reject) => {
@@ -2061,6 +2114,9 @@ async function runProcess() {
   // and we can honor a cancel request. Call sparingly (every N rows) to avoid stalling
   // the loop on large files.
   const setSubProgress = (processed, total, startPct, endPct) => new Promise((resolve, reject) => {
+    _rowProcessed = processed;
+    _rowTotal = total;
+    _renderMeta();
     if (_bar && total > 0) {
       const frac = Math.min(1, Math.max(0, processed / total));
       _bar.style.width = (startPct + (endPct - startPct) * frac) + '%';
@@ -2070,6 +2126,13 @@ async function runProcess() {
       else resolve();
     });
   });
+  // Reset row counts at the start of a new long-running stage so the readout
+  // shows "0 / N rows" immediately instead of carrying over from the prior stage.
+  const beginRowStage = (total) => {
+    _rowProcessed = 0;
+    _rowTotal = total;
+    _renderMeta();
+  };
   let _processedOk = false;
 
   try {
@@ -2168,6 +2231,7 @@ async function runProcess() {
   const groupedArr = Object.values(grouped);
   const matchTotal = groupedArr.length;
   const matchYield = Math.max(1, Math.ceil(matchTotal / 20));
+  beginRowStage(matchTotal);
   for (let gi = 0; gi < matchTotal; gi++) {
     const { aide, week, pay, reg, ot, ssn } = groupedArr[gi];
     let m = lookup[aide];
@@ -2375,6 +2439,7 @@ async function runProcess() {
     const filled = [];
     const sumTotal = S.summaryRows.length;
     const sumYield = Math.max(1, Math.ceil(sumTotal / 20));
+    beginRowStage(sumTotal);
     for (let si = 0; si < sumTotal; si++) {
       const row = S.summaryRows[si];
       const _filledRow = (() => {
@@ -2630,14 +2695,27 @@ async function runProcess() {
       throw err;
     }
   } finally {
+    clearInterval(_metaTimer);
     const _cb = document.getElementById('procCancelBtn');
     if (_processedOk) {
       if (_lbl) _lbl.textContent = '✓ Complete';
       if (_bar) _bar.style.width = '100%';
       if (_cb) _cb.style.display = 'none';
-      setTimeout(() => { _pi.classList.remove('visible'); tick(); }, 700);
+      // Final readout: total rows handled in the last stage and total elapsed time.
+      if (_meta) {
+        const elapsed = _formatElapsed(Date.now() - _startTime);
+        _meta.textContent = _rowTotal > 0
+          ? `${_rowTotal.toLocaleString()} rows · ${elapsed} elapsed`
+          : `${elapsed} elapsed`;
+      }
+      setTimeout(() => {
+        _pi.classList.remove('visible');
+        if (_meta) _meta.textContent = '';
+        tick();
+      }, 700);
     } else {
       _pi.classList.remove('visible');
+      if (_meta) _meta.textContent = '';
       if (_cb) { _cb.disabled = false; _cb.textContent = 'Cancel'; _cb.style.display = ''; }
       tick();
     }
