@@ -3855,7 +3855,7 @@ function CompareView({
               img.alt = "CCHC Solutions";
             }
           }}
-          className="h-16 w-auto max-w-[260px] object-contain object-left"
+          className="h-14 w-auto max-w-[220px] object-contain object-left"
         />
       </div>
 
