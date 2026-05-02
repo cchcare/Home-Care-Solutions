@@ -6810,6 +6810,37 @@ export class DatabaseStorage implements IStorage {
     return check;
   }
 
+  /**
+   * Returns the most recent exclusion-check row for a caregiver/source/record
+   * triple checked within the last `sinceMs` milliseconds, or undefined if no
+   * such row exists. Used by the exclusion service to suppress duplicate audit
+   * rows when two supervisors run the same check from different sessions.
+   *
+   * Pass `exclusionRecordId = null` to look for "clear" rows (which never
+   * carry an exclusion record); pass a string to look for a specific match.
+   */
+  async getRecentCaregiverExclusionCheck(
+    caregiverId: string,
+    sourceId: string,
+    exclusionRecordId: string | null,
+    sinceMs: number,
+  ): Promise<CaregiverExclusionCheck | undefined> {
+    const since = new Date(Date.now() - sinceMs);
+    const recordCondition = exclusionRecordId === null
+      ? sql`${caregiverExclusionChecks.exclusionRecordId} IS NULL`
+      : eq(caregiverExclusionChecks.exclusionRecordId, exclusionRecordId);
+    const [check] = await db.select().from(caregiverExclusionChecks)
+      .where(and(
+        eq(caregiverExclusionChecks.caregiverId, caregiverId),
+        eq(caregiverExclusionChecks.sourceId, sourceId),
+        recordCondition,
+        gte(caregiverExclusionChecks.checkedAt, since),
+      ))
+      .orderBy(desc(caregiverExclusionChecks.checkedAt))
+      .limit(1);
+    return check;
+  }
+
   async createCaregiverExclusionCheck(check: InsertCaregiverExclusionCheck): Promise<CaregiverExclusionCheck> {
     const [created] = await db.insert(caregiverExclusionChecks).values(check).returning();
     return created;

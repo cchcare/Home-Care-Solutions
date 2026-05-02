@@ -3,6 +3,7 @@ import { parse } from 'csv-parse';
 import { Readable } from 'stream';
 import * as fs from 'fs';
 import * as path from 'path';
+import type { InsertCaregiverExclusionCheck } from '@shared/schema';
 
 /**
  * Thrown when a MediCheck CSV upload is rejected because of bad input
@@ -98,8 +99,28 @@ interface MatchResult {
   matchedIdentifier: string | null;
 }
 
+/**
+ * Window in which an existing identical check row suppresses a duplicate
+ * insert. Two supervisors clicking "Run exclusion check" within this many
+ * milliseconds will produce the same audit trail as a single click. Long
+ * enough to cover the slowest sequential scan of all sources for one
+ * caregiver, short enough that a deliberate re-run an hour later is still
+ * recorded as a fresh audit event.
+ */
+const EXCLUSION_CHECK_DEDUP_WINDOW_MS = 30_000;
+
 export class ExclusionService {
   private static instance: ExclusionService;
+
+  /**
+   * Per-caregiver in-process mutex. Concurrent calls to
+   * `runCaregiverExclusionCheck` for the same caregiverId are serialized so
+   * that the second call observes the first call's freshly-written rows and
+   * dedupes against them, instead of racing and producing parallel duplicates.
+   * Only protects this Node process; cross-process safety is provided by the
+   * dedup-window check itself.
+   */
+  private caregiverCheckLocks = new Map<string, Promise<unknown>>();
 
   private constructor() {}
 
@@ -108,6 +129,41 @@ export class ExclusionService {
       ExclusionService.instance = new ExclusionService();
     }
     return ExclusionService.instance;
+  }
+
+  private async withCaregiverLock<T>(caregiverId: string, fn: () => Promise<T>): Promise<T> {
+    const prev = this.caregiverCheckLocks.get(caregiverId) ?? Promise.resolve();
+    const current = prev.catch(() => undefined).then(fn);
+    this.caregiverCheckLocks.set(caregiverId, current);
+    try {
+      return await current;
+    } finally {
+      if (this.caregiverCheckLocks.get(caregiverId) === current) {
+        this.caregiverCheckLocks.delete(caregiverId);
+      }
+    }
+  }
+
+  /**
+   * Inserts a caregiver exclusion-check row only if no equivalent row
+   * (same caregiver, source, exclusionRecordId, and status) was written in
+   * the last EXCLUSION_CHECK_DEDUP_WINDOW_MS. Returns true when a row was
+   * actually persisted, false when it was deduped against an existing row.
+   */
+  private async createCheckIfNotDuplicate(
+    check: InsertCaregiverExclusionCheck,
+  ): Promise<boolean> {
+    const recent = await storage.getRecentCaregiverExclusionCheck(
+      check.caregiverId,
+      check.sourceId,
+      check.exclusionRecordId ?? null,
+      EXCLUSION_CHECK_DEDUP_WINDOW_MS,
+    );
+    if (recent && recent.status === check.status) {
+      return false;
+    }
+    await storage.createCaregiverExclusionCheck(check);
+    return true;
   }
 
   private levenshteinDistance(a: string, b: string): number {
@@ -708,92 +764,100 @@ export class ExclusionService {
       matchedLastName: string;
     }>;
   }> {
-    const caregiver = await storage.getCaregiver(caregiverId);
-    if (!caregiver) {
-      throw new Error(`Caregiver ${caregiverId} not found`);
-    }
+    // Serialize concurrent calls for the same caregiver so two supervisors
+    // clicking from different sessions/tabs don't race the dedup-window
+    // check and each insert their own copy of the result rows.
+    return this.withCaregiverLock(caregiverId, async () => {
+      const caregiver = await storage.getCaregiver(caregiverId);
+      if (!caregiver) {
+        throw new Error(`Caregiver ${caregiverId} not found`);
+      }
 
-    const sources = await storage.getExclusionSources();
-    const sourceById = new Map(sources.map((s) => [s.id, s]));
+      const sources = await storage.getExclusionSources();
+      const sourceById = new Map(sources.map((s) => [s.id, s]));
 
-    const licenseNumbers = await storage.getCertificateNumbersByCaregiver(caregiverId);
-    const matches = await this.checkCaregiverAgainstExclusions(
-      caregiverId,
-      caregiver.firstName || '',
-      caregiver.lastName || '',
-      caregiver.dateOfBirth ?? null,
-      caregiver.npi ?? null,
-      licenseNumbers,
-    );
+      const licenseNumbers = await storage.getCertificateNumbersByCaregiver(caregiverId);
+      const matches = await this.checkCaregiverAgainstExclusions(
+        caregiverId,
+        caregiver.firstName || '',
+        caregiver.lastName || '',
+        caregiver.dateOfBirth ?? null,
+        caregiver.npi ?? null,
+        licenseNumbers,
+      );
 
-    // Persist results using the same convention as runFullExclusionCheck:
-    // - Caregiver fully clear → write a `clear` row per source.
-    // - Any match → write only the matching `possible_match` rows; do not
-    //   overwrite the status of unrelated sources.
-    if (matches.length === 0) {
-      for (const source of sources) {
-        await storage.createCaregiverExclusionCheck({
+      // Persist results using the same convention as runFullExclusionCheck:
+      // - Caregiver fully clear → write a `clear` row per source.
+      // - Any match → write only the matching `possible_match` rows; do not
+      //   overwrite the status of unrelated sources.
+      // Each insert is gated by `createCheckIfNotDuplicate` so a rapid second
+      // run (or a re-run from another tab that just missed the lock) won't
+      // produce duplicate audit rows for the same caregiver/source/record.
+      if (matches.length === 0) {
+        for (const source of sources) {
+          await this.createCheckIfNotDuplicate({
+            caregiverId,
+            sourceId: source.id,
+            status: 'clear',
+            checkedAt: new Date(),
+            autoFlag: true,
+          });
+        }
+        return {
           caregiverId,
-          sourceId: source.id,
-          status: 'clear',
+          status: 'clear' as const,
+          totalMatches: 0,
+          matches: [],
+        };
+      }
+
+      const enriched: Array<{
+        exclusionRecordId: string;
+        sourceId: string;
+        sourceName: string;
+        matchType: string;
+        matchScore: number;
+        matchReason: 'npi' | 'license_number' | 'name_exact' | 'name_fuzzy' | null;
+        matchedIdentifier: string | null;
+        matchedFirstName: string;
+        matchedLastName: string;
+      }> = [];
+
+      for (const match of matches) {
+        await this.createCheckIfNotDuplicate({
+          caregiverId,
+          sourceId: match.sourceId,
+          exclusionRecordId: match.exclusionRecordId,
+          status: 'possible_match',
+          matchType: match.matchType,
+          matchScore: match.matchScore.toString(),
+          matchReason: match.matchReason,
+          matchedIdentifier: match.matchedIdentifier,
+          matchedFirstName: match.matchedFirstName,
+          matchedLastName: match.matchedLastName,
           checkedAt: new Date(),
           autoFlag: true,
         });
+        enriched.push({
+          exclusionRecordId: match.exclusionRecordId,
+          sourceId: match.sourceId,
+          sourceName: sourceById.get(match.sourceId)?.name || '',
+          matchType: match.matchType,
+          matchScore: match.matchScore,
+          matchReason: match.matchReason,
+          matchedIdentifier: match.matchedIdentifier,
+          matchedFirstName: match.matchedFirstName,
+          matchedLastName: match.matchedLastName,
+        });
       }
+
       return {
         caregiverId,
-        status: 'clear',
-        totalMatches: 0,
-        matches: [],
+        status: 'possible_match' as const,
+        totalMatches: enriched.length,
+        matches: enriched,
       };
-    }
-
-    const enriched: Array<{
-      exclusionRecordId: string;
-      sourceId: string;
-      sourceName: string;
-      matchType: string;
-      matchScore: number;
-      matchReason: 'npi' | 'license_number' | 'name_exact' | 'name_fuzzy' | null;
-      matchedIdentifier: string | null;
-      matchedFirstName: string;
-      matchedLastName: string;
-    }> = [];
-
-    for (const match of matches) {
-      await storage.createCaregiverExclusionCheck({
-        caregiverId,
-        sourceId: match.sourceId,
-        exclusionRecordId: match.exclusionRecordId,
-        status: 'possible_match',
-        matchType: match.matchType,
-        matchScore: match.matchScore.toString(),
-        matchReason: match.matchReason,
-        matchedIdentifier: match.matchedIdentifier,
-        matchedFirstName: match.matchedFirstName,
-        matchedLastName: match.matchedLastName,
-        checkedAt: new Date(),
-        autoFlag: true,
-      });
-      enriched.push({
-        exclusionRecordId: match.exclusionRecordId,
-        sourceId: match.sourceId,
-        sourceName: sourceById.get(match.sourceId)?.name || '',
-        matchType: match.matchType,
-        matchScore: match.matchScore,
-        matchReason: match.matchReason,
-        matchedIdentifier: match.matchedIdentifier,
-        matchedFirstName: match.matchedFirstName,
-        matchedLastName: match.matchedLastName,
-      });
-    }
-
-    return {
-      caregiverId,
-      status: 'possible_match',
-      totalMatches: enriched.length,
-      matches: enriched,
-    };
+    });
   }
 
   async runFullExclusionCheck(userId?: string): Promise<{
@@ -833,7 +897,10 @@ export class ExclusionService {
           if (matches.length === 0) {
             totalClear++;
             for (const source of sources) {
-              await storage.createCaregiverExclusionCheck({
+              // Dedup against the per-caregiver button: if a single-caregiver
+              // check already wrote a `clear` row for this source moments ago,
+              // don't duplicate it as part of the org-wide sweep.
+              await this.createCheckIfNotDuplicate({
                 caregiverId: caregiver.id,
                 sourceId: source.id,
                 status: 'clear',
@@ -848,12 +915,12 @@ export class ExclusionService {
                 caregiver.id,
                 match.sourceId
               );
-              
+
               if (!existing || existing.exclusionRecordId !== match.exclusionRecordId) {
                 newMatches++;
               }
 
-              await storage.createCaregiverExclusionCheck({
+              await this.createCheckIfNotDuplicate({
                 caregiverId: caregiver.id,
                 sourceId: match.sourceId,
                 exclusionRecordId: match.exclusionRecordId,
