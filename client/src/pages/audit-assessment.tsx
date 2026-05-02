@@ -1094,6 +1094,7 @@ export default function AuditAssessment() {
   const [compareMode, setCompareMode] = useState(false);
   const [selectedForCompare, setSelectedForCompare] = useState<string[]>([]);
   const [compareViewIds, setCompareViewIds] = useState<[string, string] | null>(null);
+  const [compareViewSavedId, setCompareViewSavedId] = useState<string | null>(null);
   const [savedComparisonsFilter, setSavedComparisonsFilter] = useState<"all" | "mine">("all");
   const [savedComparisonsSort, setSavedComparisonsSort] = useState<"newest" | "oldest" | "creator">("newest");
 
@@ -1104,23 +1105,33 @@ export default function AuditAssessment() {
       const ids = compareParam.split(",").map(s => s.trim()).filter(Boolean);
       if (ids.length === 2) {
         setCompareViewIds([ids[0], ids[1]]);
+        const savedIdParam = params.get("savedId");
+        if (savedIdParam) setCompareViewSavedId(savedIdParam);
       }
     }
   }, []);
 
-  const enterCompareView = (id1: string, id2: string) => {
+  const enterCompareView = (id1: string, id2: string, savedComparisonId?: string) => {
     setCompareViewIds([id1, id2]);
+    setCompareViewSavedId(savedComparisonId || null);
     const url = new URL(window.location.href);
     url.searchParams.set("compare", `${id1},${id2}`);
+    if (savedComparisonId) {
+      url.searchParams.set("savedId", savedComparisonId);
+    } else {
+      url.searchParams.delete("savedId");
+    }
     window.history.pushState({}, "", url.toString());
   };
 
   const exitCompareView = () => {
     setCompareViewIds(null);
+    setCompareViewSavedId(null);
     setCompareMode(false);
     setSelectedForCompare([]);
     const url = new URL(window.location.href);
     url.searchParams.delete("compare");
+    url.searchParams.delete("savedId");
     window.history.pushState({}, "", url.toString());
   };
 
@@ -1438,6 +1449,7 @@ export default function AuditAssessment() {
         <CompareView
           auditId1={compareViewIds[0]}
           auditId2={compareViewIds[1]}
+          savedComparisonId={compareViewSavedId}
           onBack={exitCompareView}
         />
       </div>
@@ -1612,7 +1624,7 @@ export default function AuditAssessment() {
                             >
                               <button
                                 type="button"
-                                onClick={() => auditsExist && enterCompareView(sc.auditId1, sc.auditId2)}
+                                onClick={() => auditsExist && enterCompareView(sc.auditId1, sc.auditId2, sc.id)}
                                 disabled={!auditsExist}
                                 className="flex-1 min-w-0 text-left disabled:opacity-50 disabled:cursor-not-allowed"
                                 title={tooltipText || undefined}
@@ -1637,7 +1649,7 @@ export default function AuditAssessment() {
                                     size="sm"
                                     variant="ghost"
                                     className="h-7 gap-1 text-blue-600 dark:text-blue-400 hover:text-blue-700"
-                                    onClick={() => enterCompareView(sc.auditId1, sc.auditId2)}
+                                    onClick={() => enterCompareView(sc.auditId1, sc.auditId2, sc.id)}
                                     data-testid={`button-open-saved-comparison-${sc.id}`}
                                   >
                                     <ArrowLeftRight size={12} /> Open
@@ -3709,10 +3721,12 @@ function CompareStatusPill({ status }: { status: ItemStatus }) {
 function CompareView({
   auditId1,
   auditId2,
+  savedComparisonId,
   onBack,
 }: {
   auditId1: string;
   auditId2: string;
+  savedComparisonId?: string | null;
   onBack: () => void;
 }) {
   const queryClient = useQueryClient();
@@ -3768,6 +3782,12 @@ function CompareView({
     (c.auditId1 === auditId1 && c.auditId2 === auditId2) ||
     (c.auditId1 === auditId2 && c.auditId2 === auditId1)
   );
+
+  // Only surface "Saved by … on …" metadata when the user actually opened
+  // this comparison from a saved slot (the parent passes savedComparisonId
+  // through). A manual two-audit selection that *happens* to match a saved
+  // record should not show the subtitle.
+  const openedFromSavedSlot = savedComparisons.find(c => c.id === savedComparisonId);
 
   const [saveDialogOpen, setSaveDialogOpen] = useState(false);
   const [saveName, setSaveName] = useState("");
@@ -3906,6 +3926,32 @@ function CompareView({
               Comparing <span className="font-medium text-foreground">{audit1.title}</span> → <span className="font-medium text-foreground">{audit2.title}</span>
             </p>
           )}
+          {!loading && audit1 && audit2 && openedFromSavedSlot && (() => {
+            const savedCreatorLabel =
+              openedFromSavedSlot.createdByName ||
+              (openedFromSavedSlot.createdBy ? "a team member" : null);
+            const savedDateLabel = openedFromSavedSlot.createdAt
+              ? new Date(openedFromSavedSlot.createdAt).toLocaleDateString(undefined, {
+                  month: "short",
+                  day: "numeric",
+                  year: "numeric",
+                })
+              : null;
+            if (!savedCreatorLabel && !savedDateLabel) return null;
+            return (
+              <p
+                className="text-xs text-muted-foreground/80 mt-1 flex items-center gap-1"
+                data-testid="text-saved-comparison-meta"
+              >
+                <Bookmark size={11} className="fill-current shrink-0" />
+                <span className="truncate">
+                  {savedCreatorLabel && <>Saved by <span className="font-medium text-foreground/80">{savedCreatorLabel}</span></>}
+                  {savedCreatorLabel && savedDateLabel && " "}
+                  {savedDateLabel && <>on {savedDateLabel}</>}
+                </span>
+              </p>
+            );
+          })()}
         </div>
         {!loading && audit1 && audit2 && (
           <div className="flex items-center gap-2 shrink-0 print:hidden">
