@@ -84,6 +84,9 @@ export default function PolicyManagement() {
         const el = document.querySelector(`[data-policy-id="${policyId}"]`);
         if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
       }, 100);
+      params.delete("policyId");
+      const newSearch = params.toString();
+      window.history.replaceState(null, "", window.location.pathname + (newSearch ? `?${newSearch}` : ""));
     }
   }, [policies]);
 

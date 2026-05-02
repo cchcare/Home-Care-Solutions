@@ -47,7 +47,13 @@ export default function IncidentsPage() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const openId = params.get("openId");
-    if (openId) setHighlightId(openId);
+    if (openId) {
+      setHighlightId(openId);
+      params.delete("openId");
+      const newSearch = params.toString();
+      const newUrl = window.location.pathname + (newSearch ? `?${newSearch}` : "");
+      window.history.replaceState(null, "", newUrl);
+    }
   }, []);
 
   const { data: incidents = [], isLoading } = useQuery<IncidentReport[]>({

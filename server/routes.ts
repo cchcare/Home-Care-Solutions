@@ -18889,6 +18889,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const officeId = req.query.officeId as string;
       if (!officeId) return res.status(400).json({ message: "officeId required" });
 
+      // Office scope check: only super_admin can query any office; others
+      // must match their own office.
+      const sessUser = req.session?.user;
+      if (sessUser && sessUser.role !== "super_admin") {
+        const userOfficeId = sessUser.primaryOfficeId || sessUser.officeId || null;
+        if (!userOfficeId || userOfficeId !== officeId) {
+          return res.status(403).json({ message: "Office is outside your scope" });
+        }
+      }
+
       const now = new Date();
       const ninetyDaysAgo = new Date(now.getTime() - 90 * 24 * 3600000);
       const thirtyDaysFromNow = new Date(now.getTime() + 30 * 24 * 3600000);
