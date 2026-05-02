@@ -310,14 +310,17 @@ export default function SurveyReadiness() {
     },
     onError: (err: any, vars) => {
       const msg = err?.message || "Please try again.";
-      if (/already sent/i.test(msg) || /429/.test(msg)) {
+      const alreadySent = /already sent/i.test(msg) || /429/.test(msg);
+      if (alreadySent) {
         setRecentlySent(prev => {
           const next = new Set(prev);
           next.add(vars.caregiverId);
           return next;
         });
+        toast({ title: "Already reminded today", description: "This caregiver was reminded in the last 24 hours." });
+      } else {
+        toast({ title: "Could not send reminder", description: msg, variant: "destructive" });
       }
-      toast({ title: "Could not send reminder", description: msg, variant: "destructive" });
     },
   });
 

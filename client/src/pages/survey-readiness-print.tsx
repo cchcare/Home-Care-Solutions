@@ -114,7 +114,7 @@ export default function SurveyReadinessPrint() {
       <div className="no-print sticky top-0 bg-white border-b shadow-sm p-3 flex justify-between items-center z-10">
         <div className="text-sm text-gray-600">Survey Readiness Report — {office?.name || "Office"}</div>
         <div className="flex gap-2">
-          <Button size="sm" variant="outline" onClick={() => window.close()}>Close</Button>
+          <Button size="sm" variant="outline" onClick={() => { window.close(); setTimeout(() => { window.location.href = "/survey-readiness"; }, 100); }}>Close</Button>
           <Button size="sm" onClick={() => window.print()}>
             <Printer className="h-4 w-4 mr-2" />
             Print / Save as PDF
