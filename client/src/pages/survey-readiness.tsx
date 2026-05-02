@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { useOfficeScope } from "@/context/office-context";
@@ -229,7 +229,11 @@ function GapRow({ href, title, subtitle, severity, action }: {
   action?: React.ReactNode;
 }) {
   const saveScroll = () => {
-    try { sessionStorage.setItem(READINESS_SCROLL_KEY, String(window.scrollY)); } catch {}
+    try {
+      const container = document.getElementById("survey-readiness-scroll");
+      const y = container ? container.scrollTop : window.scrollY;
+      sessionStorage.setItem(READINESS_SCROLL_KEY, String(y));
+    } catch {}
   };
   return (
     <div className="flex items-center justify-between gap-2 py-2 border-b last:border-0 group">
@@ -258,6 +262,7 @@ export default function SurveyReadiness() {
   const { selectedOfficeId, isAllOffices } = useOfficeScope();
   const { toast } = useToast();
   const [recentlySent, setRecentlySent] = useState<Set<string>>(new Set());
+  const scrollRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     try {
@@ -265,7 +270,10 @@ export default function SurveyReadiness() {
       if (saved) {
         const y = parseInt(saved, 10);
         if (!Number.isNaN(y)) {
-          requestAnimationFrame(() => window.scrollTo({ top: y, behavior: "auto" }));
+          requestAnimationFrame(() => {
+            if (scrollRef.current) scrollRef.current.scrollTop = y;
+            else window.scrollTo({ top: y, behavior: "auto" });
+          });
         }
         sessionStorage.removeItem(READINESS_SCROLL_KEY);
       }
@@ -357,7 +365,7 @@ export default function SurveyReadiness() {
       <Sidebar />
       <main className="flex-1 flex flex-col overflow-hidden">
         <TopBar title="Survey Readiness Hub" subtitle="Real-time DOH compliance gap analysis and readiness scoring" />
-        <div className="flex-1 overflow-auto p-6 bg-background">
+        <div id="survey-readiness-scroll" ref={scrollRef} className="flex-1 overflow-auto p-6 bg-background">
           <div className="max-w-7xl mx-auto space-y-6">
             <div className="flex items-center justify-between gap-3 flex-wrap">
               <div>
