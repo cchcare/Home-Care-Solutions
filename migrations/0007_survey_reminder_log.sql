@@ -7,7 +7,7 @@ CREATE TABLE IF NOT EXISTS "survey_reminder_log" (
   "office_id" varchar,
   "gap_type" varchar NOT NULL,
   "sent_by_user_id" varchar,
-  "recipient_email" varchar NOT NULL,
+  "recipient_email" varchar,
   "status" varchar DEFAULT 'sent' NOT NULL,
   "error_message" text,
   "sent_at" timestamp DEFAULT now() NOT NULL,
@@ -17,5 +17,5 @@ CREATE TABLE IF NOT EXISTS "survey_reminder_log" (
 
 CREATE INDEX IF NOT EXISTS "idx_survey_reminder_caregiver_sent"
   ON "survey_reminder_log" ("caregiver_id", "sent_at");--> statement-breakpoint
-CREATE INDEX IF NOT EXISTS "idx_survey_reminder_office"
-  ON "survey_reminder_log" ("office_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "idx_survey_reminder_office_sent"
+  ON "survey_reminder_log" ("office_id", "sent_at");--> statement-breakpoint
