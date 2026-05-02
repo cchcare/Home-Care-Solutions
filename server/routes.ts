@@ -18906,14 +18906,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const activeCaregivers = allCaregivers.filter((c: any) => c.status === "active");
       for (const cg of activeCaregivers) {
         const cgAny = cg as any;
+        const cgName = `${cg.firstName} ${cg.lastName}`;
+        const cgEmail = cgAny.email || null;
         if (!cgAny.backgroundCheckDate || new Date(cgAny.backgroundCheckDate) < ninetyDaysAgo) {
-          caregiverGaps.push({ type: "background_check", caregiverId: cg.id, name: `${cg.firstName} ${cg.lastName}`, severity: "high" });
+          caregiverGaps.push({ type: "background_check", caregiverId: cg.id, name: cgName, email: cgEmail, severity: "high" });
         }
         if (!cgAny.tbTestDate || new Date(cgAny.tbTestDate) < new Date(now.getFullYear() - 1, now.getMonth(), now.getDate())) {
-          caregiverGaps.push({ type: "tb_test", caregiverId: cg.id, name: `${cg.firstName} ${cg.lastName}`, severity: "high" });
+          caregiverGaps.push({ type: "tb_test", caregiverId: cg.id, name: cgName, email: cgEmail, severity: "high" });
         }
         if (!cgAny.cprCertDate || new Date(cgAny.cprCertDate) < now) {
-          caregiverGaps.push({ type: "cpr_expired", caregiverId: cg.id, name: `${cg.firstName} ${cg.lastName}`, severity: "medium" });
+          caregiverGaps.push({ type: "cpr_expired", caregiverId: cg.id, name: cgName, email: cgEmail, severity: "medium" });
         }
       }
 
@@ -18930,7 +18932,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       for (const cg of activeCaregivers) {
         const lastVisit = visitsByCaregiver.get(cg.id);
         if (!lastVisit || lastVisit < ninetyDaysAgo) {
-          visitGaps.push({ type: "supervisory_visit_overdue", caregiverId: cg.id, name: `${cg.firstName} ${cg.lastName}`, lastVisit, severity: "high" });
+          visitGaps.push({ type: "supervisory_visit_overdue", caregiverId: cg.id, name: `${cg.firstName} ${cg.lastName}`, email: (cg as any).email || null, lastVisit, severity: "high" });
         }
       }
 
@@ -18938,16 +18940,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const cirGaps: any[] = [];
       for (const inc of allIncidents) {
         const incAny = inc as any;
+        const incidentType = incAny.incidentType || null;
+        const incName = incidentType ? String(incidentType).replace(/_/g, " ") : "Incident";
+        const incDate = incAny.incidentDate ? new Date(incAny.incidentDate) : null;
         if (incAny.cirClass === "class_1" && incAny.dohSubmissionStatus === "pending") {
           const dueDate = incAny.dohReportDue ? new Date(incAny.dohReportDue) : null;
           if (dueDate && dueDate < now) {
-            cirGaps.push({ type: "cir_class1_overdue", incidentId: inc.id, severity: "critical", dueDate });
+            cirGaps.push({ type: "cir_class1_overdue", incidentId: inc.id, name: incName, incidentType, incidentDate: incDate, severity: "critical", dueDate });
           }
         }
         if (incAny.cirClass === "class_2" && incAny.dohSubmissionStatus === "pending") {
           const dueDate = incAny.dohReportDue ? new Date(incAny.dohReportDue) : null;
           if (dueDate && dueDate < now) {
-            cirGaps.push({ type: "cir_class2_overdue", incidentId: inc.id, severity: "high", dueDate });
+            cirGaps.push({ type: "cir_class2_overdue", incidentId: inc.id, name: incName, incidentType, incidentDate: incDate, severity: "high", dueDate });
           }
         }
       }
@@ -19007,6 +19012,106 @@ export async function registerRoutes(app: Express): Promise<Server> {
         },
       });
     } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.post("/api/survey-readiness/send-reminder", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      if (!user || !["admin", "office_admin", "super_admin", "supervisor"].includes(user.role)) {
+        return res.status(403).json({ message: "Unauthorized" });
+      }
+
+      const { caregiverId, gapType } = req.body || {};
+      if (!caregiverId || typeof caregiverId !== "string") {
+        return res.status(400).json({ message: "caregiverId required" });
+      }
+      const validGapTypes = new Set(["background_check", "tb_test", "cpr_expired", "supervisory_visit_overdue"]);
+      if (!gapType || !validGapTypes.has(gapType)) {
+        return res.status(400).json({ message: "Invalid gapType" });
+      }
+
+      const caregiver = await storage.getCaregiver(caregiverId);
+      if (!caregiver) return res.status(404).json({ message: "Caregiver not found" });
+
+      // Office scope check: only super_admin can send across offices.
+      // Other roles must belong to the same office as the caregiver.
+      const caregiverOfficeId = (caregiver as any).officeId || null;
+      if (user.role !== "super_admin") {
+        const userOfficeId = user.officeId || null;
+        if (!userOfficeId || !caregiverOfficeId || userOfficeId !== caregiverOfficeId) {
+          return res.status(403).json({ message: "Caregiver is outside your office scope" });
+        }
+      }
+
+      const recipientEmail = (caregiver as any).email;
+      if (!recipientEmail) {
+        return res.status(400).json({ message: "Caregiver has no email on file" });
+      }
+
+      // Rate limit: at most 1 reminder per caregiver per gapType per 24 hours
+      const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+      const recent = await storage.getRecentSurveyReminders(caregiverId, gapType, oneDayAgo);
+      if (recent.length > 0) {
+        const lastSent = recent[0].sentAt ? new Date(recent[0].sentAt) : null;
+        return res.status(429).json({
+          message: "A reminder for this item was already sent in the last 24 hours.",
+          lastSentAt: lastSent?.toISOString(),
+        });
+      }
+
+      const gapTypeLabels: Record<string, string> = {
+        background_check: "Background Check",
+        tb_test: "TB Test",
+        cpr_expired: "CPR Certification",
+        supervisory_visit_overdue: "Supervisory Visit",
+      };
+      const itemName = gapTypeLabels[gapType] || gapType;
+      const firstName = (caregiver as any).firstName || "there";
+      const fallbackHtml = `<p>Hi ${firstName},</p><p>Our records show that your <strong>${itemName}</strong> requires immediate attention to keep your file in compliance for the upcoming Department of Health survey. Please contact your office coordinator to update this item as soon as possible.</p><p>Thank you,<br/>The Compliance Team</p>`;
+      const fallbackSubject = `Action Required: ${itemName} needs attention`;
+
+      const { sendTemplatedEmail } = await import("./agentmail");
+
+      try {
+        await sendTemplatedEmail(
+          recipientEmail,
+          "compliance_alert",
+          {
+            firstName,
+            itemName,
+            expiryDate: "as soon as possible",
+            daysUntilExpiry: "0",
+          },
+          fallbackSubject,
+          fallbackHtml,
+        );
+
+        await storage.createSurveyReminder({
+          caregiverId,
+          officeId: caregiverOfficeId,
+          gapType,
+          sentByUserId: user.id,
+          recipientEmail,
+          status: "sent",
+        });
+
+        return res.json({ success: true, sentTo: recipientEmail });
+      } catch (sendErr: any) {
+        await storage.createSurveyReminder({
+          caregiverId,
+          officeId: caregiverOfficeId,
+          gapType,
+          sentByUserId: user.id,
+          recipientEmail,
+          status: "failed",
+          errorMessage: String(sendErr?.message || sendErr).slice(0, 500),
+        });
+        return res.status(502).json({ message: "Email send failed", error: String(sendErr?.message || sendErr) });
+      }
+    } catch (e: any) {
+      console.error("[Survey Readiness] send-reminder error:", e);
+      res.status(500).json({ message: e.message || "Failed to send reminder" });
+    }
   });
 
   const httpServer = createServer(app);

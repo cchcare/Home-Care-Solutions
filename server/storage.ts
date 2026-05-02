@@ -3,6 +3,9 @@ import {
   userSavedViews,
   type UserSavedView,
   type InsertUserSavedView,
+  surveyReminderLog,
+  type SurveyReminderLog,
+  type InsertSurveyReminderLog,
   offices,
   clients,
   caregivers,
@@ -424,6 +427,10 @@ export interface IStorage {
   upsertUserSavedView(view: InsertUserSavedView): Promise<UserSavedView>;
   updateUserSavedView(id: string, view: Partial<InsertUserSavedView>): Promise<UserSavedView>;
   deleteUserSavedView(id: string): Promise<void>;
+
+  // Survey readiness reminder log (rate-limit per caregiver/day)
+  createSurveyReminder(reminder: InsertSurveyReminderLog): Promise<SurveyReminderLog>;
+  getRecentSurveyReminders(caregiverId: string, gapType: string, sinceDate: Date): Promise<SurveyReminderLog[]>;
 
   // Office operations
   getAllOffices(): Promise<Office[]>;
@@ -1507,6 +1514,25 @@ export class DatabaseStorage implements IStorage {
 
   async deleteUserSavedView(id: string): Promise<void> {
     await db.delete(userSavedViews).where(eq(userSavedViews.id, id));
+  }
+
+  // Survey readiness reminder log (rate-limit per caregiver/day)
+  async createSurveyReminder(reminder: InsertSurveyReminderLog): Promise<SurveyReminderLog> {
+    const [created] = await db.insert(surveyReminderLog).values(reminder).returning();
+    return created;
+  }
+
+  async getRecentSurveyReminders(caregiverId: string, gapType: string, sinceDate: Date): Promise<SurveyReminderLog[]> {
+    return await db
+      .select()
+      .from(surveyReminderLog)
+      .where(and(
+        eq(surveyReminderLog.caregiverId, caregiverId),
+        eq(surveyReminderLog.gapType, gapType),
+        eq(surveyReminderLog.status, "sent"),
+        gte(surveyReminderLog.sentAt, sinceDate),
+      ))
+      .orderBy(desc(surveyReminderLog.sentAt));
   }
 
   // Office operations

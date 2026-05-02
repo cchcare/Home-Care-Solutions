@@ -4255,3 +4255,22 @@ export const clientSurveyResponses = pgTable("client_survey_responses", {
 export type ClientSurveyResponse = typeof clientSurveyResponses.$inferSelect;
 export type InsertClientSurveyResponse = typeof clientSurveyResponses.$inferInsert;
 export const insertClientSurveyResponseSchema = createInsertSchema(clientSurveyResponses).omit({ id: true, submittedAt: true });
+
+export const surveyReminderLog = pgTable("survey_reminder_log", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  caregiverId: varchar("caregiver_id").notNull().references(() => caregivers.id, { onDelete: "cascade" }),
+  officeId: varchar("office_id").references(() => offices.id),
+  gapType: varchar("gap_type").notNull(),
+  sentByUserId: varchar("sent_by_user_id").references(() => users.id),
+  recipientEmail: varchar("recipient_email"),
+  status: varchar("status").default("sent"),
+  errorMessage: text("error_message"),
+  sentAt: timestamp("sent_at").defaultNow(),
+}, (table) => [
+  index("idx_survey_reminder_caregiver_sent").on(table.caregiverId, table.sentAt),
+  index("idx_survey_reminder_office_sent").on(table.officeId, table.sentAt),
+]);
+
+export type SurveyReminderLog = typeof surveyReminderLog.$inferSelect;
+export type InsertSurveyReminderLog = typeof surveyReminderLog.$inferInsert;
+export const insertSurveyReminderLogSchema = createInsertSchema(surveyReminderLog).omit({ id: true, sentAt: true });

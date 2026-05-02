@@ -78,6 +78,7 @@ import MyCommunication from "@/pages/my-communication";
 import MySupportTickets from "@/pages/my-support-tickets";
 import CaregiverLogin from "@/pages/caregiver-login";
 import SurveyReadiness from "@/pages/survey-readiness";
+import SurveyReadinessPrint from "@/pages/survey-readiness-print";
 import SupervisoryVisits from "@/pages/supervisory-visits";
 import PolicyManagement from "@/pages/policy-management";
 import Qapi from "@/pages/qapi";
@@ -206,6 +207,7 @@ function Router() {
           <Route path="/search" component={SearchPage} />
           <Route path="/audit-assessment" component={AuditAssessment} />
           <Route path="/survey-readiness" component={SurveyReadiness} />
+          <Route path="/survey-readiness/print" component={SurveyReadinessPrint} />
           <Route path="/supervisory-visits" component={SupervisoryVisits} />
           <Route path="/policy-management" component={PolicyManagement} />
           <Route path="/qapi" component={Qapi} />
