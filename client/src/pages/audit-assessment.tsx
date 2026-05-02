@@ -1095,6 +1095,7 @@ export default function AuditAssessment() {
   const [selectedForCompare, setSelectedForCompare] = useState<string[]>([]);
   const [compareViewIds, setCompareViewIds] = useState<[string, string] | null>(null);
   const [savedComparisonsFilter, setSavedComparisonsFilter] = useState<"all" | "mine">("all");
+  const [savedComparisonsSort, setSavedComparisonsSort] = useState<"newest" | "oldest" | "creator">("newest");
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -1515,9 +1516,23 @@ export default function AuditAssessment() {
 
             {/* Saved comparisons */}
             {!compareMode && savedComparisons.length > 0 && (() => {
-              const filteredComparisons = savedComparisonsFilter === "mine"
+              const filteredComparisons = (savedComparisonsFilter === "mine"
                 ? savedComparisons.filter(sc => sc.createdBy === user?.id)
-                : savedComparisons;
+                : savedComparisons
+              )
+                .slice()
+                .sort((a, b) => {
+                  if (savedComparisonsSort === "creator") {
+                    const an = (a.createdByName || "").toLowerCase();
+                    const bn = (b.createdByName || "").toLowerCase();
+                    if (an && bn && an !== bn) return an.localeCompare(bn);
+                    if (an && !bn) return -1;
+                    if (!an && bn) return 1;
+                  }
+                  const at = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+                  const bt = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+                  return savedComparisonsSort === "oldest" ? at - bt : bt - at;
+                });
               return (
                 <Card className="mb-4 border-blue-100 dark:border-blue-900/40 bg-blue-50/40 dark:bg-blue-950/10" data-testid="card-saved-comparisons">
                   <CardHeader className="pb-2">
@@ -1527,23 +1542,41 @@ export default function AuditAssessment() {
                         <CardTitle className="text-sm">Saved Comparisons</CardTitle>
                         <Badge variant="outline" className="text-xs">{filteredComparisons.length}</Badge>
                       </div>
-                      <div className="flex items-center rounded-md border border-border overflow-hidden text-xs" data-testid="saved-comparisons-filter">
-                        <button
-                          type="button"
-                          onClick={() => setSavedComparisonsFilter("all")}
-                          className={`px-2.5 py-1 transition-colors ${savedComparisonsFilter === "all" ? "bg-blue-600 text-white" : "bg-background text-muted-foreground hover:bg-muted"}`}
-                          data-testid="filter-all-comparisons"
+                      <div className="flex items-center gap-2">
+                        <Select
+                          value={savedComparisonsSort}
+                          onValueChange={(v) => setSavedComparisonsSort(v as "newest" | "oldest" | "creator")}
                         >
-                          All
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setSavedComparisonsFilter("mine")}
-                          className={`px-2.5 py-1 transition-colors ${savedComparisonsFilter === "mine" ? "bg-blue-600 text-white" : "bg-background text-muted-foreground hover:bg-muted"}`}
-                          data-testid="filter-mine-comparisons"
-                        >
-                          Mine
-                        </button>
+                          <SelectTrigger
+                            className="h-7 w-[140px] text-xs"
+                            data-testid="select-saved-comparisons-sort"
+                          >
+                            <SelectValue placeholder="Sort by" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="newest" data-testid="sort-option-newest">Newest</SelectItem>
+                            <SelectItem value="oldest" data-testid="sort-option-oldest">Oldest</SelectItem>
+                            <SelectItem value="creator" data-testid="sort-option-creator">Creator (A-Z)</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <div className="flex items-center rounded-md border border-border overflow-hidden text-xs" data-testid="saved-comparisons-filter">
+                          <button
+                            type="button"
+                            onClick={() => setSavedComparisonsFilter("all")}
+                            className={`px-2.5 py-1 transition-colors ${savedComparisonsFilter === "all" ? "bg-blue-600 text-white" : "bg-background text-muted-foreground hover:bg-muted"}`}
+                            data-testid="filter-all-comparisons"
+                          >
+                            All
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setSavedComparisonsFilter("mine")}
+                            className={`px-2.5 py-1 transition-colors ${savedComparisonsFilter === "mine" ? "bg-blue-600 text-white" : "bg-background text-muted-foreground hover:bg-muted"}`}
+                            data-testid="filter-mine-comparisons"
+                          >
+                            Mine
+                          </button>
+                        </div>
                       </div>
                     </div>
                     <CardDescription className="text-xs">
