@@ -430,7 +430,7 @@ export interface IStorage {
 
   // Survey readiness reminder log (rate-limit per caregiver/day)
   createSurveyReminder(reminder: InsertSurveyReminderLog): Promise<SurveyReminderLog>;
-  getRecentSurveyReminders(caregiverId: string, gapType: string, sinceDate: Date): Promise<SurveyReminderLog[]>;
+  getRecentSurveyReminders(caregiverId: string, sinceDate: Date, gapType?: string): Promise<SurveyReminderLog[]>;
 
   // Office operations
   getAllOffices(): Promise<Office[]>;
@@ -1522,16 +1522,17 @@ export class DatabaseStorage implements IStorage {
     return created;
   }
 
-  async getRecentSurveyReminders(caregiverId: string, gapType: string, sinceDate: Date): Promise<SurveyReminderLog[]> {
+  async getRecentSurveyReminders(caregiverId: string, sinceDate: Date, gapType?: string): Promise<SurveyReminderLog[]> {
+    const conditions = [
+      eq(surveyReminderLog.caregiverId, caregiverId),
+      eq(surveyReminderLog.status, "sent"),
+      gte(surveyReminderLog.sentAt, sinceDate),
+    ];
+    if (gapType) conditions.push(eq(surveyReminderLog.gapType, gapType));
     return await db
       .select()
       .from(surveyReminderLog)
-      .where(and(
-        eq(surveyReminderLog.caregiverId, caregiverId),
-        eq(surveyReminderLog.gapType, gapType),
-        eq(surveyReminderLog.status, "sent"),
-        gte(surveyReminderLog.sentAt, sinceDate),
-      ))
+      .where(and(...conditions))
       .orderBy(desc(surveyReminderLog.sentAt));
   }
 

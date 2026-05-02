@@ -125,18 +125,28 @@ export default function SurveyReadinessPrint() {
       <div className="max-w-4xl mx-auto p-6 print:p-0 space-y-6">
         <header className="border-b border-gray-300 pb-4 avoid-break">
           <div className="flex items-start justify-between gap-4">
-            <div>
-              <div className="flex items-center gap-2 text-blue-700 mb-1">
-                <ShieldCheck className="h-6 w-6" />
-                <h1 className="text-2xl font-bold">Survey Readiness Report</h1>
-              </div>
-              <p className="text-lg font-semibold text-gray-800">{office?.name || "Office"}</p>
-              {office?.address && (
-                <p className="text-sm text-gray-600">
-                  {office.address}{office.city ? `, ${office.city}` : ""}{office.state ? `, ${office.state}` : ""} {office.zipCode || ""}
-                </p>
+            <div className="flex items-start gap-4">
+              {office?.logoFileName && (
+                <img
+                  src={`/uploads/${office.logoFileName}`}
+                  alt={`${office.name || "Office"} logo`}
+                  className="h-16 w-auto object-contain"
+                  onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
+                />
               )}
-              {office?.phone && <p className="text-sm text-gray-600">Phone: {office.phone}</p>}
+              <div>
+                <div className="flex items-center gap-2 text-blue-700 mb-1">
+                  <ShieldCheck className="h-6 w-6" />
+                  <h1 className="text-2xl font-bold">Survey Readiness Report</h1>
+                </div>
+                <p className="text-lg font-semibold text-gray-800">{office?.name || "Office"}</p>
+                {office?.address && (
+                  <p className="text-sm text-gray-600">
+                    {office.address}{office.city ? `, ${office.city}` : ""}{office.state ? `, ${office.state}` : ""} {office.zipCode || ""}
+                  </p>
+                )}
+                {office?.phone && <p className="text-sm text-gray-600">Phone: {office.phone}</p>}
+              </div>
             </div>
             <div className="text-right text-xs text-gray-500">
               <p>Generated</p>

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -71,6 +71,21 @@ export default function PolicyManagement() {
     },
     enabled: !!selectedOfficeId && selectedOfficeId !== "all",
   });
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const policyId = params.get("policyId");
+    if (!policyId || policies.length === 0) return;
+    const match = policies.find(p => p.id === policyId);
+    if (match) {
+      setSelectedDoc(match);
+      setActiveTab(match.status === "active" ? "active" : match.status === "archived" ? "archived" : "draft");
+      setTimeout(() => {
+        const el = document.querySelector(`[data-policy-id="${policyId}"]`);
+        if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+      }, 100);
+    }
+  }, [policies]);
 
   const { data: acknowledgments = [] } = useQuery<any[]>({
     queryKey: ["/api/policy-documents", selectedDoc?.id, "acknowledgments"],
@@ -224,6 +239,7 @@ export default function PolicyManagement() {
                     {tabPolicies.map(doc => (
                       <Card
                         key={doc.id}
+                        data-policy-id={doc.id}
                         className={`cursor-pointer transition-colors hover:bg-muted/50 ${selectedDoc?.id === doc.id ? "ring-2 ring-primary" : ""}`}
                         onClick={() => setSelectedDoc(selectedDoc?.id === doc.id ? null : doc)}
                       >

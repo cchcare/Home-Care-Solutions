@@ -19000,7 +19000,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           visitGaps,
           cirGaps,
           policyGaps,
-          clientsWithoutEmergencyPlans: clientsWithoutPlans.map(c => ({ clientId: c.id, name: `${(c as any).firstName} ${(c as any).lastName}` })),
+          clientsWithoutEmergencyPlans: clientsWithoutPlans.map((c: any) => ({ clientId: c.id, name: `${c.firstName} ${c.lastName}` })),
         },
         summary: {
           activeCaregivers: activeCaregivers.length,
@@ -19048,13 +19048,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Caregiver has no email on file" });
       }
 
-      // Rate limit: at most 1 reminder per caregiver per gapType per 24 hours
+      // Rate limit: at most 1 reminder per caregiver per 24 hours (across all gap types)
       const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
-      const recent = await storage.getRecentSurveyReminders(caregiverId, gapType, oneDayAgo);
+      const recent = await storage.getRecentSurveyReminders(caregiverId, oneDayAgo);
       if (recent.length > 0) {
         const lastSent = recent[0].sentAt ? new Date(recent[0].sentAt) : null;
         return res.status(429).json({
-          message: "A reminder for this item was already sent in the last 24 hours.",
+          message: "A reminder was already sent to this caregiver in the last 24 hours.",
           lastSentAt: lastSent?.toISOString(),
         });
       }

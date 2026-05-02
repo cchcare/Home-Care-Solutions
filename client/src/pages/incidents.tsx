@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
@@ -37,10 +37,18 @@ export default function IncidentsPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [severityFilter, setSeverityFilter] = useState<string>("all");
+  const [highlightId, setHighlightId] = useState<string | null>(null);
+  const cardRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { selectedOfficeId, setSelectedOfficeId, isAllOffices, canMutate, viewOnlyMessage } = useOfficeScope();
   const officeQuery = selectedOfficeId !== "all" ? `?officeId=${selectedOfficeId}` : "";
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const openId = params.get("openId");
+    if (openId) setHighlightId(openId);
+  }, []);
 
   const { data: incidents = [], isLoading } = useQuery<IncidentReport[]>({
     queryKey: ["/api/incident-reports", selectedOfficeId],
@@ -778,7 +786,19 @@ export default function IncidentsPage() {
           </Card>
         ) : (
           filteredIncidents.map((incident: IncidentReport) => (
-            <Card key={incident.id} className="hover:shadow-md transition-shadow">
+            <Card
+              key={incident.id}
+              ref={(el) => {
+                cardRefs.current[incident.id] = el;
+                if (el && highlightId === incident.id) {
+                  requestAnimationFrame(() => {
+                    el.scrollIntoView({ behavior: "smooth", block: "center" });
+                  });
+                }
+              }}
+              className={`hover:shadow-md transition-shadow ${highlightId === incident.id ? "ring-2 ring-primary ring-offset-2 animate-pulse" : ""}`}
+              data-testid={`card-incident-${incident.id}`}
+            >
               <CardContent className="pt-6">
                 <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
                   <div className="flex-1 space-y-3">

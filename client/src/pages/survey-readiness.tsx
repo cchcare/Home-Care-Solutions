@@ -466,7 +466,7 @@ export default function SurveyReadiness() {
                     renderGap={(g, i) => (
                       <GapRow
                         key={`${g.incidentId}-${i}`}
-                        href={`/incidents`}
+                        href={`/incidents?openId=${g.incidentId}`}
                         title={gapTypeLabel[g.type] || g.type}
                         subtitle={
                           <>
@@ -492,7 +492,7 @@ export default function SurveyReadiness() {
                     renderGap={(g, i) => (
                       <GapRow
                         key={`${g.policyId}-${i}`}
-                        href={`/policy-management`}
+                        href={`/policy-management?policyId=${g.policyId}`}
                         title={g.policyTitle}
                         subtitle={`${g.missingCount} staff member${g.missingCount !== 1 ? "s" : ""} have not acknowledged`}
                         severity={g.severity}
