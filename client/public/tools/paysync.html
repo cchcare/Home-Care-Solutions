@@ -319,9 +319,34 @@ input.finput::placeholder { color: var(--text3); }
   background: var(--green-faint);
 }
 .dropzone.loaded::before { opacity: 0; }
+.dropzone.loading {
+  border-color: var(--teal);
+  border-style: solid;
+  background: var(--navy2);
+  cursor: default;
+}
+.dropzone.loading::before { opacity: 0.25; }
+.dropzone.loading input[type=file] { pointer-events: none; }
 .dropzone input[type=file] {
   position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%; z-index: 3;
 }
+.dz-cancel {
+  display: none;
+  position: relative; z-index: 4;
+  margin-top: 8px;
+  background: transparent;
+  border: 1px solid var(--teal);
+  color: var(--teal);
+  font-size: 11px;
+  font-family: inherit;
+  padding: 4px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.dz-cancel:hover { background: var(--teal-faint); }
+.dropzone.loading .dz-cancel { display: inline-block; }
+.dropzone.loading .dz-title { color: var(--teal); }
 .dz-icon { font-size: 24px; margin-bottom: 8px; position: relative; z-index: 1; }
 .dz-title {
   font-size: 13px;
@@ -1229,6 +1254,7 @@ tr.unmatched-separator-row > td {
           <div class="dz-title">MasterSheet.xlsx</div>
           <div class="dz-sub">HHA Code ↔ ADP Code ↔ Employee Name</div>
           <div class="dz-name" id="n-master"></div>
+          <button type="button" class="dz-cancel" id="cancel-master" onclick="cancelUpload('z-master', event)">Cancel upload</button>
         </div>
         <div class="col-map" id="map-master" style="display:none"></div>
       </div>
@@ -1259,6 +1285,7 @@ tr.unmatched-separator-row > td {
             <div class="dz-title">HHA_Hours.xlsx</div>
             <div class="dz-sub">Must include Week column (1 or 2)</div>
             <div class="dz-name" id="n-h1"></div>
+            <button type="button" class="dz-cancel" id="cancel-h1" onclick="cancelUpload('z-h1', event)">Cancel upload</button>
           </div>
         </div>
 
@@ -1269,6 +1296,7 @@ tr.unmatched-separator-row > td {
             <div class="dz-icon">📋</div>
             <div class="dz-title">Week 1 Hours</div>
             <div class="dz-name" id="n-hw1"></div>
+            <button type="button" class="dz-cancel" id="cancel-hw1" onclick="cancelUpload('z-hw1', event)">Cancel upload</button>
           </div>
           <div class="week-label">📅 Week 2</div>
           <div class="dropzone" id="z-hw2">
@@ -1276,6 +1304,7 @@ tr.unmatched-separator-row > td {
             <div class="dz-icon">📋</div>
             <div class="dz-title">Week 2 Hours</div>
             <div class="dz-name" id="n-hw2"></div>
+            <button type="button" class="dz-cancel" id="cancel-hw2" onclick="cancelUpload('z-hw2', event)">Cancel upload</button>
           </div>
         </div>
         <div class="col-map" id="map-hha" style="display:none"></div>
@@ -1299,6 +1328,7 @@ tr.unmatched-separator-row > td {
           <div class="dz-title">SummarySheet.xlsx</div>
           <div class="dz-sub">ADP Code · HHA ID · Case Manager · CM Pay</div>
           <div class="dz-name" id="n-summary"></div>
+          <button type="button" class="dz-cancel" id="cancel-summary" onclick="cancelUpload('z-summary', event)">Cancel upload</button>
         </div>
         <div class="col-map" id="map-summary" style="display:none"></div>
       </div>
@@ -1746,6 +1776,109 @@ function tick() {
   }
 }
 
+// ═══════════════════ UPLOAD CANCEL ═══════════════════
+// Tracks active FileReaders per dropzone so the user can cancel a slow read
+// or discard the parsed result before it touches state.
+const _uploadAborts = {};
+
+function startUpload(zid, nid, inputId, label, reader, fileName) {
+  // If something else is already loading in this slot, cancel it first.
+  if (_uploadAborts[zid]) cancelUpload(zid);
+  const z = document.getElementById(zid);
+  const n = document.getElementById(nid);
+  if (z) {
+    z.classList.remove('loaded');
+    z.classList.add('loading');
+  }
+  if (n) n.textContent = '⏳  Loading ' + fileName + '…';
+  _uploadAborts[zid] = { reader, cancelled: false, label, inputId, nid, fileName };
+}
+
+function endUpload(zid) {
+  const z = document.getElementById(zid);
+  if (z) z.classList.remove('loading');
+  delete _uploadAborts[zid];
+}
+
+function isUploadCancelled(zid) {
+  const info = _uploadAborts[zid];
+  return !info || info.cancelled;
+}
+
+// Clear the in-memory state bound to a given dropzone slot so a cancelled
+// upload leaves both the visual slot AND the underlying data empty
+// (otherwise stale prior data could quietly drive Generate / readiness).
+function clearSlotState(zid) {
+  const hideMap = (mapId) => {
+    const el = document.getElementById(mapId);
+    if (el) { el.innerHTML = ''; el.style.display = 'none'; }
+  };
+  if (zid === 'z-master') {
+    S.master = null;
+    S.masterMap = null;
+    hideMap('map-master');
+    dot('d3', false);
+  } else if (zid === 'z-h1') {
+    S.hhaRows = [];
+    S.hhaMap = null;
+    hideMap('map-hha');
+    dot('d4', false);
+  } else if (zid === 'z-hw1') {
+    // Drop only week-1 rows; preserve any week-2 rows already loaded
+    S.hhaRows = (S.hhaRows || []).filter(r => String(r['Week'] || r['week']) === '2');
+    if (!S.hhaRows.length) { S.hhaMap = null; hideMap('map-hha'); }
+    if (!S.hhaRows.length) dot('d4', false);
+  } else if (zid === 'z-hw2') {
+    S.hhaRows = (S.hhaRows || []).filter(r => String(r['Week'] || r['week']) === '1');
+    if (!S.hhaRows.length) { S.hhaMap = null; hideMap('map-hha'); }
+    if (!S.hhaRows.length) dot('d4', false);
+  } else if (zid === 'z-summary') {
+    S.summaryRows = null;
+    S.summaryWb   = null;
+    S.summarySn   = null;
+    S.summaryMap  = null;
+    S.summaryCols = null;
+    S.filledSummary = null;
+    S.cmPay = null;
+    hideMap('map-summary');
+    dot('d5', false);
+  }
+}
+
+// Yield to the browser before running a heavy synchronous parse:
+//   - two requestAnimationFrames let the loading visuals paint first,
+//   - the trailing setTimeout(0) runs after any queued user-input events,
+// so a pending Cancel click is honored before XLSX.read starts.
+function yieldThenParse(zid, fn) {
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    if (isUploadCancelled(zid)) return;
+    setTimeout(() => {
+      if (isUploadCancelled(zid)) return;
+      fn();
+    }, 0);
+  }));
+}
+
+function cancelUpload(zid, ev) {
+  if (ev) { ev.stopPropagation(); ev.preventDefault(); }
+  const info = _uploadAborts[zid];
+  if (!info) return;
+  info.cancelled = true;
+  try { info.reader.abort(); } catch(_) {}
+  const z = document.getElementById(zid);
+  if (z) { z.classList.remove('loading'); z.classList.remove('loaded'); }
+  const n = document.getElementById(info.nid);
+  if (n) n.textContent = '';
+  const inp = document.getElementById(info.inputId);
+  if (inp) inp.value = '';
+  // Leave the slot truly empty: drop any prior parsed data tied to this slot
+  // so the readiness checklist and Generate state stay honest.
+  clearSlotState(zid);
+  lg(`⏹ Upload cancelled — ${info.label}${info.fileName ? ' (' + info.fileName + ')' : ''}`, 'w');
+  delete _uploadAborts[zid];
+  if (typeof tick === 'function') tick();
+}
+
 // ═══════════════════ FILE LOADERS ═══════════════════
 function loadADP(input) {
   const file = input.files[0];
@@ -1769,26 +1902,42 @@ function loadMaster(input) {
   if (!file) return;
   lg(`Loading master sheet: ${file.name}`, 'i');
   const reader = new FileReader();
+  startUpload('z-master', 'n-master', 'f-master', 'master sheet', reader, file.name);
   reader.onload = e => {
-    try {
-      const wb = XLSX.read(new Uint8Array(e.target.result), { type: 'array' });
-      let sn = wb.SheetNames[0];
-      if (wb.SheetNames.includes('Master Template')) sn = 'Master Template';
-      else if (wb.SheetNames.includes('Payroll Hrs')) sn = 'Payroll Hrs';
-      const rows = XLSX.utils.sheet_to_json(wb.Sheets[sn], { defval: '' });
-      S.master = rows;
-      if (rows.length > 0) {
-        const cols = Object.keys(rows[0]);
-        S.masterMap = autoDetectMap(rows[0], MASTER_FIELDS);
-        lg(`✓ Master sheet ready — ${rows.length} employees from sheet "${sn}"`, 's');
-        lg(`  Columns: ${cols.join('  ·  ')}`, 'i');
-        renderColMap('map-master', 'master', MASTER_FIELDS, cols);
+    if (isUploadCancelled('z-master')) return;
+    const buf = new Uint8Array(e.target.result);
+    yieldThenParse('z-master', () => {
+      try {
+        const wb = XLSX.read(buf, { type: 'array' });
+        let sn = wb.SheetNames[0];
+        if (wb.SheetNames.includes('Master Template')) sn = 'Master Template';
+        else if (wb.SheetNames.includes('Payroll Hrs')) sn = 'Payroll Hrs';
+        const rows = XLSX.utils.sheet_to_json(wb.Sheets[sn], { defval: '' });
+        // Re-check right before committing state so a cancel that landed
+        // during parse still wins.
+        if (isUploadCancelled('z-master')) return;
+        S.master = rows;
+        if (rows.length > 0) {
+          const cols = Object.keys(rows[0]);
+          S.masterMap = autoDetectMap(rows[0], MASTER_FIELDS);
+          lg(`✓ Master sheet ready — ${rows.length} employees from sheet "${sn}"`, 's');
+          lg(`  Columns: ${cols.join('  ·  ')}`, 'i');
+          renderColMap('map-master', 'master', MASTER_FIELDS, cols);
+        }
+        endUpload('z-master');
+        markZone('z-master', file.name, 'n-master');
+        dot('d3', true);
+      } catch(err) {
+        endUpload('z-master');
+        lg(`✗ Error reading master sheet: ${err.message}`, 'e');
       }
-      markZone('z-master', file.name, 'n-master');
-      dot('d3', true);
-    } catch(err) {
-      lg(`✗ Error reading master sheet: ${err.message}`, 'e');
-    }
+      tick();
+    });
+  };
+  reader.onerror = () => {
+    if (isUploadCancelled('z-master')) return;
+    endUpload('z-master');
+    lg(`✗ Error reading master sheet (file read failed)`, 'e');
     tick();
   };
   reader.readAsArrayBuffer(file);
@@ -1798,44 +1947,69 @@ function loadHHA(input, slot) {
   const file = input.files[0];
   if (!file) return;
   lg(`Loading HHA hours [${slot}]: ${file.name}`, 'i');
+  const slotMap = {
+    'single': { zid: 'z-h1',  nid: 'n-h1',  inputId: 'f-h1',  label: 'HHA hours' },
+    'w1':     { zid: 'z-hw1', nid: 'n-hw1', inputId: 'f-hw1', label: 'HHA hours (week 1)' },
+    'w2':     { zid: 'z-hw2', nid: 'n-hw2', inputId: 'f-hw2', label: 'HHA hours (week 2)' }
+  };
+  const meta = slotMap[slot] || slotMap.single;
   const reader = new FileReader();
+  startUpload(meta.zid, meta.nid, meta.inputId, meta.label, reader, file.name);
   reader.onload = e => {
-    try {
-      const wb = XLSX.read(new Uint8Array(e.target.result), { type: 'array' });
-      const sn = wb.SheetNames[0];
-      let rows = XLSX.utils.sheet_to_json(wb.Sheets[sn], { defval: '' });
+    if (isUploadCancelled(meta.zid)) return;
+    const buf = new Uint8Array(e.target.result);
+    yieldThenParse(meta.zid, () => {
+      try {
+        const wb = XLSX.read(buf, { type: 'array' });
+        const sn = wb.SheetNames[0];
+        let rows = XLSX.utils.sheet_to_json(wb.Sheets[sn], { defval: '' });
 
-      // Auto-detect column mapping from this file (done before forcing Week col)
-      if (rows.length > 0) {
-        const rawCols = Object.keys(rows[0]);
-        S.hhaMap = autoDetectMap(rows[0], HHA_FIELDS);
-        lg(`  Columns: ${rawCols.join('  ·  ')}`, 'i');
-        renderColMap('map-hha', 'hha', HHA_FIELDS, rawCols);
-      }
+        // Re-check right before committing state so a cancel that landed
+        // during parse still wins.
+        if (isUploadCancelled(meta.zid)) return;
 
-      if (slot === 'single') {
-        S.hhaRows = rows;
-        const wkKey = S.hhaMap?.week || 'Week';
-        const wks = [...new Set(rows.map(r => String(r[wkKey] || r['Week'] || r['week'] || '?')))];
-        lg(`✓ HHA loaded — ${rows.length} rows | Weeks: ${wks.join(', ')}`, 's');
-        markZone('z-h1', file.name, 'n-h1');
-        dot('d4', true);
-      } else if (slot === 'w1') {
-        rows = rows.map(r => ({ ...r, Week: 1 }));
-        S.hhaRows = [...S.hhaRows.filter(r => String(r['Week'] || r['week']) === '2'), ...rows];
-        lg(`✓ Week 1 HHA loaded — ${rows.length} rows`, 's');
-        markZone('z-hw1', file.name, 'n-hw1');
-        if (S.hhaRows.length > 0) dot('d4', true);
-      } else if (slot === 'w2') {
-        rows = rows.map(r => ({ ...r, Week: 2 }));
-        S.hhaRows = [...S.hhaRows.filter(r => String(r['Week'] || r['week']) === '1'), ...rows];
-        lg(`✓ Week 2 HHA loaded — ${rows.length} rows`, 's');
-        markZone('z-hw2', file.name, 'n-hw2');
-        if (S.hhaRows.length > 0) dot('d4', true);
+        // Auto-detect column mapping from this file (done before forcing Week col)
+        if (rows.length > 0) {
+          const rawCols = Object.keys(rows[0]);
+          S.hhaMap = autoDetectMap(rows[0], HHA_FIELDS);
+          lg(`  Columns: ${rawCols.join('  ·  ')}`, 'i');
+          renderColMap('map-hha', 'hha', HHA_FIELDS, rawCols);
+        }
+
+        if (slot === 'single') {
+          S.hhaRows = rows;
+          const wkKey = S.hhaMap?.week || 'Week';
+          const wks = [...new Set(rows.map(r => String(r[wkKey] || r['Week'] || r['week'] || '?')))];
+          lg(`✓ HHA loaded — ${rows.length} rows | Weeks: ${wks.join(', ')}`, 's');
+          endUpload('z-h1');
+          markZone('z-h1', file.name, 'n-h1');
+          dot('d4', true);
+        } else if (slot === 'w1') {
+          rows = rows.map(r => ({ ...r, Week: 1 }));
+          S.hhaRows = [...S.hhaRows.filter(r => String(r['Week'] || r['week']) === '2'), ...rows];
+          lg(`✓ Week 1 HHA loaded — ${rows.length} rows`, 's');
+          endUpload('z-hw1');
+          markZone('z-hw1', file.name, 'n-hw1');
+          if (S.hhaRows.length > 0) dot('d4', true);
+        } else if (slot === 'w2') {
+          rows = rows.map(r => ({ ...r, Week: 2 }));
+          S.hhaRows = [...S.hhaRows.filter(r => String(r['Week'] || r['week']) === '1'), ...rows];
+          lg(`✓ Week 2 HHA loaded — ${rows.length} rows`, 's');
+          endUpload('z-hw2');
+          markZone('z-hw2', file.name, 'n-hw2');
+          if (S.hhaRows.length > 0) dot('d4', true);
+        }
+      } catch(err) {
+        endUpload(meta.zid);
+        lg(`✗ Error reading HHA file: ${err.message}`, 'e');
       }
-    } catch(err) {
-      lg(`✗ Error reading HHA file: ${err.message}`, 'e');
-    }
+      tick();
+    });
+  };
+  reader.onerror = () => {
+    if (isUploadCancelled(meta.zid)) return;
+    endUpload(meta.zid);
+    lg(`✗ Error reading HHA file (file read failed)`, 'e');
     tick();
   };
   reader.readAsArrayBuffer(file);
@@ -2635,28 +2809,44 @@ function loadSummary(input) {
   if (!file) return;
   lg(`Loading Summary Sheet: ${file.name}`, 'i');
   const reader = new FileReader();
+  startUpload('z-summary', 'n-summary', 'f-summary', 'summary sheet', reader, file.name);
   reader.onload = e => {
-    try {
-      const wb = XLSX.read(new Uint8Array(e.target.result), {
-        type: 'array', cellStyles: true, cellNF: true, cellDates: true
-      });
-      const sn = wb.SheetNames[0];
-      const rows = XLSX.utils.sheet_to_json(wb.Sheets[sn], { defval: '' });
-      S.summaryRows = rows;
-      S.summaryWb   = wb;
-      S.summarySn   = sn;
-      if (rows.length > 0) {
-        const cols = Object.keys(rows[0]);
-        S.summaryMap = autoDetectMap(rows[0], SUMMARY_FIELDS);
-        lg(`✓ Summary Sheet loaded — ${rows.length} rows from sheet "${sn}"`, 's');
-        lg(`  Columns: ${cols.join('  ·  ')}`, 'i');
-        renderColMap('map-summary', 'summary', SUMMARY_FIELDS, cols);
+    if (isUploadCancelled('z-summary')) return;
+    const buf = new Uint8Array(e.target.result);
+    yieldThenParse('z-summary', () => {
+      try {
+        const wb = XLSX.read(buf, {
+          type: 'array', cellStyles: true, cellNF: true, cellDates: true
+        });
+        const sn = wb.SheetNames[0];
+        const rows = XLSX.utils.sheet_to_json(wb.Sheets[sn], { defval: '' });
+        // Re-check right before committing state so a cancel that landed
+        // during parse still wins.
+        if (isUploadCancelled('z-summary')) return;
+        S.summaryRows = rows;
+        S.summaryWb   = wb;
+        S.summarySn   = sn;
+        if (rows.length > 0) {
+          const cols = Object.keys(rows[0]);
+          S.summaryMap = autoDetectMap(rows[0], SUMMARY_FIELDS);
+          lg(`✓ Summary Sheet loaded — ${rows.length} rows from sheet "${sn}"`, 's');
+          lg(`  Columns: ${cols.join('  ·  ')}`, 'i');
+          renderColMap('map-summary', 'summary', SUMMARY_FIELDS, cols);
+        }
+        endUpload('z-summary');
+        markZone('z-summary', file.name, 'n-summary');
+        dot('d5', true);
+      } catch(err) {
+        endUpload('z-summary');
+        lg(`✗ Error reading Summary Sheet: ${err.message}`, 'e');
       }
-      markZone('z-summary', file.name, 'n-summary');
-      dot('d5', true);
-    } catch(err) {
-      lg(`✗ Error reading Summary Sheet: ${err.message}`, 'e');
-    }
+    });
+  };
+  reader.onerror = () => {
+    if (isUploadCancelled('z-summary')) return;
+    endUpload('z-summary');
+    lg(`✗ Error reading Summary Sheet (file read failed)`, 'e');
+    tick();
   };
   reader.readAsArrayBuffer(file);
 }
@@ -2870,6 +3060,8 @@ function resetAll() {
     if (el) { el.innerHTML = ''; el.style.display = 'none'; }
   });
 
+  // Cancel any in-flight uploads so they don't fire after the workspace is cleared
+  ['z-master','z-h1','z-hw1','z-hw2','z-summary'].forEach(zid => { if (_uploadAborts[zid]) cancelUpload(zid); });
   ['f-adp','f-master','f-h1','f-hw1','f-hw2','f-summary'].forEach(id => {
     const el = document.getElementById(id); if (el) el.value = '';
   });
