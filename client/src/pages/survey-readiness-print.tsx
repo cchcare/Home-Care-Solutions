@@ -161,6 +161,15 @@ export default function SurveyReadinessPrint() {
               <p className="text-xs uppercase tracking-wide text-gray-500 mb-1">Readiness Score</p>
               <p className="text-5xl font-bold text-blue-700">{data.score}<span className="text-xl text-gray-400">/100</span></p>
               <p className="text-sm font-semibold text-gray-700 mt-1">{levelLabel[data.readinessLevel] || data.readinessLevel}</p>
+              <div className="mt-3 h-2 w-full rounded-full bg-gray-200 overflow-hidden print:bg-gray-300">
+                <div
+                  className={`h-full rounded-full ${data.score >= 90 ? "bg-green-600" : data.score >= 75 ? "bg-blue-600" : data.score >= 50 ? "bg-yellow-500" : "bg-red-600"}`}
+                  style={{ width: `${Math.max(0, Math.min(100, data.score))}%` }}
+                />
+              </div>
+              <div className="flex justify-between text-[10px] text-gray-500 mt-1">
+                <span>0</span><span>50</span><span>100</span>
+              </div>
             </div>
             <div className="col-span-2 grid grid-cols-3 gap-3 text-center">
               <Stat label="Active Caregivers" value={data.summary.activeCaregivers} />

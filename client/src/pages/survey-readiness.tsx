@@ -451,33 +451,15 @@ export default function SurveyReadiness() {
                     iconColor="text-indigo-600 dark:text-indigo-400"
                     gaps={data.gaps.visitGaps}
                     searchKey={(g) => g.name || ""}
-                    renderGap={(g, i) => {
-                      const sent = recentlySent.has(g.caregiverId);
-                      const isPending = sendReminder.isPending && sendReminder.variables?.caregiverId === g.caregiverId;
-                      const action = g.email ? (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="h-7 px-2 text-xs"
-                          disabled={isPending || sent}
-                          onClick={(e) => { e.preventDefault(); e.stopPropagation(); sendReminder.mutate({ caregiverId: g.caregiverId, gapType: g.type }); }}
-                          data-testid={`button-remind-${g.caregiverId}-${g.type}`}
-                        >
-                          {isPending ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <Send className="h-3 w-3 mr-1" />}
-                          {sent ? "Sent" : "Remind"}
-                        </Button>
-                      ) : null;
-                      return (
-                        <GapRow
-                          key={`${g.caregiverId}-visit-${i}`}
-                          href={`/caregivers/${g.caregiverId}`}
-                          title={g.name}
-                          subtitle={g.lastVisit ? `Last visited: ${new Date(g.lastVisit).toLocaleDateString()}` : "No visits on record"}
-                          severity={g.severity}
-                          action={action}
-                        />
-                      );
-                    }}
+                    renderGap={(g, i) => (
+                      <GapRow
+                        key={`${g.caregiverId}-visit-${i}`}
+                        href={`/caregivers/${g.caregiverId}`}
+                        title={g.name}
+                        subtitle={g.lastVisit ? `Last visited: ${new Date(g.lastVisit).toLocaleDateString()}` : "No visits on record"}
+                        severity={g.severity}
+                      />
+                    )}
                   />
 
                   <GapSection
