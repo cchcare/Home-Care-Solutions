@@ -779,6 +779,7 @@ export default function CaregiverProfile() {
         isActive: caregiver.isActive,
         hireDate: caregiver.hireDate,
         startDate: caregiver.startDate,
+        terminationDate: caregiver.terminationDate,
         specializations: caregiver.specializations || [],
         officeId: caregiver.officeId,
         address: caregiver.address || "",
@@ -1227,6 +1228,21 @@ export default function CaregiverProfile() {
                           ) : (
                             <p className="font-medium" data-testid="text-hire-date">
                               {caregiver.hireDate ? format(new Date(caregiver.hireDate), "MMM d, yyyy") : "N/A"}
+                            </p>
+                          )}
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-muted-foreground text-sm">Termination Date</Label>
+                          {isEditing ? (
+                            <Input
+                              type="date"
+                              value={editFormData.terminationDate ? new Date(editFormData.terminationDate).toISOString().split('T')[0] : ""}
+                              onChange={(e) => setEditFormData({ ...editFormData, terminationDate: e.target.value ? new Date(e.target.value) : null })}
+                              data-testid="input-termination-date"
+                            />
+                          ) : (
+                            <p className="font-medium" data-testid="text-termination-date">
+                              {caregiver.terminationDate ? format(new Date(caregiver.terminationDate), "MMM d, yyyy") : "N/A"}
                             </p>
                           )}
                         </div>

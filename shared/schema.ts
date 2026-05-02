@@ -194,6 +194,7 @@ export const caregivers = pgTable("caregivers", {
   gender: genderEnum("gender"),
   hireDate: timestamp("hire_date"),
   startDate: timestamp("start_date"),
+  terminationDate: timestamp("termination_date"),
   experienceYears: integer("experience_years"),
   hourlyWage: numeric("hourly_wage", { precision: 10, scale: 2 }),
   specializations: text("specializations").array(),

@@ -2727,6 +2727,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const processedDateOfBirth = dateOfBirth && typeof dateOfBirth === 'string' ? new Date(dateOfBirth) : dateOfBirth;
       const processedHireDate = caregiverData.hireDate && typeof caregiverData.hireDate === 'string' ? new Date(caregiverData.hireDate) : caregiverData.hireDate;
       const processedStartDate = caregiverData.startDate && typeof caregiverData.startDate === 'string' ? new Date(caregiverData.startDate) : caregiverData.startDate;
+      const processedTerminationDate = caregiverData.terminationDate && typeof caregiverData.terminationDate === 'string' ? new Date(caregiverData.terminationDate) : caregiverData.terminationDate;
       
       // Convert hourlyWage to string if it's a number (numeric type expects string)
       if (caregiverData.hourlyWage !== undefined && typeof caregiverData.hourlyWage === 'number') {
@@ -2748,6 +2749,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ...caregiverData,
         hireDate: processedHireDate,
         startDate: processedStartDate,
+        terminationDate: processedTerminationDate,
         userId: user.id
       });
       
@@ -2808,6 +2810,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Convert date strings to Date objects if they're strings
       const processedHireDate = req.body.hireDate && typeof req.body.hireDate === 'string' ? new Date(req.body.hireDate) : req.body.hireDate;
       const processedStartDate = req.body.startDate && typeof req.body.startDate === 'string' ? new Date(req.body.startDate) : req.body.startDate;
+      const processedTerminationDate = req.body.terminationDate && typeof req.body.terminationDate === 'string' ? new Date(req.body.terminationDate) : req.body.terminationDate;
       
       // Convert hourlyWage to string if it's a number (numeric type expects string)
       if (req.body.hourlyWage !== undefined && typeof req.body.hourlyWage === 'number') {
@@ -2818,6 +2821,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ...req.body,
         hireDate: processedHireDate,
         startDate: processedStartDate,
+        terminationDate: processedTerminationDate,
       };
       
       const validatedData = insertCaregiverSchema.partial().parse(processedBody);

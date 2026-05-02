@@ -395,7 +395,7 @@ import {
   type InsertClientSurveyResponse,
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, desc, asc, and, or, count, sql, like, gte, lte, inArray } from "drizzle-orm";
+import { eq, desc, asc, and, or, count, sql, like, gte, lte, inArray, isNull } from "drizzle-orm";
 import { encryptNote, decryptNote } from './encryption';
 
 export interface IStorage {
@@ -3201,13 +3201,20 @@ export class DatabaseStorage implements IStorage {
     const stats = [];
     
     for (let month = 1; month <= 12; month++) {
+      const monthStart = new Date(year, month - 1, 1, 0, 0, 0);
       const monthEnd = new Date(year, month, 0, 23, 59, 59);
-      
-      // Count active caregivers (DCWs) - those created before or during this month and still active
-      const dcwConditions = [
-        lte(caregivers.createdAt, monthEnd),
-        eq(caregivers.isActive, true)
-      ];
+
+      // Count caregivers active in this month: hired (or, if no hireDate, created)
+      // on or before month end, AND not terminated before month start.
+      const dcwStartCondition = or(
+        and(sql`${caregivers.hireDate} IS NOT NULL`, lte(caregivers.hireDate, monthEnd)),
+        and(isNull(caregivers.hireDate), lte(caregivers.createdAt, monthEnd)),
+      )!;
+      const dcwEndCondition = or(
+        isNull(caregivers.terminationDate),
+        gte(caregivers.terminationDate, monthStart),
+      )!;
+      const dcwConditions = [dcwStartCondition, dcwEndCondition];
       if (officeId) {
         dcwConditions.push(eq(caregivers.officeId, officeId));
       }
@@ -3215,12 +3222,19 @@ export class DatabaseStorage implements IStorage {
         .select({ count: count() })
         .from(caregivers)
         .where(and(...dcwConditions));
-      
-      // Count active clients - those created before or during this month and active
-      const clientConditions = [
-        lte(clients.createdAt, monthEnd),
-        eq(clients.status, "active")
-      ];
+
+      // Count clients in service this month: serviceStartDate (or createdAt
+      // fallback) on or before month end, AND lastServiceDate after month start
+      // (or no end date set yet).
+      const clientStartCondition = or(
+        and(sql`${clients.serviceStartDate} IS NOT NULL`, lte(clients.serviceStartDate, monthEnd)),
+        and(isNull(clients.serviceStartDate), lte(clients.createdAt, monthEnd)),
+      )!;
+      const clientEndCondition = or(
+        isNull(clients.lastServiceDate),
+        gte(clients.lastServiceDate, monthStart),
+      )!;
+      const clientConditions = [clientStartCondition, clientEndCondition];
       if (officeId) {
         clientConditions.push(eq(clients.officeId, officeId));
       }

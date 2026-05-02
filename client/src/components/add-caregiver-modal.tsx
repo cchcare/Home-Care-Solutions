@@ -42,6 +42,7 @@ const caregiverFormSchema = insertCaregiverSchema.extend({
   lastName: z.string().min(1, "Last name is required"),
   dateOfBirth: z.date().optional(),
   hireDate: z.date().optional(),
+  terminationDate: z.date().optional().nullable(),
   // Address fields
   address: z.string().optional(),
   address2: z.string().optional(),
@@ -90,6 +91,7 @@ export function AddCaregiverModal({ isOpen, onClose, onSubmit, isLoading, initia
       dateOfBirth: undefined,
       startDate: undefined,
       hireDate: undefined,
+      terminationDate: undefined,
       address: "",
       address2: "",
       city: "",
@@ -116,6 +118,7 @@ export function AddCaregiverModal({ isOpen, onClose, onSubmit, isLoading, initia
         dateOfBirth: initialData.dateOfBirth,
         startDate: initialData.startDate,
         hireDate: initialData.hireDate,
+        terminationDate: initialData.terminationDate,
         address: initialData.address || "",
         address2: initialData.address2 || "",
         city: initialData.city || "",
@@ -135,6 +138,7 @@ export function AddCaregiverModal({ isOpen, onClose, onSubmit, isLoading, initia
       dateOfBirth: data.dateOfBirth ? new Date(data.dateOfBirth) : undefined,
       startDate: data.startDate ? new Date(data.startDate) : undefined,
       hireDate: data.hireDate ? new Date(data.hireDate) : undefined,
+      terminationDate: data.terminationDate ? new Date(data.terminationDate) : null,
     };
     onSubmit(processedData);
   };
@@ -377,6 +381,25 @@ export function AddCaregiverModal({ isOpen, onClose, onSubmit, isLoading, initia
                           value={field.value ? new Date(field.value).toISOString().split('T')[0] : ''}
                           onChange={(e) => field.onChange(e.target.value ? new Date(e.target.value) : null)}
                           data-testid="input-start-date"
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="terminationDate"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Termination Date</FormLabel>
+                      <FormControl>
+                        <Input
+                          type="date"
+                          {...field}
+                          value={field.value ? new Date(field.value).toISOString().split('T')[0] : ''}
+                          onChange={(e) => field.onChange(e.target.value ? new Date(e.target.value) : null)}
+                          data-testid="input-termination-date"
                         />
                       </FormControl>
                       <FormMessage />
