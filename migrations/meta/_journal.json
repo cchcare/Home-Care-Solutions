@@ -50,6 +50,13 @@
       "when": 1777465516025,
       "tag": "0006_panoramic_nicolaos",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1777717291167,
+      "tag": "0007_survey_reminder_log",
+      "breakpoints": true
     }
   ]
 }
