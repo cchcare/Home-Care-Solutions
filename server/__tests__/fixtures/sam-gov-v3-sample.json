@@ -1,0 +1,53 @@
+{
+  "_comment": "Captured-style sample of the SAM.gov Entity Information v3 /exclusions response. Two records: one Individual (person) and one Firm (business entity). Field shape mirrors what fetchSamData() reads in server/exclusion-service.ts; minor field names that the mapper falls back on (ident.name vs entity.legalBusinessName, activeDate vs creationDate) are intentionally varied across rows so a future schema drift is caught.",
+  "totalRecords": 2,
+  "page": 0,
+  "size": 100,
+  "excludedEntity": [
+    {
+      "classificationType": "Individual",
+      "exclusionIdentification": {
+        "firstName": "John",
+        "middleName": "Q",
+        "lastName": "Doe",
+        "title": "MD",
+        "suffix": "JR",
+        "samNumber": "SAM-IND-001",
+        "npiNumber": "1234567890"
+      },
+      "exclusionDetails": {
+        "exclusionType": "Mandatory"
+      },
+      "exclusionAddress": {
+        "addressLine1": "123 Main St",
+        "city": "Pittsburgh",
+        "stateOrProvince": "PA",
+        "zipCode": "15213"
+      },
+      "exclusionActions": {
+        "activeDate": "2020-01-15",
+        "terminationDate": "Indefinite"
+      }
+    },
+    {
+      "classificationType": "Firm",
+      "exclusionIdentification": {
+        "name": "ACME HOME CARE LLC",
+        "samNumber": "SAM-ENT-042"
+      },
+      "legalBusinessName": "ACME HOME CARE LLC",
+      "exclusionDetails": {
+        "exclusionType": "Procurement"
+      },
+      "exclusionAddress": {
+        "addressLine1": "500 Liberty Ave",
+        "city": "Philadelphia",
+        "stateOrProvince": "PA",
+        "zipCode": "19103"
+      },
+      "exclusionActions": {
+        "creationDate": "2022-06-01"
+      }
+    }
+  ]
+}

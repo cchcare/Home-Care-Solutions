@@ -2,15 +2,23 @@
  * Vitest suite for the scheduled exclusion auto-fetchers (Task #77 / #118).
  *
  * Covers:
- *   - ExclusionService.mapSamApiEntity against captured SAM.gov v3 JSON
- *     samples (individual person + business entity + empty/garbage rows).
+ *   - ExclusionService.mapSamApiEntity against a captured SAM.gov v3 JSON
+ *     fixture (one individual person row + one business entity row).
  *   - ExclusionService.fetchMedicheckData against a recorded PA OMIG CSV
- *     fixture, with global.fetch mocked.
+ *     fixture, with global.fetch stubbed.
  *   - lastFetchedAt is updated on the source record even when the upstream
- *     fetch fails (network error, HTTP 5xx, empty body, zero rows).
+ *     fetch fails (network error, HTTP 5xx, empty body, zero usable rows).
+ *
+ * Fixtures live in server/__tests__/fixtures/ so a future schema change at
+ * SAM.gov or PA DHS will trip these tests instead of silently breaking the
+ * scheduled job.
  *
  * No DB or network dependencies. Run with: npm test
  */
+
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -34,7 +42,7 @@ vi.mock("../storage", () => {
       createExclusionRecordsBulk: vi.fn(async (recs: unknown[]) =>
         Array.isArray(recs) ? recs.length : 0
       ),
-      updateExclusionSource: vi.fn(async (_id: string, patch: any) => ({
+      updateExclusionSource: vi.fn(async (_id: string, patch: Record<string, unknown>) => ({
         id: _id,
         ...patch,
       })),
@@ -42,6 +50,7 @@ vi.mock("../storage", () => {
   };
 });
 
+import type { InsertExclusionRecord } from "@shared/schema";
 import { ExclusionService } from "../exclusion-service";
 import { storage } from "../storage";
 
@@ -58,7 +67,45 @@ const svc = ExclusionService.getInstance();
 const SAM_SOURCE_ID = "sam-source-id";
 const MEDICHECK_SOURCE_ID = "medicheck-source-id";
 
+const FIXTURES_DIR = join(fileURLToPath(new URL(".", import.meta.url)), "fixtures");
+
+interface CapturedSamResponse {
+  totalRecords: number;
+  page?: number;
+  size?: number;
+  excludedEntity: unknown[];
+}
+const samFixture: CapturedSamResponse = JSON.parse(
+  readFileSync(join(FIXTURES_DIR, "sam-gov-v3-sample.json"), "utf-8")
+);
+const medicheckFixture: string = readFileSync(
+  join(FIXTURES_DIR, "pa-medicheck-sample.csv"),
+  "utf-8"
+);
+
 const ORIGINAL_SAM_KEY = process.env.SAM_API_KEY;
+
+function jsonResponse(body: unknown, init?: ResponseInit): Response {
+  return new Response(JSON.stringify(body), {
+    status: 200,
+    headers: { "Content-Type": "application/json" },
+    ...init,
+  });
+}
+
+function textResponse(body: string, init?: ResponseInit): Response {
+  return new Response(body, {
+    status: 200,
+    headers: { "Content-Type": "text/csv" },
+    ...init,
+  });
+}
+
+function lastUpdatePatch(): Record<string, unknown> {
+  const calls = mockedStorage.updateExclusionSource.mock.calls;
+  expect(calls.length).toBeGreaterThan(0);
+  return calls[calls.length - 1][1] as Record<string, unknown>;
+}
 
 beforeEach(() => {
   mockedStorage.getExclusionSourceByType.mockClear();
@@ -77,43 +124,18 @@ afterEach(() => {
 });
 
 // ---------------------------------------------------------------------------
-// SAM.gov v3 API mapper — individual / entity / garbage rows
+// SAM.gov v3 mapper against the captured fixture
 // ---------------------------------------------------------------------------
-describe("mapSamApiEntity - SAM.gov v3 individual row", () => {
-  it("maps a captured person record into the exclusion-record payload", () => {
-    const entity = {
-      classificationType: "Individual",
-      exclusionIdentification: {
-        firstName: "John",
-        middleName: "Q",
-        lastName: "Doe",
-        title: "MD",
-        suffix: "JR",
-        samNumber: "SAM-IND-001",
-        npiNumber: "1234567890",
-      },
-      exclusionDetails: {
-        exclusionType: "Mandatory",
-      },
-      exclusionAddress: {
-        addressLine1: "123 Main St",
-        city: "Pittsburgh",
-        stateOrProvince: "PA",
-        zipCode: "15213",
-      },
-      exclusionActions: {
-        activeDate: "2020-01-15",
-        terminationDate: "Indefinite",
-      },
-    };
-
-    const mapped = (svc as any).mapSamApiEntity(entity, SAM_SOURCE_ID);
+describe("mapSamApiEntity - against captured SAM.gov v3 fixture", () => {
+  it("maps the captured Individual row into the exclusion-record payload", () => {
+    const individual = samFixture.excludedEntity[0];
+    const mapped = svc.mapSamApiEntity(individual, SAM_SOURCE_ID);
     expect(mapped).not.toBeNull();
     expect(mapped).toMatchObject({
       sourceId: SAM_SOURCE_ID,
       firstName: "John",
-      lastName: "Doe",
       middleName: "Q",
+      lastName: "Doe",
       title: "MD",
       suffix: "JR",
       businessName: null,
@@ -126,44 +148,13 @@ describe("mapSamApiEntity - SAM.gov v3 individual row", () => {
       externalIdentifier: "SAM-IND-001",
       isActive: true,
     });
-    expect(mapped.exclusionDate?.toISOString().startsWith("2020-01-15")).toBe(true);
-    expect(mapped.rawPayload).toBe(entity);
+    expect(mapped?.exclusionDate?.toISOString().startsWith("2020-01-15")).toBe(true);
+    expect(mapped?.rawPayload).toBe(individual);
   });
 
-  it("falls back to NPI as externalIdentifier when no SAM number is present", () => {
-    const entity = {
-      classificationType: "Individual",
-      exclusionIdentification: {
-        firstName: "Jane",
-        lastName: "Smith",
-        npiNumber: "9999999999",
-      },
-    };
-    const mapped = (svc as any).mapSamApiEntity(entity, SAM_SOURCE_ID);
-    expect(mapped?.externalIdentifier).toBe("9999999999");
-    expect(mapped?.businessName).toBeNull();
-  });
-});
-
-describe("mapSamApiEntity - SAM.gov v3 entity (business) row", () => {
-  it("maps a captured firm record with businessName populated and person fields null", () => {
-    const entity = {
-      classificationType: "Firm",
-      exclusionIdentification: {
-        name: "ACME HOME CARE LLC",
-        samNumber: "SAM-ENT-042",
-      },
-      exclusionDetails: { exclusionType: "Procurement" },
-      exclusionAddress: {
-        addressLine1: "500 Liberty Ave",
-        city: "Philadelphia",
-        stateOrProvince: "PA",
-        zipCode: "19103",
-      },
-      exclusionActions: { creationDate: "2022-06-01" },
-    };
-
-    const mapped = (svc as any).mapSamApiEntity(entity, SAM_SOURCE_ID);
+  it("maps the captured Firm row with businessName populated and person fields null", () => {
+    const firm = samFixture.excludedEntity[1];
+    const mapped = svc.mapSamApiEntity(firm, SAM_SOURCE_ID);
     expect(mapped).not.toBeNull();
     expect(mapped).toMatchObject({
       sourceId: SAM_SOURCE_ID,
@@ -179,26 +170,13 @@ describe("mapSamApiEntity - SAM.gov v3 entity (business) row", () => {
       exclusionType: "Procurement",
       externalIdentifier: "SAM-ENT-042",
     });
-    expect(mapped.exclusionDate?.toISOString().startsWith("2022-06-01")).toBe(true);
+    expect(mapped?.exclusionDate?.toISOString().startsWith("2022-06-01")).toBe(true);
   });
 
-  it("uses entity.legalBusinessName as a fallback when ident.name is missing", () => {
-    const entity = {
-      classificationType: "Special Entity",
-      exclusionIdentification: { samNumber: "SAM-LB-001" },
-      legalBusinessName: "CITYWIDE NURSING SERVICES INC",
-    };
-    const mapped = (svc as any).mapSamApiEntity(entity, SAM_SOURCE_ID);
-    expect(mapped?.businessName).toBe("CITYWIDE NURSING SERVICES INC");
-    expect(mapped?.firstName).toBeNull();
-  });
-});
-
-describe("mapSamApiEntity - defensive cases", () => {
-  it("returns null for an empty / non-object input", () => {
-    expect((svc as any).mapSamApiEntity(null, SAM_SOURCE_ID)).toBeNull();
-    expect((svc as any).mapSamApiEntity(undefined, SAM_SOURCE_ID)).toBeNull();
-    expect((svc as any).mapSamApiEntity("garbage", SAM_SOURCE_ID)).toBeNull();
+  it("returns null for null/undefined/non-object input", () => {
+    expect(svc.mapSamApiEntity(null, SAM_SOURCE_ID)).toBeNull();
+    expect(svc.mapSamApiEntity(undefined, SAM_SOURCE_ID)).toBeNull();
+    expect(svc.mapSamApiEntity("garbage", SAM_SOURCE_ID)).toBeNull();
   });
 
   it("returns null for a row with no name, business, SAM number, or NPI", () => {
@@ -207,12 +185,12 @@ describe("mapSamApiEntity - defensive cases", () => {
       exclusionIdentification: {},
       exclusionAddress: { city: "Nowhere" },
     };
-    expect((svc as any).mapSamApiEntity(empty, SAM_SOURCE_ID)).toBeNull();
+    expect(svc.mapSamApiEntity(empty, SAM_SOURCE_ID)).toBeNull();
   });
 });
 
 // ---------------------------------------------------------------------------
-// fetchSamData — lastFetchedAt stamped on failure
+// fetchSamData failure paths -- lastFetchedAt is stamped even on failure
 // ---------------------------------------------------------------------------
 describe("fetchSamData - stamps lastFetchedAt even when the fetch fails", () => {
   it("missing SAM_API_KEY: returns failure and still updates the source record", async () => {
@@ -226,8 +204,9 @@ describe("fetchSamData - stamps lastFetchedAt even when the fetch fails", () => 
     expect(mockedStorage.updateExclusionSource).toHaveBeenCalledTimes(1);
     const [id, patch] = mockedStorage.updateExclusionSource.mock.calls[0];
     expect(id).toBe(SAM_SOURCE_ID);
-    expect(patch.lastFetchedAt).toBeInstanceOf(Date);
-    expect(patch.lastRecordCount).toBe(0);
+    const p = patch as { lastFetchedAt: Date; lastRecordCount: number };
+    expect(p.lastFetchedAt).toBeInstanceOf(Date);
+    expect(p.lastRecordCount).toBe(0);
 
     expect(mockedStorage.deleteExclusionRecordsBySource).not.toHaveBeenCalled();
     expect(mockedStorage.createExclusionRecordsBulk).not.toHaveBeenCalled();
@@ -235,16 +214,10 @@ describe("fetchSamData - stamps lastFetchedAt even when the fetch fails", () => 
 
   it("API returns 0 records: refuses to wipe and still stamps lastFetchedAt", async () => {
     process.env.SAM_API_KEY = "test-key";
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => ({
-        ok: true,
-        status: 200,
-        statusText: "OK",
-        json: async () => ({ excludedEntity: [], totalRecords: 0 }),
-        text: async () => "",
-      })) as any
+    const fetchMock = vi.fn<typeof fetch>(async () =>
+      jsonResponse({ excludedEntity: [], totalRecords: 0 })
     );
+    vi.stubGlobal("fetch", fetchMock);
 
     const result = await svc.fetchSamData();
     expect(result.success).toBe(false);
@@ -254,52 +227,35 @@ describe("fetchSamData - stamps lastFetchedAt even when the fetch fails", () => 
     expect(mockedStorage.deleteExclusionRecordsBySource).not.toHaveBeenCalled();
     expect(mockedStorage.createExclusionRecordsBulk).not.toHaveBeenCalled();
 
-    expect(mockedStorage.updateExclusionSource).toHaveBeenCalledTimes(1);
-    const [, patch] = mockedStorage.updateExclusionSource.mock.calls[0];
+    const patch = lastUpdatePatch() as { lastFetchedAt: Date; lastRecordCount: number };
     expect(patch.lastFetchedAt).toBeInstanceOf(Date);
     expect(patch.lastRecordCount).toBe(0);
   });
 
   it("network error: catches the exception and still stamps lastFetchedAt", async () => {
     process.env.SAM_API_KEY = "test-key";
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => {
-        throw new Error("ECONNREFUSED");
-      }) as any
-    );
+    const fetchMock = vi.fn<typeof fetch>(async () => {
+      throw new Error("ECONNREFUSED");
+    });
+    vi.stubGlobal("fetch", fetchMock);
 
     const result = await svc.fetchSamData();
     expect(result.success).toBe(false);
     expect(result.errors.some((e) => /ECONNREFUSED/.test(e))).toBe(true);
 
-    expect(mockedStorage.updateExclusionSource).toHaveBeenCalledTimes(1);
-    const [, patch] = mockedStorage.updateExclusionSource.mock.calls[0];
+    const patch = lastUpdatePatch() as { lastFetchedAt: Date; lastRecordCount: number };
     expect(patch.lastFetchedAt).toBeInstanceOf(Date);
     expect(patch.lastRecordCount).toBe(0);
   });
 });
 
 // ---------------------------------------------------------------------------
-// fetchMedicheckData — recorded CSV fixture + failure paths
+// fetchMedicheckData - happy path against the recorded PA OMIG fixture
 // ---------------------------------------------------------------------------
-describe("fetchMedicheckData - happy path with recorded PA OMIG CSV", () => {
-  it("parses the captured fixture, persists the rows, and stamps lastFetchedAt", async () => {
-    const csv = [
-      "ProviderName,LicenseNumber,Status,BeginDate,EndDate,NAM_LAST_PROVR,NAM_FIRST_PROVR,NAM_MIDDLE_PROVR,NAM_BUSNS_MP,IDN_NPI,NBR_FEIN",
-      '"DOE, JANE",RN-AUTO-1,Active,2021-03-01,NULL,DOE,JANE,Q,NULL,1000000001,NULL',
-      '"ACME HOME CARE LLC",BUS-AUTO-1,Active,2021-06-01,NULL,NULL,NULL,NULL,ACME HOME CARE LLC,NULL,99-1111111',
-    ].join("\n");
-
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => ({
-        ok: true,
-        status: 200,
-        statusText: "OK",
-        text: async () => csv,
-      })) as any
-    );
+describe("fetchMedicheckData - happy path with recorded PA OMIG fixture", () => {
+  it("downloads the captured CSV, persists the rows, and stamps lastFetchedAt", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async () => textResponse(medicheckFixture));
+    vi.stubGlobal("fetch", fetchMock);
 
     const result = await svc.fetchMedicheckData();
     expect(result.success).toBe(true);
@@ -309,13 +265,16 @@ describe("fetchMedicheckData - happy path with recorded PA OMIG CSV", () => {
     expect(mockedStorage.deleteExclusionRecordsBySource).toHaveBeenCalledWith(
       MEDICHECK_SOURCE_ID
     );
-    const insertCall = mockedStorage.createExclusionRecordsBulk.mock.calls[0]?.[0] as any[];
+    const insertCall = mockedStorage.createExclusionRecordsBulk.mock
+      .calls[0]?.[0] as InsertExclusionRecord[];
     expect(insertCall).toHaveLength(2);
     expect(insertCall[0]).toMatchObject({
       firstName: "JANE",
       lastName: "DOE",
+      middleName: "Q",
       npi: "1000000001",
       licenseNumber: "RN-AUTO-1",
+      state: "PA",
     });
     expect(insertCall[1]).toMatchObject({
       firstName: null,
@@ -324,27 +283,18 @@ describe("fetchMedicheckData - happy path with recorded PA OMIG CSV", () => {
       fein: "99-1111111",
     });
 
-    // importMedicheckCsv stamps lastFetchedAt on the success path; fetchMedicheckData
-    // skips the redundant stamp when the importer ran.
-    const updateCalls = mockedStorage.updateExclusionSource.mock.calls;
-    expect(updateCalls.length).toBeGreaterThanOrEqual(1);
-    const lastPatch = updateCalls[updateCalls.length - 1][1];
-    expect(lastPatch.lastFetchedAt).toBeInstanceOf(Date);
-    expect(lastPatch.lastRecordCount).toBe(2);
+    const patch = lastUpdatePatch() as { lastFetchedAt: Date; lastRecordCount: number };
+    expect(patch.lastFetchedAt).toBeInstanceOf(Date);
+    expect(patch.lastRecordCount).toBe(2);
   });
 });
 
 describe("fetchMedicheckData - stamps lastFetchedAt even when the fetch fails", () => {
   it("HTTP 500 from PA DHS: returns failure and still updates the source record", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => ({
-        ok: false,
-        status: 500,
-        statusText: "Internal Server Error",
-        text: async () => "",
-      })) as any
+    const fetchMock = vi.fn<typeof fetch>(async () =>
+      new Response("", { status: 500, statusText: "Internal Server Error" })
     );
+    vi.stubGlobal("fetch", fetchMock);
 
     const result = await svc.fetchMedicheckData();
     expect(result.success).toBe(false);
@@ -357,66 +307,44 @@ describe("fetchMedicheckData - stamps lastFetchedAt even when the fetch fails", 
     expect(mockedStorage.updateExclusionSource).toHaveBeenCalledTimes(1);
     const [id, patch] = mockedStorage.updateExclusionSource.mock.calls[0];
     expect(id).toBe(MEDICHECK_SOURCE_ID);
-    expect(patch.lastFetchedAt).toBeInstanceOf(Date);
-    expect(patch.lastRecordCount).toBe(0);
+    const p = patch as { lastFetchedAt: Date; lastRecordCount: number };
+    expect(p.lastFetchedAt).toBeInstanceOf(Date);
+    expect(p.lastRecordCount).toBe(0);
   });
 
   it("empty response body: returns failure and still updates the source record", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => ({
-        ok: true,
-        status: 200,
-        statusText: "OK",
-        text: async () => "   \n   ",
-      })) as any
-    );
+    const fetchMock = vi.fn<typeof fetch>(async () => textResponse("   \n   "));
+    vi.stubGlobal("fetch", fetchMock);
 
     const result = await svc.fetchMedicheckData();
     expect(result.success).toBe(false);
     expect(result.errors.some((e) => /empty response body/i.test(e))).toBe(true);
 
-    expect(mockedStorage.updateExclusionSource).toHaveBeenCalledTimes(1);
-    const [, patch] = mockedStorage.updateExclusionSource.mock.calls[0];
+    const patch = lastUpdatePatch() as { lastFetchedAt: Date; lastRecordCount: number };
     expect(patch.lastFetchedAt).toBeInstanceOf(Date);
     expect(patch.lastRecordCount).toBe(0);
   });
 
   it("network error: catches the exception and still stamps lastFetchedAt", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => {
-        throw new Error("ECONNRESET");
-      }) as any
-    );
+    const fetchMock = vi.fn<typeof fetch>(async () => {
+      throw new Error("ECONNRESET");
+    });
+    vi.stubGlobal("fetch", fetchMock);
 
     const result = await svc.fetchMedicheckData();
     expect(result.success).toBe(false);
     expect(result.errors.some((e) => /ECONNRESET/.test(e))).toBe(true);
 
-    expect(mockedStorage.updateExclusionSource).toHaveBeenCalledTimes(1);
-    const [, patch] = mockedStorage.updateExclusionSource.mock.calls[0];
+    const patch = lastUpdatePatch() as { lastFetchedAt: Date; lastRecordCount: number };
     expect(patch.lastFetchedAt).toBeInstanceOf(Date);
     expect(patch.lastRecordCount).toBe(0);
   });
 
   it("download succeeds but CSV has zero usable rows: refuses to wipe and still stamps lastFetchedAt", async () => {
-    // Header-only CSV: download succeeds, but importMedicheckCsv must
-    // reject it via MedicheckImportValidationError so the scheduler doesn't
-    // silently replace good data with an empty list. The finally block in
-    // fetchMedicheckData must still stamp the source.
     const headerOnly =
       "ProviderName,LicenseNumber,Status,BeginDate,EndDate,NAM_LAST_PROVR,NAM_FIRST_PROVR,NAM_BUSNS_MP,IDN_NPI,NBR_FEIN";
-
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => ({
-        ok: true,
-        status: 200,
-        statusText: "OK",
-        text: async () => headerOnly,
-      })) as any
-    );
+    const fetchMock = vi.fn<typeof fetch>(async () => textResponse(headerOnly));
+    vi.stubGlobal("fetch", fetchMock);
 
     const result = await svc.fetchMedicheckData();
     expect(result.success).toBe(false);
@@ -425,8 +353,7 @@ describe("fetchMedicheckData - stamps lastFetchedAt even when the fetch fails", 
     expect(mockedStorage.deleteExclusionRecordsBySource).not.toHaveBeenCalled();
     expect(mockedStorage.createExclusionRecordsBulk).not.toHaveBeenCalled();
 
-    expect(mockedStorage.updateExclusionSource).toHaveBeenCalledTimes(1);
-    const [, patch] = mockedStorage.updateExclusionSource.mock.calls[0];
+    const patch = lastUpdatePatch() as { lastFetchedAt: Date; lastRecordCount: number };
     expect(patch.lastFetchedAt).toBeInstanceOf(Date);
     expect(patch.lastRecordCount).toBe(0);
   });

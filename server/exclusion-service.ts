@@ -444,7 +444,7 @@ export class ExclusionService {
    * payload. Defensive against minor response-shape variations between the
    * v3 endpoint's documented structure and what we receive in practice.
    */
-  private mapSamApiEntity(entity: any, sourceId: string): {
+  mapSamApiEntity(entity: any, sourceId: string): {
     sourceId: string;
     externalIdentifier: string | null;
     firstName: string | null;
