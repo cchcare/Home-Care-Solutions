@@ -14081,10 +14081,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/exclusions/run-check", isAuthenticated, async (req: any, res) => {
     try {
       const user = req.session?.user;
-      if (!user || (user.role !== "admin" && user.role !== "supervisor" && user.role !== "super_admin")) {
+      const { exclusionService, hasExclusionAdminRole } = await import('./exclusion-service');
+      if (!user || !hasExclusionAdminRole(user.role)) {
         return res.status(403).json({ message: "Unauthorized: Admin role required" });
       }
-      const { exclusionService } = await import('./exclusion-service');
       const result = await exclusionService.runFullExclusionCheck(user.id);
       res.json(result);
     } catch (error: any) {
@@ -14097,14 +14097,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/caregivers/:id/exclusion-check", isAuthenticated, async (req: any, res) => {
     try {
       const user = req.session?.user;
-      if (!user || (user.role !== "admin" && user.role !== "supervisor" && user.role !== "super_admin")) {
+      const { exclusionService, hasExclusionAdminRole } = await import('./exclusion-service');
+      if (!user || !hasExclusionAdminRole(user.role)) {
         return res.status(403).json({ message: "Unauthorized: Admin role required" });
       }
       const caregiver = await storage.getCaregiver(req.params.id);
       if (!caregiver) {
         return res.status(404).json({ message: "Caregiver not found" });
       }
-      const { exclusionService } = await import('./exclusion-service');
       const result = await exclusionService.runCaregiverExclusionCheck(req.params.id);
       res.json(result);
     } catch (error: any) {

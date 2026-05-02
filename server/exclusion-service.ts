@@ -88,6 +88,23 @@ interface SamRecord {
 
 export type MatchReason = 'npi' | 'license_number' | 'name_exact' | 'name_fuzzy';
 
+/**
+ * Roles allowed to invoke any exclusion-check endpoint (the org-wide
+ * `/api/exclusions/run-check` AND the per-caregiver
+ * `/api/caregivers/:id/exclusion-check`). Centralized here so the route
+ * layer and the automated tests share a single source of truth instead of
+ * each carrying a copy of the role list.
+ */
+export const EXCLUSION_ADMIN_ROLES = ['admin', 'supervisor', 'super_admin'] as const;
+export type ExclusionAdminRole = typeof EXCLUSION_ADMIN_ROLES[number];
+
+export function hasExclusionAdminRole(role: unknown): boolean {
+  return (
+    typeof role === 'string' &&
+    (EXCLUSION_ADMIN_ROLES as readonly string[]).includes(role)
+  );
+}
+
 interface MatchResult {
   exclusionRecordId: string;
   matchType: 'exact' | 'fuzzy';
