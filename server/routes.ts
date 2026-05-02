@@ -19037,7 +19037,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Other roles must belong to the same office as the caregiver.
       const caregiverOfficeId = (caregiver as any).officeId || null;
       if (user.role !== "super_admin") {
-        const userOfficeId = user.officeId || null;
+        const userOfficeId = (user as any).primaryOfficeId || (user as any).officeId || null;
         if (!userOfficeId || !caregiverOfficeId || userOfficeId !== caregiverOfficeId) {
           return res.status(403).json({ message: "Caregiver is outside your office scope" });
         }
