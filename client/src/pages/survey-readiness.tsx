@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { useOfficeScope } from "@/context/office-context";
@@ -187,7 +187,7 @@ function GapSection({ title, icon: Icon, iconColor, gaps, searchKey, hasSeverity
         </CardTitle>
       </CardHeader>
       <CardContent>
-        {gaps.length > 4 && (
+        {gaps.length > 0 && (
           <div className="flex gap-2 mb-3">
             <div className="relative flex-1">
               <Search className="h-3.5 w-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
@@ -219,6 +219,8 @@ function GapSection({ title, icon: Icon, iconColor, gaps, searchKey, hasSeverity
   );
 }
 
+const READINESS_SCROLL_KEY = "surveyReadiness:scrollY";
+
 function GapRow({ href, title, subtitle, severity, action }: {
   href: string;
   title: string;
@@ -226,9 +228,12 @@ function GapRow({ href, title, subtitle, severity, action }: {
   severity?: string;
   action?: React.ReactNode;
 }) {
+  const saveScroll = () => {
+    try { sessionStorage.setItem(READINESS_SCROLL_KEY, String(window.scrollY)); } catch {}
+  };
   return (
     <div className="flex items-center justify-between gap-2 py-2 border-b last:border-0 group">
-      <Link href={href} className="flex-1 min-w-0 hover:text-primary transition-colors">
+      <Link href={href} onClick={saveScroll} className="flex-1 min-w-0 hover:text-primary transition-colors">
         <div className="flex items-center gap-2">
           <div className="flex-1 min-w-0">
             <p className="text-sm font-medium truncate">{title}</p>
@@ -253,6 +258,19 @@ export default function SurveyReadiness() {
   const { selectedOfficeId, isAllOffices } = useOfficeScope();
   const { toast } = useToast();
   const [recentlySent, setRecentlySent] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    try {
+      const saved = sessionStorage.getItem(READINESS_SCROLL_KEY);
+      if (saved) {
+        const y = parseInt(saved, 10);
+        if (!Number.isNaN(y)) {
+          requestAnimationFrame(() => window.scrollTo({ top: y, behavior: "auto" }));
+        }
+        sessionStorage.removeItem(READINESS_SCROLL_KEY);
+      }
+    } catch {}
+  }, []);
 
   const { data, isLoading, refetch, isFetching } = useQuery<ReadinessData>({
     queryKey: ["/api/survey-readiness", selectedOfficeId],
