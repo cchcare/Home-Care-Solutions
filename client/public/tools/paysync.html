@@ -2038,12 +2038,361 @@ function loadHHA(input, slot) {
 }
 
 // ═══════════════════ PROCESS ═══════════════════
+// Heavy lookup/grouping/matching/summary work runs inside a Web Worker so the
+// main thread stays responsive for tab switches, log scrolling, and an
+// instantaneous Cancel button on very large payroll files. The worker posts
+// progress + log messages back; cancel calls worker.terminate() for an
+// immediate stop instead of waiting for the next yield checkpoint.
+const _PROC_WORKER_SOURCE = `
+function normalizeSSN(v) {
+  if (!v) return '';
+  const s = String(v).replace(/[\\s\\-]/g, '');
+  if (/^\\d{9}$/.test(s)) return s;
+  if (/^\\d{4}$/.test(s)) return s;
+  const d = s.replace(/\\D/g, '');
+  return d.length >= 4 ? d : '';
+}
+
+const _logs = [];
+function lg(msg, level) { _logs.push({ msg: msg, level: level || 'i' }); }
+function flushLogs() {
+  if (_logs.length) {
+    self.postMessage({ type: 'logs', items: _logs.splice(0) });
+  }
+}
+function postStage(label, pct) {
+  flushLogs();
+  self.postMessage({ type: 'stage', label: label, pct: pct });
+}
+function postProgress(processed, total, startPct, endPct) {
+  flushLogs();
+  self.postMessage({ type: 'progress', processed: processed, total: total, startPct: startPct, endPct: endPct });
+}
+
+self.onmessage = function(e) {
+  const data = e.data || {};
+  const coCode = data.coCode;
+  const batchId = data.batchId;
+  const master = data.master || [];
+  const mMap = data.masterMap || {};
+  const hhaRows = data.hhaRows || [];
+  const hMap = data.hhaMap || {};
+  const summaryRows = data.summaryRows || [];
+  const scm = data.summaryMap || {};
+
+  try {
+    postStage('Building master lookup…', 20);
+    const lookup = {};
+    const ssnLookup = {};
+    master.forEach(function (row) {
+      const hha  = mMap.hhaCode ? String(row[mMap.hhaCode] ?? '').trim()
+                 : String(row['HHA Code'] ?? row['HHA code'] ?? row['hha_code'] ?? row['Aide Code'] ?? row['aide_code'] ?? '').trim();
+      const adp  = mMap.adpCode ? String(row[mMap.adpCode] ?? '').trim()
+                 : String(row['ADP Code'] ?? row['ADP code'] ?? row['adp_code'] ?? row['File #'] ?? row['FileNumber'] ?? '').trim();
+      const name = mMap.empName ? String(row[mMap.empName] ?? '').trim()
+                 : String(row['DCW Name'] ?? row['Name'] ?? row['Employee Name'] ?? row['Caregiver Name'] ?? '').trim();
+      const ssnRaw = mMap.ssn ? (row[mMap.ssn] ?? '')
+                   : (row['SSN'] ?? row['Social Security Number'] ?? row['Social Security'] ?? row['Social'] ?? row['SS#'] ?? row['SS Number'] ?? row['ssn'] ?? '');
+      const ssn = normalizeSSN(ssnRaw);
+      if (hha && adp) lookup[hha] = { name: name, adpCode: adp, ssn: ssn };
+      if (ssn && adp) ssnLookup[ssn] = { name: name, adpCode: adp, hhaCode: hha };
+    });
+    const ssnEntries = Object.keys(ssnLookup).length;
+    lg('Master lookup built — ' + Object.keys(lookup).length + ' code entries, ' + ssnEntries + ' SSN entries', 'i');
+    if (ssnEntries > 0) lg('  SSN fallback enabled — will try Social Security match if aide code not found', 'i');
+    lg('HHA rows to process — ' + hhaRows.length + ' total', 'i');
+
+    postStage('Grouping HHA rows…', 40);
+    const grouped = {};
+    hhaRows.forEach(function (row) {
+      const aide = hMap.aideCode ? String(row[hMap.aideCode] ?? '').trim()
+                 : String(row['Aide Code'] ?? row['aide_code'] ?? row['AideCode'] ?? row['HHA Code'] ?? row['Employee ID'] ?? '').trim();
+      const week = String(row['Week'] ?? (hMap.week ? row[hMap.week] : undefined) ?? row['week'] ?? row['WEEK'] ?? '1').trim();
+      const pay  = hMap.payHrs ? (parseFloat(row[hMap.payHrs]) || 0)
+                 : (parseFloat(row['Pay Hours'] ?? row['pay_hours'] ?? row['Total Hrs'] ?? row['Hours'] ?? 0) || 0);
+      const reg  = hMap.regHrs ? (parseFloat(row[hMap.regHrs]) || 0)
+                 : (parseFloat(row['Regular Hours'] ?? row['Reg Hours'] ?? row['Reg'] ?? row['reg_hours'] ?? 0) || 0);
+      const ot   = hMap.otHrs  ? (parseFloat(row[hMap.otHrs]) || 0)
+                 : (parseFloat(row['OT Hours'] ?? row['OT_Hours'] ?? row['O/T Hours'] ?? row['OT'] ?? row['Overtime Hours'] ?? 0) || 0);
+      const ssnRaw = hMap.ssn ? (row[hMap.ssn] ?? '')
+                   : (row['SSN'] ?? row['Social Security Number'] ?? row['Social Security'] ?? row['Social'] ?? row['SS#'] ?? row['ssn'] ?? '');
+      const ssn = normalizeSSN(ssnRaw);
+      if (!aide) return;
+      const key = aide + '||' + week;
+      if (!grouped[key]) grouped[key] = { aide: aide, week: week, pay: 0, reg: 0, ot: 0, ssn: ssn };
+      grouped[key].pay += pay;
+      grouped[key].reg += reg;
+      grouped[key].ot  += ot;
+      if (ssn && !grouped[key].ssn) grouped[key].ssn = ssn;
+    });
+    lg('Grouped — ' + Object.keys(grouped).length + ' unique aide-week combinations', 'i');
+
+    postStage('Matching employees…', 60);
+    const output = [];
+    const unmatched = new Set();
+    let ssnMatches = 0;
+    const groupedArr = Object.values(grouped);
+    const matchTotal = groupedArr.length;
+    const matchYield = Math.max(1, Math.ceil(matchTotal / 20));
+    for (let gi = 0; gi < matchTotal; gi++) {
+      const g = groupedArr[gi];
+      const aide = g.aide, week = g.week, pay = g.pay, reg = g.reg, ot = g.ot, ssn = g.ssn;
+      let m = lookup[aide];
+      let matchMethod = 'Code';
+
+      if (!m && ssnEntries > 0) {
+        const normAide = normalizeSSN(aide);
+        if (normAide && ssnLookup[normAide]) {
+          m = ssnLookup[normAide];
+          matchMethod = 'SSN';
+        }
+      }
+
+      if (!m && ssn && ssnEntries > 0 && ssnLookup[ssn]) {
+        m = ssnLookup[ssn];
+        matchMethod = 'SSN';
+      }
+
+      if (!m) {
+        unmatched.add(aide);
+        lg('⚠ Aide Code ' + aide + ' (Week ' + week + ') — no match by code or SSN, skipped', 'w');
+      } else {
+        if (matchMethod === 'SSN') {
+          ssnMatches++;
+          lg('  ℹ Aide ' + aide + ' (Week ' + week + ') — matched via SSN → ' + m.name + ' (ADP: ' + m.adpCode + ')', 'i');
+        }
+
+        let fReg = reg, fOT = ot;
+        if (fReg === 0 && fOT === 0 && pay > 0) {
+          fReg = Math.min(pay, 40);
+          fOT  = Math.max(0, pay - 40);
+        }
+        output.push({ coCode: coCode, batchId: batchId, name: m.name, adpCode: m.adpCode, flsaWk: week, regHrs: fReg, otHrs: fOT, week: week, aide: aide, matchMethod: matchMethod });
+      }
+
+      if ((gi + 1) % matchYield === 0 || gi === matchTotal - 1) {
+        postProgress(gi + 1, matchTotal, 60, 80);
+      }
+    }
+
+    const totOT  = output.reduce(function (s, r) { return s + r.otHrs; }, 0);
+    const totReg = output.reduce(function (s, r) { return s + r.regHrs; }, 0);
+    const groupedTotal = Object.keys(grouped).length;
+
+    postStage('Building output…', 80);
+
+    // Send matching results so the main thread can paint stat cards / table
+    // immediately, before the (optional) summary stage runs.
+    flushLogs();
+    self.postMessage({
+      type: 'matching-done',
+      payload: {
+        output: output,
+        unmatched: Array.from(unmatched),
+        ssnMatches: ssnMatches,
+        totReg: totReg,
+        totOT: totOT,
+        groupedTotal: groupedTotal
+      }
+    });
+
+    lg('✓ Processing complete — ' + output.length + ' rows generated', 's');
+    lg('  Regular Hours Total: ' + totReg.toFixed(2) + '  |  OT Hours Total: ' + totOT.toFixed(2), 's');
+    if (ssnMatches > 0) lg('  ✓ ' + ssnMatches + ' employee(s) matched via SSN fallback', 's');
+    if (unmatched.size > 0) lg('  ⚠ ' + unmatched.size + ' aide code(s) could not be matched by code or SSN — check master sheet', 'w');
+    lg('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'i');
+
+    let summaryResult = null;
+    if (summaryRows.length > 0) {
+      postStage('Filling summary sheet…', 90);
+      lg('', 'i');
+      lg('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'i');
+      lg('📊 Processing Summary Sheet...', 'i');
+      lg('  Columns — ADP:' + (scm.adpCode||'—') + ' | HHA:' + (scm.hhaCode||'—') + ' | CM:' + (scm.caseMgr||'—') + ' | CMPay:' + (scm.cmPay||'—') + ' | Wk1→"' + (scm.wk1||'Week 1 Hours') + '" | Wk2→"' + (scm.wk2||'Week 2 Hours') + '"', 'i');
+      const summaryCols = { wk1: scm.wk1 || 'Week 1 Hours', wk2: scm.wk2 || 'Week 2 Hours' };
+
+      const adpToHHA = {};
+      master.forEach(function (row) {
+        const hha = mMap.hhaCode ? String(row[mMap.hhaCode] ?? '').trim()
+                  : String(row['HHA Code'] ?? row['HHA code'] ?? row['hha_code'] ?? row['Aide Code'] ?? row['aide_code'] ?? '').trim();
+        const adp = mMap.adpCode ? String(row[mMap.adpCode] ?? '').trim()
+                  : String(row['ADP Code'] ?? row['ADP code'] ?? row['adp_code'] ?? row['File #'] ?? row['FileNumber'] ?? '').trim();
+        if (adp && hha) adpToHHA[adp] = hha;
+      });
+
+      const hoursMap = {};
+      const ssnToAide = {};
+      hhaRows.forEach(function (row) {
+        const hha  = hMap.aideCode ? String(row[hMap.aideCode] ?? '').trim()
+                   : String(row['Aide Code'] ?? row['aide_code'] ?? row['AideCode'] ?? row['HHA Code'] ?? row['Employee ID'] ?? '').trim();
+        const week = String(row['Week'] ?? (hMap.week ? row[hMap.week] : undefined) ?? row['week'] ?? row['WEEK'] ?? '1').trim();
+        const pay  = hMap.payHrs ? (parseFloat(row[hMap.payHrs]) || 0)
+                   : (parseFloat(row['Pay Hours'] ?? row['pay_hours'] ?? row['Total Hrs'] ?? row['Hours'] ?? 0) || 0);
+        const reg  = hMap.regHrs ? (parseFloat(row[hMap.regHrs]) || 0)
+                   : (parseFloat(row['Regular Hours'] ?? row['Reg Hours'] ?? row['Reg'] ?? row['reg_hours'] ?? 0) || 0);
+        const ot   = hMap.otHrs  ? (parseFloat(row[hMap.otHrs]) || 0)
+                   : (parseFloat(row['OT Hours'] ?? row['OT_Hours'] ?? row['O/T Hours'] ?? row['OT'] ?? row['Overtime Hours'] ?? 0) || 0);
+        const hrs  = (reg + ot) > 0 ? (reg + ot) : pay;
+        if (!hha || !week) return;
+        if (!hoursMap[hha]) hoursMap[hha] = {};
+        hoursMap[hha][week] = (hoursMap[hha][week] || 0) + hrs;
+        const hhaSsnRaw = hMap.ssn ? (row[hMap.ssn] ?? '')
+                        : (row['SSN'] ?? row['Social Security Number'] ?? row['Social Security'] ?? row['Social'] ?? row['SS#'] ?? row['ssn'] ?? '');
+        const hhaSsn = normalizeSSN(hhaSsnRaw);
+        if (hhaSsn && !ssnToAide[hhaSsn]) ssnToAide[hhaSsn] = hha;
+      });
+      const hhaSsnEntries = Object.keys(ssnToAide).length;
+      if (hhaSsnEntries > 0) lg('  HHA SSN index built — ' + hhaSsnEntries + ' unique SSNs from HHA file for cross-file matching', 'i');
+
+      const allWeekKeys = Array.from(new Set(hhaRows.map(function (r) { return String(r['Week'] ?? r['week'] ?? '1').trim(); }))).sort();
+      const wk1Key = allWeekKeys[0] || '1';
+      const wk2Key = allWeekKeys[1] || '2';
+
+      let sumMatched = 0, sumUnmatched = 0;
+      const sumUnmatchedItems = [];
+      const filled = [];
+      const sumTotal = summaryRows.length;
+      const sumYield = Math.max(1, Math.ceil(sumTotal / 20));
+      for (let si = 0; si < sumTotal; si++) {
+        const row = summaryRows[si];
+        const clone = Object.assign({}, row);
+
+        let hhaKey = null;
+        const sumAdp = scm.adpCode ? String(row[scm.adpCode] ?? '').trim() : '';
+        if (sumAdp && adpToHHA[sumAdp]) hhaKey = adpToHHA[sumAdp];
+
+        let matchMethod = 'ADP→Master';
+        if (!hhaKey && scm.ssn) {
+          const sumSSN = normalizeSSN(row[scm.ssn]);
+          if (sumSSN && ssnLookup[sumSSN]) {
+            hhaKey = ssnLookup[sumSSN].hhaCode;
+            matchMethod = 'SSN→Master';
+          }
+        }
+
+        if (!hhaKey && scm.hhaCode) {
+          const sumHHA = String(row[scm.hhaCode] ?? '').trim();
+          if (sumHHA && hoursMap[sumHHA]) {
+            hhaKey = sumHHA;
+            matchMethod = 'HHA ID (direct)';
+          }
+        }
+
+        if (!hhaKey && scm.ssn) {
+          const sumSSN = normalizeSSN(row[scm.ssn]);
+          if (sumSSN && ssnToAide[sumSSN] && hoursMap[ssnToAide[sumSSN]]) {
+            hhaKey = ssnToAide[sumSSN];
+            matchMethod = 'SSN→HHA file';
+          }
+        }
+
+        if (!hhaKey && sumAdp && hoursMap[sumAdp]) {
+          hhaKey = sumAdp;
+          matchMethod = 'ADP→HHA file (no master)';
+        }
+
+        const wk1Col = scm.wk1 || 'Week 1 Hours';
+        const wk2Col = scm.wk2 || 'Week 2 Hours';
+
+        if (!hhaKey || !hoursMap[hhaKey]) {
+          sumUnmatched++;
+          const sumHHAId  = scm.hhaCode ? String(row[scm.hhaCode] ?? '').trim() : '';
+          const sumSSNVal = scm.ssn     ? String(row[scm.ssn]     ?? '').trim() : '';
+          const unmatchedId = sumAdp || sumHHAId || sumSSNVal || ('Row ' + (sumMatched + sumUnmatched));
+          let unmatchedReason;
+          if (!hhaKey) {
+            if (sumAdp && !adpToHHA[sumAdp]) unmatchedReason = 'ADP code not in master';
+            else if (sumAdp)                 unmatchedReason = 'No matching hours found';
+            else if (sumHHAId)               unmatchedReason = 'HHA ID not in hours file';
+            else if (sumSSNVal)              unmatchedReason = 'SSN not found in master or HHA file';
+            else                             unmatchedReason = 'No identifier found in row';
+          } else {
+            unmatchedReason = 'Aide not in HHA hours file';
+          }
+          sumUnmatchedItems.push({ id: unmatchedId, reason: unmatchedReason });
+          if (sumAdp) lg('  ⚠ "' + sumAdp + '" — no match via ADP/SSN/HHA code, row preserved as-is', 'w');
+          filled.push(clone);
+        } else {
+          sumMatched++;
+          const emp = hoursMap[hhaKey];
+          const w1Hrs = emp[wk1Key] || 0;
+          const w2Hrs = emp[wk2Key] || 0;
+          clone[wk1Col] = parseFloat(w1Hrs.toFixed(2));
+          clone[wk2Col] = parseFloat(w2Hrs.toFixed(2));
+          lg('  ✓ ' + (sumAdp || hhaKey) + ' [' + matchMethod + '] — Wk' + wk1Key + ': ' + w1Hrs.toFixed(2) + '  Wk' + wk2Key + ': ' + w2Hrs.toFixed(2), 's');
+          filled.push(clone);
+        }
+
+        if ((si + 1) % sumYield === 0 || si === sumTotal - 1) {
+          postProgress(si + 1, sumTotal, 90, 100);
+        }
+      }
+
+      const cmGroups = {};
+      filled.forEach(function (row) {
+        const cm  = scm.caseMgr ? String(row[scm.caseMgr] ?? '').trim() : '';
+        const pay = scm.cmPay   ? (parseFloat(row[scm.cmPay] ?? 0) || 0) : 0;
+        if (!cm) return;
+        cmGroups[cm] = (cmGroups[cm] || 0) + pay;
+      });
+      const cmPay = Object.entries(cmGroups)
+        .sort(function (a, b) { return b[1] - a[1]; })
+        .map(function (entry) { return { 'Case Manager Name': entry[0], 'CM Pay Total': parseFloat(entry[1].toFixed(2)) }; });
+
+      lg('✓ Summary Sheet done — ' + sumMatched + ' matched · ' + sumUnmatched + ' unmatched', 's');
+      if (cmPay.length > 0) {
+        lg('  CM Pay groups (' + cmPay.length + '): ' + cmPay.map(function (r) { return r['Case Manager Name'] + ' → $' + r['CM Pay Total']; }).join(' · '), 's');
+      } else if (!scm.cmPay) {
+        lg('  ℹ No CM Pay column detected — CM Pay Sheet will be empty', 'w');
+      }
+      lg('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'i');
+
+      summaryResult = {
+        filledSummary: filled,
+        cmPay: cmPay,
+        summaryCols: summaryCols,
+        sumMatched: sumMatched,
+        sumUnmatched: sumUnmatched,
+        sumUnmatchedItems: sumUnmatchedItems
+      };
+    }
+
+    flushLogs();
+    self.postMessage({ type: 'done', payload: { summary: summaryResult } });
+  } catch (err) {
+    flushLogs();
+    self.postMessage({ type: 'error', message: (err && err.message) || String(err) });
+  }
+};
+`;
+
+let _procWorkerUrl = null;
+function _getProcWorkerUrl() {
+  if (!_procWorkerUrl) {
+    _procWorkerUrl = URL.createObjectURL(new Blob([_PROC_WORKER_SOURCE], { type: 'application/javascript' }));
+  }
+  return _procWorkerUrl;
+}
+
 let _processingCancelled = false;
+let _activeProcWorker = null;
+let _cancelPromiseReject = null;
 const _PROC_CANCEL_SENTINEL = Symbol('paysync.processCancelled');
 
 function cancelProcess() {
   if (_processingCancelled) return;
   _processingCancelled = true;
+  // Terminating the worker stops all in-flight compute on the worker thread
+  // immediately — no need to wait for the next yield checkpoint.
+  if (_activeProcWorker) {
+    try { _activeProcWorker.terminate(); } catch(_) {}
+    _activeProcWorker = null;
+  }
+  if (_cancelPromiseReject) {
+    const rej = _cancelPromiseReject;
+    _cancelPromiseReject = null;
+    rej(_PROC_CANCEL_SENTINEL);
+  }
   const cb = document.getElementById('procCancelBtn');
   if (cb) { cb.disabled = true; cb.textContent = 'Cancelling…'; }
   const _lbl = document.getElementById('procLabel');
@@ -2075,8 +2424,8 @@ async function runProcess() {
   const _meta = document.getElementById('procMeta');
 
   // Elapsed-time + rows-processed readout next to the stage label.
-  // _rowProcessed/_rowTotal are updated by setSubProgress so the readout
-  // reflects current progress inside long-running loops (matching, summary fill).
+  // _rowProcessed/_rowTotal are updated as the worker posts progress messages
+  // so the readout reflects current progress inside the worker's loops.
   const _startTime = Date.now();
   let _rowProcessed = 0, _rowTotal = 0;
   const _formatElapsed = (ms) => {
@@ -2086,8 +2435,7 @@ async function runProcess() {
   const _renderMeta = () => {
     if (!_meta) return;
     // Once the user has clicked Cancel we leave the meta empty so the
-    // ticker can't briefly repopulate the readout while we're still waiting
-    // for the loop to reach its next yield/cancel checkpoint.
+    // ticker can't briefly repopulate the readout.
     if (_processingCancelled) { _meta.textContent = ''; return; }
     const elapsed = _formatElapsed(Date.now() - _startTime);
     _meta.textContent = _rowTotal > 0
@@ -2099,21 +2447,14 @@ async function runProcess() {
   // even between row updates. Cleared in the finally block below.
   const _metaTimer = setInterval(_renderMeta, 1000);
 
-  // Set label (and optionally advance progress bar) then yield so browser can repaint before heavy work begins.
-  // Also acts as a cancellation checkpoint between processing stages.
-  const setLabel = (text, pct) => new Promise((resolve, reject) => {
+  // Lightweight UI updaters — no need to await/yield since the worker is
+  // doing all the heavy lifting on a separate thread; the main thread is
+  // already free to repaint between message dispatches.
+  const _updateLabel = (text, pct) => {
     if (_lbl) _lbl.textContent = text;
     if (_bar && typeof pct === 'number') _bar.style.width = pct + '%';
-    requestAnimationFrame(() => requestAnimationFrame(() => {
-      if (_processingCancelled) reject(_PROC_CANCEL_SENTINEL);
-      else resolve();
-    }));
-  });
-  // Sub-stage progress: interpolates the bar width inside long-running loops between
-  // a stage's start/end percentages, then yields one frame so the browser can repaint
-  // and we can honor a cancel request. Call sparingly (every N rows) to avoid stalling
-  // the loop on large files.
-  const setSubProgress = (processed, total, startPct, endPct) => new Promise((resolve, reject) => {
+  };
+  const _updateProgress = (processed, total, startPct, endPct) => {
     _rowProcessed = processed;
     _rowTotal = total;
     _renderMeta();
@@ -2121,16 +2462,12 @@ async function runProcess() {
       const frac = Math.min(1, Math.max(0, processed / total));
       _bar.style.width = (startPct + (endPct - startPct) * frac) + '%';
     }
-    requestAnimationFrame(() => {
-      if (_processingCancelled) reject(_PROC_CANCEL_SENTINEL);
-      else resolve();
-    });
-  });
-  // Reset row counts at the start of a new long-running stage so the readout
-  // shows "0 / N rows" immediately instead of carrying over from the prior stage.
-  const beginRowStage = (total) => {
+  };
+  // Reset row counts at the start of a new stage so the readout shows
+  // "0 / N rows" immediately instead of carrying over from the prior stage.
+  const _resetRowStage = () => {
     _rowProcessed = 0;
-    _rowTotal = total;
+    _rowTotal = 0;
     _renderMeta();
   };
   let _processedOk = false;
@@ -2159,395 +2496,125 @@ async function runProcess() {
   const coCode  = document.getElementById('coCode').value.trim();
   const batchId = document.getElementById('batchId').value.trim() || 'DCW';
 
-  // Normalize SSN: strip dashes/spaces, keep last 4 or full 9 digits
-  function normalizeSSN(v) {
-    if (!v) return '';
-    const s = String(v).replace(/[\s\-]/g, '');
-    if (/^\d{9}$/.test(s)) return s;
-    if (/^\d{4}$/.test(s)) return s; // last-4 only
-    const d = s.replace(/\D/g, '');
-    return d.length >= 4 ? d : '';
-  }
+  // ─── Apply matching results to the UI (stat cards, warning box, table) ───
+  const _applyMatchingResults = (m) => {
+    const output    = m.output || [];
+    const unmatched = m.unmatched || [];
+    const ssnMatches  = m.ssnMatches || 0;
+    const totReg = m.totReg || 0;
+    const totOT  = m.totOT  || 0;
+    const groupedTotal = m.groupedTotal || 0;
 
-  await setLabel('Building master lookup…', 20);
-  // Build lookup from master — primary by HHA code, secondary by SSN
-  const lookup = {};
-  const ssnLookup = {};
-  const mMap = S.masterMap || {};
-  S.master.forEach(row => {
-    const hha  = mMap.hhaCode ? String(row[mMap.hhaCode] ?? '').trim()
-               : String(row['HHA Code'] ?? row['HHA code'] ?? row['hha_code'] ?? row['Aide Code'] ?? row['aide_code'] ?? '').trim();
-    const adp  = mMap.adpCode ? String(row[mMap.adpCode] ?? '').trim()
-               : String(row['ADP Code'] ?? row['ADP code'] ?? row['adp_code'] ?? row['File #'] ?? row['FileNumber'] ?? '').trim();
-    const name = mMap.empName ? String(row[mMap.empName] ?? '').trim()
-               : String(row['DCW Name'] ?? row['Name'] ?? row['Employee Name'] ?? row['Caregiver Name'] ?? '').trim();
-    const ssnRaw = mMap.ssn ? (row[mMap.ssn] ?? '')
-                 : (row['SSN'] ?? row['Social Security Number'] ?? row['Social Security'] ?? row['Social'] ?? row['SS#'] ?? row['SS Number'] ?? row['ssn'] ?? '');
-    const ssn = normalizeSSN(ssnRaw);
-    if (hha && adp) lookup[hha] = { name, adpCode: adp, ssn };
-    if (ssn && adp) ssnLookup[ssn] = { name, adpCode: adp, hhaCode: hha };
-  });
-  const ssnEntries = Object.keys(ssnLookup).length;
-  lg(`Master lookup built — ${Object.keys(lookup).length} code entries, ${ssnEntries} SSN entries`, 'i');
-  if (ssnEntries > 0) lg(`  SSN fallback enabled — will try Social Security match if aide code not found`, 'i');
-  lg(`HHA rows to process — ${S.hhaRows.length} total`, 'i');
+    S.output    = output;
+    S.unmatched = unmatched;
 
-  await setLabel('Grouping HHA rows…', 40);
-  // Group by aide+week (also capture SSN from HHA file if present)
-  const grouped = {};
-  const hMap = S.hhaMap || {};
-  S.hhaRows.forEach(row => {
-    const aide = hMap.aideCode ? String(row[hMap.aideCode] ?? '').trim()
-               : String(row['Aide Code'] ?? row['aide_code'] ?? row['AideCode'] ?? row['HHA Code'] ?? row['Employee ID'] ?? '').trim();
-    // 'Week' is force-injected for dual-mode; use mapped col for single-mode
-    const week = String(row['Week'] ?? (hMap.week ? row[hMap.week] : undefined) ?? row['week'] ?? row['WEEK'] ?? '1').trim();
-    const pay  = hMap.payHrs ? (parseFloat(row[hMap.payHrs]) || 0)
-               : (parseFloat(row['Pay Hours'] ?? row['pay_hours'] ?? row['Total Hrs'] ?? row['Hours'] ?? 0) || 0);
-    const reg  = hMap.regHrs ? (parseFloat(row[hMap.regHrs]) || 0)
-               : (parseFloat(row['Regular Hours'] ?? row['Reg Hours'] ?? row['Reg'] ?? row['reg_hours'] ?? 0) || 0);
-    const ot   = hMap.otHrs  ? (parseFloat(row[hMap.otHrs]) || 0)
-               : (parseFloat(row['OT Hours'] ?? row['OT_Hours'] ?? row['O/T Hours'] ?? row['OT'] ?? row['Overtime Hours'] ?? 0) || 0);
-    const ssnRaw = hMap.ssn ? (row[hMap.ssn] ?? '')
-                 : (row['SSN'] ?? row['Social Security Number'] ?? row['Social Security'] ?? row['Social'] ?? row['SS#'] ?? row['ssn'] ?? '');
-    const ssn = normalizeSSN(ssnRaw);
-    if (!aide) return;
-    const key = `${aide}||${week}`;
-    if (!grouped[key]) grouped[key] = { aide, week, pay: 0, reg: 0, ot: 0, ssn };
-    grouped[key].pay += pay;
-    grouped[key].reg += reg;
-    grouped[key].ot  += ot;
-    if (ssn && !grouped[key].ssn) grouped[key].ssn = ssn;
-  });
-  lg(`Grouped — ${Object.keys(grouped).length} unique aide-week combinations`, 'i');
-
-  await setLabel('Matching employees…', 60);
-  const output = [];
-  const unmatched = new Set();
-  let ssnMatches = 0;
-
-  // Iterate sequentially so we can update the progress bar inside the loop.
-  // Yield to the browser ~20 times across the stage (or every row on tiny files)
-  // so the bar advances incrementally between 60% → 80% on large HHA files.
-  const groupedArr = Object.values(grouped);
-  const matchTotal = groupedArr.length;
-  const matchYield = Math.max(1, Math.ceil(matchTotal / 20));
-  beginRowStage(matchTotal);
-  for (let gi = 0; gi < matchTotal; gi++) {
-    const { aide, week, pay, reg, ot, ssn } = groupedArr[gi];
-    let m = lookup[aide];
-    let matchMethod = 'Code';
-
-    // Fallback 1: try SSN from master (aide code might BE an SSN or last-4)
-    if (!m && ssnEntries > 0) {
-      const normAide = normalizeSSN(aide);
-      if (normAide && ssnLookup[normAide]) {
-        m = ssnLookup[normAide];
-        matchMethod = 'SSN';
+    // Stats — animate cards in and count up values
+    ['sc1','sc2','sc3','sc4','sc5'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) {
+        el.classList.remove('card-animate');
+        void el.offsetWidth;
+        el.classList.add('has-data', 'card-animate');
       }
-    }
+    });
+    const countDuration = 600;
+    animateCount(document.getElementById('st-total'),     groupedTotal,    '', countDuration);
+    animateCount(document.getElementById('st-matched'),   output.length,   '', countDuration);
+    animateCount(document.getElementById('st-unmatched'), unmatched.length,'', countDuration);
+    animateCount(document.getElementById('st-reg'),       totReg,          '', countDuration, 1);
+    animateCount(document.getElementById('st-ot'),        totOT,           '', countDuration, 1);
 
-    // Fallback 2: try SSN captured from HHA row
-    if (!m && ssn && ssnEntries > 0 && ssnLookup[ssn]) {
-      m = ssnLookup[ssn];
-      matchMethod = 'SSN';
-    }
-
-    if (!m) {
-      unmatched.add(aide);
-      lg(`⚠ Aide Code ${aide} (Week ${week}) — no match by code or SSN, skipped`, 'w');
-    } else {
-      if (matchMethod === 'SSN') {
-        ssnMatches++;
-        lg(`  ℹ Aide ${aide} (Week ${week}) — matched via SSN → ${m.name} (ADP: ${m.adpCode})`, 'i');
-      }
-
-      let fReg = reg, fOT = ot;
-      if (fReg === 0 && fOT === 0 && pay > 0) {
-        fReg = Math.min(pay, 40);
-        fOT  = Math.max(0, pay - 40);
-      }
-      output.push({ coCode, batchId, name: m.name, adpCode: m.adpCode, flsaWk: week, regHrs: fReg, otHrs: fOT, week, aide, matchMethod });
-    }
-
-    if ((gi + 1) % matchYield === 0 || gi === matchTotal - 1) {
-      await setSubProgress(gi + 1, matchTotal, 60, 80);
-    }
-  }
-
-  S.output    = output;
-  S.unmatched = [...unmatched];
-
-  await setLabel('Building output…', 80);
-  const totOT  = output.reduce((s, r) => s + r.otHrs, 0);
-  const totReg = output.reduce((s, r) => s + r.regHrs, 0);
-
-  // Stats — animate cards in and count up values
-  ['sc1','sc2','sc3','sc4','sc5'].forEach(id => {
-    const el = document.getElementById(id);
-    if (el) {
-      el.classList.remove('card-animate');
-      void el.offsetWidth;
-      el.classList.add('has-data', 'card-animate');
-    }
-  });
-  const countDuration = 600;
-  animateCount(document.getElementById('st-total'),     Object.keys(grouped).length, '', countDuration);
-  animateCount(document.getElementById('st-matched'),   output.length,               '', countDuration);
-  animateCount(document.getElementById('st-unmatched'), unmatched.size,              '', countDuration);
-  animateCount(document.getElementById('st-reg'),       totReg,                      '', countDuration, 1);
-  animateCount(document.getElementById('st-ot'),        totOT,                       '', countDuration, 1);
-
-  // Unmatched warning
-  const wb2        = document.getElementById('warnBox');
-  const wt         = document.getElementById('warnTags');
-  const warnTitle  = document.getElementById('warnTitle');
-  const warnCopyBtn = document.getElementById('warnCopyBtn');
-  const warnDlBtn  = document.getElementById('warnDlBtn');
-  if (S.unmatched.length > 0) {
-    warnTitle.textContent = `${S.unmatched.length} Unmatched Aide Code${S.unmatched.length !== 1 ? 's' : ''} — click to see details`;
-    wt.innerHTML = S.unmatched.map(c => `<span class="utag">${c}</span>`).join('');
-    wb2.style.display = 'block';
-    // Reset collapsed state and button states from any previous run
-    wb2.classList.remove('expanded');
-    warnCopyBtn.textContent = 'Copy';
-    warnCopyBtn.classList.remove('copied');
-    warnCopyBtn.style.display = 'none';
-    warnDlBtn.style.display = 'none';
-    const _setWarnBtns = (visible) => {
-      warnCopyBtn.style.display = visible ? '' : 'none';
-      warnDlBtn.style.display   = visible ? '' : 'none';
-    };
-    document.getElementById('warnToggle').onclick = () => {
-      wb2.classList.toggle('expanded');
-      _setWarnBtns(wb2.classList.contains('expanded'));
-    };
-    // Wire up copy button
-    let _warnCopyTimer;
-    warnCopyBtn.onclick = (e) => {
-      e.stopPropagation();
-      navigator.clipboard.writeText(S.unmatched.join('\n')).then(() => {
-        warnCopyBtn.textContent = 'Copied!';
-        warnCopyBtn.classList.add('copied');
-        clearTimeout(_warnCopyTimer);
-        _warnCopyTimer = setTimeout(() => {
-          warnCopyBtn.textContent = 'Copy';
-          warnCopyBtn.classList.remove('copied');
-        }, 2000);
-      }).catch(() => {
-        warnCopyBtn.textContent = 'Failed';
-        clearTimeout(_warnCopyTimer);
-        _warnCopyTimer = setTimeout(() => { warnCopyBtn.textContent = 'Copy'; }, 2000);
-      });
-    };
-    // Wire up download CSV button
-    warnDlBtn.onclick = (e) => {
-      e.stopPropagation();
-      const escCsv = (v) => {
-        const s = String(v ?? '');
-        return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    // Unmatched warning
+    const wb2         = document.getElementById('warnBox');
+    const wt          = document.getElementById('warnTags');
+    const warnTitle   = document.getElementById('warnTitle');
+    const warnCopyBtn = document.getElementById('warnCopyBtn');
+    const warnDlBtn   = document.getElementById('warnDlBtn');
+    if (S.unmatched.length > 0) {
+      warnTitle.textContent = `${S.unmatched.length} Unmatched Aide Code${S.unmatched.length !== 1 ? 's' : ''} — click to see details`;
+      wt.innerHTML = S.unmatched.map(c => `<span class="utag">${c}</span>`).join('');
+      wb2.style.display = 'block';
+      wb2.classList.remove('expanded');
+      warnCopyBtn.textContent = 'Copy';
+      warnCopyBtn.classList.remove('copied');
+      warnCopyBtn.style.display = 'none';
+      warnDlBtn.style.display = 'none';
+      const _setWarnBtns = (visible) => {
+        warnCopyBtn.style.display = visible ? '' : 'none';
+        warnDlBtn.style.display   = visible ? '' : 'none';
       };
-      const rows = [['Aide Code'], ...S.unmatched.map(c => [c])];
-      const csv  = rows.map(r => r.map(escCsv).join(',')).join('\r\n');
-      const _d   = new Date();
-      const date = `${_d.getFullYear()}-${String(_d.getMonth()+1).padStart(2,'0')}-${String(_d.getDate()).padStart(2,'0')}`;
-      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-      const url  = URL.createObjectURL(blob);
-      const a    = document.createElement('a');
-      a.href     = url;
-      a.download = `unmatched-hha-${date}.csv`;
-      document.body.appendChild(a);
-      a.click();
-      setTimeout(() => { URL.revokeObjectURL(url); document.body.removeChild(a); }, 1000);
-    };
-  } else {
-    wb2.style.display = 'none';
-    wb2.classList.remove('expanded');
-    warnCopyBtn.style.display = 'none';
-    warnDlBtn.style.display = 'none';
-  }
-
-  renderTable(output);
-
-  document.getElementById('dlCsv').disabled  = output.length === 0;
-  document.getElementById('dlXlsx').disabled = output.length === 0;
-
-  lg(`✓ Processing complete — ${output.length} rows generated`, 's');
-  lg(`  Regular Hours Total: ${totReg.toFixed(2)}  |  OT Hours Total: ${totOT.toFixed(2)}`, 's');
-  if (ssnMatches > 0) lg(`  ✓ ${ssnMatches} employee(s) matched via SSN fallback`, 's');
-  if (unmatched.size > 0) lg(`  ⚠ ${unmatched.size} aide code(s) could not be matched by code or SSN — check master sheet`, 'w');
-  lg('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'i');
-
-  // ─── Optional: Summary Sheet filling ───
-  if (S.summaryRows.length > 0) {
-    await setLabel('Filling summary sheet…', 90);
-    lg('', 'i');
-    lg('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'i');
-    lg('📊 Processing Summary Sheet...', 'i');
-
-    // Use the column map stored at load time (user may have adjusted via UI)
-    const scm = S.summaryMap || {};
-    lg(`  Columns — ADP:${scm.adpCode||'—'} | HHA:${scm.hhaCode||'—'} | CM:${scm.caseMgr||'—'} | CMPay:${scm.cmPay||'—'} | Wk1→"${scm.wk1||'Week 1 Hours'}" | Wk2→"${scm.wk2||'Week 2 Hours'}"`, 'i');
-    S.summaryCols = { wk1: scm.wk1 || 'Week 1 Hours', wk2: scm.wk2 || 'Week 2 Hours' };
-
-    // Build adpCode → hhaCode reverse lookup from master (using masterMap)
-    const adpToHHA = {};
-    S.master.forEach(row => {
-      const hha = mMap.hhaCode ? String(row[mMap.hhaCode] ?? '').trim()
-                : String(row['HHA Code'] ?? row['HHA code'] ?? row['hha_code'] ?? row['Aide Code'] ?? row['aide_code'] ?? '').trim();
-      const adp = mMap.adpCode ? String(row[mMap.adpCode] ?? '').trim()
-                : String(row['ADP Code'] ?? row['ADP code'] ?? row['adp_code'] ?? row['File #'] ?? row['FileNumber'] ?? '').trim();
-      if (adp && hha) adpToHHA[adp] = hha;
-    });
-
-    // Build hoursMap: hhaCode → { weekKey: totalHrs } from HHA rows (using hhaMap)
-    // Also build ssnToAide: SSN → aide code (from HHA file itself, not master)
-    const hoursMap = {};
-    const ssnToAide = {};
-    S.hhaRows.forEach(row => {
-      const hha  = hMap.aideCode ? String(row[hMap.aideCode] ?? '').trim()
-                 : String(row['Aide Code'] ?? row['aide_code'] ?? row['AideCode'] ?? row['HHA Code'] ?? row['Employee ID'] ?? '').trim();
-      const week = String(row['Week'] ?? (hMap.week ? row[hMap.week] : undefined) ?? row['week'] ?? row['WEEK'] ?? '1').trim();
-      const pay  = hMap.payHrs ? (parseFloat(row[hMap.payHrs]) || 0)
-                 : (parseFloat(row['Pay Hours'] ?? row['pay_hours'] ?? row['Total Hrs'] ?? row['Hours'] ?? 0) || 0);
-      const reg  = hMap.regHrs ? (parseFloat(row[hMap.regHrs]) || 0)
-                 : (parseFloat(row['Regular Hours'] ?? row['Reg Hours'] ?? row['Reg'] ?? row['reg_hours'] ?? 0) || 0);
-      const ot   = hMap.otHrs  ? (parseFloat(row[hMap.otHrs]) || 0)
-                 : (parseFloat(row['OT Hours'] ?? row['OT_Hours'] ?? row['O/T Hours'] ?? row['OT'] ?? row['Overtime Hours'] ?? 0) || 0);
-      const hrs  = (reg + ot) > 0 ? (reg + ot) : pay;
-      if (!hha || !week) return;
-      if (!hoursMap[hha]) hoursMap[hha] = {};
-      hoursMap[hha][week] = (hoursMap[hha][week] || 0) + hrs;
-      // Capture SSN → aide mapping directly from HHA file (for cross-file matching)
-      const hhaSsnRaw = hMap.ssn ? (row[hMap.ssn] ?? '')
-                      : (row['SSN'] ?? row['Social Security Number'] ?? row['Social Security'] ?? row['Social'] ?? row['SS#'] ?? row['ssn'] ?? '');
-      const hhaSsn = normalizeSSN(hhaSsnRaw);
-      if (hhaSsn && !ssnToAide[hhaSsn]) ssnToAide[hhaSsn] = hha;
-    });
-    const hhaSsnEntries = Object.keys(ssnToAide).length;
-    if (hhaSsnEntries > 0) lg(`  HHA SSN index built — ${hhaSsnEntries} unique SSNs from HHA file for cross-file matching`, 'i');
-
-    // Determine week keys (could be "1"/"2" from single-file, or natural numbers)
-    const allWeekKeys = [...new Set(S.hhaRows.map(r => String(r['Week'] ?? r['week'] ?? '1').trim()))].sort();
-    const wk1Key = allWeekKeys[0] || '1';
-    const wk2Key = allWeekKeys[1] || '2';
-
-    // Fill summary rows — iterate sequentially so we can advance the bar inside
-    // the loop (90% → 100%). Yield to the browser ~20 times across the stage so
-    // very large summary sheets don't sit at 90% the whole time.
-    let sumMatched = 0, sumUnmatched = 0;
-    const sumUnmatchedItems = [];
-    const filled = [];
-    const sumTotal = S.summaryRows.length;
-    const sumYield = Math.max(1, Math.ceil(sumTotal / 20));
-    beginRowStage(sumTotal);
-    for (let si = 0; si < sumTotal; si++) {
-      const row = S.summaryRows[si];
-      const _filledRow = (() => {
-      const clone = { ...row };
-
-      // Resolve HHA code for this summary row
-      let hhaKey = null;
-
-      // 1. Try ADP code from summary → reverse lookup to HHA code
-      const sumAdp = scm.adpCode ? String(row[scm.adpCode] ?? '').trim() : '';
-      if (sumAdp && adpToHHA[sumAdp]) hhaKey = adpToHHA[sumAdp];
-
-      // 2. Try SSN from summary → master SSN lookup → HHA code
-      let matchMethod = 'ADP→Master';
-      if (!hhaKey && scm.ssn) {
-        const sumSSN = normalizeSSN(row[scm.ssn]);
-        if (sumSSN && ssnLookup[sumSSN]) {
-          hhaKey = ssnLookup[sumSSN].hhaCode;
-          matchMethod = 'SSN→Master';
-        }
-      }
-
-      // 3. Try HHA code directly from summary row → hoursMap
-      if (!hhaKey && scm.hhaCode) {
-        const sumHHA = String(row[scm.hhaCode] ?? '').trim();
-        if (sumHHA && hoursMap[sumHHA]) {
-          hhaKey = sumHHA;
-          matchMethod = 'HHA ID (direct)';
-        }
-      }
-
-      // 4. Cross-file SSN: SSN from summary → aide code from HHA Hours file → hoursMap
-      //    (works even when the employee isn't in the master sheet)
-      if (!hhaKey && scm.ssn) {
-        const sumSSN = normalizeSSN(row[scm.ssn]);
-        if (sumSSN && ssnToAide[sumSSN] && hoursMap[ssnToAide[sumSSN]]) {
-          hhaKey = ssnToAide[sumSSN];
-          matchMethod = 'SSN→HHA file';
-        }
-      }
-
-      // 5. ADP code from summary used directly as aide code in hoursMap
-      //    (catches cases where ADP # isn't in master but IS the aide code in HHA file)
-      if (!hhaKey && sumAdp && hoursMap[sumAdp]) {
-        hhaKey = sumAdp;
-        matchMethod = 'ADP→HHA file (no master)';
-      }
-
-      const wk1Col = scm.wk1 || 'Week 1 Hours';
-      const wk2Col = scm.wk2 || 'Week 2 Hours';
-
-      if (!hhaKey || !hoursMap[hhaKey]) {
-        sumUnmatched++;
-        // Collect identifier and reason for breakdown display
-        const sumHHAId  = scm.hhaCode ? String(row[scm.hhaCode] ?? '').trim() : '';
-        const sumSSNVal = scm.ssn     ? String(row[scm.ssn]     ?? '').trim() : '';
-        const unmatchedId = sumAdp || sumHHAId || sumSSNVal || `Row ${sumMatched + sumUnmatched}`;
-        let unmatchedReason;
-        if (!hhaKey) {
-          if (sumAdp && !adpToHHA[sumAdp]) unmatchedReason = 'ADP code not in master';
-          else if (sumAdp)                 unmatchedReason = 'No matching hours found';
-          else if (sumHHAId)               unmatchedReason = 'HHA ID not in hours file';
-          else if (sumSSNVal)              unmatchedReason = 'SSN not found in master or HHA file';
-          else                             unmatchedReason = 'No identifier found in row';
-        } else {
-          unmatchedReason = 'Aide not in HHA hours file';
-        }
-        sumUnmatchedItems.push({ id: unmatchedId, reason: unmatchedReason });
-        if (sumAdp) lg(`  ⚠ "${sumAdp}" — no match via ADP/SSN/HHA code, row preserved as-is`, 'w');
-        return clone;
-      }
-
-      sumMatched++;
-      const emp = hoursMap[hhaKey];
-      const w1Hrs = emp[wk1Key] || 0;
-      const w2Hrs = emp[wk2Key] || 0;
-      clone[wk1Col] = parseFloat(w1Hrs.toFixed(2));
-      clone[wk2Col] = parseFloat(w2Hrs.toFixed(2));
-      lg(`  ✓ ${sumAdp || hhaKey} [${matchMethod}] — Wk${wk1Key}: ${w1Hrs.toFixed(2)}  Wk${wk2Key}: ${w2Hrs.toFixed(2)}`, 's');
-      return clone;
-      })();
-      filled.push(_filledRow);
-      if ((si + 1) % sumYield === 0 || si === sumTotal - 1) {
-        await setSubProgress(si + 1, sumTotal, 90, 100);
-      }
+      document.getElementById('warnToggle').onclick = () => {
+        wb2.classList.toggle('expanded');
+        _setWarnBtns(wb2.classList.contains('expanded'));
+      };
+      let _warnCopyTimer;
+      warnCopyBtn.onclick = (e) => {
+        e.stopPropagation();
+        navigator.clipboard.writeText(S.unmatched.join('\n')).then(() => {
+          warnCopyBtn.textContent = 'Copied!';
+          warnCopyBtn.classList.add('copied');
+          clearTimeout(_warnCopyTimer);
+          _warnCopyTimer = setTimeout(() => {
+            warnCopyBtn.textContent = 'Copy';
+            warnCopyBtn.classList.remove('copied');
+          }, 2000);
+        }).catch(() => {
+          warnCopyBtn.textContent = 'Failed';
+          clearTimeout(_warnCopyTimer);
+          _warnCopyTimer = setTimeout(() => { warnCopyBtn.textContent = 'Copy'; }, 2000);
+        });
+      };
+      warnDlBtn.onclick = (e) => {
+        e.stopPropagation();
+        const escCsv = (v) => {
+          const s = String(v ?? '');
+          return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+        };
+        const rows = [['Aide Code'], ...S.unmatched.map(c => [c])];
+        const csv  = rows.map(r => r.map(escCsv).join(',')).join('\r\n');
+        const _d   = new Date();
+        const date = `${_d.getFullYear()}-${String(_d.getMonth()+1).padStart(2,'0')}-${String(_d.getDate()).padStart(2,'0')}`;
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const url  = URL.createObjectURL(blob);
+        const a    = document.createElement('a');
+        a.href     = url;
+        a.download = `unmatched-hha-${date}.csv`;
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => { URL.revokeObjectURL(url); document.body.removeChild(a); }, 1000);
+      };
+    } else {
+      wb2.style.display = 'none';
+      wb2.classList.remove('expanded');
+      warnCopyBtn.style.display = 'none';
+      warnDlBtn.style.display = 'none';
     }
+
+    renderTable(output);
+
+    document.getElementById('dlCsv').disabled  = output.length === 0;
+    document.getElementById('dlXlsx').disabled = output.length === 0;
+  };
+
+  // ─── Apply summary results to the UI (downloads, summary stat cards, breakdown box) ───
+  const _applySummaryResults = (s) => {
+    const filled = s.filledSummary || [];
+    const cmPay  = s.cmPay || [];
+    const sumMatched = s.sumMatched || 0;
+    const sumUnmatched = s.sumUnmatched || 0;
+    const sumUnmatchedItems = s.sumUnmatchedItems || [];
 
     S.filledSummary = filled;
-
-    // Build CM Pay groups
-    const cmGroups = {};
-    filled.forEach(row => {
-      const cm  = scm.caseMgr ? String(row[scm.caseMgr] ?? '').trim() : '';
-      const pay = scm.cmPay   ? parseFloat(row[scm.cmPay]  ?? 0) || 0 : 0;
-      if (!cm) return;
-      cmGroups[cm] = (cmGroups[cm] || 0) + pay;
-    });
-    S.cmPay = Object.entries(cmGroups)
-      .sort((a, b) => b[1] - a[1])
-      .map(([cm, total]) => ({ 'Case Manager Name': cm, 'CM Pay Total': parseFloat(total.toFixed(2)) }));
+    S.cmPay = cmPay;
+    S.summaryCols = s.summaryCols || { wk1: 'Week 1 Hours', wk2: 'Week 2 Hours' };
 
     // Enable download buttons
-    const dlSumBtn  = document.getElementById('dlSummary');
-    const dlCmBtn   = document.getElementById('dlCmPay');
-    const sumDlRow  = document.getElementById('summaryDlRow');
-    const sumDlOpt  = document.getElementById('summaryDlOptions');
+    const dlSumBtn = document.getElementById('dlSummary');
+    const dlCmBtn  = document.getElementById('dlCmPay');
+    const sumDlRow = document.getElementById('summaryDlRow');
+    const sumDlOpt = document.getElementById('summaryDlOptions');
     if (dlSumBtn) dlSumBtn.disabled = false;
-    if (dlCmBtn)  dlCmBtn.disabled  = S.cmPay.length === 0;
+    if (dlCmBtn)  dlCmBtn.disabled  = cmPay.length === 0;
     if (sumDlRow) sumDlRow.style.display = 'flex';
     if (sumDlOpt) sumDlOpt.style.display = 'flex';
 
@@ -2561,20 +2628,18 @@ async function runProcess() {
     }
 
     // Show summary stat cards below the main stat grid
-    const total = sumMatched + sumUnmatched;
-    const pct   = total > 0 ? Math.round((sumMatched / total) * 100) : 0;
-    const sumRow = document.getElementById('summaryStatsRow');
+    const totalSum = sumMatched + sumUnmatched;
+    const pctSum   = totalSum > 0 ? Math.round((sumMatched / totalSum) * 100) : 0;
+    const sumRow   = document.getElementById('summaryStatsRow');
     if (sumRow) {
-      document.getElementById('st-sum-matched-sub').textContent = `of ${total} Summary rows`;
-
-      // Reset values and animations before showing
+      document.getElementById('st-sum-matched-sub').textContent = `of ${totalSum} Summary rows`;
       document.getElementById('st-sum-matched').textContent   = '0';
       document.getElementById('st-sum-unmatched').textContent = '0';
       document.getElementById('st-sum-pct').textContent       = '0%';
       ['sc-sum-matched','sc-sum-unmatched','sc-sum-pct'].forEach(id => {
         const el = document.getElementById(id);
         el.classList.remove('card-animate');
-        void el.offsetWidth; // force reflow to restart animation
+        void el.offsetWidth;
         el.classList.add('has-data', 'card-animate');
       });
       sumRow.style.display = 'grid';
@@ -2582,7 +2647,7 @@ async function runProcess() {
       const countDuration = 600;
       animateCount(document.getElementById('st-sum-matched'),   sumMatched,   '', countDuration);
       animateCount(document.getElementById('st-sum-unmatched'), sumUnmatched, '', countDuration);
-      animateCount(document.getElementById('st-sum-pct'),       pct,          '%', countDuration);
+      animateCount(document.getElementById('st-sum-pct'),       pctSum,       '%', countDuration);
     }
 
     // Populate and show/hide the Summary unmatched breakdown box
@@ -2600,12 +2665,10 @@ async function runProcess() {
         `<span class="sum-utag"><span class="sum-utag-id">${escHtml(item.id)}</span><span class="sum-utag-reason">${escHtml(item.reason)}</span></span>`
       ).join('');
       swBox.style.display = 'block';
-      // Reset copy + download button state from any previous run
       swCopyBtn.textContent = 'Copy';
       swCopyBtn.classList.remove('copied');
       swCopyBtn.style.display = 'none';
       swDlBtn.style.display = 'none';
-      // Wire up toggle using onclick to avoid stacking listeners
       const _setHeaderBtns = (visible) => {
         swCopyBtn.style.display = visible ? '' : 'none';
         swDlBtn.style.display   = visible ? '' : 'none';
@@ -2614,7 +2677,6 @@ async function runProcess() {
         swBox.classList.toggle('expanded');
         _setHeaderBtns(swBox.classList.contains('expanded'));
       };
-      // Wire up copy button
       let _copyTimer;
       swCopyBtn.onclick = (e) => {
         e.stopPropagation();
@@ -2633,7 +2695,6 @@ async function runProcess() {
           _copyTimer = setTimeout(() => { swCopyBtn.textContent = 'Copy'; }, 2000);
         });
       };
-      // Wire up download CSV button
       swDlBtn.onclick = (e) => {
         e.stopPropagation();
         const escCsv = (v) => {
@@ -2653,13 +2714,11 @@ async function runProcess() {
         a.click();
         setTimeout(() => { URL.revokeObjectURL(url); document.body.removeChild(a); }, 1000);
       };
-      // Wire up the stat card to scroll to and expand the box
       document.getElementById('sc-sum-unmatched').onclick = () => {
         swBox.classList.add('expanded');
         _setHeaderBtns(true);
         swBox.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
       };
-      // Update sub text to hint the card is clickable
       const sumUnmatchedSub = document.querySelector('#sc-sum-unmatched .stat-sub');
       if (sumUnmatchedSub) sumUnmatchedSub.textContent = 'Click for details';
     } else {
@@ -2672,17 +2731,79 @@ async function runProcess() {
       if (sumUnmatchedSub) sumUnmatchedSub.textContent = 'Flagged in export';
     }
 
-    lg(`✓ Summary Sheet done — ${sumMatched} matched · ${sumUnmatched} unmatched`, 's');
-    if (S.cmPay.length > 0) {
-      lg(`  CM Pay groups (${S.cmPay.length}): ${S.cmPay.map(r => `${r['Case Manager Name']} → $${r['CM Pay Total']}`).join(' · ')}`, 's');
-    } else if (!scm.cmPay) {
-      lg('  ℹ No CM Pay column detected — CM Pay Sheet will be empty', 'w');
-    }
-    lg('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'i');
-
     // Append unmatched summary rows to the export preview table
     appendUnmatchedSummaryRows(sumUnmatchedItems);
-  }
+  };
+
+  // ─── Spawn the worker and drive UI from its messages ───
+  await new Promise((resolve, reject) => {
+    let worker;
+    try {
+      worker = new Worker(_getProcWorkerUrl());
+    } catch (err) {
+      reject(err);
+      return;
+    }
+    _activeProcWorker = worker;
+    _cancelPromiseReject = reject;
+
+    worker.onmessage = (ev) => {
+      const msg = ev.data || {};
+      // Drop any in-flight messages once the user has cancelled — the
+      // promise has already been rejected and the worker terminated.
+      if (_processingCancelled) return;
+      switch (msg.type) {
+        case 'logs':
+          (msg.items || []).forEach(item => lg(item.msg, item.level));
+          break;
+        case 'stage':
+          _resetRowStage();
+          _updateLabel(msg.label, msg.pct);
+          break;
+        case 'progress':
+          _updateProgress(msg.processed, msg.total, msg.startPct, msg.endPct);
+          break;
+        case 'matching-done':
+          _applyMatchingResults(msg.payload || {});
+          break;
+        case 'done':
+          if (msg.payload && msg.payload.summary) {
+            _applySummaryResults(msg.payload.summary);
+          }
+          _activeProcWorker = null;
+          _cancelPromiseReject = null;
+          try { worker.terminate(); } catch (_) {}
+          resolve();
+          break;
+        case 'error':
+          _activeProcWorker = null;
+          _cancelPromiseReject = null;
+          try { worker.terminate(); } catch (_) {}
+          reject(new Error(msg.message || 'Worker error'));
+          break;
+      }
+    };
+
+    worker.onerror = (err) => {
+      if (_processingCancelled) return;
+      _activeProcWorker = null;
+      _cancelPromiseReject = null;
+      try { worker.terminate(); } catch (_) {}
+      reject(new Error(err.message || 'Worker error'));
+    };
+
+    worker.postMessage({
+      coCode: coCode,
+      batchId: batchId,
+      master: S.master || [],
+      masterMap: S.masterMap || {},
+      hhaRows: S.hhaRows || [],
+      hhaMap: S.hhaMap || {},
+      summaryRows: S.summaryRows || [],
+      summaryMap: S.summaryMap || {}
+    });
+  });
+
   // Ensure bar reaches ~90% before the completion jump (covers the no-summary path).
   // Only nudge it up if we haven't already advanced past 90% via sub-stage progress.
   if (_bar && (parseFloat(_bar.style.width) || 0) < 90) _bar.style.width = '90%';
@@ -2692,10 +2813,17 @@ async function runProcess() {
       lg('⏹ Processing cancelled by user — loaded files preserved, click Generate to retry.', 'w');
       console.log('PaySync: processing cancelled by user');
     } else {
-      throw err;
+      lg(`✗ Processing error: ${err && err.message ? err.message : err}`, 'e');
+      console.error('PaySync: processing error', err);
     }
   } finally {
     clearInterval(_metaTimer);
+    // Belt-and-suspenders: ensure no stray worker survives the run.
+    if (_activeProcWorker) {
+      try { _activeProcWorker.terminate(); } catch (_) {}
+      _activeProcWorker = null;
+    }
+    _cancelPromiseReject = null;
     const _cb = document.getElementById('procCancelBtn');
     if (_processedOk) {
       if (_lbl) _lbl.textContent = '✓ Complete';
