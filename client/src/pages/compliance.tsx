@@ -9,6 +9,7 @@ import { TopBar } from "@/components/topbar";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { PersonCombobox } from "@/components/ui/person-combobox";
 import { Textarea } from "@/components/ui/textarea";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -419,20 +420,12 @@ export default function Compliance() {
                       render={({ field }) => (
                         <FormItem>
                           <FormLabel>Caregiver</FormLabel>
-                          <Select onValueChange={field.onChange} defaultValue={field.value || ""}>
-                            <FormControl>
-                              <SelectTrigger>
-                                <SelectValue placeholder="Select caregiver" />
-                              </SelectTrigger>
-                            </FormControl>
-                            <SelectContent>
-                              {caregivers.map((caregiver) => (
-                                <SelectItem key={caregiver.id} value={caregiver.id}>
-                                  {caregiver.firstName} {caregiver.lastName}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
+                          <PersonCombobox
+                            people={caregivers as any[]}
+                            value={field.value}
+                            onValueChange={field.onChange}
+                            placeholder="Select caregiver"
+                          />
                           <FormMessage />
                         </FormItem>
                       )}

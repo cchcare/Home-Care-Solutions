@@ -14,6 +14,7 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { PersonCombobox } from "@/components/ui/person-combobox";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -380,21 +381,14 @@ function CreateRequestDialog({
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>Request Swap With (Optional)</FormLabel>
-                  <Select onValueChange={(v) => field.onChange(v === "__none__" ? "" : v)} value={field.value || "__none__"}>
-                    <FormControl>
-                      <SelectTrigger data-testid="target-caregiver-select">
-                        <SelectValue placeholder="Leave empty for open swap request..." />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      <SelectItem value="__none__">Open Request (Any Caregiver)</SelectItem>
-                      {otherCaregivers.map((caregiver) => (
-                        <SelectItem key={caregiver.id} value={caregiver.id} data-testid={`caregiver-option-${caregiver.id}`}>
-                          {caregiver.firstName} {caregiver.lastName}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <PersonCombobox
+                    people={otherCaregivers as any[]}
+                    value={field.value || "__none__"}
+                    onValueChange={(v) => field.onChange(v === "__none__" ? "" : v)}
+                    placeholder="Leave empty for open swap request..."
+                    emptyOption={{ value: "__none__", label: "Open Request (Any Caregiver)" }}
+                    testId="target-caregiver-select"
+                  />
                   <FormMessage />
                 </FormItem>
               )}

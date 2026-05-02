@@ -64,3 +64,6 @@ Preferred communication style: Simple, everyday language.
 -   **Vite & ESBuild**: Build tools.
 -   **Drizzle Kit**: Database schema management.
 -   **Vitest**: Unit-test runner. Configured via `vitest.config.ts` (server-only, node environment). Run with `npm test` (or `bash scripts/run-tests.sh`). Suites live under `server/__tests__/*.test.ts`.
+
+### Shared UI Components
+-   **PersonCombobox** (`client/src/components/ui/person-combobox.tsx`): Searchable + sortable dropdown for picking a caregiver or client. Uses Popover + cmdk Command. Sort toggle between last name ("Last, First") and first name ("First Last") changes both order and label format. Used everywhere a caregiver or client is selected (tasks, incidents, compliance, supervisory visits, shift-swap, client intake, caregiver profile assign-client, client-schedule modal, master-week template modal).

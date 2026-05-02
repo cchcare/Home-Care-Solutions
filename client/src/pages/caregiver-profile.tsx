@@ -18,6 +18,7 @@ import {
   SelectTrigger,
   SelectValue 
 } from "@/components/ui/select";
+import { PersonCombobox } from "@/components/ui/person-combobox";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
@@ -2827,20 +2828,14 @@ export default function CaregiverProfile() {
           <div className="py-4 space-y-4">
             <div className="space-y-2">
               <Label>Select Client</Label>
-              <Select value={selectedClientId} onValueChange={setSelectedClientId} data-testid="select-client">
-                <SelectTrigger data-testid="select-client">
-                  <SelectValue placeholder="Choose a client to assign" />
-                </SelectTrigger>
-                <SelectContent>
-                  {allClients
-                    .filter((client) => !assignedClients.some((ac) => ac.id === client.id))
-                    .map((client) => (
-                      <SelectItem key={client.id} value={client.id}>
-                        {client.firstName} {client.lastName} {client.memberId ? `(${client.memberId})` : ""}
-                      </SelectItem>
-                    ))}
-                </SelectContent>
-              </Select>
+              <PersonCombobox
+                people={allClients.filter((client) => !assignedClients.some((ac) => ac.id === client.id)) as any[]}
+                value={selectedClientId}
+                onValueChange={setSelectedClientId}
+                placeholder="Choose a client to assign"
+                testId="select-client"
+                renderExtra={(c: any) => c.memberId ? `(${c.memberId})` : null}
+              />
             </div>
           </div>
           <DialogFooter>

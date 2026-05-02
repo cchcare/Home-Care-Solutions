@@ -22,6 +22,7 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue
 } from "@/components/ui/select";
+import { PersonCombobox } from "@/components/ui/person-combobox";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow
 } from "@/components/ui/table";
@@ -329,14 +330,12 @@ export default function SupervisoryVisits() {
               <FormField control={form.control} name="caregiverId" render={({ field }) => (
                 <FormItem>
                   <FormLabel>Caregiver *</FormLabel>
-                  <Select onValueChange={field.onChange} value={field.value}>
-                    <FormControl><SelectTrigger><SelectValue placeholder="Select caregiver" /></SelectTrigger></FormControl>
-                    <SelectContent>
-                      {caregivers.filter((c: any) => c.status === "active").map((c: any) => (
-                        <SelectItem key={c.id} value={c.id}>{c.firstName} {c.lastName}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <PersonCombobox
+                    people={caregivers.filter((c: any) => c.status === "active") as any[]}
+                    value={field.value}
+                    onValueChange={field.onChange}
+                    placeholder="Select caregiver"
+                  />
                   <FormMessage />
                 </FormItem>
               )} />

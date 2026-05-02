@@ -30,6 +30,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { PersonCombobox } from "@/components/ui/person-combobox";
 import {
   User,
   MapPin,
@@ -796,20 +797,13 @@ export default function ClientIntake() {
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>Primary Caregiver (Optional)</FormLabel>
-                  <Select onValueChange={field.onChange} value={field.value || ""}>
-                    <FormControl>
-                      <SelectTrigger data-testid="select-primary-caregiver">
-                        <SelectValue placeholder="Select primary caregiver" />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      {caregivers.filter(c => c.isActive).map((caregiver) => (
-                        <SelectItem key={caregiver.id} value={caregiver.id}>
-                          {caregiver.firstName} {caregiver.lastName}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <PersonCombobox
+                    people={caregivers.filter(c => c.isActive) as any[]}
+                    value={field.value}
+                    onValueChange={field.onChange}
+                    placeholder="Select primary caregiver"
+                    testId="select-primary-caregiver"
+                  />
                   <FormMessage />
                 </FormItem>
               )}

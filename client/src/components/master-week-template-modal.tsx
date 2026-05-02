@@ -18,6 +18,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { PersonCombobox } from "@/components/ui/person-combobox";
 import {
   Form,
   FormControl,
@@ -531,22 +532,15 @@ export function MasterWeekTemplateModal({
                         {/* Service Provider (Caregiver) */}
                         <div>
                           <label className="text-xs text-muted-foreground">Service Provider</label>
-                          <Select
+                          <PersonCombobox
+                            people={caregivers as any[]}
                             value={slot.caregiverId || "__none__"}
                             onValueChange={(v) => updateDaySlot(day.value, "caregiverId", v === "__none__" ? null : v)}
-                          >
-                            <SelectTrigger className="h-8 text-xs" data-testid={`select-caregiver-${day.value}`}>
-                              <SelectValue placeholder="Select..." />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="__none__">--</SelectItem>
-                              {caregivers.map(c => (
-                                <SelectItem key={c.id} value={c.id}>
-                                  {(c as any).firstName} {(c as any).lastName}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
+                            placeholder="Select..."
+                            emptyOption={{ value: "__none__", label: "--" }}
+                            triggerClassName="h-8 text-xs"
+                            testId={`select-caregiver-${day.value}`}
+                          />
                         </div>
 
                         {/* Service Provider Name (Auto) */}

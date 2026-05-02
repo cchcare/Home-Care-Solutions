@@ -17,6 +17,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { PersonCombobox } from "@/components/ui/person-combobox";
 import {
   Form,
   FormControl,
@@ -196,21 +197,14 @@ export function ClientScheduleModal({
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>Assigned Caregiver</FormLabel>
-                  <Select onValueChange={(value) => field.onChange(value === "__unassigned__" ? null : value)} value={field.value || "__unassigned__"}>
-                    <FormControl>
-                      <SelectTrigger data-testid="select-caregiver">
-                        <SelectValue placeholder="Select a caregiver" />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      <SelectItem value="__unassigned__">Unassigned</SelectItem>
-                      {caregivers.map((caregiver) => (
-                        <SelectItem key={caregiver.id} value={caregiver.id}>
-                          {caregiver.userId || `Caregiver ${caregiver.id.slice(0, 8)}`}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <PersonCombobox
+                    people={caregivers as any[]}
+                    value={field.value || "__unassigned__"}
+                    onValueChange={(v) => field.onChange(v === "__unassigned__" ? null : v)}
+                    placeholder="Select a caregiver"
+                    emptyOption={{ value: "__unassigned__", label: "Unassigned" }}
+                    testId="select-caregiver"
+                  />
                   <FormMessage />
                 </FormItem>
               )}

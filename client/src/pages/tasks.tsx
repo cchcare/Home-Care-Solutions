@@ -7,6 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { PersonCombobox } from "@/components/ui/person-combobox";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -375,21 +376,14 @@ export default function TasksPage() {
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>Assigned To</FormLabel>
-                        <Select onValueChange={(value) => field.onChange(value === "__unassigned__" ? null : value)} defaultValue={field.value || "__unassigned__"}>
-                          <FormControl>
-                            <SelectTrigger data-testid="select-task-assignee">
-                              <SelectValue placeholder="Select assignee" />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            <SelectItem value="__unassigned__">Unassigned</SelectItem>
-                            {caregivers.map((caregiver: any) => (
-                              <SelectItem key={caregiver.id} value={caregiver.id}>
-                                {caregiver.firstName} {caregiver.lastName}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                        <PersonCombobox
+                          people={caregivers as any[]}
+                          value={field.value || "__unassigned__"}
+                          onValueChange={(v) => field.onChange(v === "__unassigned__" ? null : v)}
+                          placeholder="Select assignee"
+                          emptyOption={{ value: "__unassigned__", label: "Unassigned" }}
+                          testId="select-task-assignee"
+                        />
                         <FormMessage />
                       </FormItem>
                     )}
@@ -401,21 +395,14 @@ export default function TasksPage() {
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>Related Client</FormLabel>
-                        <Select onValueChange={(value) => field.onChange(value === "__none__" ? null : value)} defaultValue={field.value || "__none__"}>
-                          <FormControl>
-                            <SelectTrigger data-testid="select-task-client">
-                              <SelectValue placeholder="Select client" />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            <SelectItem value="__none__">No Client</SelectItem>
-                            {clients.map((client: any) => (
-                              <SelectItem key={client.id} value={client.id}>
-                                {client.firstName} {client.lastName}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                        <PersonCombobox
+                          people={clients as any[]}
+                          value={field.value || "__none__"}
+                          onValueChange={(v) => field.onChange(v === "__none__" ? null : v)}
+                          placeholder="Select client"
+                          emptyOption={{ value: "__none__", label: "No Client" }}
+                          testId="select-task-client"
+                        />
                         <FormMessage />
                       </FormItem>
                     )}

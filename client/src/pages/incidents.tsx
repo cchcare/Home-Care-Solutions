@@ -8,6 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { PersonCombobox } from "@/components/ui/person-combobox";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
@@ -321,30 +322,30 @@ export default function IncidentsPage() {
                         <FormLabel>
                           {entityType === "client" ? "Client" : entityType === "caregiver" ? "Caregiver" : "Staff Member"}
                         </FormLabel>
-                        <Select onValueChange={field.onChange} defaultValue={field.value}>
-                          <FormControl>
-                            <SelectTrigger data-testid="select-entity-id">
-                              <SelectValue placeholder={`Select ${entityType}`} />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            {entityType === "client" && clients.map((client: any) => (
-                              <SelectItem key={client.id} value={client.id}>
-                                {client.firstName} {client.lastName}
-                              </SelectItem>
-                            ))}
-                            {entityType === "caregiver" && caregivers.map((caregiver: any) => (
-                              <SelectItem key={caregiver.id} value={caregiver.id}>
-                                {caregiver.firstName} {caregiver.lastName}
-                              </SelectItem>
-                            ))}
-                            {entityType === "staff" && users.map((user: any) => (
-                              <SelectItem key={user.id} value={user.id}>
-                                {user.firstName || ''} {user.lastName || ''} ({user.email})
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                        {entityType === "staff" ? (
+                          <Select onValueChange={field.onChange} defaultValue={field.value}>
+                            <FormControl>
+                              <SelectTrigger data-testid="select-entity-id">
+                                <SelectValue placeholder="Select staff" />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              {users.map((user: any) => (
+                                <SelectItem key={user.id} value={user.id}>
+                                  {user.firstName || ''} {user.lastName || ''} ({user.email})
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        ) : (
+                          <PersonCombobox
+                            people={(entityType === "client" ? clients : caregivers) as any[]}
+                            value={field.value}
+                            onValueChange={field.onChange}
+                            placeholder={`Select ${entityType}`}
+                            testId="select-entity-id"
+                          />
+                        )}
                         <FormMessage />
                       </FormItem>
                     )}
