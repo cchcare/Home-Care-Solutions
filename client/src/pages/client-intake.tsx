@@ -232,6 +232,7 @@ export default function ClientIntake() {
     onSuccess: (client: Client) => {
       localStorage.removeItem(DRAFT_STORAGE_KEY);
       queryClient.invalidateQueries({ queryKey: ["/api/clients"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/dashboard/metrics"] });
       setCreatedClientId(client.id);
       toast({
         title: "Client Created Successfully",

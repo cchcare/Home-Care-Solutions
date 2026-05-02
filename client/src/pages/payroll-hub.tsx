@@ -11,6 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { PersonCombobox } from "@/components/ui/person-combobox";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Separator } from "@/components/ui/separator";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -69,6 +70,8 @@ export default function PayrollHub() {
   const [manualCheckOpen, setManualCheckOpen] = useState(false);
   const [paymentOptionsOpen, setPaymentOptionsOpen] = useState(false);
   const [sickPayOpen, setSickPayOpen] = useState(false);
+  const [manualCheckEmployeeId, setManualCheckEmployeeId] = useState<string>("");
+  const [sickPayEmployeeId, setSickPayEmployeeId] = useState<string>("");
   const [adpSettingsOpen, setAdpSettingsOpen] = useState(false);
   const [selectedOffice, setSelectedOffice] = useState<string>("all");
 
@@ -606,18 +609,13 @@ export default function PayrollHub() {
           <div className="space-y-4">
             <div>
               <Label>Employee</Label>
-              <Select>
-                <SelectTrigger data-testid="select-employee">
-                  <SelectValue placeholder="Select employee" />
-                </SelectTrigger>
-                <SelectContent>
-                  {caregivers.map((cg) => (
-                    <SelectItem key={cg.id} value={cg.id}>
-                      {cg.firstName} {cg.lastName}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <PersonCombobox
+                people={caregivers as any[]}
+                value={manualCheckEmployeeId}
+                onValueChange={setManualCheckEmployeeId}
+                placeholder="Select employee"
+                testId="select-employee"
+              />
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
@@ -687,18 +685,13 @@ export default function PayrollHub() {
           <div className="space-y-4">
             <div>
               <Label>Employee</Label>
-              <Select>
-                <SelectTrigger data-testid="select-sick-pay-employee">
-                  <SelectValue placeholder="Select employee" />
-                </SelectTrigger>
-                <SelectContent>
-                  {caregivers.map((cg) => (
-                    <SelectItem key={cg.id} value={cg.id}>
-                      {cg.firstName} {cg.lastName}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <PersonCombobox
+                people={caregivers as any[]}
+                value={sickPayEmployeeId}
+                onValueChange={setSickPayEmployeeId}
+                placeholder="Select employee"
+                testId="select-sick-pay-employee"
+              />
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>

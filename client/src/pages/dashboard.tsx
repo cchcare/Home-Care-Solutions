@@ -727,21 +727,21 @@ export default function Dashboard() {
                         recentClients.map((client) => (
                           <tr key={client.id} className="hover:bg-muted/25 transition-colors" data-testid={`row-client-${client.id}`}>
                             <td className="p-4">
-                              <div className="flex items-center space-x-3">
+                              <Link href={`/clients/${client.id}`} className="flex items-center space-x-3 group">
                                 <div className="w-10 h-10 bg-primary rounded-full flex items-center justify-center">
                                   <span className="text-primary-foreground font-medium text-sm">
                                     {client.firstName?.[0]}{client.lastName?.[0]}
                                   </span>
                                 </div>
                                 <div>
-                                  <p className="font-medium text-foreground" data-testid={`text-client-name-${client.id}`}>
+                                  <p className="font-medium text-foreground group-hover:underline" data-testid={`text-client-name-${client.id}`}>
                                     {client.firstName} {client.lastName}
                                   </p>
                                   <p className="text-sm text-muted-foreground">
                                     ID: {client.id.slice(0, 8)}
                                   </p>
                                 </div>
-                              </div>
+                              </Link>
                             </td>
                             <td className="p-4">
                               <p className="text-sm text-foreground">Not assigned</p>
@@ -757,24 +757,38 @@ export default function Dashboard() {
                             </td>
                             <td className="p-4">
                               <div className="flex space-x-2">
-                                <Button 
-                                  variant="ghost" 
+                                <Button
+                                  asChild
+                                  variant="ghost"
                                   size="sm"
-                                  onClick={() => toast({ title: "Client Details", description: `Viewing details for ${client.firstName} ${client.lastName}` })}
                                   data-testid={`button-view-client-${client.id}`}
                                 >
-                                  <Eye className="w-4 h-4" />
+                                  <Link href={`/clients/${client.id}`} aria-label={`View ${client.firstName} ${client.lastName}`}>
+                                    <Eye className="w-4 h-4" />
+                                  </Link>
                                 </Button>
-                                <Button 
-                                  variant="ghost" 
-                                  size="sm"
-                                  onClick={() => toast({ title: "Edit Client", description: `Editing ${client.firstName} ${client.lastName}` })}
-                                  disabled={!canMutate}
-                                  title={!canMutate ? viewOnlyMessage : undefined}
-                                  data-testid={`button-edit-client-${client.id}`}
-                                >
-                                  <Edit className="w-4 h-4" />
-                                </Button>
+                                {canMutate ? (
+                                  <Button
+                                    asChild
+                                    variant="ghost"
+                                    size="sm"
+                                    data-testid={`button-edit-client-${client.id}`}
+                                  >
+                                    <Link href={`/clients/${client.id}?edit=1`} aria-label={`Edit ${client.firstName} ${client.lastName}`}>
+                                      <Edit className="w-4 h-4" />
+                                    </Link>
+                                  </Button>
+                                ) : (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    disabled
+                                    title={viewOnlyMessage}
+                                    data-testid={`button-edit-client-${client.id}`}
+                                  >
+                                    <Edit className="w-4 h-4" />
+                                  </Button>
+                                )}
                               </div>
                             </td>
                           </tr>

@@ -137,7 +137,10 @@ export default function ClientProfile() {
   const [messageType, setMessageType] = useState("note");
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [showMasterWeekEditor, setShowMasterWeekEditor] = useState(false);
-  const [isEditing, setIsEditing] = useState(false);
+  const [isEditing, setIsEditing] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return new URLSearchParams(window.location.search).get("edit") === "1";
+  });
   const [editFormData, setEditFormData] = useState<Partial<Client>>({});
   const [activeSection, setActiveSection] = useState("general");
   const [showSearchDialog, setShowSearchDialog] = useState(false);
@@ -416,6 +419,8 @@ export default function ClientProfile() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/clients", clientId] });
+      queryClient.invalidateQueries({ queryKey: ["/api/clients"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/dashboard/metrics"] });
       setIsEditing(false);
       toast({ title: "Success", description: "Client updated successfully" });
     },
@@ -430,6 +435,7 @@ export default function ClientProfile() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/clients"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/dashboard/metrics"] });
       toast({ title: "Success", description: "Client deleted successfully" });
       navigate("/clients");
     },

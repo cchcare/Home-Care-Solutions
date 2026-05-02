@@ -458,6 +458,8 @@ export default function CaregiverProfile() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/caregivers", caregiverId] });
+      queryClient.invalidateQueries({ queryKey: ["/api/caregivers"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/dashboard/metrics"] });
       setIsEditing(false);
       toast({ title: "Success", description: "Caregiver updated successfully" });
     },
@@ -472,6 +474,7 @@ export default function CaregiverProfile() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/caregivers"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/dashboard/metrics"] });
       toast({ title: "Success", description: "Caregiver deleted successfully" });
       navigate("/caregivers");
     },

@@ -8,6 +8,7 @@ import { TopBar } from "@/components/topbar";
 import { OfficeSelector } from "@/components/office-selector";
 import { useOffice } from "@/context/office-context";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { PersonCombobox } from "@/components/ui/person-combobox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -224,22 +225,14 @@ export default function CareQualityScorecard() {
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="caregiver-filter">Caregiver</Label>
-                    <Select 
-                      value={selectedCaregiverId} 
+                    <PersonCombobox
+                      people={caregivers as any[]}
+                      value={selectedCaregiverId}
                       onValueChange={setSelectedCaregiverId}
-                    >
-                      <SelectTrigger data-testid="select-caregiver-filter">
-                        <SelectValue placeholder="All Caregivers" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">All Caregivers</SelectItem>
-                        {caregivers.map((cg: any) => (
-                          <SelectItem key={cg.id} value={cg.id}>
-                            {cg.firstName} {cg.lastName}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                      placeholder="All Caregivers"
+                      emptyOption={{ value: "all", label: "All Caregivers" }}
+                      testId="select-caregiver-filter"
+                    />
                   </div>
                 </div>
               </CardContent>

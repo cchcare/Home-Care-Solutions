@@ -525,6 +525,7 @@ export default function Clients() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/clients"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/dashboard/metrics"] });
       setSelectedClient(null);
       toast({
         title: "Success",
