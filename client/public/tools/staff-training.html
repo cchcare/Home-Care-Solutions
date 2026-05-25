@@ -88,6 +88,20 @@ body{font-family:'IBM Plex Sans',sans-serif;background:var(--gray-50);color:var(
 .mod-card.on{display:block}
 @keyframes fadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
 
+/* Honor users who enabled the OS-level "reduce motion" accessibility setting.
+   Elements still appear in their final styled state; only the motion is
+   suppressed (animations and transitions resolve instantly with no delay). */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-delay: 0ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    transition-delay: 0ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
 .card-head{padding:26px 30px 20px;border-bottom:1px solid var(--gray-100)}
 .type-pill{display:inline-block;padding:3px 10px;border-radius:99px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;margin-bottom:9px}
 .pill-all{background:var(--teal-pale);color:var(--teal)}

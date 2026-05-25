@@ -70,6 +70,20 @@ tfoot td.dp{color:#69f0ae;font-weight:700;text-align:right;font-family:monospace
 .nodata{text-align:center;padding:56px;color:#aaa;font-size:14px}
 .newfile-btn{padding:7px 16px;background:#fff;color:#3b6dbf;border:1px solid #3b6dbf;border-radius:6px;font-size:13px;cursor:pointer;margin-bottom:18px}
 .newfile-btn:hover{background:#f0f5ff}
+
+/* Honor users who enabled the OS-level "reduce motion" accessibility setting.
+   Elements still appear in their final styled state; only the motion is
+   suppressed (animations and transitions resolve instantly with no delay). */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-delay: 0ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    transition-delay: 0ms !important;
+    scroll-behavior: auto !important;
+  }
+}
 </style>
 </head>
 <body>

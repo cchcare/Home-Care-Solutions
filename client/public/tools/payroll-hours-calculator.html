@@ -61,6 +61,20 @@
   .progress-bar-inner { height: 100%; background: #4a6fa5; width: 0; transition: width 0.3s; }
   .summary-footer { background: #1a1a2e; color: #fff; }
   .summary-footer td { color: #fff; font-weight: 600; padding: 11px 14px; }
+
+/* Honor users who enabled the OS-level "reduce motion" accessibility setting.
+   Elements still appear in their final styled state; only the motion is
+   suppressed (animations and transitions resolve instantly with no delay). */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-delay: 0ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    transition-delay: 0ms !important;
+    scroll-behavior: auto !important;
+  }
+}
 </style>
 </head>
 <body>
