@@ -464,6 +464,7 @@ export default function Clients() {
     saveView,
     deleteView,
     renameView,
+    markViewUsed,
     setColumnPrefs,
   } = useSavedViews("clients");
 
@@ -1066,6 +1067,7 @@ export default function Clients() {
                       onSave={(input) => saveView.mutateAsync(input)}
                       onDelete={(id) => deleteView.mutateAsync(id)}
                       onRename={(input) => renameView.mutateAsync(input)}
+                      onMarkUsed={(id) => markViewUsed.mutateAsync(id)}
                     />
                     <ColumnsMenu
                       columns={CLIENT_COLUMN_DEFS}

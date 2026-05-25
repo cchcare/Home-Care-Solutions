@@ -1356,6 +1356,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.post("/api/saved-views/:id/apply", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.session?.user?.id;
+      if (!userId) return res.status(401).json({ message: "Unauthorized" });
+      const existing = await storage.getUserSavedView(req.params.id);
+      if (!existing) return res.status(404).json({ message: "View not found" });
+      if (existing.userId !== userId) return res.status(403).json({ message: "Forbidden" });
+      if (existing.name === "__default") {
+        return res.status(400).json({ message: "Cannot apply the reserved '__default' row" });
+      }
+      const view = await storage.updateUserSavedView(req.params.id, { lastUsedAt: new Date() });
+      res.json(view);
+    } catch (error) {
+      console.error("Error marking view used:", error);
+      res.status(500).json({ message: "Failed to mark view used" });
+    }
+  });
+
   app.delete("/api/saved-views/:id", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.session?.user?.id;

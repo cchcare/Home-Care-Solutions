@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Bookmark, BookmarkPlus, Check, Pencil, Trash2, X } from "lucide-react";
+import { useMemo, useState } from "react";
+import { Bookmark, BookmarkPlus, Check, Pencil, Search, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -12,6 +12,8 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import type { UserSavedView } from "@shared/schema";
 
+type SortMode = "name" | "recent";
+
 interface SavedViewsMenuProps {
   views: UserSavedView[];
   currentFilters: Record<string, unknown>;
@@ -19,7 +21,24 @@ interface SavedViewsMenuProps {
   onSave: (input: { name: string; filters: Record<string, unknown> }) => void | Promise<unknown>;
   onDelete: (id: string) => void | Promise<unknown>;
   onRename?: (input: { id: string; name: string }) => void | Promise<unknown>;
+  onMarkUsed?: (id: string) => void | Promise<unknown>;
   testId?: string;
+}
+
+function normalizeFilters(filters: unknown): string {
+  if (!filters || typeof filters !== "object") return "{}";
+  const entries = Object.entries(filters as Record<string, unknown>)
+    .filter(([, v]) => {
+      if (v === undefined || v === null || v === "") return false;
+      if (Array.isArray(v) && v.length === 0) return false;
+      return true;
+    })
+    .map(([k, v]) => {
+      const val = Array.isArray(v) ? [...v].sort() : v;
+      return [k, val] as const;
+    })
+    .sort(([a], [b]) => a.localeCompare(b));
+  return JSON.stringify(entries);
 }
 
 export function SavedViewsMenu({
@@ -29,6 +48,7 @@ export function SavedViewsMenu({
   onSave,
   onDelete,
   onRename,
+  onMarkUsed,
   testId,
 }: SavedViewsMenuProps) {
   const { toast } = useToast();
@@ -36,6 +56,33 @@ export function SavedViewsMenu({
   const [name, setName] = useState("");
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
+  const [search, setSearch] = useState("");
+  const [sortMode, setSortMode] = useState<SortMode>("name");
+
+  const currentKey = useMemo(() => normalizeFilters(currentFilters), [currentFilters]);
+
+  const activeViewId = useMemo(() => {
+    const match = views.find((v) => normalizeFilters(v.filters) === currentKey);
+    return match?.id ?? null;
+  }, [views, currentKey]);
+
+  const visibleViews = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    const filtered = q
+      ? views.filter((v) => v.name.toLowerCase().includes(q))
+      : views.slice();
+    if (sortMode === "recent") {
+      filtered.sort((a, b) => {
+        const at = a.lastUsedAt ? new Date(a.lastUsedAt).getTime() : 0;
+        const bt = b.lastUsedAt ? new Date(b.lastUsedAt).getTime() : 0;
+        if (bt !== at) return bt - at;
+        return a.name.localeCompare(b.name);
+      });
+    } else {
+      filtered.sort((a, b) => a.name.localeCompare(b.name));
+    }
+    return filtered;
+  }, [views, search, sortMode]);
 
   const handleSave = async () => {
     const trimmed = name.trim();
@@ -68,17 +115,59 @@ export function SavedViewsMenu({
           )}
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-72">
+      <DropdownMenuContent align="end" className="w-80">
         <DropdownMenuLabel>Saved views</DropdownMenuLabel>
         <DropdownMenuSeparator />
+        {views.length > 0 && (
+          <div className="p-2 space-y-2">
+            <div className="relative">
+              <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+              <Input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search views..."
+                className="h-8 pl-7"
+                data-testid="saved-view-search-input"
+              />
+            </div>
+            <div className="flex items-center gap-1 text-xs">
+              <span className="text-muted-foreground">Sort:</span>
+              <Button
+                type="button"
+                variant={sortMode === "name" ? "secondary" : "ghost"}
+                size="sm"
+                className="h-6 px-2 text-xs"
+                onClick={() => setSortMode("name")}
+                data-testid="saved-view-sort-name"
+              >
+                Name
+              </Button>
+              <Button
+                type="button"
+                variant={sortMode === "recent" ? "secondary" : "ghost"}
+                size="sm"
+                className="h-6 px-2 text-xs"
+                onClick={() => setSortMode("recent")}
+                data-testid="saved-view-sort-recent"
+              >
+                Recently used
+              </Button>
+            </div>
+          </div>
+        )}
         <div className="max-h-56 overflow-y-auto p-1">
           {views.length === 0 ? (
             <p className="px-2 py-3 text-sm text-muted-foreground text-center">
               No saved views yet.
             </p>
+          ) : visibleViews.length === 0 ? (
+            <p className="px-2 py-3 text-sm text-muted-foreground text-center">
+              No views match "{search}".
+            </p>
           ) : (
-            views.map((v) => {
+            visibleViews.map((v) => {
               const isRenaming = renamingId === v.id;
+              const isActive = v.id === activeViewId;
               const commitRename = async () => {
                 const trimmed = renameValue.trim();
                 if (!trimmed) {
@@ -105,7 +194,8 @@ export function SavedViewsMenu({
               return (
                 <div
                   key={v.id}
-                  className="flex items-center gap-1 px-1 py-1 hover:bg-muted/60 rounded"
+                  className={`flex items-center gap-1 px-1 py-1 hover:bg-muted/60 rounded ${isActive ? "bg-muted/40" : ""}`}
+                  data-testid={`saved-view-row-${v.id}`}
                 >
                   {isRenaming ? (
                     <>
@@ -148,14 +238,29 @@ export function SavedViewsMenu({
                     <>
                       <button
                         type="button"
-                        className="flex-1 text-left text-sm px-2 py-1 truncate"
+                        className="flex-1 flex items-center gap-1.5 text-left text-sm px-2 py-1 min-w-0"
                         onClick={() => {
                           onApply((v.filters as Record<string, unknown>) ?? {});
+                          if (onMarkUsed) {
+                            Promise.resolve(onMarkUsed(v.id)).catch(() => {});
+                          }
                           setOpen(false);
                         }}
                         data-testid={`saved-view-apply-${v.id}`}
                       >
-                        {v.name}
+                        {isActive && (
+                          <Check
+                            className="h-3.5 w-3.5 text-primary flex-shrink-0"
+                            aria-label="Current view"
+                            data-testid={`saved-view-active-${v.id}`}
+                          />
+                        )}
+                        <span className="truncate">{v.name}</span>
+                        {isActive && (
+                          <span className="ml-auto text-[10px] uppercase tracking-wide text-muted-foreground flex-shrink-0">
+                            Active
+                          </span>
+                        )}
                       </button>
                       {onRename && (
                         <Button

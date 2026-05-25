@@ -60,6 +60,16 @@ export function useSavedViews(page: string) {
     },
   });
 
+  const markViewUsed = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await apiRequest("POST", `/api/saved-views/${id}/apply`);
+      return res.json() as Promise<UserSavedView>;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey });
+    },
+  });
+
   const renameView = useMutation({
     mutationFn: async (input: { id: string; name: string }) => {
       const res = await apiRequest("PATCH", `/api/saved-views/${input.id}`, {
@@ -95,6 +105,7 @@ export function useSavedViews(page: string) {
     saveView,
     deleteView,
     renameView,
+    markViewUsed,
     setColumnPrefs,
     DEFAULT_VIEW_NAME,
   };

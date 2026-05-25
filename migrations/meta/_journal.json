@@ -64,6 +64,13 @@
       "when": 1779840000000,
       "tag": "0008_employee_manager",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1779897600000,
+      "tag": "0012_saved_view_last_used_at",
+      "breakpoints": true
     }
   ]
 }

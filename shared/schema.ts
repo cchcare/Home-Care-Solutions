@@ -132,6 +132,7 @@ export const userSavedViews = pgTable("user_saved_views", {
   name: varchar("name").notNull(), // user-supplied; "__default" reserved for column prefs
   filters: jsonb("filters").$type<Record<string, unknown>>().default({}),
   columns: jsonb("columns").$type<Record<string, boolean>>().default({}),
+  lastUsedAt: timestamp("last_used_at"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => [
