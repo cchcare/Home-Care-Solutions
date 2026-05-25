@@ -18,6 +18,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { Plus, Pencil, Trash2, Settings, Building2, FileText, Users, Loader2 } from "lucide-react";
 import { Sidebar } from "@/components/sidebar";
+import PtoPoliciesTab from "@/components/admin/pto-policies-tab";
 import type { McoType, Mco, SystemSetting, EntityFieldConfig } from "@shared/schema";
 
 const mcoTypeSchema = z.object({
@@ -799,7 +800,7 @@ export default function AdminSettings() {
           </div>
 
           <Tabs defaultValue="mco-types" className="space-y-4">
-            <TabsList className="grid w-full grid-cols-5">
+            <TabsList className="grid w-full grid-cols-6">
               <TabsTrigger value="mco-types" className="flex items-center gap-2" data-testid="tab-mco-types">
                 <Building2 className="h-4 w-4" />MCO Types
               </TabsTrigger>
@@ -812,6 +813,9 @@ export default function AdminSettings() {
               <TabsTrigger value="caregiver-fields" className="flex items-center gap-2" data-testid="tab-caregiver-fields">
                 <Users className="h-4 w-4" />Caregiver Fields
               </TabsTrigger>
+              <TabsTrigger value="pto-policies" className="flex items-center gap-2" data-testid="tab-pto-policies">
+                <FileText className="h-4 w-4" />PTO Policies
+              </TabsTrigger>
               <TabsTrigger value="system" className="flex items-center gap-2" data-testid="tab-system-settings">
                 <FileText className="h-4 w-4" />System Config
               </TabsTrigger>
@@ -823,6 +827,7 @@ export default function AdminSettings() {
                 <TabsContent value="mcos" className="mt-0"><McosTab /></TabsContent>
                 <TabsContent value="client-fields" className="mt-0"><FieldConfigsTab entityType="client" /></TabsContent>
                 <TabsContent value="caregiver-fields" className="mt-0"><FieldConfigsTab entityType="caregiver" /></TabsContent>
+                <TabsContent value="pto-policies" className="mt-0"><PtoPoliciesTab /></TabsContent>
                 <TabsContent value="system" className="mt-0"><SystemSettingsTab /></TabsContent>
               </CardContent>
             </Card>

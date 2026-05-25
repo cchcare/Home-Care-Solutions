@@ -93,6 +93,7 @@ import {
   insertPerformanceMetricSchema,
   insertTimeOffRequestSchema,
   insertPtoBalanceSchema,
+  insertPtoPolicySchema,
   insertSurveyTemplateSchema,
   insertSurveyResponseSchema,
   insertClaimSchema,
@@ -146,7 +147,8 @@ import {
   lookupZip,
 } from "./geocoding-service";
 import { expirationAlertService } from './expiration-alert-service';
-import { runExpirationAlertsNow, runHhaxSummaryNow } from './scheduler';
+import { runExpirationAlertsNow, runHhaxSummaryNow, runPtoAccrualNow } from './scheduler';
+import { runAccruals, requestHours, ledgerTypeForRequest } from './pto-service';
 
 // Helper function to coerce date strings to Date objects
 function coerceDate(value: string | Date | null | undefined): Date | null | undefined {
@@ -12109,10 +12111,47 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!oldRequest) {
         return res.status(404).json({ message: "Time-off request not found" });
       }
-      
+      if (oldRequest.status === 'approved') {
+        return res.status(400).json({ message: "Request is already approved" });
+      }
+
       const reviewerId = req.session?.user?.id;
       const notes = req.body.notes;
+      const override: boolean = !!req.body.overrideNegative;
+
+      // Compute hours + check balance for PTO-tracked types unless overridden.
+      const ledgerType = ledgerTypeForRequest(oldRequest.requestType as string);
+      let hours = 0;
+      if (ledgerType) {
+        hours = requestHours(oldRequest as any);
+        if (!override) {
+          const balances = await storage.getPtoBalancesFromLedger(oldRequest.caregiverId);
+          const current = balances.find(b => b.ptoType === ledgerType)?.balance ?? 0;
+          if (current - hours < 0) {
+            return res.status(409).json({
+              message: `Approving would push ${ledgerType} balance negative (current ${current.toFixed(2)} h, request ${hours.toFixed(2)} h). Pass overrideNegative=true to approve anyway.`,
+              currentBalance: current,
+              requestedHours: hours,
+            });
+          }
+        }
+      }
+
       const request = await storage.approveTimeOffRequest(req.params.id, reviewerId, notes);
+
+      // Insert debit ledger row (idempotent — only one approved request per id).
+      if (ledgerType && hours > 0) {
+        await storage.insertPtoLedgerEntry({
+          caregiverId: oldRequest.caregiverId,
+          ptoType: ledgerType,
+          source: "debit",
+          deltaHours: (-hours).toFixed(2),
+          runDate: new Date().toISOString().slice(0, 10),
+          sourceRequestId: oldRequest.id,
+          reason: `Approved time-off request ${oldRequest.id}`,
+          createdBy: reviewerId,
+        } as any);
+      }
       
       await storage.createAuditLog({
         userId: reviewerId,
@@ -12143,7 +12182,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const reviewerId = req.session?.user?.id;
       const notes = req.body.notes;
       const request = await storage.denyTimeOffRequest(req.params.id, reviewerId, notes);
-      
+
+      // If we previously approved + debited this request, post a reversing credit.
+      const ledgerType = ledgerTypeForRequest(oldRequest.requestType as string);
+      if (oldRequest.status === 'approved' && ledgerType) {
+        const hours = requestHours(oldRequest as any);
+        if (hours > 0) {
+          await storage.insertPtoLedgerEntry({
+            caregiverId: oldRequest.caregiverId,
+            ptoType: ledgerType,
+            source: "reversal",
+            deltaHours: hours.toFixed(2),
+            runDate: new Date().toISOString().slice(0, 10),
+            sourceRequestId: oldRequest.id,
+            reason: `Denied previously-approved request ${oldRequest.id}`,
+            createdBy: reviewerId,
+          } as any);
+        }
+      }
+
       await storage.createAuditLog({
         userId: reviewerId,
         action: "deny",
@@ -12171,7 +12228,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       const request = await storage.cancelTimeOffRequest(req.params.id);
-      
+
+      // If we previously debited the ledger on approval, post a reversing credit.
+      const ledgerType = ledgerTypeForRequest(oldRequest.requestType as string);
+      if (oldRequest.status === 'approved' && ledgerType) {
+        const hours = requestHours(oldRequest as any);
+        if (hours > 0) {
+          await storage.insertPtoLedgerEntry({
+            caregiverId: oldRequest.caregiverId,
+            ptoType: ledgerType,
+            source: "reversal",
+            deltaHours: hours.toFixed(2),
+            runDate: new Date().toISOString().slice(0, 10),
+            sourceRequestId: oldRequest.id,
+            reason: `Cancelled previously-approved request ${oldRequest.id}`,
+            createdBy: req.session?.user?.id,
+          } as any);
+        }
+      }
+
       await storage.createAuditLog({
         userId: req.session?.user?.id,
         action: "cancel",
@@ -12261,6 +12336,153 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error creating/updating PTO balance:", error);
       res.status(400).json({ message: "Failed to create/update PTO balance" });
+    }
+  });
+
+  // ==================== PTO POLICIES, LEDGER & DASHBOARD ====================
+
+  const isAdminRole = (role?: string | null) =>
+    role === "admin" || role === "super_admin" || role === "office_admin" || role === "manager" || role === "supervisor";
+
+  // List PTO policies
+  app.get("/api/pto-policies", isAuthenticated, async (req: any, res) => {
+    try {
+      const { officeId, role, ptoType } = req.query as any;
+      const policies = await storage.getAllPtoPolicies({ officeId, role, ptoType });
+      res.json(policies);
+    } catch (error: any) {
+      console.error("Error fetching PTO policies:", error);
+      res.status(500).json({ message: error.message || "Failed to fetch PTO policies" });
+    }
+  });
+
+  app.post("/api/pto-policies", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      if (!isAdminRole(user?.role)) return res.status(403).json({ message: "Admin access required" });
+      const body = { ...req.body };
+      // Normalize empty strings to null
+      ["role", "officeId", "capHours"].forEach(k => { if (body[k] === "") body[k] = null; });
+      const data = insertPtoPolicySchema.parse(body);
+      const created = await storage.createPtoPolicy(data);
+      res.status(201).json(created);
+    } catch (error: any) {
+      console.error("Error creating PTO policy:", error);
+      res.status(400).json({ message: error.message || "Failed to create PTO policy" });
+    }
+  });
+
+  app.put("/api/pto-policies/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      if (!isAdminRole(user?.role)) return res.status(403).json({ message: "Admin access required" });
+      const body = { ...req.body };
+      ["role", "officeId", "capHours"].forEach(k => { if (body[k] === "") body[k] = null; });
+      const data = insertPtoPolicySchema.partial().parse(body);
+      const updated = await storage.updatePtoPolicy(req.params.id, data);
+      res.json(updated);
+    } catch (error: any) {
+      console.error("Error updating PTO policy:", error);
+      res.status(400).json({ message: error.message || "Failed to update PTO policy" });
+    }
+  });
+
+  app.delete("/api/pto-policies/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      if (!isAdminRole(user?.role)) return res.status(403).json({ message: "Admin access required" });
+      await storage.deletePtoPolicy(req.params.id);
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(400).json({ message: error.message || "Failed to delete PTO policy" });
+    }
+  });
+
+  // PTO balances dashboard (admin) — per caregiver totals
+  app.get("/api/pto-balances", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      if (!isAdminRole(user?.role)) return res.status(403).json({ message: "Admin access required" });
+      const { officeId, lowBalanceThreshold } = req.query as any;
+      const rows = await storage.getAllPtoBalancesFromLedger({ officeId });
+      const threshold = lowBalanceThreshold ? parseFloat(lowBalanceThreshold) : null;
+      const filtered = threshold !== null
+        ? rows.filter(r => r.vacation <= threshold || r.sick <= threshold || r.personal <= threshold)
+        : rows;
+      res.json(filtered);
+    } catch (error: any) {
+      console.error("Error fetching PTO balances:", error);
+      res.status(500).json({ message: error.message || "Failed to fetch PTO balances" });
+    }
+  });
+
+  // PTO balances CSV export
+  app.get("/api/pto-balances/export.csv", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      if (!isAdminRole(user?.role)) return res.status(403).json({ message: "Admin access required" });
+      const { officeId } = req.query as any;
+      const rows = await storage.getAllPtoBalancesFromLedger({ officeId });
+      const header = "Caregiver,Office ID,Vacation (h),Sick (h),Personal (h)\n";
+      const body = rows.map(r =>
+        `"${(r.lastName ?? '').replace(/"/g, '""')}, ${(r.firstName ?? '').replace(/"/g, '""')}",${r.officeId ?? ''},${r.vacation.toFixed(2)},${r.sick.toFixed(2)},${r.personal.toFixed(2)}`
+      ).join("\n");
+      res.setHeader("Content-Type", "text/csv");
+      res.setHeader("Content-Disposition", `attachment; filename="pto-balances-${new Date().toISOString().slice(0,10)}.csv"`);
+      res.send(header + body);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to export PTO balances" });
+    }
+  });
+
+  // Ledger for one caregiver (admin or the caregiver themselves)
+  app.get("/api/caregivers/:id/pto-ledger", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      const targetId = req.params.id;
+      if (!isAdminRole(user?.role)) {
+        const cg = await storage.getCaregiverByUserId(user?.id);
+        if (!cg || cg.id !== targetId) return res.status(403).json({ message: "Forbidden" });
+      }
+      const ptoType = (req.query.ptoType as string) || undefined;
+      const ledger = await storage.getPtoLedger(targetId, ptoType);
+      res.json(ledger);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to fetch ledger" });
+    }
+  });
+
+  // Self-service balance — for the logged-in caregiver
+  app.get("/api/my-pto-balance", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      if (user?.role !== "caregiver") {
+        return res.status(403).json({ message: "Access restricted to caregivers only" });
+      }
+      const cg = await storage.getCaregiverByUserId(user.id);
+      if (!cg) return res.status(404).json({ message: "Caregiver profile not found" });
+      const balances = await storage.getPtoBalancesFromLedger(cg.id);
+      const ledger = await storage.getPtoLedger(cg.id);
+      const byType: Record<string, number> = { vacation: 0, sick: 0, personal: 0 };
+      for (const b of balances) byType[b.ptoType] = b.balance;
+      res.json({ balances: byType, ledger: ledger.slice(0, 25) });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to fetch balance" });
+    }
+  });
+
+  // Manual accrual trigger (admin)
+  app.post("/api/pto-accrual/run", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      if (!isAdminRole(user?.role)) return res.status(403).json({ message: "Admin access required" });
+      const runDate = req.body?.runDate ? new Date(req.body.runDate) : new Date();
+      const officeId = req.body?.officeId || undefined;
+      const result = await runAccruals(runDate, { officeId });
+      res.json(result);
+    } catch (error: any) {
+      console.error("Error running PTO accruals:", error);
+      res.status(500).json({ message: error.message || "Failed to run accruals" });
     }
   });
 

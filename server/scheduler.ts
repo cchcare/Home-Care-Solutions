@@ -4,6 +4,7 @@ import { sendTodaysBirthdayNotifications } from "./birthday-service";
 import { exclusionService } from "./exclusion-service";
 import { expirationAlertService } from "./expiration-alert-service";
 import { sendDailyHhaxSummary } from "./hhax-summary-service";
+import { runAccruals, isAccrualDateForAnyOffice } from "./pto-service";
 import { sendEmail, isValidEmail } from "./communication-services";
 import { db } from "./db";
 import { users } from "@shared/schema";
@@ -144,6 +145,8 @@ const EXPIRATION_ALERT_CRON = process.env.EXPIRATION_ALERT_CRON || "0 7 * * *";
 // HHAX SFTP exports normally land overnight; summarize the prior day at 7:30 AM ET.
 const HHAX_SUMMARY_CRON = process.env.HHAX_SUMMARY_CRON || "30 7 * * *";
 const HHAX_SUMMARY_WINDOW_HOURS = parseInt(process.env.HHAX_SUMMARY_WINDOW_HOURS || "24", 10);
+// PTO accruals — runs daily at 1 AM; only credits on a configured pay date.
+const PTO_ACCRUAL_CRON = process.env.PTO_ACCRUAL_CRON || "0 1 * * *";
 
 async function runBirthdayJob() {
   console.log(`[Scheduler] Running birthday notifications job at ${new Date().toISOString()}`);
@@ -214,6 +217,26 @@ async function runHhaxSummaryJob() {
   }
 }
 
+async function runPtoAccrualJob() {
+  const now = new Date();
+  console.log(`[Scheduler] Running PTO accrual job at ${now.toISOString()}`);
+  try {
+    const isPayDate = await isAccrualDateForAnyOffice(now);
+    if (!isPayDate) {
+      console.log(`[Scheduler] PTO accrual: ${now.toISOString().slice(0,10)} is not a pay date — skipping`);
+      return { skipped: true };
+    }
+    const result = await runAccruals(now);
+    console.log(
+      `[Scheduler] PTO accrual completed: processed ${result.employeesProcessed}, ledger inserts ${result.ledgerInserts}, skipped no-policy ${result.skippedNoPolicy}, capped ${result.skippedCapped}`,
+    );
+    return result;
+  } catch (error) {
+    console.error("[Scheduler] PTO accrual job failed:", error);
+    throw error;
+  }
+}
+
 async function runExpirationAlertJob() {
   console.log(`[Scheduler] Running expiration alerts job at ${new Date().toISOString()}`);
   try {
@@ -261,7 +284,17 @@ export function startScheduledJobs() {
     await runHhaxSummaryJob();
   });
 
+  cron.schedule(PTO_ACCRUAL_CRON, async () => {
+    await runPtoAccrualJob();
+  });
+
+  console.log(`[Scheduler] Starting PTO accrual scheduler with cron: ${PTO_ACCRUAL_CRON}`);
   console.log("[Scheduler] Scheduled jobs started successfully");
+}
+
+export async function runPtoAccrualNow(runDate?: Date) {
+  console.log(`[Scheduler] Manual PTO accrual triggered at ${new Date().toISOString()}`);
+  return await runAccruals(runDate ?? new Date());
 }
 
 export async function runBirthdayNotificationsNow() {

@@ -4,6 +4,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { Sidebar } from "@/components/sidebar";
 import { TopBar } from "@/components/topbar";
+import MyPtoBalanceCard from "@/components/my-pto-balance-card";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -263,6 +264,8 @@ export default function MyProfilePage() {
 
               </CardContent>
             </Card>
+
+            <MyPtoBalanceCard />
           </div>
         </main>
       </div>

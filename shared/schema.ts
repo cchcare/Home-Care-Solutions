@@ -2799,6 +2799,75 @@ export type PtoBalance = typeof ptoBalances.$inferSelect;
 export type InsertPtoBalance = typeof ptoBalances.$inferInsert;
 export const insertPtoBalanceSchema = createInsertSchema(ptoBalances).omit({ id: true, updatedAt: true });
 
+// PTO accrual frequency
+export const ptoAccrualFrequencyEnum = pgEnum("pto_accrual_frequency", [
+  "weekly", "biweekly", "semi_monthly", "monthly",
+]);
+
+// PTO ledger entry source
+export const ptoLedgerSourceEnum = pgEnum("pto_ledger_source", [
+  "accrual", "debit", "reversal", "adjustment", "carryover",
+]);
+
+// PTO Policies — accrual rules per role + office
+export const ptoPolicies = pgTable("pto_policies", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id"),
+  name: varchar("name").notNull(),
+  ptoType: ptoTypeEnum("pto_type").notNull(),
+  role: varchar("role"), // null = any role
+  officeId: varchar("office_id").references(() => offices.id), // null = any office
+  hoursPerPeriod: numeric("hours_per_period", { precision: 10, scale: 2 }).notNull(),
+  capHours: numeric("cap_hours", { precision: 10, scale: 2 }),
+  accrualFrequency: ptoAccrualFrequencyEnum("accrual_frequency").default("biweekly"),
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_pto_policies_office").on(table.officeId),
+  index("idx_pto_policies_role").on(table.role),
+]);
+
+export const ptoPoliciesRelations = relations(ptoPolicies, ({ one }) => ({
+  office: one(offices, { fields: [ptoPolicies.officeId], references: [offices.id] }),
+}));
+
+export type PtoPolicy = typeof ptoPolicies.$inferSelect;
+export type InsertPtoPolicy = typeof ptoPolicies.$inferInsert;
+export const insertPtoPolicySchema = createInsertSchema(ptoPolicies).omit({ id: true, createdAt: true, updatedAt: true });
+
+// PTO Ledger — immutable append-only entries that define balances
+export const ptoLedger = pgTable("pto_ledger", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  caregiverId: varchar("caregiver_id").references(() => caregivers.id).notNull(),
+  ptoType: ptoTypeEnum("pto_type").notNull(),
+  source: ptoLedgerSourceEnum("source").notNull(),
+  deltaHours: numeric("delta_hours", { precision: 10, scale: 2 }).notNull(),
+  runDate: date("run_date").notNull(),
+  policyId: varchar("policy_id").references(() => ptoPolicies.id),
+  sourceRequestId: varchar("source_request_id").references(() => timeOffRequests.id),
+  reason: text("reason"),
+  createdBy: varchar("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_pto_ledger_caregiver").on(table.caregiverId),
+  index("idx_pto_ledger_request").on(table.sourceRequestId),
+  // Note: actual uniqueness is enforced by partial unique indexes created in
+  // migration 0010_pto_ledger_idempotency.sql:
+  //   uq_pto_ledger_accrual_day: (caregiver_id, pto_type, run_date) WHERE source='accrual'
+  //   uq_pto_ledger_request_event: (source_request_id, source) WHERE source_request_id IS NOT NULL AND source IN ('debit','reversal')
+]);
+
+export const ptoLedgerRelations = relations(ptoLedger, ({ one }) => ({
+  caregiver: one(caregivers, { fields: [ptoLedger.caregiverId], references: [caregivers.id] }),
+  policy: one(ptoPolicies, { fields: [ptoLedger.policyId], references: [ptoPolicies.id] }),
+  sourceRequest: one(timeOffRequests, { fields: [ptoLedger.sourceRequestId], references: [timeOffRequests.id] }),
+}));
+
+export type PtoLedgerEntry = typeof ptoLedger.$inferSelect;
+export type InsertPtoLedgerEntry = typeof ptoLedger.$inferInsert;
+export const insertPtoLedgerEntrySchema = createInsertSchema(ptoLedger).omit({ id: true, createdAt: true });
+
 // ==================== CLIENT SATISFACTION SURVEYS ====================
 
 // Survey type enum

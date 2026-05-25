@@ -269,6 +269,12 @@ import {
   ptoBalances,
   type PtoBalance,
   type InsertPtoBalance,
+  ptoPolicies,
+  type PtoPolicy,
+  type InsertPtoPolicy,
+  ptoLedger,
+  type PtoLedgerEntry,
+  type InsertPtoLedgerEntry,
   surveyTemplates,
   type SurveyTemplate,
   type InsertSurveyTemplate,
@@ -1061,6 +1067,27 @@ export interface IStorage {
   getPtoBalanceByType(caregiverId: string, year: number, ptoType: string): Promise<PtoBalance | undefined>;
   createPtoBalance(balance: InsertPtoBalance): Promise<PtoBalance>;
   updatePtoBalance(id: string, balance: Partial<InsertPtoBalance>): Promise<PtoBalance>;
+
+  // PTO Policy operations
+  getAllPtoPolicies(filters?: { officeId?: string; role?: string; ptoType?: string }): Promise<PtoPolicy[]>;
+  getPtoPolicy(id: string): Promise<PtoPolicy | undefined>;
+  createPtoPolicy(policy: InsertPtoPolicy): Promise<PtoPolicy>;
+  updatePtoPolicy(id: string, policy: Partial<InsertPtoPolicy>): Promise<PtoPolicy>;
+  deletePtoPolicy(id: string): Promise<void>;
+
+  // PTO Ledger operations
+  insertPtoLedgerEntry(entry: InsertPtoLedgerEntry): Promise<PtoLedgerEntry | null>;
+  getPtoLedger(caregiverId: string, ptoType?: string): Promise<PtoLedgerEntry[]>;
+  getPtoBalancesFromLedger(caregiverId: string): Promise<Array<{ ptoType: string; balance: number }>>;
+  getAllPtoBalancesFromLedger(filters?: { officeId?: string }): Promise<Array<{
+    caregiverId: string;
+    firstName: string | null;
+    lastName: string | null;
+    officeId: string | null;
+    vacation: number;
+    sick: number;
+    personal: number;
+  }>>;
   calculatePtoUsed(caregiverId: string, year: number, ptoType: string): Promise<number>;
 
   // Survey Template operations
@@ -6023,6 +6050,116 @@ export class DatabaseStorage implements IStorage {
       .where(eq(ptoBalances.id, id))
       .returning();
     return updated;
+  }
+
+  // ─── PTO Policies ───────────────────────────────────────────────────────────
+  async getAllPtoPolicies(filters: { officeId?: string; role?: string; ptoType?: string } = {}): Promise<PtoPolicy[]> {
+    const conds: any[] = [];
+    if (filters.officeId) conds.push(eq(ptoPolicies.officeId, filters.officeId));
+    if (filters.role) conds.push(eq(ptoPolicies.role, filters.role));
+    if (filters.ptoType) conds.push(eq(ptoPolicies.ptoType, filters.ptoType as any));
+    const query = db.select().from(ptoPolicies);
+    if (conds.length) {
+      return await query.where(and(...conds)).orderBy(asc(ptoPolicies.name));
+    }
+    return await query.orderBy(asc(ptoPolicies.name));
+  }
+
+  async getPtoPolicy(id: string): Promise<PtoPolicy | undefined> {
+    const [p] = await db.select().from(ptoPolicies).where(eq(ptoPolicies.id, id));
+    return p;
+  }
+
+  async createPtoPolicy(policy: InsertPtoPolicy): Promise<PtoPolicy> {
+    const [created] = await db.insert(ptoPolicies).values(policy).returning();
+    return created;
+  }
+
+  async updatePtoPolicy(id: string, policy: Partial<InsertPtoPolicy>): Promise<PtoPolicy> {
+    const [updated] = await db
+      .update(ptoPolicies)
+      .set({ ...policy, updatedAt: new Date() })
+      .where(eq(ptoPolicies.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deletePtoPolicy(id: string): Promise<void> {
+    await db.delete(ptoPolicies).where(eq(ptoPolicies.id, id));
+  }
+
+  // ─── PTO Ledger ─────────────────────────────────────────────────────────────
+  async insertPtoLedgerEntry(entry: InsertPtoLedgerEntry): Promise<PtoLedgerEntry | null> {
+    // Idempotency is enforced via partial unique indexes (see migration 0010):
+    //   accrual rows: (caregiver_id, pto_type, run_date) where source='accrual'
+    //   debit/reversal rows: (source_request_id, source) where source_request_id IS NOT NULL
+    // Drizzle's onConflictDoNothing target cannot easily express partial indexes,
+    // so we insert and treat unique_violation (23505) as a no-op.
+    try {
+      const [created] = await db.insert(ptoLedger).values(entry).returning();
+      return created ?? null;
+    } catch (err: any) {
+      if (err?.code === '23505') return null;
+      throw err;
+    }
+  }
+
+  async getPtoLedger(caregiverId: string, ptoType?: string): Promise<PtoLedgerEntry[]> {
+    const conds: any[] = [eq(ptoLedger.caregiverId, caregiverId)];
+    if (ptoType) conds.push(eq(ptoLedger.ptoType, ptoType as any));
+    return await db
+      .select()
+      .from(ptoLedger)
+      .where(and(...conds))
+      .orderBy(desc(ptoLedger.runDate), desc(ptoLedger.createdAt));
+  }
+
+  async getPtoBalancesFromLedger(caregiverId: string): Promise<Array<{ ptoType: string; balance: number }>> {
+    const rows = await db
+      .select({
+        ptoType: ptoLedger.ptoType,
+        total: sql<string>`COALESCE(SUM(${ptoLedger.deltaHours}), 0)`,
+      })
+      .from(ptoLedger)
+      .where(eq(ptoLedger.caregiverId, caregiverId))
+      .groupBy(ptoLedger.ptoType);
+    return rows.map(r => ({ ptoType: r.ptoType as string, balance: parseFloat(r.total) || 0 }));
+  }
+
+  async getAllPtoBalancesFromLedger(filters: { officeId?: string } = {}) {
+    const conds: any[] = [];
+    if (filters.officeId) conds.push(eq(caregivers.officeId, filters.officeId));
+
+    const rows = await db
+      .select({
+        caregiverId: caregivers.id,
+        firstName: caregivers.firstName,
+        lastName: caregivers.lastName,
+        officeId: caregivers.officeId,
+        ptoType: ptoLedger.ptoType,
+        total: sql<string>`COALESCE(SUM(${ptoLedger.deltaHours}), 0)`,
+      })
+      .from(caregivers)
+      .leftJoin(ptoLedger, eq(ptoLedger.caregiverId, caregivers.id))
+      .where(conds.length ? and(...conds) : undefined as any)
+      .groupBy(caregivers.id, caregivers.firstName, caregivers.lastName, caregivers.officeId, ptoLedger.ptoType);
+
+    const map = new Map<string, { caregiverId: string; firstName: string | null; lastName: string | null; officeId: string | null; vacation: number; sick: number; personal: number; }>();
+    for (const r of rows) {
+      let entry = map.get(r.caregiverId);
+      if (!entry) {
+        entry = { caregiverId: r.caregiverId, firstName: r.firstName, lastName: r.lastName, officeId: r.officeId, vacation: 0, sick: 0, personal: 0 };
+        map.set(r.caregiverId, entry);
+      }
+      if (r.ptoType === 'vacation') entry.vacation = parseFloat(r.total) || 0;
+      else if (r.ptoType === 'sick') entry.sick = parseFloat(r.total) || 0;
+      else if (r.ptoType === 'personal') entry.personal = parseFloat(r.total) || 0;
+    }
+    return Array.from(map.values()).sort((a, b) => {
+      const an = `${a.lastName ?? ''} ${a.firstName ?? ''}`.trim().toLowerCase();
+      const bn = `${b.lastName ?? ''} ${b.firstName ?? ''}`.trim().toLowerCase();
+      return an.localeCompare(bn);
+    });
   }
 
   async calculatePtoUsed(caregiverId: string, year: number, ptoType: string): Promise<number> {

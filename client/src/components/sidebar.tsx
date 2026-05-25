@@ -238,6 +238,7 @@ export function Sidebar() {
           { name: "Financial Reports", href: "/financial-reports", icon: FileBarChart },
           { name: "Hours Calculator", href: "/payroll-hours-calculator", icon: Calculator },
           { name: "Visit Hours Difference", href: "/visit-hours-difference", icon: GitCompareArrows },
+          { name: "PTO Balances", href: "/pto-balances", icon: Calculator },
         ]
       },
       {
