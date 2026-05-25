@@ -90,6 +90,9 @@ import PolicyManagement from "@/pages/policy-management";
 import Qapi from "@/pages/qapi";
 import InfectionControl from "@/pages/infection-control";
 import ClientSatisfactionSurveys from "@/pages/client-satisfaction-surveys";
+import Onboarding from "@/pages/onboarding";
+import OnboardingTemplates from "@/pages/onboarding-templates";
+import MyOnboarding from "@/pages/my-onboarding";
 
 import { Redirect } from "wouter";
 
@@ -225,6 +228,9 @@ function Router() {
           <Route path="/qapi" component={Qapi} />
           <Route path="/infection-control" component={InfectionControl} />
           <Route path="/client-satisfaction-surveys" component={ClientSatisfactionSurveys} />
+          <Route path="/onboarding" component={Onboarding} />
+          <Route path="/onboarding/templates" component={OnboardingTemplates} />
+          <Route path="/my-onboarding" component={MyOnboarding} />
         </>
       )}
       <Route component={NotFound} />

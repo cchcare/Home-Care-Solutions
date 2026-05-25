@@ -232,6 +232,119 @@ export async function ensureEmployeeNotesSchema() {
   }
 }
 
+// Onboarding workflow (Task #136) schema bootstrap. Raw DDL so it is safe to
+// run on every boot without drizzle-kit.
+let onboardingSchemaReady = false;
+export async function ensureOnboardingSchema() {
+  if (onboardingSchemaReady) return;
+  const client = await pool.connect();
+  try {
+    // Idempotent column additions on existing tables — always run so older
+    // installs pick up new columns when this function evolves.
+    await client.query(`ALTER TABLE caregivers ADD COLUMN IF NOT EXISTS onboarded_at timestamp;`);
+    await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS onboarded_at timestamp;`);
+
+    const ready = await client.query(`
+      SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'onboarding_init_marker') AS marker_exists;
+    `);
+    if (ready.rows[0]?.marker_exists) {
+      onboardingSchemaReady = true;
+      return;
+    }
+
+    await client.query(`DO $$ BEGIN
+      CREATE TYPE onboarding_step_type AS ENUM ('signature','document','policy','training','checklist');
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$;`);
+    await client.query(`DO $$ BEGIN
+      CREATE TYPE onboarding_instance_status AS ENUM ('in_progress','completed','cancelled');
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$;`);
+    await client.query(`DO $$ BEGIN
+      CREATE TYPE onboarding_instance_step_status AS ENUM ('pending','completed','skipped');
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$;`);
+    await client.query(`DO $$ BEGIN
+      CREATE TYPE onboarding_employee_type AS ENUM ('caregiver','user');
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$;`);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS onboarding_templates (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        organization_id varchar,
+        office_id varchar REFERENCES offices(id),
+        name varchar NOT NULL,
+        description text,
+        role varchar NOT NULL DEFAULT 'any',
+        is_active boolean DEFAULT true,
+        created_by varchar REFERENCES users(id),
+        created_at timestamp DEFAULT NOW(),
+        updated_at timestamp DEFAULT NOW()
+      );
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS onboarding_template_steps (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        template_id varchar NOT NULL REFERENCES onboarding_templates(id) ON DELETE CASCADE,
+        step_order integer NOT NULL DEFAULT 0,
+        step_type onboarding_step_type NOT NULL,
+        title varchar NOT NULL,
+        description text,
+        ref_id varchar,
+        is_required boolean DEFAULT true,
+        created_at timestamp DEFAULT NOW()
+      );
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS onboarding_instances (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        organization_id varchar,
+        template_id varchar REFERENCES onboarding_templates(id),
+        employee_type onboarding_employee_type NOT NULL,
+        employee_user_id varchar REFERENCES users(id),
+        employee_caregiver_id varchar REFERENCES caregivers(id),
+        status onboarding_instance_status DEFAULT 'in_progress',
+        launched_by varchar REFERENCES users(id),
+        launched_at timestamp DEFAULT NOW(),
+        completed_at timestamp,
+        notes text,
+        created_at timestamp DEFAULT NOW(),
+        updated_at timestamp DEFAULT NOW()
+      );
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS onboarding_instance_steps (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        instance_id varchar NOT NULL REFERENCES onboarding_instances(id) ON DELETE CASCADE,
+        template_step_id varchar REFERENCES onboarding_template_steps(id),
+        step_order integer NOT NULL DEFAULT 0,
+        step_type onboarding_step_type NOT NULL,
+        title varchar NOT NULL,
+        description text,
+        ref_id varchar,
+        link_id varchar,
+        status onboarding_instance_step_status DEFAULT 'pending',
+        is_required boolean DEFAULT true,
+        completed_at timestamp,
+        completed_by varchar REFERENCES users(id),
+        created_at timestamp DEFAULT NOW()
+      );
+    `);
+
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_onb_tmpl_step_template ON onboarding_template_steps (template_id);`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_onb_inst_user ON onboarding_instances (employee_user_id);`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_onb_inst_caregiver ON onboarding_instances (employee_caregiver_id);`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_onb_inst_status ON onboarding_instances (status);`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_onb_inst_step_instance ON onboarding_instance_steps (instance_id);`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_onb_inst_step_link ON onboarding_instance_steps (step_type, link_id);`);
+
+    await client.query(`CREATE TABLE IF NOT EXISTS onboarding_init_marker (initialized_at timestamp DEFAULT NOW());`);
+    onboardingSchemaReady = true;
+    console.log("[Init] onboarding schema ensured.");
+  } catch (err) {
+    console.error("[Init] ensureOnboardingSchema failed (non-fatal):", err);
+  } finally {
+    client.release();
+  }
+}
+
 export async function runProductionInit() {
   const client = await pool.connect();
   try {

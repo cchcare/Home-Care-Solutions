@@ -4477,3 +4477,102 @@ export const surveyReminderLog = pgTable("survey_reminder_log", {
 export type SurveyReminderLog = typeof surveyReminderLog.$inferSelect;
 export type InsertSurveyReminderLog = typeof surveyReminderLog.$inferInsert;
 export const insertSurveyReminderLogSchema = createInsertSchema(surveyReminderLog).omit({ id: true, sentAt: true });
+
+// ============================================================================
+// Onboarding workflow (Task #136)
+// ============================================================================
+export const onboardingStepTypeEnum = pgEnum("onboarding_step_type", [
+  "signature", "document", "policy", "training", "checklist",
+]);
+export const onboardingInstanceStatusEnum = pgEnum("onboarding_instance_status", [
+  "in_progress", "completed", "cancelled",
+]);
+export const onboardingInstanceStepStatusEnum = pgEnum("onboarding_instance_step_status", [
+  "pending", "completed", "skipped",
+]);
+export const onboardingEmployeeTypeEnum = pgEnum("onboarding_employee_type", [
+  "caregiver", "user",
+]);
+
+export const onboardingTemplates = pgTable("onboarding_templates", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id"),
+  officeId: varchar("office_id").references(() => offices.id),
+  name: varchar("name").notNull(),
+  description: text("description"),
+  role: varchar("role").notNull().default("any"), // caregiver | office_staff | any
+  isActive: boolean("is_active").default(true),
+  createdBy: varchar("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const onboardingTemplateSteps = pgTable("onboarding_template_steps", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  templateId: varchar("template_id").notNull().references(() => onboardingTemplates.id, { onDelete: "cascade" }),
+  stepOrder: integer("step_order").notNull().default(0),
+  stepType: onboardingStepTypeEnum("step_type").notNull(),
+  title: varchar("title").notNull(),
+  description: text("description"),
+  refId: varchar("ref_id"), // esignature template id / training id / policy id (null for checklist)
+  isRequired: boolean("is_required").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_onb_tmpl_step_template").on(table.templateId),
+]);
+
+export const onboardingInstances = pgTable("onboarding_instances", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id"),
+  templateId: varchar("template_id").references(() => onboardingTemplates.id),
+  employeeType: onboardingEmployeeTypeEnum("employee_type").notNull(),
+  employeeUserId: varchar("employee_user_id").references(() => users.id),
+  employeeCaregiverId: varchar("employee_caregiver_id").references(() => caregivers.id),
+  status: onboardingInstanceStatusEnum("status").default("in_progress"),
+  launchedBy: varchar("launched_by").references(() => users.id),
+  launchedAt: timestamp("launched_at").defaultNow(),
+  completedAt: timestamp("completed_at"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_onb_inst_user").on(table.employeeUserId),
+  index("idx_onb_inst_caregiver").on(table.employeeCaregiverId),
+  index("idx_onb_inst_status").on(table.status),
+]);
+
+export const onboardingInstanceSteps = pgTable("onboarding_instance_steps", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  instanceId: varchar("instance_id").notNull().references(() => onboardingInstances.id, { onDelete: "cascade" }),
+  templateStepId: varchar("template_step_id").references(() => onboardingTemplateSteps.id),
+  stepOrder: integer("step_order").notNull().default(0),
+  stepType: onboardingStepTypeEnum("step_type").notNull(),
+  title: varchar("title").notNull(),
+  description: text("description"),
+  refId: varchar("ref_id"),
+  linkId: varchar("link_id"), // created esign request id / training record id / policy ack id
+  status: onboardingInstanceStepStatusEnum("status").default("pending"),
+  isRequired: boolean("is_required").default(true),
+  completedAt: timestamp("completed_at"),
+  completedBy: varchar("completed_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_onb_inst_step_instance").on(table.instanceId),
+  index("idx_onb_inst_step_link").on(table.stepType, table.linkId),
+]);
+
+export type OnboardingTemplate = typeof onboardingTemplates.$inferSelect;
+export type InsertOnboardingTemplate = typeof onboardingTemplates.$inferInsert;
+export const insertOnboardingTemplateSchema = createInsertSchema(onboardingTemplates).omit({ id: true, createdAt: true, updatedAt: true });
+
+export type OnboardingTemplateStep = typeof onboardingTemplateSteps.$inferSelect;
+export type InsertOnboardingTemplateStep = typeof onboardingTemplateSteps.$inferInsert;
+export const insertOnboardingTemplateStepSchema = createInsertSchema(onboardingTemplateSteps).omit({ id: true, createdAt: true });
+
+export type OnboardingInstance = typeof onboardingInstances.$inferSelect;
+export type InsertOnboardingInstance = typeof onboardingInstances.$inferInsert;
+export const insertOnboardingInstanceSchema = createInsertSchema(onboardingInstances).omit({ id: true, createdAt: true, updatedAt: true, launchedAt: true, completedAt: true });
+
+export type OnboardingInstanceStep = typeof onboardingInstanceSteps.$inferSelect;
+export type InsertOnboardingInstanceStep = typeof onboardingInstanceSteps.$inferInsert;
+export const insertOnboardingInstanceStepSchema = createInsertSchema(onboardingInstanceSteps).omit({ id: true, createdAt: true, completedAt: true });

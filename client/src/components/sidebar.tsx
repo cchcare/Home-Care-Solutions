@@ -69,6 +69,7 @@ import {
   Star,
   Biohazard,
   Activity,
+  ListChecks,
 } from "lucide-react";
 
 interface NavItem {
@@ -117,6 +118,7 @@ export function Sidebar() {
     if ((user as any)?.role === "caregiver") {
       return [
         { name: "My Profile", href: "/my-profile", icon: UserCheck },
+        { name: "My Onboarding", href: "/my-onboarding", icon: ClipboardList },
         { name: "My Compliance", href: "/my-compliance", icon: Shield },
         { name: "Forms & Documents", href: "/my-documents", icon: FileText },
         { name: "Communication", href: "/my-communication", icon: MessageSquare },
@@ -134,6 +136,8 @@ export function Sidebar() {
       { name: "MCO Setup", href: "/admin-settings", icon: Settings },
       { name: "Letter Templates", href: "/letter-templates", icon: FileSignature },
       { name: "E-Signature Templates", href: "/esignature-templates", icon: PenTool },
+      { name: "Onboarding Progress", href: "/onboarding", icon: ClipboardList },
+      { name: "Onboarding Templates", href: "/onboarding/templates", icon: ListChecks },
       { name: "Birthday Notifications", href: "/birthday-notifications", icon: Cake },
       { name: "Expiration Alerts", href: "/expiration-alerts", icon: Bell },
       { name: "Client Intake", href: "/client-intake", icon: UserPlus },

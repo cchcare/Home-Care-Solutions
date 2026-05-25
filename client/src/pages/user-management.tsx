@@ -81,6 +81,7 @@ export default function UserManagementPage() {
   const [newPassword, setNewPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [showPasswordConfirm, setShowPasswordConfirm] = useState(false);
+  const [onboardingTemplateId, setOnboardingTemplateId] = useState<string>("");
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -119,12 +120,20 @@ export default function UserManagementPage() {
     queryKey: ["/api/employees/manager-candidates"],
   });
 
+  const { data: onboardingTemplates = [] } = useQuery<any[]>({
+    queryKey: ["/api/onboarding/templates", "active-for-users"],
+    queryFn: async () => (await fetch("/api/onboarding/templates?isActive=true")).json(),
+  });
+
   const createUserMutation = useMutation({
     mutationFn: async (data: UserFormData) => {
-      return await apiRequest("POST", "/api/users", data);
+      const payload: any = { ...data };
+      if (onboardingTemplateId) payload.onboardingTemplateId = onboardingTemplateId;
+      return await apiRequest("POST", "/api/users", payload);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/users"] });
+      setOnboardingTemplateId("");
       handleClose();
       toast({
         title: "User Created",
@@ -663,6 +672,29 @@ export default function UserManagementPage() {
                     )}
                   />
                 </div>
+
+                {!editingUser && (
+                  <FormItem>
+                    <FormLabel>Start Onboarding From Template (Optional)</FormLabel>
+                    <Select
+                      onValueChange={(v) => setOnboardingTemplateId(v === "__none__" ? "" : v)}
+                      value={onboardingTemplateId || "__none__"}
+                    >
+                      <SelectTrigger data-testid="select-user-onboarding-template">
+                        <SelectValue placeholder="No onboarding" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none__">No onboarding</SelectItem>
+                        {onboardingTemplates.map((t: any) => (
+                          <SelectItem key={t.id} value={t.id}>{t.name} ({t.role})</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">
+                      Launches onboarding tasks automatically when this user is created.
+                    </p>
+                  </FormItem>
+                )}
 
                 <FormField
                   control={form.control}

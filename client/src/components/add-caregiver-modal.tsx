@@ -56,6 +56,8 @@ const caregiverFormSchema = insertCaregiverSchema.extend({
   managerId: z.string().nullable().optional(),
   // Client assignments
   clientIds: z.array(z.string()).optional(),
+  // Optional onboarding template to launch on creation
+  onboardingTemplateId: z.string().optional(),
 });
 
 type CaregiverFormData = z.infer<typeof caregiverFormSchema>;
@@ -76,6 +78,12 @@ export function AddCaregiverModal({ isOpen, onClose, onSubmit, isLoading, initia
 
   const { data: clients = [] } = useQuery<Client[]>({
     queryKey: ["/api/clients"],
+    retry: false,
+  });
+
+  const { data: onboardingTemplates = [] } = useQuery<any[]>({
+    queryKey: ["/api/onboarding/templates", "caregiver-active"],
+    queryFn: async () => (await fetch("/api/onboarding/templates?isActive=true")).json(),
     retry: false,
   });
 
@@ -111,6 +119,7 @@ export function AddCaregiverModal({ isOpen, onClose, onSubmit, isLoading, initia
       hhaxCaregiverCode: "",
       managerId: null,
       clientIds: [],
+      onboardingTemplateId: undefined,
     },
   });
 
@@ -598,6 +607,44 @@ export function AddCaregiverModal({ isOpen, onClose, onSubmit, isLoading, initia
                 )}
               />
             </div>
+
+            {/* Onboarding */}
+            {!initialData?.employeeId && (
+              <div className="space-y-4">
+                <h4 className="font-semibold text-foreground">Onboarding</h4>
+                <FormField
+                  control={form.control}
+                  name="onboardingTemplateId"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Start Onboarding From Template (Optional)</FormLabel>
+                      <Select
+                        onValueChange={(v) => field.onChange(v === "__none__" ? undefined : v)}
+                        value={field.value || "__none__"}
+                      >
+                        <FormControl>
+                          <SelectTrigger data-testid="select-caregiver-onboarding-template">
+                            <SelectValue placeholder="No onboarding" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="__none__">No onboarding</SelectItem>
+                          {onboardingTemplates
+                            .filter((t: any) => t.role === "caregiver" || t.role === "any")
+                            .map((t: any) => (
+                              <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
+                            ))}
+                        </SelectContent>
+                      </Select>
+                      <p className="text-xs text-muted-foreground">
+                        Launches onboarding tasks automatically when this caregiver is created.
+                      </p>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+            )}
 
             {/* Submit Buttons */}
             <div className="flex justify-end space-x-3 pt-6 border-t border-border sticky bottom-0 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 z-10 -mx-6 px-6 -mb-4">

@@ -2745,7 +2745,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/caregivers", isAuthenticated, async (req: any, res) => {
     try {
       // Extract user info and client assignments from the request body
-      const { email, firstName, middleName, lastName, dateOfBirth, clientIds, ...caregiverData } = req.body;
+      const { email, firstName, middleName, lastName, dateOfBirth, clientIds, onboardingTemplateId, ...caregiverData } = req.body;
       
       // Convert date strings to Date objects if they're strings
       const processedDateOfBirth = dateOfBirth && typeof dateOfBirth === 'string' ? new Date(dateOfBirth) : dateOfBirth;
@@ -2802,6 +2802,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
         userAgent: req.get("User-Agent"),
       });
       
+      // Optionally launch onboarding from template (server-validated)
+      if (onboardingTemplateId) {
+        try {
+          const onb = await import("./onboarding");
+          const tmpl = await onb.getTemplateWithSteps(onboardingTemplateId);
+          const guard = tmpl ? onb.assertTemplateUsable(tmpl, req.session?.user, "caregiver") : { code: 404, message: "Template not found" };
+          if (!tmpl || guard) {
+            console.warn("[Onboarding] Skipping launch from caregiver creation:", guard?.message);
+          } else {
+            await onb.launchOnboardingInstance({
+              templateId: onboardingTemplateId,
+              employeeType: "caregiver",
+              employeeCaregiverId: caregiver.id,
+              employeeUserId: user.id,
+              launchedBy: req.session?.user?.id,
+              organizationId: req.session?.user?.organizationId ?? null,
+            });
+          }
+        } catch (err) {
+          console.error("[Onboarding] Failed to launch from caregiver creation:", err);
+        }
+      }
+
       // Return caregiver with user information
       res.status(201).json({
         ...caregiver,
@@ -4698,7 +4721,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Create user with password (for office managers to create staff/caregiver accounts)
   app.post("/api/users", isAuthenticated, requireAdminOrSupervisor, async (req: any, res) => {
     try {
-      const { password, ...userData } = req.body;
+      const { password, onboardingTemplateId, ...userData } = req.body;
       const currentUser = req.session?.user;
 
       if (!password || typeof password !== "string" || password.trim().length < 8) {
@@ -4777,6 +4800,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }
         } catch (emailErr) {
           console.error('[Users] Failed to send welcome email (non-fatal):', emailErr);
+        }
+      }
+
+      if (onboardingTemplateId) {
+        try {
+          const onb = await import("./onboarding");
+          const tmpl = await onb.getTemplateWithSteps(onboardingTemplateId);
+          const guard = tmpl ? onb.assertTemplateUsable(tmpl, currentUser, "user") : { code: 404, message: "Template not found" };
+          if (!tmpl || guard) {
+            console.warn("[Onboarding] Skipping launch from user creation:", guard?.message);
+          } else {
+            await onb.launchOnboardingInstance({
+              templateId: onboardingTemplateId,
+              employeeType: "user",
+              employeeUserId: user.id,
+              launchedBy: currentUser.id,
+              organizationId: currentUser.organizationId ?? null,
+            });
+          }
+        } catch (err) {
+          console.error("[Onboarding] Failed to launch from user creation:", err);
         }
       }
 
@@ -18904,6 +18948,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ...(signedDocumentId ? { signedDocumentId } : {}),
       } as any);
 
+      // Mark any linked onboarding signature step complete
+      try {
+        const onb = await import("./onboarding");
+        await onb.markStepCompleteByLink("signature", request.id, null);
+      } catch (linkErr) {
+        console.error("[Onboarding] Failed to mark signature step complete:", linkErr);
+      }
+
       res.json({
         message: "Document signed successfully",
         signedAt: updated.signedAt,
@@ -20498,6 +20550,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         method: req.body.method || "digital",
         notes: req.body.notes || null,
       });
+      try {
+        const onb = await import("./onboarding");
+        await onb.markPolicyStepCompleteForUser(req.params.id, req.session.user?.id, ack.id);
+      } catch (linkErr) {
+        console.error("[Onboarding] Failed to mark policy step complete:", linkErr);
+      }
       res.status(201).json(ack);
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
@@ -20874,6 +20932,236 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.error("[Survey Readiness] send-reminder error:", e);
       res.status(500).json({ message: e.message || "Failed to send reminder" });
     }
+  });
+
+  // ============================================================================
+  // Onboarding workflow (Task #136)
+  // ============================================================================
+  const onb = await import("./onboarding");
+  const ONBOARDING_ADMIN_ROLES = ["admin", "office_admin", "super_admin", "manager", "supervisor"];
+  const isOnboardingAdmin = (role?: string) => !!role && ONBOARDING_ADMIN_ROLES.includes(role);
+
+  // Org-scoped, admin-only template listing.
+  app.get("/api/onboarding/templates", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      if (!isOnboardingAdmin(user?.role)) return res.status(403).json({ message: "Admin role required" });
+      const { officeId, role, isActive } = req.query;
+      const rows = await onb.listTemplates({
+        officeId: officeId as string | undefined,
+        role: role as string | undefined,
+        isActive: isActive === undefined ? undefined : isActive === "true",
+        organizationId: user?.organizationId ?? null,
+      });
+      res.json(rows);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.get("/api/onboarding/templates/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      if (!isOnboardingAdmin(user?.role)) return res.status(403).json({ message: "Admin role required" });
+      const tmpl = await onb.getTemplateWithSteps(req.params.id);
+      if (!tmpl) return res.status(404).json({ message: "Not found" });
+      // Org scope check
+      if (tmpl.organizationId && user?.organizationId && tmpl.organizationId !== user.organizationId) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+      res.json(tmpl);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.post("/api/onboarding/templates", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      if (!isOnboardingAdmin(user?.role)) return res.status(403).json({ message: "Admin role required" });
+      // Never trust client-supplied organizationId on writes; always derive
+      // from session. Only super_admin may explicitly target a different org.
+      const { organizationId: bodyOrg, createdBy: _ignoredCreatedBy, id: _ignoredId, createdAt: _ignoredCreatedAt, updatedAt: _ignoredUpdatedAt, ...rest } = req.body || {};
+      let organizationId: string | null = user.organizationId ?? null;
+      if (user.role === "super_admin" && bodyOrg) organizationId = bodyOrg;
+      const tmpl = await onb.createTemplate({
+        ...rest,
+        createdBy: user.id,
+        organizationId,
+      });
+      res.status(201).json(tmpl);
+    } catch (e: any) { res.status(400).json({ message: e.message }); }
+  });
+
+  app.patch("/api/onboarding/templates/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      if (!isOnboardingAdmin(user?.role)) return res.status(403).json({ message: "Admin role required" });
+      const existing = await onb.getTemplateWithSteps(req.params.id);
+      if (!existing) return res.status(404).json({ message: "Not found" });
+      if (existing.organizationId && user?.organizationId && existing.organizationId !== user.organizationId) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+      // Strip fields a client must not be able to override.
+      const { organizationId: _ignoredOrg, createdBy: _ignoredBy, id: _ignoredId, ...patch } = req.body || {};
+      const tmpl = await onb.updateTemplate(req.params.id, patch);
+      res.json(tmpl);
+    } catch (e: any) { res.status(400).json({ message: e.message }); }
+  });
+
+  app.delete("/api/onboarding/templates/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      if (!isOnboardingAdmin(user?.role)) return res.status(403).json({ message: "Admin role required" });
+      const existing = await onb.getTemplateWithSteps(req.params.id);
+      if (!existing) return res.status(404).json({ message: "Not found" });
+      if (existing.organizationId && user?.organizationId && existing.organizationId !== user.organizationId) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+      await onb.deleteTemplate(req.params.id);
+      res.json({ success: true });
+    } catch (e: any) { res.status(400).json({ message: e.message }); }
+  });
+
+  app.get("/api/onboarding/instances", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      if (!isOnboardingAdmin(user?.role)) return res.status(403).json({ message: "Admin role required" });
+      const { status, employeeUserId, employeeCaregiverId } = req.query;
+      const rows = await onb.listInstances({
+        status: status as string | undefined,
+        employeeUserId: employeeUserId as string | undefined,
+        employeeCaregiverId: employeeCaregiverId as string | undefined,
+        organizationId: user?.organizationId ?? null,
+      });
+      const out: any[] = [];
+      for (const r of rows) {
+        const full = await onb.getInstanceWithSteps(r.id);
+        if (full) {
+          const total = full.steps.length;
+          const done = full.steps.filter((s: any) => s.status === "completed" || s.status === "skipped").length;
+          out.push({ ...full, progress: { total, done } });
+        }
+      }
+      res.json(out);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.get("/api/onboarding/instances/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      const inst = await onb.getInstanceWithSteps(req.params.id);
+      if (!inst) return res.status(404).json({ message: "Not found" });
+      const isAdmin = isOnboardingAdmin(user?.role);
+      const isOwner = user?.id ? await onb.isUserInstanceOwner(req.params.id, user.id) : false;
+      if (!isAdmin && !isOwner) return res.status(403).json({ message: "Forbidden" });
+      if (isAdmin && inst.organizationId && user?.organizationId && inst.organizationId !== user.organizationId) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+      res.json(inst);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.post("/api/onboarding/instances", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      if (!isOnboardingAdmin(user?.role)) {
+        return res.status(403).json({ message: "Admin role required" });
+      }
+      const { templateId, employeeType, employeeUserId, employeeCaregiverId } = req.body;
+      if (!templateId || !employeeType) {
+        return res.status(400).json({ message: "templateId and employeeType are required" });
+      }
+      // Validate template scope/role/active before launching.
+      const tmpl = await onb.getTemplateWithSteps(templateId);
+      if (!tmpl) return res.status(404).json({ message: "Template not found" });
+      const guard = onb.assertTemplateUsable(tmpl, user, employeeType);
+      if (guard) return res.status(guard.code).json({ message: guard.message });
+      // Validate that the target employee belongs to the caller's org.
+      if (employeeType === "caregiver") {
+        if (!employeeCaregiverId) return res.status(400).json({ message: "employeeCaregiverId required" });
+        const cg = await storage.getCaregiver(employeeCaregiverId);
+        if (!cg) return res.status(404).json({ message: "Caregiver not found" });
+        if (user.role !== "super_admin" && (cg as any).organizationId && user.organizationId && (cg as any).organizationId !== user.organizationId) {
+          return res.status(403).json({ message: "Caregiver belongs to a different organization" });
+        }
+      } else if (employeeType === "user") {
+        if (!employeeUserId) return res.status(400).json({ message: "employeeUserId required" });
+        const targetUser = await storage.getUser(employeeUserId);
+        if (!targetUser) return res.status(404).json({ message: "User not found" });
+        if (user.role !== "super_admin" && (targetUser as any).organizationId && user.organizationId && (targetUser as any).organizationId !== user.organizationId) {
+          return res.status(403).json({ message: "User belongs to a different organization" });
+        }
+      } else {
+        return res.status(400).json({ message: "employeeType must be 'caregiver' or 'user'" });
+      }
+      const inst = await onb.launchOnboardingInstance({
+        templateId,
+        employeeType,
+        employeeUserId: employeeUserId ?? null,
+        employeeCaregiverId: employeeCaregiverId ?? null,
+        launchedBy: user.id,
+        organizationId: user.organizationId ?? null,
+      });
+      res.status(201).json(inst);
+    } catch (e: any) { res.status(400).json({ message: e.message }); }
+  });
+
+  app.post("/api/onboarding/instances/:id/cancel", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      if (!isOnboardingAdmin(user?.role)) return res.status(403).json({ message: "Admin role required" });
+      const existing = await onb.getInstanceById(req.params.id);
+      if (!existing) return res.status(404).json({ message: "Not found" });
+      if (existing.organizationId && user?.organizationId && existing.organizationId !== user.organizationId) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+      await onb.cancelInstance(req.params.id, user.id);
+      res.json({ success: true });
+    } catch (e: any) { res.status(400).json({ message: e.message }); }
+  });
+
+  app.post("/api/onboarding/instance-steps/:stepId/complete", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      if (!user?.id) return res.status(401).json({ message: "Unauthenticated" });
+      const step = await onb.getStepById(req.params.stepId);
+      if (!step) return res.status(404).json({ message: "Not found" });
+      const isAdmin = isOnboardingAdmin(user.role);
+      const isOwner = await onb.isUserInstanceOwner(step.instanceId, user.id);
+      if (!isAdmin && !isOwner) return res.status(403).json({ message: "Forbidden" });
+      // Signature and policy steps must be completed via their dedicated flows
+      // (POST /api/esign/:token/sign and /api/policy-documents/:id/acknowledge)
+      // so completion always reflects verifiable evidence. Owners cannot self-
+      // complete those types here; admins also cannot bypass without an
+      // explicit override flag.
+      // Only checklist items are user-markable. Signature, policy, document,
+      // and training must be completed via their source-of-truth flows
+      // (eSign/sign, policy acknowledge, document upload, training record
+      // update). Admins may manually complete with an override reason.
+      const SELF_COMPLETABLE = new Set(["checklist"]);
+      if (!SELF_COMPLETABLE.has(step.stepType as any)) {
+        if (!isAdmin) {
+          return res.status(403).json({ message: `Steps of type '${step.stepType}' must be completed through the dedicated flow (e.g., signing the document or acknowledging the policy).` });
+        }
+        if (!req.body?.adminOverrideReason || String(req.body.adminOverrideReason).trim().length < 5) {
+          return res.status(400).json({ message: `Steps of type '${step.stepType}' require 'adminOverrideReason' (>=5 chars) to be manually completed.` });
+        }
+      }
+      if (isAdmin && !isOwner) {
+        const inst = await onb.getInstanceById(step.instanceId);
+        if (inst?.organizationId && user.organizationId && inst.organizationId !== user.organizationId) {
+          return res.status(403).json({ message: "Forbidden" });
+        }
+      }
+      await onb.markInstanceStepComplete(req.params.stepId, user.id, req.body?.adminOverrideReason);
+      res.json({ success: true });
+    } catch (e: any) { res.status(400).json({ message: e.message }); }
+  });
+
+  app.get("/api/my-onboarding", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.session?.user?.id;
+      if (!userId) return res.status(401).json({ message: "Unauthenticated" });
+      const rows = await onb.getMyOnboarding(userId);
+      res.json(rows);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
   const httpServer = createServer(app);
