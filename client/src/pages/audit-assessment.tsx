@@ -36,7 +36,7 @@ import {
   Printer, Upload, Paperclip, Download, X, File, Image, Sheet,
   MoreVertical, Archive, ArchiveRestore, FileSpreadsheet, User,
   ArrowLeftRight, TrendingUp, TrendingDown, Minus, Link2,
-  Bookmark, BookmarkPlus, Search, ArrowUpDown,
+  Bookmark, BookmarkPlus, Search, ArrowUpDown, FileDown,
 } from "lucide-react";
 import ExcelJS from "exceljs";
 import jsPDF from "jspdf";
@@ -2092,6 +2092,15 @@ export default function AuditAssessment() {
             >
               <FileText size={14} />
               {exportingPdfId === activeAuditId ? "Generating…" : "Export PDF"}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-2"
+              onClick={() => window.print()}
+              title="Open the browser print dialog and choose 'Save as PDF' as the destination to get the polished header and page numbers"
+            >
+              <FileDown size={14} /> Save PDF
             </Button>
             <Button variant="outline" size="sm" className="gap-2" onClick={() => window.print()}>
               <Printer size={14} /> Print
