@@ -167,6 +167,9 @@ import {
   caregiverNotes,
   type CaregiverNote,
   type InsertCaregiverNote,
+  employeeNotes,
+  type EmployeeNote,
+  type InsertEmployeeNote,
   caregiverPreferences,
   type CaregiverPreference,
   type InsertCaregiverPreference,
@@ -407,7 +410,7 @@ import {
   type InsertClientSurveyResponse,
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, desc, asc, and, or, count, sql, like, gte, lte, inArray, isNull, ne } from "drizzle-orm";
+import { eq, desc, asc, and, or, count, sql, like, gte, lte, inArray, isNull, ne, type SQL } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { encryptNote, decryptNote } from './encryption';
 
@@ -544,6 +547,7 @@ export interface IStorage {
   getDocument(id: string): Promise<Document | undefined>;
   getDocumentsByClient(clientId: string): Promise<Document[]>;
   getDocumentsByCaregiver(caregiverId: string): Promise<Document[]>;
+  findEmployeeNoteByAttachmentDocId(docId: string): Promise<EmployeeNote | undefined>;
   createDocument(document: InsertDocument): Promise<Document>;
   updateDocument(id: string, document: Partial<InsertDocument>): Promise<Document>;
   deleteDocument(id: string): Promise<void>;
@@ -624,6 +628,22 @@ export interface IStorage {
   getEmployeeDirectory(officeId?: string): Promise<EmployeeDirectoryEntry[]>;
   getEmployeeManagerCandidates(officeId?: string): Promise<EmployeeManagerCandidate[]>;
   setEmployeeManager(kind: "user" | "caregiver", employeeId: string, managerUserId: string | null): Promise<void>;
+
+  // Employee write-ups / disciplinary notes (polymorphic: caregivers + users)
+  getEmployeeNote(id: string): Promise<EmployeeNote | undefined>;
+  getEmployeeNotesForEmployee(employeeType: string, employeeId: string): Promise<EmployeeNote[]>;
+  listEmployeeNotesVisibleTo(
+    viewerUserId: string,
+    filters?: { officeId?: string; employeeType?: string; employeeId?: string; severity?: string; overdueOnly?: boolean; followUpStatus?: string },
+  ): Promise<EmployeeNote[]>;
+  createEmployeeNote(note: InsertEmployeeNote): Promise<EmployeeNote>;
+  updateEmployeeNote(id: string, note: Partial<InsertEmployeeNote> & { resolutionNotes?: string | null }): Promise<EmployeeNote>;
+  acknowledgeEmployeeNote(id: string, signatureName: string, ip: string | null, ackNotes?: string | null): Promise<EmployeeNote>;
+  resolveEmployeeNote(id: string, resolvedByUserId: string, resolutionNotes?: string | null): Promise<EmployeeNote>;
+  deleteEmployeeNote(id: string): Promise<void>;
+  canUserViewEmployeeNote(viewerUserId: string, note: EmployeeNote): Promise<boolean>;
+  getEmployeeManagerId(employeeType: string, employeeId: string): Promise<string | null>;
+  getEmployeeUserId(employeeType: string, employeeId: string): Promise<string | null>;
   updateMessage(id: string, data: Partial<InsertMessage>): Promise<Message>;
 
   // User management operations
@@ -4201,6 +4221,209 @@ export class DatabaseStorage implements IStorage {
 
   async deleteCaregiverNote(id: string): Promise<void> {
     await db.delete(caregiverNotes).where(eq(caregiverNotes.id, id));
+  }
+
+  // ==================== EMPLOYEE WRITE-UPS / DISCIPLINARY ====================
+
+  private decryptEmployeeNote(row: EmployeeNote): EmployeeNote {
+    return {
+      ...row,
+      summary: decryptNote(row.summary) || row.summary,
+      actionPlan: row.actionPlan ? (decryptNote(row.actionPlan) || row.actionPlan) : row.actionPlan,
+      resolutionNotes: row.resolutionNotes ? (decryptNote(row.resolutionNotes) || row.resolutionNotes) : row.resolutionNotes,
+    };
+  }
+
+  // Walk the user manager chain upward, returning the set of user ids that
+  // are in the chain from `startUserId` (inclusive) all the way to the top.
+  async getManagerChainUp(startUserId: string): Promise<Set<string>> {
+    const seen = new Set<string>();
+    let cursor: string | null = startUserId;
+    while (cursor && !seen.has(cursor)) {
+      seen.add(cursor);
+      const [row] = await db.select({ managerId: users.managerId }).from(users).where(eq(users.id, cursor));
+      cursor = row?.managerId ?? null;
+    }
+    return seen;
+  }
+
+  // Resolve the manager userId for either a caregiver or office-staff user.
+  async getEmployeeManagerId(employeeType: string, employeeId: string): Promise<string | null> {
+    if (employeeType === "caregiver") {
+      const [row] = await db.select({ managerId: caregivers.managerId }).from(caregivers).where(eq(caregivers.id, employeeId));
+      return row?.managerId ?? null;
+    }
+    const [row] = await db.select({ managerId: users.managerId }).from(users).where(eq(users.id, employeeId));
+    return row?.managerId ?? null;
+  }
+
+  // Resolve the user id that "is" this employee from a self-service angle:
+  // for caregivers we link via caregivers.user_id, for users it's just the id.
+  async getEmployeeUserId(employeeType: string, employeeId: string): Promise<string | null> {
+    if (employeeType === "caregiver") {
+      const [row] = await db.select({ userId: caregivers.userId }).from(caregivers).where(eq(caregivers.id, employeeId));
+      return row?.userId ?? null;
+    }
+    return employeeId;
+  }
+
+  // Centralised visibility check. Default deny.
+  // Strict allowed-actor set (per task):
+  //   - The employee themselves
+  //   - Anyone in the employee's *current* manager chain (manager + manager-of-manager, ...)
+  //   - HR / org admins (super_admin, admin, office_admin)
+  // Authorship alone does NOT confer ongoing access: a manager who later
+  // leaves the chain or changes role must lose visibility to records they
+  // filed previously.
+  async canUserViewEmployeeNote(viewerUserId: string, note: EmployeeNote): Promise<boolean> {
+    if (!viewerUserId) return false;
+
+    const [viewer] = await db.select().from(users).where(eq(users.id, viewerUserId));
+    if (!viewer) return false;
+    if (viewer.role === "super_admin" || viewer.role === "admin" || viewer.role === "office_admin") {
+      return true;
+    }
+
+    const employeeUserId = await this.getEmployeeUserId(note.employeeType, note.employeeId);
+    if (employeeUserId && employeeUserId === viewerUserId) return true;
+
+    // Walk up the employee's manager chain. If the viewer appears in the
+    // chain, they are a manager (or manager-of-manager) of the employee.
+    const directManagerId = await this.getEmployeeManagerId(note.employeeType, note.employeeId);
+    if (directManagerId) {
+      const chain = await this.getManagerChainUp(directManagerId);
+      if (chain.has(viewerUserId)) return true;
+    }
+
+    return false;
+  }
+
+  async getEmployeeNote(id: string): Promise<EmployeeNote | undefined> {
+    const [row] = await db.select().from(employeeNotes).where(eq(employeeNotes.id, id));
+    return row ? this.decryptEmployeeNote(row) : undefined;
+  }
+
+  // Reverse lookup: given a document id that may be linked as a write-up
+  // attachment (or as the signed-PDF artifact of a write-up's eSignature),
+  // return the owning note so visibility can be re-checked against the
+  // write-up policy rather than the more permissive document policy.
+  async findEmployeeNoteByAttachmentDocId(docId: string): Promise<EmployeeNote | undefined> {
+    const rows = await db
+      .select()
+      .from(employeeNotes)
+      .where(sql`${employeeNotes.attachmentDocumentIds} @> ARRAY[${docId}]::text[]`);
+    if (!rows.length) return undefined;
+    return this.decryptEmployeeNote(rows[0]);
+  }
+
+  async getEmployeeNotesForEmployee(employeeType: string, employeeId: string): Promise<EmployeeNote[]> {
+    const rows = await db
+      .select()
+      .from(employeeNotes)
+      .where(and(eq(employeeNotes.employeeType, employeeType), eq(employeeNotes.employeeId, employeeId)))
+      .orderBy(desc(employeeNotes.createdAt));
+    return rows.map((r) => this.decryptEmployeeNote(r));
+  }
+
+  // List write-ups visible to the given viewer. Applies the same default-deny
+  // rule as canUserViewEmployeeNote, in bulk.
+  async listEmployeeNotesVisibleTo(
+    viewerUserId: string,
+    filters?: { officeId?: string; employeeType?: string; employeeId?: string; severity?: string; overdueOnly?: boolean; followUpStatus?: string },
+  ): Promise<EmployeeNote[]> {
+    const [viewer] = await db.select().from(users).where(eq(users.id, viewerUserId));
+    if (!viewer) return [];
+    const isOrgAdmin = viewer.role === "super_admin" || viewer.role === "admin" || viewer.role === "office_admin";
+
+    const conditions: SQL[] = [];
+    if (filters?.officeId) conditions.push(eq(employeeNotes.officeId, filters.officeId));
+    if (filters?.employeeType) conditions.push(eq(employeeNotes.employeeType, filters.employeeType));
+    if (filters?.employeeId) conditions.push(eq(employeeNotes.employeeId, filters.employeeId));
+    if (filters?.severity) conditions.push(eq(employeeNotes.severity, filters.severity as any));
+    if (filters?.followUpStatus) conditions.push(eq(employeeNotes.followUpStatus, filters.followUpStatus as any));
+    if (filters?.overdueOnly) {
+      conditions.push(eq(employeeNotes.followUpStatus, "open"));
+      conditions.push(sql`${employeeNotes.followUpDate} IS NOT NULL`);
+      conditions.push(lte(employeeNotes.followUpDate, new Date()));
+    }
+
+    const rows = await db
+      .select()
+      .from(employeeNotes)
+      .where(conditions.length ? and(...conditions) : undefined)
+      .orderBy(desc(employeeNotes.createdAt));
+
+    const decrypted = rows.map((r) => this.decryptEmployeeNote(r));
+    if (isOrgAdmin) return decrypted;
+
+    const visible: EmployeeNote[] = [];
+    for (const note of decrypted) {
+      if (await this.canUserViewEmployeeNote(viewerUserId, note)) visible.push(note);
+    }
+    return visible;
+  }
+
+  async createEmployeeNote(note: InsertEmployeeNote): Promise<EmployeeNote> {
+    const payload: InsertEmployeeNote = {
+      ...note,
+      summary: encryptNote(note.summary as string) || (note.summary as string),
+      actionPlan: note.actionPlan ? (encryptNote(note.actionPlan) || note.actionPlan) : note.actionPlan,
+    };
+    const [created] = await db.insert(employeeNotes).values(payload).returning();
+    return this.decryptEmployeeNote(created);
+  }
+
+  async updateEmployeeNote(id: string, note: Partial<InsertEmployeeNote> & { resolutionNotes?: string | null }): Promise<EmployeeNote> {
+    const data: any = { ...note, updatedAt: new Date() };
+    if (note.summary !== undefined && note.summary !== null) {
+      data.summary = encryptNote(note.summary as string) || note.summary;
+    }
+    if (note.actionPlan !== undefined && note.actionPlan !== null) {
+      data.actionPlan = encryptNote(note.actionPlan as string) || note.actionPlan;
+    }
+    if (note.resolutionNotes !== undefined && note.resolutionNotes !== null) {
+      data.resolutionNotes = encryptNote(note.resolutionNotes as string) || note.resolutionNotes;
+    }
+    const [updated] = await db.update(employeeNotes).set(data).where(eq(employeeNotes.id, id)).returning();
+    return this.decryptEmployeeNote(updated);
+  }
+
+  async acknowledgeEmployeeNote(
+    id: string,
+    signatureName: string,
+    ip: string | null,
+    ackNotes?: string | null,
+  ): Promise<EmployeeNote> {
+    const [updated] = await db
+      .update(employeeNotes)
+      .set({
+        acknowledgedAt: new Date(),
+        acknowledgmentSignatureName: signatureName,
+        acknowledgmentIp: ip ?? null,
+        acknowledgmentNotes: ackNotes ?? null,
+        updatedAt: new Date(),
+      })
+      .where(eq(employeeNotes.id, id))
+      .returning();
+    return this.decryptEmployeeNote(updated);
+  }
+
+  async resolveEmployeeNote(id: string, resolvedByUserId: string, resolutionNotes?: string | null): Promise<EmployeeNote> {
+    const data: any = {
+      followUpStatus: "resolved",
+      resolvedAt: new Date(),
+      resolvedBy: resolvedByUserId,
+      updatedAt: new Date(),
+    };
+    if (resolutionNotes) {
+      data.resolutionNotes = encryptNote(resolutionNotes) || resolutionNotes;
+    }
+    const [updated] = await db.update(employeeNotes).set(data).where(eq(employeeNotes.id, id)).returning();
+    return this.decryptEmployeeNote(updated);
+  }
+
+  async deleteEmployeeNote(id: string): Promise<void> {
+    await db.delete(employeeNotes).where(eq(employeeNotes.id, id));
   }
 
   // Caregiver Preferences

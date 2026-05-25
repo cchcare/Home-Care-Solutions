@@ -51,6 +51,7 @@ import {
   insertSystemSettingSchema,
   insertEntityFieldConfigSchema,
   insertCaregiverNoteSchema,
+  insertEmployeeNoteSchema,
   insertCaregiverPreferenceSchema,
   insertCaregiverAbsenceSchema,
   insertCaregiverAvailabilitySchema,
@@ -3636,22 +3637,53 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/documents", isAuthenticated, async (req, res) => {
+  // Documents tagged as employee_write_up are confidential HR artefacts.
+  // Access must be re-checked against the write-up visibility policy
+  // (employee + current manager chain + HR admins), NOT the more permissive
+  // generic document-library policy. Returns true when access is allowed.
+  const isWriteUpDoc = (doc: any) =>
+    doc && (doc.documentType === "employee_write_up" || doc.documentCategory === "employee_write_up");
+  const canAccessWriteUpDoc = async (viewerUserId: string | undefined, doc: any): Promise<boolean> => {
+    if (!viewerUserId) return false;
+    const note = await storage.findEmployeeNoteByAttachmentDocId(doc.id);
+    if (!note) {
+      // Orphaned write-up doc (e.g., create-then-detach). HR only.
+      const u = await storage.getUser(viewerUserId);
+      const role = (u?.role as string) || "";
+      return role === "super_admin" || role === "admin" || role === "office_admin";
+    }
+    return storage.canUserViewEmployeeNote(viewerUserId, note);
+  };
+
+  app.get("/api/documents", isAuthenticated, async (req: any, res) => {
     try {
       const { officeId } = req.query;
       const officeFilter = officeId && officeId !== 'all' ? String(officeId) : undefined;
       const documents = await storage.getAllDocuments(officeFilter);
-      res.json(documents);
+      const viewerId = req.session?.user?.id as string | undefined;
+      // Drop write-up docs the viewer is not permitted to see.
+      const result = [];
+      for (const d of documents) {
+        if (isWriteUpDoc(d) && !(await canAccessWriteUpDoc(viewerId, d))) continue;
+        result.push(d);
+      }
+      res.json(result);
     } catch (error) {
       console.error("Error fetching documents:", error);
       res.status(500).json({ message: "Failed to fetch documents" });
     }
   });
 
-  app.get("/api/caregivers/:caregiverId/documents", isAuthenticated, async (req, res) => {
+  app.get("/api/caregivers/:caregiverId/documents", isAuthenticated, async (req: any, res) => {
     try {
       const documents = await storage.getDocumentsByCaregiver(req.params.caregiverId);
-      res.json(documents);
+      const viewerId = req.session?.user?.id as string | undefined;
+      const result = [];
+      for (const d of documents) {
+        if (isWriteUpDoc(d) && !(await canAccessWriteUpDoc(viewerId, d))) continue;
+        result.push(d);
+      }
+      res.json(result);
     } catch (error) {
       console.error("Error fetching caregiver documents:", error);
       res.status(500).json({ message: "Failed to fetch caregiver documents" });
@@ -3668,10 +3700,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/documents/:id", isAuthenticated, async (req, res) => {
+  app.get("/api/documents/:id", isAuthenticated, async (req: any, res) => {
     try {
       const document = await storage.getDocument(req.params.id);
       if (!document) {
+        return res.status(404).json({ message: "Document not found" });
+      }
+      const viewerId = req.session?.user?.id as string | undefined;
+      if (isWriteUpDoc(document) && !(await canAccessWriteUpDoc(viewerId, document))) {
         return res.status(404).json({ message: "Document not found" });
       }
       res.json(document);
@@ -3683,6 +3719,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.put("/api/documents/:id", isAuthenticated, async (req: any, res) => {
     try {
+      const existing = await storage.getDocument(req.params.id);
+      if (!existing) return res.status(404).json({ message: "Document not found" });
+      const viewerId = req.session?.user?.id as string | undefined;
+
+      // Write-up documents are confidential disciplinary artefacts. They must
+      // not be mutable by general viewers (which includes the subject employee
+      // and their manager chain). Restrict updates to HR/org admins, and even
+      // for HR, prevent silent retagging away from employee_write_up which
+      // would otherwise downgrade visibility back to the generic doc policy.
+      if (isWriteUpDoc(existing)) {
+        const viewer = viewerId ? await storage.getUser(viewerId) : null;
+        const role = (viewer?.role as string) || "";
+        const isHr = role === "super_admin" || role === "admin" || role === "office_admin";
+        if (!isHr) {
+          return res.status(403).json({ message: "Forbidden" });
+        }
+        const body = req.body || {};
+        if (
+          ("documentType" in body && body.documentType !== "employee_write_up") ||
+          ("documentCategory" in body && body.documentCategory !== "employee_write_up")
+        ) {
+          return res.status(400).json({
+            message: "documentType/documentCategory of a write-up document cannot be changed",
+          });
+        }
+      }
+
       const document = await storage.updateDocument(req.params.id, req.body);
       res.json(document);
     } catch (error) {
@@ -3691,10 +3754,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/documents/:id/download", isAuthenticated, async (req, res) => {
+  app.get("/api/documents/:id/download", isAuthenticated, async (req: any, res) => {
     try {
       const document = await storage.getDocument(req.params.id);
       if (!document) {
+        return res.status(404).json({ message: "Document not found" });
+      }
+      const viewerId = req.session?.user?.id as string | undefined;
+      if (isWriteUpDoc(document) && !(await canAccessWriteUpDoc(viewerId, document))) {
         return res.status(404).json({ message: "Document not found" });
       }
 
@@ -3711,10 +3778,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/documents/:id/view", isAuthenticated, async (req, res) => {
+  app.get("/api/documents/:id/view", isAuthenticated, async (req: any, res) => {
     try {
       const document = await storage.getDocument(req.params.id);
       if (!document) {
+        return res.status(404).json({ message: "Document not found" });
+      }
+      const viewerId = req.session?.user?.id as string | undefined;
+      if (isWriteUpDoc(document) && !(await canAccessWriteUpDoc(viewerId, document))) {
         return res.status(404).json({ message: "Document not found" });
       }
 
@@ -9620,6 +9691,435 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error deleting caregiver note:", error);
       res.status(500).json({ message: "Failed to delete caregiver note" });
+    }
+  });
+
+  // ==================== EMPLOYEE WRITE-UPS / DISCIPLINARY ====================
+  // Polymorphic API covering caregivers + office-staff users. Visibility
+  // defaults to deny: only the employee, the author, the employee's manager
+  // chain upward, and HR / org admins (super_admin, admin, office_admin)
+  // may see a given write-up.
+  const HR_ROLES = new Set(["super_admin", "admin", "office_admin"]);
+
+  const requireAuthor = (req: any, res: any): string | null => {
+    const userId = req.session?.user?.id;
+    if (!userId) {
+      res.status(401).json({ message: "Unauthorized" });
+      return null;
+    }
+    return userId;
+  };
+
+  // List write-ups for one employee (caregiver or user)
+  app.get("/api/employees/:type/:id/write-ups", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = requireAuthor(req, res);
+      if (!userId) return;
+      const { type, id } = req.params;
+      if (type !== "caregiver" && type !== "user") {
+        return res.status(400).json({ message: "Invalid employee type" });
+      }
+      const notes = await storage.listEmployeeNotesVisibleTo(userId, {
+        employeeType: type,
+        employeeId: id,
+      });
+      res.json(notes);
+    } catch (error) {
+      console.error("Error listing employee write-ups:", error);
+      res.status(500).json({ message: "Failed to list write-ups" });
+    }
+  });
+
+  // Create a write-up for an employee
+  app.post("/api/employees/:type/:id/write-ups", isAuthenticated, async (req: any, res) => {
+    try {
+      const authorId = requireAuthor(req, res);
+      if (!authorId) return;
+      const { type, id } = req.params;
+      if (type !== "caregiver" && type !== "user") {
+        return res.status(400).json({ message: "Invalid employee type" });
+      }
+      const [author] = await db.select().from(users).where(eq(users.id, authorId));
+      const isHr = author && HR_ROLES.has(author.role as string);
+
+      // Non-HR users may only file write-ups against employees they manage
+      // (direct or indirect via the manager chain).
+      if (!isHr) {
+        const directManagerId = await storage.getEmployeeManagerId(type, id);
+        const chain = directManagerId ? await storage.getManagerChainUp(directManagerId) : new Set<string>();
+        if (!chain.has(authorId)) {
+          return res.status(403).json({ message: "You may only file write-ups for employees you manage" });
+        }
+      }
+
+      const { employeeType: _t, employeeId: _e, authorId: _a, ...userBody } = req.body || {};
+      const body = insertEmployeeNoteSchema
+        .omit({ employeeType: true, employeeId: true, authorId: true })
+        .parse(userBody);
+
+      // Derive officeId from the employee record so office-scoped filters and
+      // visibility checks are reliable regardless of UI input.
+      let derivedOfficeId: string | null = (body as any).officeId ?? null;
+      if (!derivedOfficeId) {
+        if (type === "caregiver") {
+          const cg = await storage.getCaregiver(id);
+          derivedOfficeId = cg?.officeId ?? null;
+        } else {
+          const u = await storage.getUser(id);
+          derivedOfficeId = u?.officeId ?? null;
+        }
+      }
+
+      const note = await storage.createEmployeeNote({
+        ...body,
+        employeeType: type,
+        employeeId: id,
+        authorId,
+        officeId: derivedOfficeId,
+        organizationId: author?.organizationId ?? null,
+      });
+
+      // Notify the employee (best-effort)
+      try {
+        const employeeUserId = await storage.getEmployeeUserId(type, id);
+        if (employeeUserId) {
+          await queueNotification({
+            recipientType: "user",
+            recipientId: employeeUserId,
+            channel: "email",
+            subject: `New ${String(note.noteType).replace(/_/g, " ")} on file`,
+            body: `A new ${String(note.noteType).replace(/_/g, " ")} (${note.severity ?? "low"} severity) has been added to your employee record${note.subject ? `: ${note.subject}` : "."}. Please log in to review and acknowledge.`,
+          } as any);
+        }
+      } catch (notifyErr) {
+        console.warn("[write-ups] notification failed (non-fatal):", notifyErr);
+      }
+
+      res.status(201).json(note);
+    } catch (error: any) {
+      console.error("Error creating employee write-up:", error);
+      res.status(400).json({ message: error?.message || "Failed to create write-up" });
+    }
+  });
+
+  // List write-ups visible to the current user (HR dashboard / manager view).
+  // Supports filters: officeId, employeeType, employeeId, severity, overdue
+  app.get("/api/write-ups", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = requireAuthor(req, res);
+      if (!userId) return;
+      const { officeId, employeeType, employeeId, severity, overdue, followUpStatus } = req.query as any;
+      const notes = await storage.listEmployeeNotesVisibleTo(userId, {
+        officeId: officeId || undefined,
+        employeeType: employeeType || undefined,
+        employeeId: employeeId || undefined,
+        severity: severity || undefined,
+        overdueOnly: overdue === "true" || overdue === "1",
+        followUpStatus: followUpStatus || undefined,
+      });
+      res.json(notes);
+    } catch (error) {
+      console.error("Error listing write-ups:", error);
+      res.status(500).json({ message: "Failed to list write-ups" });
+    }
+  });
+
+  // Open follow-ups widget (manager dashboard)
+  app.get("/api/write-ups/open-follow-ups", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = requireAuthor(req, res);
+      if (!userId) return;
+      const notes = await storage.listEmployeeNotesVisibleTo(userId, {
+        followUpStatus: "open",
+      });
+      const withFollowUp = notes.filter((n) => !!n.followUpDate);
+      withFollowUp.sort((a, b) => {
+        const av = a.followUpDate ? new Date(a.followUpDate).getTime() : 0;
+        const bv = b.followUpDate ? new Date(b.followUpDate).getTime() : 0;
+        return av - bv;
+      });
+      res.json(withFollowUp);
+    } catch (error) {
+      console.error("Error fetching open follow-ups:", error);
+      res.status(500).json({ message: "Failed to fetch open follow-ups" });
+    }
+  });
+
+  // Read a single write-up (visibility-checked)
+  app.get("/api/write-ups/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = requireAuthor(req, res);
+      if (!userId) return;
+      const note = await storage.getEmployeeNote(req.params.id);
+      if (!note) return res.status(404).json({ message: "Write-up not found" });
+      if (!(await storage.canUserViewEmployeeNote(userId, note))) {
+        return res.status(403).json({ message: "Not allowed" });
+      }
+      res.json(note);
+    } catch (error) {
+      console.error("Error reading write-up:", error);
+      res.status(500).json({ message: "Failed to read write-up" });
+    }
+  });
+
+  // Update — author (only while still in chain / HR) or HR
+  app.patch("/api/write-ups/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = requireAuthor(req, res);
+      if (!userId) return;
+      const note = await storage.getEmployeeNote(req.params.id);
+      if (!note) return res.status(404).json({ message: "Write-up not found" });
+
+      // Must currently have view access at minimum.
+      if (!(await storage.canUserViewEmployeeNote(userId, note))) {
+        return res.status(403).json({ message: "Not allowed" });
+      }
+      const [viewer] = await db.select().from(users).where(eq(users.id, userId));
+      const isHr = viewer && HR_ROLES.has(viewer.role as string);
+      if (!isHr && note.authorId !== userId) {
+        return res.status(403).json({ message: "Only the author or HR may edit" });
+      }
+
+      const { employeeType: _t, employeeId: _e, authorId: _a, ...userBody } = req.body || {};
+      const body = insertEmployeeNoteSchema.partial().omit({ employeeType: true, employeeId: true, authorId: true }).parse(userBody);
+      const updated = await storage.updateEmployeeNote(req.params.id, body);
+      res.json(updated);
+    } catch (error: any) {
+      console.error("Error updating write-up:", error);
+      res.status(400).json({ message: error?.message || "Failed to update write-up" });
+    }
+  });
+
+  // Attach a supporting document to a write-up. Persists into the employee's
+  // document library (HIPAA-managed) and appends the document id to the
+  // write-up's attachmentDocumentIds array.
+  app.post(
+    "/api/write-ups/:id/attachments",
+    isAuthenticated,
+    upload.single("file"),
+    async (req: any, res) => {
+      try {
+        const userId = requireAuthor(req, res);
+        if (!userId) return;
+        const note = await storage.getEmployeeNote(req.params.id);
+        if (!note) return res.status(404).json({ message: "Write-up not found" });
+        if (!(await storage.canUserViewEmployeeNote(userId, note))) {
+          return res.status(403).json({ message: "Not allowed" });
+        }
+        const [viewer] = await db.select().from(users).where(eq(users.id, userId));
+        const isHr = viewer && HR_ROLES.has(viewer.role as string);
+        if (!isHr && note.authorId !== userId) {
+          return res.status(403).json({ message: "Only the author or HR may attach documents" });
+        }
+        if (!req.file) return res.status(400).json({ message: "No file uploaded" });
+
+        const employeeUserId = await storage.getEmployeeUserId(note.employeeType, note.employeeId);
+        const created = await storage.createDocument({
+          fileName: req.file.filename,
+          originalName: req.file.originalname,
+          fileType: req.file.mimetype,
+          fileSize: req.file.size,
+          documentType: "employee_write_up",
+          documentCategory: "employee_write_up",
+          caregiverId: note.employeeType === "caregiver" ? note.employeeId : null,
+          userId: note.employeeType === "user" ? note.employeeId : employeeUserId,
+          officeId: note.officeId ?? null,
+          uploadedBy: userId,
+        } as any);
+
+        const nextIds = Array.from(
+          new Set([...(note.attachmentDocumentIds || []), created.id]),
+        );
+        const updated = await storage.updateEmployeeNote(req.params.id, {
+          attachmentDocumentIds: nextIds,
+        } as any);
+        res.status(201).json({ document: created, writeUp: updated });
+      } catch (error: any) {
+        console.error("Error attaching document to write-up:", error);
+        res.status(400).json({ message: error?.message || "Failed to attach document" });
+      }
+    },
+  );
+
+  // Detach a document (does not delete from library, just unlinks)
+  app.delete("/api/write-ups/:id/attachments/:docId", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = requireAuthor(req, res);
+      if (!userId) return;
+      const note = await storage.getEmployeeNote(req.params.id);
+      if (!note) return res.status(404).json({ message: "Write-up not found" });
+      if (!(await storage.canUserViewEmployeeNote(userId, note))) {
+        return res.status(403).json({ message: "Not allowed" });
+      }
+      const [viewer] = await db.select().from(users).where(eq(users.id, userId));
+      const isHr = viewer && HR_ROLES.has(viewer.role as string);
+      if (!isHr && note.authorId !== userId) {
+        return res.status(403).json({ message: "Only the author or HR may modify attachments" });
+      }
+      const nextIds = (note.attachmentDocumentIds || []).filter((d) => d !== req.params.docId);
+      const updated = await storage.updateEmployeeNote(req.params.id, {
+        attachmentDocumentIds: nextIds,
+      } as any);
+      res.json(updated);
+    } catch (error: any) {
+      console.error("Error detaching document:", error);
+      res.status(400).json({ message: error?.message || "Failed to detach" });
+    }
+  });
+
+  // Send a write-up to the employee for formal eSignature acknowledgement.
+  // Creates an eSignature request whose signatureData carries the
+  // employeeNoteId; the existing /api/esign/:token/sign handler is wired to
+  // recognise this and acknowledge + persist a signed PDF on completion.
+  app.post("/api/write-ups/:id/send-for-acknowledgement", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = requireAuthor(req, res);
+      if (!userId) return;
+      const note = await storage.getEmployeeNote(req.params.id);
+      if (!note) return res.status(404).json({ message: "Write-up not found" });
+      if (!(await storage.canUserViewEmployeeNote(userId, note))) {
+        return res.status(403).json({ message: "Not allowed" });
+      }
+      const [viewer] = await db.select().from(users).where(eq(users.id, userId));
+      const isHr = viewer && HR_ROLES.has(viewer.role as string);
+      if (!isHr && note.authorId !== userId) {
+        return res.status(403).json({ message: "Only the author or HR may send for acknowledgement" });
+      }
+      if (note.acknowledgedAt) {
+        return res.status(400).json({ message: "Write-up already acknowledged" });
+      }
+
+      const employeeUserId = await storage.getEmployeeUserId(note.employeeType, note.employeeId);
+      let recipientEmail: string | null = null;
+      let recipientName = "";
+      if (note.employeeType === "caregiver") {
+        const caregiver = await storage.getCaregiver(note.employeeId);
+        recipientEmail = caregiver?.email ?? null;
+        recipientName = `${caregiver?.firstName || ""} ${caregiver?.lastName || ""}`.trim();
+        if (!recipientEmail && caregiver?.userId) {
+          const cgUser = await storage.getUser(caregiver.userId);
+          recipientEmail = cgUser?.email ?? null;
+          if (!recipientName) recipientName = `${cgUser?.firstName || ""} ${cgUser?.lastName || ""}`.trim();
+        }
+      } else if (employeeUserId) {
+        const u = await storage.getUser(employeeUserId);
+        recipientEmail = u?.email ?? null;
+        recipientName = `${u?.firstName || ""} ${u?.lastName || ""}`.trim();
+      }
+      if (!recipientEmail) {
+        return res.status(400).json({ message: "Employee has no email on file" });
+      }
+
+      const accessToken = crypto.randomBytes(32).toString("hex");
+      const expiresAt = new Date();
+      expiresAt.setDate(expiresAt.getDate() + 30);
+
+      const documentContent = `
+        <div style="font-family:Arial,sans-serif;max-width:700px;">
+          <h1>Employee Write-Up — ${String(note.noteType).replace(/_/g, " ")}</h1>
+          <p><strong>Employee:</strong> ${recipientName || "—"}</p>
+          <p><strong>Severity:</strong> ${note.severity ?? "low"}</p>
+          ${note.subject ? `<p><strong>Subject:</strong> ${note.subject}</p>` : ""}
+          ${note.incidentDate ? `<p><strong>Incident date:</strong> ${new Date(note.incidentDate).toLocaleDateString()}</p>` : ""}
+          <h2>Summary</h2>
+          <p>${(note.summary || "").replace(/\n/g, "<br/>")}</p>
+          ${note.actionPlan ? `<h2>Action plan / expectations</h2><p>${note.actionPlan.replace(/\n/g, "<br/>")}</p>` : ""}
+          ${note.followUpDate ? `<p><strong>Follow-up by:</strong> ${new Date(note.followUpDate).toLocaleDateString()}</p>` : ""}
+        </div>
+      `;
+
+      const esignRequest = await storage.createESignatureRequest({
+        documentContent,
+        recipientEmail,
+        recipientName: recipientName || "Employee",
+        recipientType: note.employeeType === "caregiver" ? "caregiver" : "user",
+        recipientId: note.employeeId,
+        accessToken,
+        expiresAt,
+        sentBy: userId,
+        status: "pending",
+        signatureData: { employeeNoteId: note.id },
+      } as any);
+
+      try {
+        const { sendTemplatedEmail } = await import("./agentmail");
+        const signingLink = `${process.env.BASE_URL || `${req.protocol}://${req.get("host")}`}/esign/${accessToken}`;
+        const senderName = viewer && (viewer.firstName && viewer.lastName)
+          ? `${viewer.firstName} ${viewer.lastName}`
+          : viewer?.username || "Your manager";
+        const deadline = expiresAt.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+        await sendTemplatedEmail(
+          recipientEmail,
+          "esignature_request",
+          {
+            firstName: recipientName.split(" ")[0] || recipientName,
+            documentName: `Write-Up (${String(note.noteType).replace(/_/g, " ")})`,
+            senderName,
+            deadline,
+            signUrl: signingLink,
+          },
+          "Action Required: Write-Up Ready for Your Acknowledgement",
+          `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
+            <h2>Write-Up Ready for Acknowledgement</h2>
+            <p>Hello ${recipientName || "team member"},</p>
+            <p>A new write-up has been added to your employee record and requires your acknowledgement.</p>
+            <p><a href="${signingLink}" style="background:#1a6faf;color:#fff;padding:12px 24px;text-decoration:none;border-radius:6px;display:inline-block;">Review and Sign</a></p>
+            <p style="color:#666;font-size:14px;">This link will expire on ${deadline}.</p>
+          </div>`,
+          `Hello ${recipientName || "team member"}, a new write-up is ready for your acknowledgement: ${signingLink}`,
+        );
+      } catch (mailErr) {
+        console.warn("[write-ups] eSign email failed (non-fatal):", mailErr);
+      }
+
+      res.status(201).json({ esignatureRequest: esignRequest, signUrl: `/esign/${accessToken}` });
+    } catch (error: any) {
+      console.error("Error sending write-up for acknowledgement:", error);
+      res.status(500).json({ message: error?.message || "Failed to send for acknowledgement" });
+    }
+  });
+
+  // Resolve a follow-up (HR or current manager chain). Note: ex-managers
+  // who authored a write-up but no longer manage the employee cannot
+  // resolve it — this matches the strict visibility policy.
+  app.post("/api/write-ups/:id/resolve", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = requireAuthor(req, res);
+      if (!userId) return;
+      const note = await storage.getEmployeeNote(req.params.id);
+      if (!note) return res.status(404).json({ message: "Write-up not found" });
+
+      if (!(await storage.canUserViewEmployeeNote(userId, note))) {
+        return res.status(403).json({ message: "Not allowed" });
+      }
+      const employeeUserId = await storage.getEmployeeUserId(note.employeeType, note.employeeId);
+      if (employeeUserId === userId) {
+        return res.status(403).json({ message: "Employees cannot resolve their own follow-ups" });
+      }
+
+      const resolutionNotes = req.body?.resolutionNotes ? String(req.body.resolutionNotes) : null;
+      const updated = await storage.resolveEmployeeNote(req.params.id, userId, resolutionNotes);
+      res.json(updated);
+    } catch (error: any) {
+      console.error("Error resolving write-up:", error);
+      res.status(400).json({ message: error?.message || "Failed to resolve" });
+    }
+  });
+
+  // Delete (HR only)
+  app.delete("/api/write-ups/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = requireAuthor(req, res);
+      if (!userId) return;
+      const [viewer] = await db.select().from(users).where(eq(users.id, userId));
+      if (!viewer || !HR_ROLES.has(viewer.role as string)) {
+        return res.status(403).json({ message: "Only HR / admins may delete write-ups" });
+      }
+      await storage.deleteEmployeeNote(req.params.id);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting write-up:", error);
+      res.status(500).json({ message: "Failed to delete write-up" });
     }
   });
 
@@ -18214,6 +18714,99 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const signedAt = new Date();
       let signedDocumentId: string | undefined;
+
+      // If this e-sign request is linked to an employee write-up, persist a
+      // signed PDF into the employee's document library and acknowledge the
+      // write-up.
+      const employeeNoteId = (existingMeta as any).employeeNoteId as string | undefined;
+      if (employeeNoteId) {
+        try {
+          const note = await storage.getEmployeeNote(employeeNoteId);
+          if (note) {
+            const fs = await import("fs");
+            const path = await import("path");
+            const PDFDocument = (await import("pdfkit")).default;
+            const dir = path.join(process.cwd(), "uploads");
+            fs.mkdirSync(dir, { recursive: true });
+            const fileBase = `employee-write-up-${note.id}-${Date.now()}.pdf`;
+            const filePath = path.join(dir, fileBase);
+
+            const plainText = String(request.documentContent || "")
+              .replace(/<style[\s\S]*?<\/style>/gi, "")
+              .replace(/<script[\s\S]*?<\/script>/gi, "")
+              .replace(/<br\s*\/?>/gi, "\n")
+              .replace(/<\/(p|div|h[1-6]|li|tr)>/gi, "\n")
+              .replace(/<li[^>]*>/gi, "  • ")
+              .replace(/<[^>]+>/g, "")
+              .replace(/&nbsp;/g, " ")
+              .replace(/&amp;/g, "&")
+              .replace(/&lt;/g, "<")
+              .replace(/&gt;/g, ">")
+              .replace(/&quot;/g, '"')
+              .replace(/&#39;/g, "'")
+              .replace(/\n{3,}/g, "\n\n")
+              .trim();
+
+            await new Promise<void>((resolve, reject) => {
+              const pdfDoc = new PDFDocument({ size: "LETTER", margin: 50 });
+              const stream = fs.createWriteStream(filePath);
+              pdfDoc.pipe(stream);
+              pdfDoc.fontSize(16).text(`Employee Write-Up — ${String(note.noteType).replace(/_/g, " ")}`, { underline: true });
+              pdfDoc.moveDown(0.5);
+              pdfDoc.fontSize(10).fillColor("#444")
+                .text(`Write-Up ID: ${note.id}`)
+                .text(`Severity: ${note.severity ?? "low"}`);
+              pdfDoc.moveDown();
+              pdfDoc.fontSize(11).fillColor("#000").text(plainText, { align: "left" });
+              pdfDoc.moveDown(2);
+              pdfDoc.fontSize(10).fillColor("#222")
+                .text("Electronic Signature", { underline: true })
+                .moveDown(0.3)
+                .text(`Signed by: ${request.recipientName}`)
+                .text(`Email: ${request.recipientEmail}`)
+                .text(`Date: ${signedAt.toISOString()}`);
+              pdfDoc.end();
+              stream.on("finish", () => resolve());
+              stream.on("error", reject);
+            });
+
+            const stat = fs.statSync(filePath);
+            const employeeUserId = await storage.getEmployeeUserId(note.employeeType, note.employeeId);
+            const doc = await storage.createDocument({
+              fileName: fileBase,
+              originalName: `Write-Up (${String(note.noteType).replace(/_/g, " ")}) - signed.pdf`,
+              fileType: "application/pdf",
+              fileSize: stat.size,
+              documentType: "employee_write_up",
+              documentCategory: "employee_write_up",
+              caregiverId: note.employeeType === "caregiver" ? note.employeeId : null,
+              userId: note.employeeType === "user" ? note.employeeId : employeeUserId,
+              officeId: note.officeId ?? null,
+              uploadedBy: request.sentBy || employeeUserId,
+              isSignatureRequired: true,
+              isSigned: true,
+              signedBy: employeeUserId ?? null,
+              signedAt,
+            } as any);
+            signedDocumentId = doc.id;
+
+            const ip = (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() || req.ip || null;
+            const ackedIds = Array.from(new Set([...(note.attachmentDocumentIds || []), doc.id]));
+            await storage.acknowledgeEmployeeNote(
+              note.id,
+              request.recipientName || "Employee",
+              ip,
+              `Signed via eSignature request ${request.id}`,
+            );
+            await storage.updateEmployeeNote(note.id, {
+              attachmentDocumentIds: ackedIds,
+            } as any);
+          }
+        } catch (linkErr) {
+          console.error("Failed to link signed esign request to employee write-up:", linkErr);
+          return res.status(500).json({ message: "Failed to finalize signed write-up. Please contact support." });
+        }
+      }
 
       // If this e-sign request is linked to a performance review, persist the
       // signed document into the caregiver's document library and acknowledge

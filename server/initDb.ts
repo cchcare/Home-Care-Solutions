@@ -92,6 +92,146 @@ export async function seedEmailTemplates() {
   }
 }
 
+// Ensure employee_notes table + indexes exist on databases that were created
+// before the disciplinary-actions-and-coaching-notes migration shipped.
+// Uses raw DDL so it is safe to run on every boot without drizzle-kit.
+let employeeNotesSchemaReady = false;
+export async function ensureEmployeeNotesSchema() {
+  if (employeeNotesSchemaReady) return;
+  const client = await pool.connect();
+  try {
+    // Fast path: if the table exists AND the backfill marker row exists, skip
+    // all DDL + the backfill SELECT. This keeps subsequent boots cheap; the
+    // first boot of a new instance still runs the full migration once.
+    const ready = await client.query(`
+      SELECT EXISTS (
+        SELECT 1 FROM information_schema.tables
+        WHERE table_name = 'employee_notes'
+      ) AS table_exists,
+      EXISTS (
+        SELECT 1 FROM information_schema.tables
+        WHERE table_name = 'employee_notes_init_marker'
+      ) AS marker_exists;
+    `);
+    const row = ready.rows[0] || {};
+    if (row.table_exists && row.marker_exists) {
+      employeeNotesSchemaReady = true;
+      return;
+    }
+
+    await client.query(`
+      DO $$ BEGIN
+        CREATE TYPE employee_note_type AS ENUM (
+          'coaching','verbal_warning','written_warning','final_warning','pip',
+          'commendation','performance','general'
+        );
+      EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+    `);
+    await client.query(`
+      DO $$ BEGIN
+        CREATE TYPE employee_note_severity AS ENUM ('low','medium','high','critical');
+      EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+    `);
+    await client.query(`
+      DO $$ BEGIN
+        CREATE TYPE employee_note_follow_up_status AS ENUM ('open','resolved','cancelled');
+      EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS employee_notes (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        organization_id varchar,
+        office_id varchar REFERENCES offices(id),
+        employee_type varchar NOT NULL,
+        employee_id varchar NOT NULL,
+        author_id varchar REFERENCES users(id),
+        note_type employee_note_type NOT NULL DEFAULT 'coaching',
+        severity employee_note_severity DEFAULT 'low',
+        subject varchar,
+        summary text NOT NULL,
+        incident_date timestamp,
+        action_plan text,
+        follow_up_date timestamp,
+        follow_up_status employee_note_follow_up_status DEFAULT 'open',
+        resolved_at timestamp,
+        resolved_by varchar REFERENCES users(id),
+        resolution_notes text,
+        attachment_document_ids text[],
+        acknowledged_at timestamp,
+        acknowledgment_signature_name varchar,
+        acknowledgment_ip varchar,
+        acknowledgment_notes text,
+        source_caregiver_note_id varchar UNIQUE,
+        created_at timestamp DEFAULT NOW(),
+        updated_at timestamp DEFAULT NOW()
+      );
+    `);
+
+    // ALTER TABLE for older deployments that may have an earlier schema.
+    await client.query(`
+      ALTER TABLE employee_notes
+        ADD COLUMN IF NOT EXISTS resolution_notes text,
+        ADD COLUMN IF NOT EXISTS acknowledgment_notes text,
+        ADD COLUMN IF NOT EXISTS source_caregiver_note_id varchar;
+    `);
+
+    await client.query(`
+      DO $$ BEGIN
+        ALTER TABLE employee_notes ADD CONSTRAINT employee_notes_source_caregiver_note_id_unique UNIQUE (source_caregiver_note_id);
+      EXCEPTION WHEN duplicate_table OR duplicate_object THEN NULL; END $$;
+    `);
+
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_employee_notes_employee ON employee_notes (employee_type, employee_id);`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_employee_notes_office ON employee_notes (office_id);`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_employee_notes_follow_up ON employee_notes (follow_up_status, follow_up_date);`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_employee_notes_author ON employee_notes (author_id);`);
+
+    // Backfill existing caregiver_notes disciplinary/commendation rows. The
+    // source row's id is preserved in source_caregiver_note_id so backfill is
+    // idempotent across boots.
+    await client.query(`
+      INSERT INTO employee_notes (
+        id, organization_id, office_id, employee_type, employee_id,
+        author_id, note_type, severity, subject, summary, incident_date,
+        follow_up_status, source_caregiver_note_id, created_at, updated_at
+      )
+      SELECT
+        gen_random_uuid(),
+        u.organization_id,
+        c.office_id,
+        'caregiver',
+        cn.caregiver_id,
+        cn.author_id,
+        CASE WHEN cn.note_type = 'commendation' THEN 'commendation'::employee_note_type
+             ELSE 'written_warning'::employee_note_type END,
+        CASE WHEN cn.note_type = 'commendation' THEN 'low'::employee_note_severity
+             ELSE 'medium'::employee_note_severity END,
+        cn.subject,
+        cn.content,
+        cn.created_at,
+        'resolved'::employee_note_follow_up_status,
+        cn.id,
+        cn.created_at,
+        cn.updated_at
+      FROM caregiver_notes cn
+      LEFT JOIN caregivers c ON c.id = cn.caregiver_id
+      LEFT JOIN users u ON u.id = c.user_id
+      WHERE cn.note_type IN ('disciplinary','commendation')
+      ON CONFLICT (source_caregiver_note_id) DO NOTHING;
+    `);
+
+    // Drop a marker so subsequent boots short-circuit the migration entirely.
+    await client.query(`CREATE TABLE IF NOT EXISTS employee_notes_init_marker (initialized_at timestamp DEFAULT NOW());`);
+    employeeNotesSchemaReady = true;
+    console.log("[Init] employee_notes schema ensured.");
+  } catch (err) {
+    console.error("[Init] ensureEmployeeNotesSchema failed (non-fatal):", err);
+  } finally {
+    client.release();
+  }
+}
+
 export async function runProductionInit() {
   const client = await pool.connect();
   try {

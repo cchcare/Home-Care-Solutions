@@ -3,6 +3,7 @@ import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import ErrorLog from "@/pages/error-log";
+import WriteUps from "@/pages/write-ups";
 import HelpCenterAdmin from "@/pages/help-center-admin";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useAuth } from "@/hooks/useAuth";
@@ -197,6 +198,7 @@ function Router() {
           <Route path="/api-keys" component={ApiKeys} />
           <Route path="/shift-swap-requests" component={ShiftSwapRequests} />
           <Route path="/staff-time-tracking" component={StaffTimeTracking} />
+          <Route path="/write-ups" component={WriteUps} />
           <Route path="/staff" component={Staff} />
           <Route path="/employees" component={Employees} />
           <Route path="/performance-reviews" component={PerformanceReviews} />

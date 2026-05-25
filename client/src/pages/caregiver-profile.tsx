@@ -158,6 +158,8 @@ const COMPLIANCE_STATUS_OPTIONS = [
   { value: "non_compliant", label: "Non-Compliant" },
 ];
 
+import { EmployeeWriteUpsSection } from "@/components/employee-write-ups-section";
+
 const CAREGIVER_MENU_ITEMS = [
   { id: "profile", label: "Profile", icon: User },
   { id: "compliance", label: "Compliance", icon: Shield },
@@ -1867,6 +1869,13 @@ export default function CaregiverProfile() {
                       )}
                     </CardContent>
                   </Card>
+
+                  {caregiverId && (
+                    <EmployeeWriteUpsSection
+                      employeeType="caregiver"
+                      employeeId={caregiverId}
+                    />
+                  )}
                 </div>
               )}
 

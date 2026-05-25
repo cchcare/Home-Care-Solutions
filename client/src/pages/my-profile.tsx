@@ -18,6 +18,7 @@ import {
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Link } from "wouter";
 import type { Caregiver, Office, PerformanceReview } from "@shared/schema";
+import { EmployeeWriteUpsSection } from "@/components/employee-write-ups-section";
 
 export default function MyProfilePage() {
   const { user } = useAuth();
@@ -110,18 +111,53 @@ export default function MyProfilePage() {
     );
   }
 
+  // Office-staff (non-caregiver) users have no caregiver profile row, so
+  // /api/my-profile returns nothing. Render a minimal self-service shell
+  // that still gives them their write-ups & coaching section keyed by user.id
+  // (required by the disciplinary-actions task).
   if (!profile) {
+    const u: any = user;
+    const staffName = u ? `${u.firstName || ""} ${u.lastName || ""}`.trim() : "";
     return (
       <div className="flex h-screen overflow-hidden">
         <Sidebar />
         <div className="flex-1 flex flex-col overflow-hidden">
           <TopBar />
           <main className="flex-1 overflow-y-auto p-6 bg-background">
-            <Card>
-              <CardContent className="pt-6">
-                <p className="text-muted-foreground">No profile found. Please contact your administrator.</p>
-              </CardContent>
-            </Card>
+            <div className="max-w-4xl mx-auto space-y-6">
+              <div>
+                <h1 className="text-2xl font-bold text-foreground">My Profile</h1>
+                <p className="text-muted-foreground">Your personal records and confidential documents</p>
+              </div>
+              <Card>
+                <CardHeader>
+                  <div className="flex items-center gap-4">
+                    <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center">
+                      <User className="w-8 h-8 text-primary" />
+                    </div>
+                    <div>
+                      <CardTitle className="text-xl">{staffName || u?.username || "Staff Member"}</CardTitle>
+                      <CardDescription>{u?.email || ""}</CardDescription>
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-sm text-muted-foreground">
+                    You are signed in as office staff. Profile editing is available to caregivers; contact your administrator for personal-detail changes.
+                  </p>
+                </CardContent>
+              </Card>
+
+              {u?.id && (
+                <EmployeeWriteUpsSection
+                  employeeType="user"
+                  employeeId={u.id}
+                  selfView
+                  title="My Write-Ups & Coaching"
+                  description="Disciplinary notes, coaching, and commendations on your record. You can review and acknowledge each one."
+                />
+              )}
+            </div>
           </main>
         </div>
       </div>
@@ -360,6 +396,17 @@ export default function MyProfilePage() {
                 )}
               </CardContent>
             </Card>
+
+            {/* Self-service write-ups & coaching */}
+            {(profile?.id || (user as any)?.id) && (
+              <EmployeeWriteUpsSection
+                employeeType={profile?.id ? "caregiver" : "user"}
+                employeeId={profile?.id || (user as any)?.id}
+                selfView
+                title="My Write-Ups & Coaching"
+                description="Disciplinary notes, coaching, and commendations on your record. You can review and acknowledge each one."
+              />
+            )}
           </div>
         </main>
       </div>

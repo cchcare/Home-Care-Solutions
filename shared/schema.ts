@@ -1962,6 +1962,90 @@ export type CaregiverPreference = typeof caregiverPreferences.$inferSelect;
 export type InsertCaregiverPreference = typeof caregiverPreferences.$inferInsert;
 export const insertCaregiverPreferenceSchema = createInsertSchema(caregiverPreferences).omit({ id: true, createdAt: true, updatedAt: true });
 
+// ==================== EMPLOYEE WRITE-UPS / DISCIPLINARY NOTES ====================
+// Polymorphic table covering both caregivers (employeeType = 'caregiver')
+// and office-staff users (employeeType = 'user'). Generalises the
+// caregiver_notes.disciplinary/commendation pattern with a formal
+// write-up workflow (severity, action plan, follow-up date, acknowledgement).
+export const employeeNoteTypeEnum = pgEnum("employee_note_type", [
+  "coaching",
+  "verbal_warning",
+  "written_warning",
+  "final_warning",
+  "pip",
+  "commendation",
+  "performance",
+  "general",
+]);
+
+export const employeeNoteSeverityEnum = pgEnum("employee_note_severity", [
+  "low",
+  "medium",
+  "high",
+  "critical",
+]);
+
+export const employeeNoteFollowUpStatusEnum = pgEnum("employee_note_follow_up_status", [
+  "open",
+  "resolved",
+  "cancelled",
+]);
+
+export const employeeNotes = pgTable("employee_notes", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id"),
+  officeId: varchar("office_id").references(() => offices.id),
+  employeeType: varchar("employee_type").notNull(), // 'caregiver' | 'user'
+  employeeId: varchar("employee_id").notNull(),
+  authorId: varchar("author_id").references(() => users.id),
+  noteType: employeeNoteTypeEnum("note_type").notNull().default("coaching"),
+  severity: employeeNoteSeverityEnum("severity").default("low"),
+  subject: varchar("subject"),
+  summary: text("summary").notNull(), // the write-up narrative (encrypted at rest)
+  incidentDate: timestamp("incident_date"),
+  actionPlan: text("action_plan"),
+  followUpDate: timestamp("follow_up_date"),
+  followUpStatus: employeeNoteFollowUpStatusEnum("follow_up_status").default("open"),
+  resolvedAt: timestamp("resolved_at"),
+  resolvedBy: varchar("resolved_by").references(() => users.id),
+  resolutionNotes: text("resolution_notes"),
+  attachmentDocumentIds: text("attachment_document_ids").array(),
+  acknowledgedAt: timestamp("acknowledged_at"),
+  acknowledgmentSignatureName: varchar("acknowledgment_signature_name"),
+  acknowledgmentIp: varchar("acknowledgment_ip"),
+  acknowledgmentNotes: text("acknowledgment_notes"),
+  sourceCaregiverNoteId: varchar("source_caregiver_note_id"), // backfill provenance
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_employee_notes_employee").on(table.employeeType, table.employeeId),
+  index("idx_employee_notes_office").on(table.officeId),
+  index("idx_employee_notes_follow_up").on(table.followUpStatus, table.followUpDate),
+  index("idx_employee_notes_author").on(table.authorId),
+]);
+
+export const employeeNotesRelations = relations(employeeNotes, ({ one }) => ({
+  author: one(users, { fields: [employeeNotes.authorId], references: [users.id] }),
+  office: one(offices, { fields: [employeeNotes.officeId], references: [offices.id] }),
+  resolvedByUser: one(users, { fields: [employeeNotes.resolvedBy], references: [users.id] }),
+}));
+
+export type EmployeeNote = typeof employeeNotes.$inferSelect;
+export type InsertEmployeeNote = typeof employeeNotes.$inferInsert;
+export const insertEmployeeNoteSchema = createInsertSchema(employeeNotes).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+  acknowledgedAt: true,
+  acknowledgmentSignatureName: true,
+  acknowledgmentIp: true,
+  acknowledgmentNotes: true,
+  resolvedAt: true,
+  resolvedBy: true,
+  resolutionNotes: true,
+  sourceCaregiverNoteId: true,
+});
+
 export type CaregiverAbsence = typeof caregiverAbsences.$inferSelect;
 export type InsertCaregiverAbsence = typeof caregiverAbsences.$inferInsert;
 export const insertCaregiverAbsenceSchema = createInsertSchema(caregiverAbsences).omit({ id: true, createdAt: true, updatedAt: true });

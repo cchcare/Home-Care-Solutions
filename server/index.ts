@@ -2,7 +2,7 @@ import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import { startScheduledJobs } from "./scheduler";
-import { runProductionInit, seedEmailTemplates } from "./initDb";
+import { runProductionInit, seedEmailTemplates, ensureEmployeeNotesSchema } from "./initDb";
 
 import nodePath from "path";
 import { isS3Enabled, getPresignedUrl, getS3KeyForFile } from "./s3Storage";
@@ -64,6 +64,12 @@ app.use((req, res, next) => {
     } catch (err) {
       console.error("[Init] Email template seeding failed (non-fatal):", err);
     }
+  }
+
+  try {
+    await ensureEmployeeNotesSchema();
+  } catch (err) {
+    console.error("[Init] ensureEmployeeNotesSchema failed (non-fatal):", err);
   }
 
   const server = await registerRoutes(app);

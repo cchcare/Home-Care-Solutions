@@ -52,6 +52,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { AiIssuesPanel } from "@/components/ai-issues-panel";
+import { OpenFollowUpsWidget } from "@/components/open-follow-ups-widget";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -465,6 +466,9 @@ export default function Dashboard() {
 
             {/* AI Issue Detection Panel */}
             <AiIssuesPanel />
+
+            {/* Open Write-Up Follow-Ups (manager / HR widget) */}
+            <OpenFollowUpsWidget />
 
             {/* Agency Tools */}
             <Card data-testid="card-agency-tools">
