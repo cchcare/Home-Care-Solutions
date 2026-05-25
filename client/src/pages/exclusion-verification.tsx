@@ -199,6 +199,46 @@ export default function ExclusionVerification() {
     },
   });
 
+  const refreshSamMutation = useMutation({
+    mutationFn: async () => {
+      const response = await apiRequest("POST", "/api/exclusions/refresh/sam");
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/exclusions/sources"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/exclusions/dashboard"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/exclusions/records", { sourceType: "sam" }] });
+      toast({ title: "Success", description: "SAM.gov data refreshed successfully" });
+    },
+    onError: (err: any) => {
+      toast({
+        title: "Error",
+        description: err?.message || "Failed to refresh SAM.gov data",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const refreshMedicheckMutation = useMutation({
+    mutationFn: async () => {
+      const response = await apiRequest("POST", "/api/exclusions/refresh/medicheck");
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/exclusions/sources"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/exclusions/dashboard"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/exclusions/records", { sourceType: "medicheck" }] });
+      toast({ title: "Success", description: "MediCheck data refreshed successfully" });
+    },
+    onError: (err: any) => {
+      toast({
+        title: "Error",
+        description: err?.message || "Failed to refresh MediCheck data",
+        variant: "destructive",
+      });
+    },
+  });
+
   const uploadMedicheckMutation = useMutation({
     mutationFn: (file: File) =>
       uploadExclusionCsv("/api/exclusions/upload/medicheck", file),
@@ -631,6 +671,16 @@ export default function ExclusionVerification() {
                       </div>
                       <Button
                         className="w-full"
+                        onClick={() => refreshMedicheckMutation.mutate()}
+                        disabled={refreshMedicheckMutation.isPending}
+                        data-testid="button-refresh-medicheck"
+                      >
+                        {refreshMedicheckMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <RefreshCw className="w-4 h-4 mr-2" />}
+                        Refresh from MediCheck
+                      </Button>
+                      <Button
+                        className="w-full"
+                        variant="outline"
                         onClick={() => medicheckFileRef.current?.click()}
                         disabled={uploadMedicheckMutation.isPending}
                         data-testid="button-upload-medicheck"
@@ -681,6 +731,16 @@ export default function ExclusionVerification() {
                       </div>
                       <Button
                         className="w-full"
+                        onClick={() => refreshSamMutation.mutate()}
+                        disabled={refreshSamMutation.isPending}
+                        data-testid="button-refresh-sam"
+                      >
+                        {refreshSamMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <RefreshCw className="w-4 h-4 mr-2" />}
+                        Refresh from SAM.gov
+                      </Button>
+                      <Button
+                        className="w-full"
+                        variant="outline"
                         onClick={() => samFileRef.current?.click()}
                         disabled={uploadSamMutation.isPending}
                         data-testid="button-upload-sam"

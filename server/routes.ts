@@ -15830,6 +15830,46 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.post("/api/exclusions/refresh/sam", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      if (!user || (user.role !== "admin" && user.role !== "supervisor" && user.role !== "super_admin")) {
+        return res.status(403).json({ message: "Unauthorized: Admin role required" });
+      }
+      const { exclusionService } = await import('./exclusion-service');
+      const result = await exclusionService.fetchSamData();
+      if (!result.success) {
+        return res.status(500).json({
+          message: result.errors[0] || "Failed to refresh SAM.gov data",
+          ...result,
+        });
+      }
+      res.json(result);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to refresh SAM.gov data" });
+    }
+  });
+
+  app.post("/api/exclusions/refresh/medicheck", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      if (!user || (user.role !== "admin" && user.role !== "supervisor" && user.role !== "super_admin")) {
+        return res.status(403).json({ message: "Unauthorized: Admin role required" });
+      }
+      const { exclusionService } = await import('./exclusion-service');
+      const result = await exclusionService.fetchMedicheckData();
+      if (!result.success) {
+        return res.status(500).json({
+          message: result.errors[0] || "Failed to refresh MediCheck data",
+          ...result,
+        });
+      }
+      res.json(result);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to refresh MediCheck data" });
+    }
+  });
+
   app.post("/api/exclusions/upload/medicheck", isAuthenticated, csvUpload.single('file'), async (req: any, res) => {
     try {
       const user = req.session?.user;
