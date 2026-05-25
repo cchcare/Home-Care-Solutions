@@ -3834,25 +3834,67 @@ function CompareView({
 
   return (
     <div className="flex-1 overflow-auto p-6 max-w-6xl mx-auto print:overflow-visible print:p-0 print:max-w-full">
-      {/* Print-only branded logo header — mirrors the agency logo placement
-          on the single-audit print/PDF cover. Falls back to the CCHC
-          Solutions wordmark when the office has no logo uploaded or the
-          file fails to load. */}
-      <div className="hidden print:flex items-center mb-4 print-avoid-break">
-        <img
-          key={comparePrintLogoSrc}
-          src={comparePrintLogoSrc}
-          alt={comparePrintLogoAlt}
-          onError={(e) => {
-            const img = e.currentTarget;
-            if (!img.dataset.fallback && img.src !== cchcLogo) {
-              img.dataset.fallback = "1";
-              img.src = cchcLogo;
-              img.alt = "CCHC Solutions";
-            }
-          }}
-          className="h-14 w-auto max-w-[220px] object-contain object-left"
-        />
+      {/* ── Print-only report header ──────────────────────────────────────
+          Mirrors the polished branded header on the single-audit print
+          view. Includes agency logo + name, the comparison report title
+          (used as the running @top-right header via string-set), and a
+          metadata row showing both audit titles plus the date the
+          comparison was printed. Screen view is unchanged.              */}
+      <div className="hidden print:block mb-6 print-avoid-break print-report-header">
+        {/* Top row: logo left, agency name right */}
+        <div className="flex items-center justify-between gap-4 mb-3">
+          <img
+            key={comparePrintLogoSrc}
+            src={comparePrintLogoSrc}
+            alt={comparePrintLogoAlt}
+            onError={(e) => {
+              const img = e.currentTarget;
+              if (!img.dataset.fallback && img.src !== cchcLogo) {
+                img.dataset.fallback = "1";
+                img.src = cchcLogo;
+                img.alt = "CCHC Solutions";
+              }
+            }}
+            className="h-14 w-auto max-w-[220px] object-contain object-left"
+          />
+          {compareOffice?.name && (
+            <span className="text-sm font-semibold text-right leading-tight max-w-[260px]">
+              {compareOffice.name}
+            </span>
+          )}
+        </div>
+
+        {/* Comparison report title */}
+        <h1 className="text-2xl font-bold leading-tight mb-2">
+          Audit Comparison Report
+        </h1>
+
+        {/* Both audit titles + comparison date */}
+        {(audit1 || audit2) && (
+          <div className="text-sm text-gray-800 mb-2 leading-snug">
+            <div>
+              <strong>Audit A:</strong> {audit1?.title || "—"}
+              {audit1?.auditDate ? ` (${audit1.auditDate})` : ""}
+            </div>
+            <div>
+              <strong>Audit B:</strong> {audit2?.title || "—"}
+              {audit2?.auditDate ? ` (${audit2.auditDate})` : ""}
+            </div>
+          </div>
+        )}
+
+        <div className="flex flex-wrap gap-x-6 gap-y-1 text-xs text-gray-600 mb-3">
+          <span>
+            <strong>Comparison Date:</strong>{" "}
+            {new Date().toLocaleDateString(undefined, {
+              month: "short",
+              day: "numeric",
+              year: "numeric",
+            })}
+          </span>
+        </div>
+
+        <hr className="border-gray-800" />
       </div>
 
       {/* Header */}
@@ -4188,6 +4230,20 @@ function CompareView({
           </div>
         </>
       )}
+
+      {/* ── Print-only report footer ──────────────────────────────────────
+          Fallback footer for browsers (Firefox, Safari) that don't support
+          CSS @page named margin boxes. In Chrome/Edge the @bottom-center
+          page counter from index.css takes precedence and this provides
+          an extra line of context at the end of the document.           */}
+      <div className="hidden print:flex items-center justify-between mt-8 pt-3 border-t border-gray-300 text-[9pt] text-gray-500 print-avoid-break">
+        <span>
+          {compareOffice?.name ? `${compareOffice.name} · ` : ""}
+          Audit Comparison Report
+          {audit1?.title && audit2?.title ? ` · ${audit1.title} → ${audit2.title}` : ""}
+        </span>
+        <span>Confidential</span>
+      </div>
     </div>
   );
 }
