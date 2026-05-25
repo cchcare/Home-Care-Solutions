@@ -1,8 +1,141 @@
 import cron from "node-cron";
+import { sql } from "drizzle-orm";
 import { sendTodaysBirthdayNotifications } from "./birthday-service";
 import { exclusionService } from "./exclusion-service";
 import { expirationAlertService } from "./expiration-alert-service";
 import { sendDailyHhaxSummary } from "./hhax-summary-service";
+import { sendEmail, isValidEmail } from "./communication-services";
+import { db } from "./db";
+import { users } from "@shared/schema";
+
+interface FetchSourceResult {
+  success: boolean;
+  recordCount: number;
+  errors: string[];
+}
+
+interface FailedSource {
+  name: string;
+  result: FetchSourceResult;
+  reason: "errors" | "zero_records";
+}
+
+function getFailedSources(refreshResults: {
+  oig: FetchSourceResult;
+  sam: FetchSourceResult;
+  medicheck: FetchSourceResult;
+}): FailedSource[] {
+  const failed: FailedSource[] = [];
+  const entries: Array<[string, FetchSourceResult]> = [
+    ["SAM.gov", refreshResults.sam],
+    ["PA MediCheck", refreshResults.medicheck],
+  ];
+  for (const [name, result] of entries) {
+    if (!result.success || result.errors.length > 0) {
+      failed.push({ name, result, reason: "errors" });
+    } else if (result.recordCount === 0) {
+      failed.push({ name, result, reason: "zero_records" });
+    }
+  }
+  return failed;
+}
+
+async function getAdminEmails(): Promise<string[]> {
+  try {
+    const adminUsers = await db
+      .select({ email: users.email })
+      .from(users)
+      .where(sql`${users.role} IN ('admin', 'super_admin', 'office_admin')`);
+    const emails = adminUsers
+      .map((u) => u.email)
+      .filter((e): e is string => !!e && isValidEmail(e));
+    return Array.from(new Set(emails));
+  } catch (error) {
+    console.error("[Scheduler] Failed to look up admin emails:", error);
+    return [];
+  }
+}
+
+function buildFetchFailureEmail(
+  failed: FailedSource[],
+  timestamp: Date,
+): { subject: string; html: string; text: string } {
+  const sourceNames = failed.map((f) => f.name).join(", ");
+  const subject = `⚠️ Exclusion auto-fetch failed: ${sourceNames}`;
+  const tsLabel = timestamp.toISOString();
+
+  const sectionsHtml = failed
+    .map((f) => {
+      const reasonLabel =
+        f.reason === "zero_records"
+          ? "Imported zero records (possible source change or empty dataset)."
+          : "Fetch returned errors.";
+      const errorList = f.result.errors.length
+        ? `<ul>${f.result.errors
+            .map(
+              (e) =>
+                `<li><code>${String(e)
+                  .replace(/&/g, "&amp;")
+                  .replace(/</g, "&lt;")
+                  .replace(/>/g, "&gt;")}</code></li>`,
+            )
+            .join("")}</ul>`
+        : "<p><em>No error messages were captured.</em></p>";
+      return `<h3>${f.name}</h3>
+        <p><strong>Status:</strong> ${reasonLabel}</p>
+        <p><strong>Records imported:</strong> ${f.result.recordCount}</p>
+        ${errorList}`;
+    })
+    .join("");
+
+  const html = `
+    <p>The scheduled exclusion data auto-fetch reported problems with one or more sources at <strong>${tsLabel}</strong>.</p>
+    ${sectionsHtml}
+    <p>Please review the Exclusion Verification &rarr; Data Sources tab and re-run the import if needed. The License/NPI matcher relies on this data being current.</p>
+  `;
+
+  const textSections = failed
+    .map((f) => {
+      const reasonLabel =
+        f.reason === "zero_records"
+          ? "Imported zero records (possible source change or empty dataset)."
+          : "Fetch returned errors.";
+      const errorList = f.result.errors.length
+        ? f.result.errors.map((e) => `  - ${e}`).join("\n")
+        : "  (no error messages captured)";
+      return `${f.name}\n  Status: ${reasonLabel}\n  Records imported: ${f.result.recordCount}\n${errorList}`;
+    })
+    .join("\n\n");
+  const text = `Exclusion auto-fetch reported problems at ${tsLabel}.\n\n${textSections}\n\nPlease review the Exclusion Verification > Data Sources tab.`;
+
+  return { subject, html, text };
+}
+
+async function sendExclusionFetchFailureEmails(
+  failed: FailedSource[],
+  timestamp: Date,
+): Promise<void> {
+  if (failed.length === 0) return;
+  const adminEmails = await getAdminEmails();
+  if (adminEmails.length === 0) {
+    console.warn(
+      "[Scheduler] Exclusion fetch failure detected but no admin emails are configured to notify.",
+    );
+    return;
+  }
+  const { subject, html, text } = buildFetchFailureEmail(failed, timestamp);
+  for (const to of adminEmails) {
+    try {
+      await sendEmail({ to, subject, html, text });
+      console.log(`[Scheduler] Sent exclusion fetch failure alert to ${to}`);
+    } catch (error) {
+      console.error(
+        `[Scheduler] Failed to send exclusion fetch failure alert to ${to}:`,
+        error,
+      );
+    }
+  }
+}
 
 const BIRTHDAY_NOTIFICATION_CRON = process.env.BIRTHDAY_CRON_SCHEDULE || "0 8 * * *";
 const BIRTHDAY_NOTIFICATION_HOUR = parseInt(process.env.BIRTHDAY_NOTIFICATION_HOUR || "8", 10);
@@ -32,11 +165,22 @@ async function runBirthdayJob() {
 }
 
 async function runExclusionCheckJob() {
-  console.log(`[Scheduler] Running monthly exclusion check job at ${new Date().toISOString()}`);
+  const jobStart = new Date();
+  console.log(`[Scheduler] Running monthly exclusion check job at ${jobStart.toISOString()}`);
   try {
     console.log('[Scheduler] Refreshing exclusion data sources...');
     const refreshResults = await exclusionService.refreshAllSources();
     console.log(`[Scheduler] OIG: ${refreshResults.oig.recordCount} records, SAM: ${refreshResults.sam.recordCount} records, Medicheck: ${refreshResults.medicheck.recordCount} records`);
+
+    const failedSources = getFailedSources(refreshResults);
+    if (failedSources.length > 0) {
+      console.warn(
+        `[Scheduler] Exclusion auto-fetch reported problems for: ${failedSources
+          .map((f) => `${f.name} (${f.reason})`)
+          .join(', ')}`,
+      );
+      await sendExclusionFetchFailureEmails(failedSources, jobStart);
+    }
 
     console.log('[Scheduler] Running caregiver exclusion checks...');
     const checkResults = await exclusionService.runFullExclusionCheck();
