@@ -30,6 +30,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { PersonCombobox } from "@/components/ui/person-combobox";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { EmployeeDocumentsTab } from "@/components/employee-documents-tab";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Search, Users, Network, UserCog, ArrowUpDown, ArrowUp, ArrowDown, Mail, Phone, MapPin, Calendar } from "lucide-react";
@@ -444,7 +446,7 @@ export default function EmployeesPage() {
           if (!o) setProfileTarget(null);
         }}
       >
-        <DialogContent data-testid="dialog-employee-profile">
+        <DialogContent data-testid="dialog-employee-profile" className="max-w-3xl max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
               {profileTarget && formatName(profileTarget.firstName, profileTarget.lastName)}
@@ -454,46 +456,57 @@ export default function EmployeesPage() {
             </DialogDescription>
           </DialogHeader>
           {profileTarget && (
-            <div className="space-y-3 text-sm">
-              <div className="flex items-center gap-2">
-                <Badge variant={profileTarget.isActive === false ? "secondary" : "default"}>
-                  {profileTarget.isActive === false ? "Inactive" : "Active"}
-                </Badge>
-                <Badge variant="outline">{profileTarget.role || "staff"}</Badge>
-              </div>
-              {profileTarget.email && (
-                <div className="flex items-center gap-2">
-                  <Mail className="h-4 w-4 text-muted-foreground" />
-                  <a href={`mailto:${profileTarget.email}`} className="hover:underline">
-                    {profileTarget.email}
-                  </a>
+            <Tabs defaultValue="overview" className="w-full">
+              <TabsList>
+                <TabsTrigger value="overview" data-testid="tab-employee-overview">Overview</TabsTrigger>
+                <TabsTrigger value="documents" data-testid="tab-employee-documents">Documents</TabsTrigger>
+              </TabsList>
+              <TabsContent value="overview">
+                <div className="space-y-3 text-sm">
+                  <div className="flex items-center gap-2">
+                    <Badge variant={profileTarget.isActive === false ? "secondary" : "default"}>
+                      {profileTarget.isActive === false ? "Inactive" : "Active"}
+                    </Badge>
+                    <Badge variant="outline">{profileTarget.role || "staff"}</Badge>
+                  </div>
+                  {profileTarget.email && (
+                    <div className="flex items-center gap-2">
+                      <Mail className="h-4 w-4 text-muted-foreground" />
+                      <a href={`mailto:${profileTarget.email}`} className="hover:underline">
+                        {profileTarget.email}
+                      </a>
+                    </div>
+                  )}
+                  {profileTarget.phone && (
+                    <div className="flex items-center gap-2">
+                      <Phone className="h-4 w-4 text-muted-foreground" />
+                      {profileTarget.phone}
+                    </div>
+                  )}
+                  {profileTarget.officeName && (
+                    <div className="flex items-center gap-2">
+                      <MapPin className="h-4 w-4 text-muted-foreground" />
+                      {profileTarget.officeName}
+                    </div>
+                  )}
+                  {profileTarget.hireDate && (
+                    <div className="flex items-center gap-2">
+                      <Calendar className="h-4 w-4 text-muted-foreground" />
+                      Hired {format(new Date(profileTarget.hireDate), "MMM d, yyyy")}
+                    </div>
+                  )}
+                  <div className="pt-2">
+                    <span className="text-muted-foreground">Reports to: </span>
+                    {profileTarget.managerName || (
+                      <span className="text-muted-foreground">Unassigned</span>
+                    )}
+                  </div>
                 </div>
-              )}
-              {profileTarget.phone && (
-                <div className="flex items-center gap-2">
-                  <Phone className="h-4 w-4 text-muted-foreground" />
-                  {profileTarget.phone}
-                </div>
-              )}
-              {profileTarget.officeName && (
-                <div className="flex items-center gap-2">
-                  <MapPin className="h-4 w-4 text-muted-foreground" />
-                  {profileTarget.officeName}
-                </div>
-              )}
-              {profileTarget.hireDate && (
-                <div className="flex items-center gap-2">
-                  <Calendar className="h-4 w-4 text-muted-foreground" />
-                  Hired {format(new Date(profileTarget.hireDate), "MMM d, yyyy")}
-                </div>
-              )}
-              <div className="pt-2">
-                <span className="text-muted-foreground">Reports to: </span>
-                {profileTarget.managerName || (
-                  <span className="text-muted-foreground">Unassigned</span>
-                )}
-              </div>
-            </div>
+              </TabsContent>
+              <TabsContent value="documents">
+                <EmployeeDocumentsTab kind="user" employeeId={profileTarget.id} />
+              </TabsContent>
+            </Tabs>
           )}
           <DialogFooter>
             <Button

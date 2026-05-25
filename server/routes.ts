@@ -3616,6 +3616,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const document = await storage.createDocument({
         clientId: req.body.clientId || null,
         caregiverId: req.body.caregiverId || null,
+        userId: req.body.userId || null,
         officeId,
         uploadedBy: req.session?.user?.id,
         fileName: req.file.filename,
@@ -3623,6 +3624,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         fileType: req.file.mimetype,
         fileSize: req.file.size,
         documentType: req.body.documentType || "general",
+        documentCategory: req.body.documentCategory || null,
+        expiresAt: req.body.expiresAt ? new Date(req.body.expiresAt) : null,
         encryptionKey,
       });
 
@@ -4924,6 +4927,419 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (e: any) {
       console.error("Error setting employee manager:", e);
       res.status(400).json({ message: e?.message || "Failed to set manager" });
+    }
+  });
+
+  // Authorization helper for per-employee doc/policy endpoints. Allows:
+  //  - super_admin always
+  //  - admin / office_admin / manager scoped to the target's office
+  //  - the user themselves (self-access only — caregivers cannot self-access
+  //    via this endpoint unless they hold an office role)
+  const requireEmployeeDocAccess = async (req: any, res: any, next: any) => {
+    try {
+      const sessionUser = req.session?.user;
+      if (!sessionUser?.id) return res.status(401).json({ message: "Not authenticated" });
+      const current = await storage.getUser(sessionUser.id);
+      if (!current) return res.status(401).json({ message: "Not authenticated" });
+      const kindParam = req.params.kind || (req.path.includes("/user/") ? "user" : null);
+      const targetId = req.params.id || req.params.userId;
+      if (!targetId) return res.status(400).json({ message: "Missing target id" });
+
+      // Self-access: only meaningful for office users
+      if (kindParam === "user" && current.id === targetId) {
+        (req as any).currentUser = current;
+        return next();
+      }
+
+      const role = current.role || "";
+      const allowed = ["admin", "super_admin", "office_admin", "manager"];
+      if (!allowed.includes(role)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      if (role !== "super_admin") {
+        let targetOfficeId: string | null | undefined = null;
+        if (kindParam === "caregiver") {
+          const c = await storage.getCaregiver(targetId);
+          if (!c) return res.status(404).json({ message: "Employee not found" });
+          targetOfficeId = c.officeId;
+        } else {
+          const u = await storage.getUser(targetId);
+          if (!u) return res.status(404).json({ message: "Employee not found" });
+          targetOfficeId = u.primaryOfficeId;
+        }
+        if (!current.primaryOfficeId || current.primaryOfficeId !== targetOfficeId) {
+          return res.status(403).json({ message: "Access denied" });
+        }
+      }
+      (req as any).currentUser = current;
+      next();
+    } catch (e: any) {
+      console.error("requireEmployeeDocAccess error:", e);
+      return res.status(500).json({ message: "Failed to verify permissions" });
+    }
+  };
+
+  // Per-employee unified document library: documents + generated letters +
+  // signed e-signature outputs + policy acknowledgments. Works for both
+  // office users (`/api/employees/user/:id/documents`) and caregivers
+  // (`/api/employees/caregiver/:id/documents`).
+  app.get("/api/employees/:kind/:id/documents", isAuthenticated, requireEmployeeDocAccess, async (req: any, res) => {
+    try {
+      const kind = req.params.kind === "user" ? "user" : req.params.kind === "caregiver" ? "caregiver" : null;
+      if (!kind) return res.status(400).json({ message: "Invalid employee kind" });
+      const id = req.params.id;
+
+      const { documents: docsTable, generatedLetters, eSignatureRequests, policyAcknowledgments, policyDocuments } = await import("@shared/schema");
+      const { db } = await import("./db");
+      const { eq, and, desc } = await import("drizzle-orm");
+
+      // 1) Documents explicitly attached to the employee. Ownership is
+      // strictly the target-link column (caregiverId / userId) — `uploadedBy`
+      // is the actor that uploaded the file and would incorrectly surface
+      // documents the user uploaded *for someone else* (clients, other
+      // staff, etc.).
+      const docOwnerCond = kind === "caregiver"
+        ? eq(docsTable.caregiverId, id)
+        : eq(docsTable.userId, id);
+      const docs = await db.select().from(docsTable)
+        .where(docOwnerCond)
+        .orderBy(desc(docsTable.createdAt));
+
+      // 2) Letters generated for the employee
+      const scope = kind === "caregiver" ? "caregiver" : "user";
+      const letters = await db.select().from(generatedLetters).where(and(
+        eq(generatedLetters.scope, scope as any),
+        eq(generatedLetters.targetId, id),
+      )).orderBy(desc(generatedLetters.createdAt));
+
+      // 3) E-signature requests where this employee is the recipient
+      const esignRecType = kind === "caregiver" ? "caregiver" : "user";
+      const esigns = await db.select().from(eSignatureRequests).where(and(
+        eq(eSignatureRequests.recipientType, esignRecType),
+        eq(eSignatureRequests.recipientId, id),
+      )).orderBy(desc(eSignatureRequests.createdAt));
+
+      // 4) Policy acknowledgments (only for office users; caregivers do not
+      // yet have policy ack records since acks are linked to `users.id`).
+      let acks: any[] = [];
+      if (kind === "user") {
+        acks = await db.select({
+          id: policyAcknowledgments.id,
+          policyId: policyAcknowledgments.policyId,
+          userId: policyAcknowledgments.userId,
+          acknowledgedAt: policyAcknowledgments.acknowledgedAt,
+          method: policyAcknowledgments.method,
+          notes: policyAcknowledgments.notes,
+          policyTitle: policyDocuments.title,
+          policyVersion: policyDocuments.version,
+          policyCategory: policyDocuments.category,
+        })
+          .from(policyAcknowledgments)
+          .leftJoin(policyDocuments, eq(policyAcknowledgments.policyId, policyDocuments.id))
+          .where(eq(policyAcknowledgments.userId, id))
+          .orderBy(desc(policyAcknowledgments.acknowledgedAt));
+      }
+
+      const items: any[] = [];
+      for (const d of docs) {
+        items.push({
+          source: "document",
+          id: d.id,
+          title: d.originalName || d.fileName,
+          category: d.documentCategory || d.documentType || "other",
+          createdAt: d.createdAt,
+          expiresAt: d.expiresAt,
+          viewUrl: `/api/documents/${d.id}/view`,
+          downloadUrl: `/api/documents/${d.id}/download`,
+          documentId: d.id,
+        });
+      }
+      for (const l of letters) {
+        items.push({
+          source: "generated_letter",
+          id: l.id,
+          title: `Letter: ${l.templateId ? "from template" : "ad-hoc"}`,
+          category: "generated_letter",
+          createdAt: l.createdAt,
+          expiresAt: null,
+          viewUrl: l.documentId ? `/api/documents/${l.documentId}/view` : null,
+          downloadUrl: l.documentId ? `/api/documents/${l.documentId}/download` : null,
+          documentId: l.documentId,
+        });
+      }
+      for (const r of esigns) {
+        items.push({
+          source: "esignature",
+          id: r.id,
+          title: `Signature request${r.signedAt ? " (signed)" : " (pending)"}`,
+          category: "signed_document",
+          createdAt: r.createdAt,
+          expiresAt: r.expiresAt,
+          status: r.status,
+          signedAt: r.signedAt,
+          viewUrl: r.signedDocumentId ? `/api/documents/${r.signedDocumentId}/view` : null,
+          downloadUrl: r.signedDocumentId ? `/api/documents/${r.signedDocumentId}/download` : null,
+          documentId: r.signedDocumentId,
+        });
+      }
+      for (const a of acks) {
+        items.push({
+          source: "policy_ack",
+          id: a.id,
+          title: `Policy acknowledged: ${a.policyTitle || a.policyId}`,
+          category: "signed_policy",
+          createdAt: a.acknowledgedAt,
+          expiresAt: null,
+          policyId: a.policyId,
+          policyVersion: a.policyVersion,
+          method: a.method,
+        });
+      }
+      items.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+      res.json(items);
+    } catch (e: any) {
+      console.error("Error building employee document library:", e);
+      res.status(500).json({ message: e?.message || "Failed to load documents" });
+    }
+  });
+
+  // Bulk-assign a policy to users (by user ids, by role, or by office). Returns
+  // the count of new assignments created (existing are deduped via unique idx).
+  app.post("/api/policy-documents/:id/assign", isAuthenticated, requireEmployeeDirectoryAccess, async (req: any, res) => {
+    try {
+      const policy = await storage.getPolicyDocument(req.params.id);
+      if (!policy) return res.status(404).json({ message: "Policy not found" });
+      const current = (req as any).currentUser;
+      const isSuper = current?.role === "super_admin";
+      // Office scoping: non-super-admin can only assign policies in their own
+      // office and may only target an officeId equal to that office.
+      if (!isSuper && (!current?.primaryOfficeId || policy.officeId !== current.primaryOfficeId)) {
+        return res.status(403).json({ message: "Access denied (cross-office policy)" });
+      }
+      const { userIds, role, officeId } = req.body || {};
+      if (!isSuper && officeId && officeId !== current.primaryOfficeId) {
+        return res.status(403).json({ message: "Access denied (cross-office target)" });
+      }
+      const targets = new Set<string>();
+      if (Array.isArray(userIds)) for (const id of userIds) if (typeof id === "string") targets.add(id);
+      const { db } = await import("./db");
+      const { users } = await import("@shared/schema");
+      const { eq, and, inArray } = await import("drizzle-orm");
+      if (role || officeId) {
+        const conds = [] as any[];
+        if (role) conds.push(eq(users.role, role));
+        const scopeOffice = isSuper ? officeId : current.primaryOfficeId;
+        if (scopeOffice) conds.push(eq(users.primaryOfficeId, scopeOffice));
+        const rows = await db.select({ id: users.id }).from(users).where(conds.length ? and(...conds) : undefined as any);
+        for (const r of rows) targets.add(r.id);
+      }
+      // For non-super-admins, drop any explicit userIds from other offices.
+      if (!isSuper && targets.size > 0) {
+        const rows = await db.select({ id: users.id, officeId: users.primaryOfficeId })
+          .from(users).where(inArray(users.id, Array.from(targets)));
+        const allowed = new Set(rows.filter(r => r.officeId === current.primaryOfficeId).map(r => r.id));
+        for (const tid of Array.from(targets)) if (!allowed.has(tid)) targets.delete(tid);
+      }
+      let due: Date | null = null;
+      if (policy.acknowledgmentDueDays) {
+        due = new Date();
+        due.setDate(due.getDate() + (policy.acknowledgmentDueDays || 7));
+      }
+      let created = 0;
+      for (const uid of targets) {
+        const row = await storage.createPolicyAssignment({
+          policyId: policy.id,
+          userId: uid,
+          officeId: policy.officeId || null,
+          dueAt: due,
+          assignedBy: req.session?.user?.id || null,
+        } as any);
+        if (row) created++;
+      }
+      res.status(201).json({ created, total: targets.size });
+    } catch (e: any) {
+      console.error("Error assigning policy:", e);
+      res.status(500).json({ message: e?.message || "Failed to assign policy" });
+    }
+  });
+
+  app.get("/api/policy-documents/:id/assignments", isAuthenticated, requireEmployeeDirectoryAccess, async (req: any, res) => {
+    try {
+      const policy = await storage.getPolicyDocument(req.params.id);
+      if (!policy) return res.status(404).json({ message: "Policy not found" });
+      const current = (req as any).currentUser;
+      if (current?.role !== "super_admin" && policy.officeId !== current?.primaryOfficeId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      const rows = await storage.getPolicyAssignments(req.params.id);
+      res.json(rows);
+    } catch (e: any) { res.status(500).json({ message: e?.message || "Failed" }); }
+  });
+
+  app.delete("/api/policy-documents/:id/assignments/:userId", isAuthenticated, requireEmployeeDirectoryAccess, async (req: any, res) => {
+    try {
+      const policy = await storage.getPolicyDocument(req.params.id);
+      if (!policy) return res.status(404).json({ message: "Policy not found" });
+      const current = (req as any).currentUser;
+      if (current?.role !== "super_admin") {
+        if (policy.officeId !== current?.primaryOfficeId) {
+          return res.status(403).json({ message: "Access denied (cross-office policy)" });
+        }
+        const target = await storage.getUser(req.params.userId);
+        if (!target || target.primaryOfficeId !== current.primaryOfficeId) {
+          return res.status(403).json({ message: "Access denied (cross-office user)" });
+        }
+      }
+      await storage.deletePolicyAssignment(req.params.id, req.params.userId);
+      res.json({ ok: true });
+    } catch (e: any) { res.status(500).json({ message: e?.message || "Failed" }); }
+  });
+
+  // Per-employee signed-policies rollup: returns the union of policies the
+  // employee is assigned to + has acknowledged, with ack status, version &
+  // last-reminder timestamp (for UI rate-limit display).
+  app.get("/api/employees/user/:id/policy-status", isAuthenticated, requireEmployeeDocAccess, async (req: any, res) => {
+    try {
+      const userId = req.params.id;
+      const targetUser = await storage.getUser(userId);
+      if (!targetUser) return res.status(404).json({ message: "User not found" });
+      const { db } = await import("./db");
+      const { policyDocuments, policyAcknowledgments, policyAssignments, policyReminderLog } = await import("@shared/schema");
+      const { eq, desc, and, or, isNull } = await import("drizzle-orm");
+
+      const assigned = await db.select().from(policyAssignments).where(eq(policyAssignments.userId, userId));
+      const acks = await db.select().from(policyAcknowledgments).where(eq(policyAcknowledgments.userId, userId));
+      const ackByPolicy = new Map(acks.map(a => [a.policyId, a]));
+
+      // Source set = all ACTIVE policies in the user's office (so unassigned
+      // but required policies still appear as outstanding), unioned with any
+      // historical assignments/acknowledgments for completeness.
+      const activePolicies = targetUser.primaryOfficeId
+        ? await db.select().from(policyDocuments).where(and(
+            eq(policyDocuments.status, "active"),
+            eq(policyDocuments.officeId, targetUser.primaryOfficeId),
+          ))
+        : [];
+      const polById = new Map<string, typeof activePolicies[number]>();
+      for (const p of activePolicies) polById.set(p.id, p);
+
+      const extraIds = new Set<string>();
+      for (const a of assigned) if (!polById.has(a.policyId)) extraIds.add(a.policyId);
+      for (const a of acks) if (!polById.has(a.policyId)) extraIds.add(a.policyId);
+      if (extraIds.size > 0) {
+        const more = await db.select().from(policyDocuments);
+        for (const p of more) if (extraIds.has(p.id)) polById.set(p.id, p);
+      }
+      const ids = Array.from(polById.keys());
+      if (ids.length === 0) return res.json([]);
+
+      const recent = await db.select().from(policyReminderLog)
+        .where(eq(policyReminderLog.userId, userId))
+        .orderBy(desc(policyReminderLog.sentAt));
+      const lastReminderByPolicy = new Map<string, Date | null>();
+      for (const r of recent) {
+        if (!lastReminderByPolicy.has(r.policyId)) lastReminderByPolicy.set(r.policyId, r.sentAt);
+      }
+
+      const out = ids.map(pid => {
+        const p = polById.get(pid);
+        const ack = ackByPolicy.get(pid);
+        const assn = assigned.find(a => a.policyId === pid) || null;
+        const lastReminderAt = lastReminderByPolicy.get(pid) || null;
+        const recentlyReminded = !!(lastReminderAt && (Date.now() - new Date(lastReminderAt).getTime() < 24 * 60 * 60 * 1000));
+        return {
+          policyId: pid,
+          title: p?.title || "(unknown policy)",
+          category: p?.category || null,
+          version: p?.version || null,
+          status: p?.status || null,
+          dueAt: assn?.dueAt || null,
+          acknowledged: !!ack,
+          acknowledgedAt: ack?.acknowledgedAt || null,
+          ackMethod: ack?.method || null,
+          assigned: !!assn,
+          lastReminderAt,
+          recentlyReminded,
+        };
+      });
+      out.sort((a, b) => Number(a.acknowledged) - Number(b.acknowledged) || a.title.localeCompare(b.title));
+      res.json(out);
+    } catch (e: any) {
+      console.error("Error loading employee policy status:", e);
+      res.status(500).json({ message: e?.message || "Failed" });
+    }
+  });
+
+  // Send a rate-limited policy acknowledgment reminder to a user. Rate-limited
+  // to 1 per (user,policy) per 24 hours via `policy_reminder_log`.
+  app.post("/api/policy-documents/:id/remind/:userId", isAuthenticated, requireEmployeeDirectoryAccess, async (req: any, res) => {
+    try {
+      const policy = await storage.getPolicyDocument(req.params.id);
+      if (!policy) return res.status(404).json({ message: "Policy not found" });
+      const target = await storage.getUser(req.params.userId);
+      if (!target) return res.status(404).json({ message: "User not found" });
+      const current = (req as any).currentUser;
+      if (current?.role !== "super_admin") {
+        if (policy.officeId !== current?.primaryOfficeId || target.primaryOfficeId !== current.primaryOfficeId) {
+          return res.status(403).json({ message: "Access denied (cross-office)" });
+        }
+      }
+      const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+      const recent = await storage.getRecentPolicyReminders(target.id, since, policy.id);
+      if (recent.length > 0) {
+        return res.status(429).json({
+          message: "A reminder was already sent in the past 24 hours.",
+          lastSentAt: recent[0].sentAt,
+        });
+      }
+      if (!target.email) {
+        await storage.createPolicyReminder({
+          policyId: policy.id,
+          userId: target.id,
+          sentByUserId: req.session?.user?.id || null,
+          recipientEmail: null,
+          status: "failed",
+          errorMessage: "No email on file",
+        } as any);
+        return res.status(400).json({ message: "Recipient has no email on file" });
+      }
+      try {
+        const { sendTemplatedEmail } = await import("./agentmail");
+        await sendTemplatedEmail(
+          target.email,
+          "compliance_alert",
+          {
+            firstName: target.firstName || target.username || "Team member",
+            itemName: `Policy acknowledgment: ${policy.title}`,
+            expiryDate: "as soon as possible",
+            daysUntilExpiry: "0",
+          },
+          `Reminder: please acknowledge policy "${policy.title}"`,
+          `<p>Hi ${target.firstName || "there"},</p><p>You have an outstanding policy acknowledgment for <strong>${policy.title}</strong> (v${policy.version}). Please log in and acknowledge it at your earliest convenience.</p>`,
+        );
+        await storage.createPolicyReminder({
+          policyId: policy.id,
+          userId: target.id,
+          sentByUserId: req.session?.user?.id || null,
+          recipientEmail: target.email,
+          status: "sent",
+        } as any);
+        res.status(201).json({ ok: true });
+      } catch (err: any) {
+        await storage.createPolicyReminder({
+          policyId: policy.id,
+          userId: target.id,
+          sentByUserId: req.session?.user?.id || null,
+          recipientEmail: target.email,
+          status: "failed",
+          errorMessage: err?.message || "send failed",
+        } as any);
+        res.status(500).json({ message: "Failed to send reminder", error: err?.message });
+      }
+    } catch (e: any) {
+      console.error("Error sending policy reminder:", e);
+      res.status(500).json({ message: e?.message || "Failed" });
     }
   });
 

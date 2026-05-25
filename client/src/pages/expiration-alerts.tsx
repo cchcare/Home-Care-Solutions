@@ -277,6 +277,7 @@ export default function ExpirationAlerts() {
                     <SelectItem value="caregiver_compliance">Caregiver Compliance</SelectItem>
                     <SelectItem value="client_snap">Client SNAP</SelectItem>
                     <SelectItem value="client_medicaid">Client Medicaid</SelectItem>
+                    <SelectItem value="document_expiration">Document Expiration</SelectItem>
                   </SelectContent>
                 </Select>
                 <Button

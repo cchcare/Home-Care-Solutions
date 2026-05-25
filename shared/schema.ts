@@ -315,6 +315,8 @@ export const documents = pgTable("documents", {
   fileType: varchar("file_type"),
   fileSize: integer("file_size"),
   documentType: varchar("document_type"), // insurance_card, id_card, care_plan, letter_template, etc.
+  documentCategory: varchar("document_category"), // admin-editable category: id, tax_form, certification, signed_policy, performance_review, write_up, other
+  expiresAt: timestamp("expires_at"),
   templateId: varchar("template_id"), // Reference to letter template if generated from template
   isSignatureRequired: boolean("is_signature_required").default(false),
   isSigned: boolean("is_signed").default(false),
@@ -4203,6 +4205,44 @@ export const policyAcknowledgments = pgTable("policy_acknowledgments", {
 export type PolicyAcknowledgment = typeof policyAcknowledgments.$inferSelect;
 export type InsertPolicyAcknowledgment = typeof policyAcknowledgments.$inferInsert;
 export const insertPolicyAcknowledgmentSchema = createInsertSchema(policyAcknowledgments).omit({ id: true });
+
+// Policy Assignments — who is required to acknowledge a given policy
+export const policyAssignments = pgTable("policy_assignments", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  policyId: varchar("policy_id").references(() => policyDocuments.id, { onDelete: "cascade" }).notNull(),
+  userId: varchar("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  officeId: varchar("office_id").references(() => offices.id),
+  dueAt: timestamp("due_at"),
+  assignedBy: varchar("assigned_by").references(() => users.id),
+  assignedAt: timestamp("assigned_at").defaultNow(),
+}, (table) => [
+  uniqueIndex("idx_policy_assignment_unique").on(table.policyId, table.userId),
+  index("idx_policy_assignment_user").on(table.userId),
+  index("idx_policy_assignment_office").on(table.officeId),
+]);
+
+export type PolicyAssignment = typeof policyAssignments.$inferSelect;
+export type InsertPolicyAssignment = typeof policyAssignments.$inferInsert;
+export const insertPolicyAssignmentSchema = createInsertSchema(policyAssignments).omit({ id: true, assignedAt: true });
+
+// Policy reminder log — rate-limited reminder pattern (mirrors survey_reminder_log)
+export const policyReminderLog = pgTable("policy_reminder_log", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  policyId: varchar("policy_id").references(() => policyDocuments.id, { onDelete: "cascade" }).notNull(),
+  userId: varchar("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  sentByUserId: varchar("sent_by_user_id").references(() => users.id),
+  recipientEmail: varchar("recipient_email"),
+  status: varchar("status").default("sent"),
+  errorMessage: text("error_message"),
+  sentAt: timestamp("sent_at").defaultNow(),
+}, (table) => [
+  index("idx_policy_reminder_user_sent").on(table.userId, table.sentAt),
+  index("idx_policy_reminder_policy_sent").on(table.policyId, table.sentAt),
+]);
+
+export type PolicyReminderLog = typeof policyReminderLog.$inferSelect;
+export type InsertPolicyReminderLog = typeof policyReminderLog.$inferInsert;
+export const insertPolicyReminderLogSchema = createInsertSchema(policyReminderLog).omit({ id: true, sentAt: true });
 
 // ─── QAPI Meetings ────────────────────────────────────────────────────────────
 export const qapiMeetingStatusEnum = pgEnum("qapi_meeting_status", ["draft", "finalized"]);

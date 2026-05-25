@@ -47,6 +47,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { apiRequest, queryClient as qc } from "@/lib/queryClient";
+import { EmployeeDocumentsTab } from "@/components/employee-documents-tab";
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameMonth, isToday, addMonths, subMonths } from "date-fns";
 import { 
   ArrowLeft, 
@@ -2275,11 +2276,12 @@ export default function CaregiverProfile() {
 
               {activeSection === "documents" && (
                 <div className="space-y-6">
+                  <EmployeeDocumentsTab kind="caregiver" employeeId={caregiverId!} />
                   <Card>
                     <CardHeader>
                       <CardTitle className="flex items-center gap-2">
                         <FileText className="w-5 h-5" />
-                        Document Management
+                        Document Management (legacy categories)
                       </CardTitle>
                     </CardHeader>
                     <CardContent>

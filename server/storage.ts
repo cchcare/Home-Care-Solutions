@@ -6,6 +6,12 @@ import {
   surveyReminderLog,
   type SurveyReminderLog,
   type InsertSurveyReminderLog,
+  policyAssignments,
+  type PolicyAssignment,
+  type InsertPolicyAssignment,
+  policyReminderLog,
+  type PolicyReminderLog,
+  type InsertPolicyReminderLog,
   offices,
   clients,
   caregivers,
@@ -8228,6 +8234,40 @@ export class DatabaseStorage implements IStorage {
   async createPolicyAcknowledgment(ack: InsertPolicyAcknowledgment): Promise<PolicyAcknowledgment> {
     const [row] = await db.insert(policyAcknowledgments).values({ ...ack, acknowledgedAt: new Date() }).returning();
     return row;
+  }
+
+  // ─── Policy Assignments ─────────────────────────────────────────────────────
+  async getPolicyAssignments(policyId: string): Promise<PolicyAssignment[]> {
+    return db.select().from(policyAssignments).where(eq(policyAssignments.policyId, policyId));
+  }
+  async getPolicyAssignmentsByUser(userId: string): Promise<PolicyAssignment[]> {
+    return db.select().from(policyAssignments).where(eq(policyAssignments.userId, userId));
+  }
+  async createPolicyAssignment(a: InsertPolicyAssignment): Promise<PolicyAssignment> {
+    const [row] = await db.insert(policyAssignments).values(a)
+      .onConflictDoNothing({ target: [policyAssignments.policyId, policyAssignments.userId] })
+      .returning();
+    return row;
+  }
+  async deletePolicyAssignment(policyId: string, userId: string): Promise<void> {
+    await db.delete(policyAssignments).where(
+      and(eq(policyAssignments.policyId, policyId), eq(policyAssignments.userId, userId)),
+    );
+  }
+
+  // ─── Policy reminder log (rate-limit per user/day) ──────────────────────────
+  async createPolicyReminder(reminder: InsertPolicyReminderLog): Promise<PolicyReminderLog> {
+    const [row] = await db.insert(policyReminderLog).values(reminder).returning();
+    return row;
+  }
+  async getRecentPolicyReminders(userId: string, sinceDate: Date, policyId?: string): Promise<PolicyReminderLog[]> {
+    const conds = [
+      eq(policyReminderLog.userId, userId),
+      eq(policyReminderLog.status, "sent"),
+      gte(policyReminderLog.sentAt, sinceDate),
+    ];
+    if (policyId) conds.push(eq(policyReminderLog.policyId, policyId));
+    return db.select().from(policyReminderLog).where(and(...conds)).orderBy(desc(policyReminderLog.sentAt));
   }
 
   // ─── QAPI Meetings ──────────────────────────────────────────────────────────

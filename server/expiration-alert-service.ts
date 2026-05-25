@@ -1,7 +1,7 @@
 import { storage } from './storage';
 import { sendEmail, sendSMS, formatPhoneNumber, isValidPhone, isValidEmail } from './communication-services';
 import { db } from './db';
-import { caregiverCompliance, caregivers, clients, users } from '@shared/schema';
+import { caregiverCompliance, caregivers, clients, users, documents } from '@shared/schema';
 import { and, gte, lte, eq, isNotNull, sql } from 'drizzle-orm';
 import { addDays, format, differenceInDays } from 'date-fns';
 
@@ -40,7 +40,7 @@ async function getAlertSettings(): Promise<ExpirationAlertSettings> {
 
 export interface ExpiringItem {
   id: string;
-  type: 'caregiver_compliance' | 'client_snap' | 'client_medicaid';
+  type: 'caregiver_compliance' | 'client_snap' | 'client_medicaid' | 'document_expiration';
   entityId: string;
   entityName: string;
   entityEmail?: string;
@@ -142,6 +142,62 @@ export async function getUpcomingExpirations(daysAhead: number = 30): Promise<Ex
         officeId: client.officeId || undefined,
       });
     }
+  }
+
+  // Employee/client documents with expires_at (per-employee document library)
+  const docRows = await db
+    .select({
+      id: documents.id,
+      caregiverId: documents.caregiverId,
+      userId: documents.userId,
+      clientId: documents.clientId,
+      originalName: documents.originalName,
+      documentCategory: documents.documentCategory,
+      documentType: documents.documentType,
+      expiresAt: documents.expiresAt,
+      officeId: documents.officeId,
+    })
+    .from(documents)
+    .where(
+      and(
+        isNotNull(documents.expiresAt),
+        gte(documents.expiresAt, today),
+        lte(documents.expiresAt, endDate),
+      ),
+    );
+
+  for (const d of docRows) {
+    if (!d.expiresAt) continue;
+    let entityName = 'Document';
+    let entityEmail: string | undefined;
+    let entityPhone: string | undefined;
+    if (d.caregiverId) {
+      const [c] = await db.select().from(caregivers).where(eq(caregivers.id, d.caregiverId));
+      if (c) {
+        entityName = `${c.firstName || ''} ${c.lastName || ''}`.trim() || entityName;
+        entityEmail = c.email || undefined;
+        entityPhone = c.phone || undefined;
+      }
+    } else if (d.userId) {
+      const [u] = await db.select().from(users).where(eq(users.id, d.userId));
+      if (u) {
+        entityName = `${u.firstName || ''} ${u.lastName || ''}`.trim() || u.username || entityName;
+        entityEmail = u.email || undefined;
+      }
+    }
+    expiringItems.push({
+      id: `doc-${d.id}`,
+      type: 'document_expiration',
+      entityId: d.caregiverId || d.userId || d.clientId || d.id,
+      entityName,
+      entityEmail,
+      entityPhone,
+      itemType: d.documentCategory || d.documentType || 'document',
+      itemDescription: `Document: ${d.originalName || 'Untitled'}`,
+      expirationDate: d.expiresAt,
+      daysUntilExpiration: differenceInDays(d.expiresAt, today),
+      officeId: d.officeId || undefined,
+    });
   }
 
   expiringItems.sort((a, b) => a.daysUntilExpiration - b.daysUntilExpiration);
