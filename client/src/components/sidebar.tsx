@@ -73,6 +73,8 @@ import {
   Receipt,
   CalendarClock,
   UserCircle,
+  HeartPulse,
+  CalendarRange,
 } from "lucide-react";
 
 interface NavItem {
@@ -130,6 +132,7 @@ export function Sidebar() {
       { name: "My Offboarding", href: "/my-offboarding", icon: ClipboardList },
       { name: "My Compliance", href: "/my-compliance", icon: Shield },
       { name: "Forms & Documents", href: "/my-documents", icon: FileText },
+      { name: "My Benefits", href: "/my-benefits", icon: HeartPulse },
       { name: "Communication", href: "/my-communication", icon: MessageSquare },
       { name: "Support Tickets", href: "/my-support-tickets", icon: Ticket },
       { name: "Help & Support", href: "/support-center", icon: HelpCircle, external: true },
@@ -261,6 +264,9 @@ export function Sidebar() {
           { name: "Hours Calculator", href: "/payroll-hours-calculator", icon: Calculator },
           { name: "Visit Hours Difference", href: "/visit-hours-difference", icon: GitCompareArrows },
           { name: "PTO Balances", href: "/pto-balances", icon: Calculator },
+          { name: "Benefit Plans", href: "/benefits/plans", icon: HeartPulse },
+          { name: "Enrollment Windows", href: "/benefits/windows", icon: CalendarRange },
+          { name: "Benefits Enrollments", href: "/benefits/enrollments", icon: ClipboardList },
         ]
       },
       {

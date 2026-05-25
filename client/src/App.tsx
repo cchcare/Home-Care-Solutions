@@ -33,6 +33,10 @@ import AccountSettings from "@/pages/account-settings";
 import AdminSettings from "@/pages/admin-settings";
 import BillingPayroll from "@/pages/billing-payroll";
 import PtoBalances from "@/pages/pto-balances";
+import BenefitsPlans from "@/pages/benefits-plans";
+import BenefitsWindows from "@/pages/benefits-windows";
+import BenefitsEnrollments from "@/pages/benefits-enrollments";
+import MyBenefits from "@/pages/my-benefits";
 import AIAssistant from "@/pages/ai-assistant";
 import ResetPassword from "@/pages/reset-password";
 import PrivacyPolicy from "@/pages/privacy-policy";
@@ -204,6 +208,10 @@ function Router() {
           <Route path="/expiration-alerts" component={ExpirationAlerts} />
           <Route path="/payroll" component={PayrollHub} />
           <Route path="/pto-balances" component={PtoBalances} />
+          <Route path="/benefits/plans" component={BenefitsPlans} />
+          <Route path="/benefits/windows" component={BenefitsWindows} />
+          <Route path="/benefits/enrollments" component={BenefitsEnrollments} />
+          <Route path="/my-benefits" component={MyBenefits} />
           <Route path="/api-keys" component={ApiKeys} />
           <Route path="/shift-swap-requests" component={ShiftSwapRequests} />
           <Route path="/staff-time-tracking" component={StaffTimeTracking} />

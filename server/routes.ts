@@ -13847,6 +13847,532 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ============================================
+  // BENEFITS ENROLLMENT (Task 138)
+  // ============================================
+  const benefitTierLabels: Record<string, string> = {
+    employee: "Employee Only",
+    employee_spouse: "Employee + Spouse",
+    employee_children: "Employee + Children",
+    employee_family: "Employee + Family",
+    waived: "Waived",
+  };
+
+  const buildEnrollmentPdf = async (params: {
+    employee: any;
+    elections: Array<{ plan: any; tier: string; rate?: any; dependents: any[] }>;
+    signedName: string;
+    signedAt: Date;
+    windowName: string;
+  }) => {
+    return await new Promise<Buffer>((resolve, reject) => {
+      try {
+        const doc = new PDFDocument({ margin: 50 });
+        const chunks: Buffer[] = [];
+        doc.on("data", (c: Buffer) => chunks.push(c));
+        doc.on("end", () => resolve(Buffer.concat(chunks)));
+        doc.on("error", reject);
+
+        doc.fontSize(20).text("Benefits Enrollment Summary", { align: "center" });
+        doc.moveDown(0.5);
+        doc.fontSize(11).fillColor("#555").text(params.windowName, { align: "center" }).fillColor("black");
+        doc.moveDown(1);
+
+        const employeeName = `${params.employee?.firstName || ""} ${params.employee?.lastName || ""}`.trim() || params.employee?.email || params.employee?.id;
+        doc.fontSize(12).text(`Employee: ${employeeName}`);
+        doc.text(`Email: ${params.employee?.email || "—"}`);
+        doc.text(`Signed: ${params.signedAt.toLocaleString()}`);
+        doc.moveDown();
+
+        for (const el of params.elections) {
+          doc.fontSize(13).fillColor("#1f2937").text(`${(el.plan.benefitType || "").replace(/_/g, " ").toUpperCase()} — ${el.plan.carrier}`);
+          doc.fontSize(11).fillColor("black").text(`Plan: ${el.plan.planName}`);
+          doc.text(`Coverage: ${benefitTierLabels[el.tier] || el.tier}`);
+          if (el.rate) {
+            doc.text(`Employee cost: $${Number(el.rate.employeeCostPerPayPeriod).toFixed(2)} per pay period`);
+            if (el.rate.employerCostPerPayPeriod) {
+              doc.text(`Employer cost: $${Number(el.rate.employerCostPerPayPeriod).toFixed(2)} per pay period`);
+            }
+          }
+          if (el.dependents?.length) {
+            doc.text("Dependents:");
+            for (const d of el.dependents) {
+              doc.text(`  • ${d.firstName} ${d.lastName} (${d.relationship}${d.dateOfBirth ? `, DOB ${d.dateOfBirth}` : ""})`);
+            }
+          }
+          doc.moveDown(0.6);
+        }
+
+        doc.moveDown();
+        doc.fontSize(11).text("Acknowledgement", { underline: true });
+        doc.fontSize(10).text(
+          `I, ${params.signedName}, have reviewed and confirm my benefit elections above. ` +
+          `I understand these elections are binding through the plan year unless I experience a qualifying life event.`
+        );
+        doc.moveDown(0.5);
+        doc.fontSize(11).text(`Electronic signature: ${params.signedName}`);
+        doc.fontSize(9).fillColor("#666").text(`Signed at: ${params.signedAt.toISOString()}`);
+
+        doc.end();
+      } catch (err) {
+        reject(err);
+      }
+    });
+  };
+
+  // Helper: assert plan belongs to caller's org (or is null/global for super_admin)
+  const assertPlanInOrg = async (planId: string, orgId: string | null, isSuper: boolean) => {
+    const plan = await storage.getBenefitPlan(planId);
+    if (!plan) return { ok: false as const, status: 404, msg: "Plan not found" };
+    if (!isSuper && plan.organizationId && plan.organizationId !== orgId) {
+      return { ok: false as const, status: 403, msg: "Plan belongs to another organization" };
+    }
+    return { ok: true as const, plan };
+  };
+
+  // Plans
+  app.get("/api/benefit-plans", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      const orgId = (user as any)?.organizationId ?? null;
+      const { officeId, benefitType, activeOnly } = req.query as any;
+      const plans = await storage.listBenefitPlans({
+        organizationId: user?.role === "super_admin" ? undefined : orgId,
+        officeId: officeId || undefined,
+        benefitType: benefitType || undefined,
+        activeOnly: activeOnly === "true" || activeOnly === true,
+      });
+      res.json(plans);
+    } catch (e: any) { res.status(500).json({ message: e.message || "Failed" }); }
+  });
+
+  app.post("/api/benefit-plans", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      if (!isAdminRole(user?.role)) return res.status(403).json({ message: "Admin access required" });
+      const body = { ...req.body };
+      ["officeId", "planYear", "effectiveTo", "description"].forEach(k => { if (body[k] === "") body[k] = null; });
+      body.organizationId = (user as any)?.organizationId ?? null;
+      const created = await storage.createBenefitPlan(body);
+      res.status(201).json(created);
+    } catch (e: any) { res.status(400).json({ message: e.message || "Failed" }); }
+  });
+
+  app.put("/api/benefit-plans/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      if (!isAdminRole(user?.role)) return res.status(403).json({ message: "Admin access required" });
+      const orgId = (user as any)?.organizationId ?? null;
+      const check = await assertPlanInOrg(req.params.id, orgId, user?.role === "super_admin");
+      if (!check.ok) return res.status(check.status).json({ message: check.msg });
+      const body = { ...req.body };
+      ["officeId", "planYear", "effectiveTo", "description"].forEach(k => { if (body[k] === "") body[k] = null; });
+      delete body.organizationId; // immutable from client
+      const updated = await storage.updateBenefitPlan(req.params.id, body);
+      res.json(updated);
+    } catch (e: any) { res.status(400).json({ message: e.message || "Failed" }); }
+  });
+
+  app.delete("/api/benefit-plans/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      if (!isAdminRole(user?.role)) return res.status(403).json({ message: "Admin access required" });
+      const orgId = (user as any)?.organizationId ?? null;
+      const check = await assertPlanInOrg(req.params.id, orgId, user?.role === "super_admin");
+      if (!check.ok) return res.status(check.status).json({ message: check.msg });
+      await storage.deleteBenefitPlan(req.params.id);
+      res.json({ success: true });
+    } catch (e: any) { res.status(400).json({ message: e.message || "Failed" }); }
+  });
+
+  // Plan rates (per plan)
+  app.get("/api/benefit-plans/:id/rates", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      const orgId = (user as any)?.organizationId ?? null;
+      const check = await assertPlanInOrg(req.params.id, orgId, user?.role === "super_admin");
+      if (!check.ok) return res.status(check.status).json({ message: check.msg });
+      const rates = await storage.listBenefitPlanRates(req.params.id);
+      res.json(rates);
+    } catch (e: any) { res.status(500).json({ message: e.message || "Failed" }); }
+  });
+
+  app.put("/api/benefit-plans/:id/rates/:tier", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      if (!isAdminRole(user?.role)) return res.status(403).json({ message: "Admin access required" });
+      const orgId = (user as any)?.organizationId ?? null;
+      const check = await assertPlanInOrg(req.params.id, orgId, user?.role === "super_admin");
+      if (!check.ok) return res.status(check.status).json({ message: check.msg });
+      const data = {
+        planId: req.params.id,
+        tier: req.params.tier,
+        employeeCostPerPayPeriod: String(req.body.employeeCostPerPayPeriod ?? "0"),
+        employerCostPerPayPeriod: String(req.body.employerCostPerPayPeriod ?? "0"),
+        payPeriodsPerYear: Number(req.body.payPeriodsPerYear ?? 26),
+      } as any;
+      const r = await storage.upsertBenefitPlanRate(data);
+      res.json(r);
+    } catch (e: any) { res.status(400).json({ message: e.message || "Failed" }); }
+  });
+
+  app.delete("/api/benefit-plans/:id/rates/:rateId", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      if (!isAdminRole(user?.role)) return res.status(403).json({ message: "Admin access required" });
+      const orgId = (user as any)?.organizationId ?? null;
+      const check = await assertPlanInOrg(req.params.id, orgId, user?.role === "super_admin");
+      if (!check.ok) return res.status(check.status).json({ message: check.msg });
+      await storage.deleteBenefitPlanRate(req.params.rateId);
+      res.json({ success: true });
+    } catch (e: any) { res.status(400).json({ message: e.message || "Failed" }); }
+  });
+
+  // Helper: assert window belongs to caller's org (allows null = global only for super_admin)
+  const assertWindowInOrg = async (windowId: string, orgId: string | null, isSuper: boolean) => {
+    const w = await storage.getEnrollmentWindow(windowId);
+    if (!w) return { ok: false as const, status: 404, msg: "Window not found" };
+    if (!isSuper && w.organizationId && w.organizationId !== orgId) {
+      return { ok: false as const, status: 403, msg: "Window belongs to another organization" };
+    }
+    return { ok: true as const, window: w };
+  };
+
+  // Enrollment windows — non-admins only see org-wide or their own windows
+  app.get("/api/enrollment-windows", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      const orgId = (user as any)?.organizationId ?? null;
+      const { employeeUserId, activeOnly } = req.query as any;
+      const filters: any = {
+        activeOnly: activeOnly === "true" || activeOnly === true,
+        organizationId: user?.role === "super_admin" ? undefined : orgId,
+      };
+      if (!isAdminRole(user?.role)) {
+        // Force scope to org-wide + this user's own windows
+        filters.employeeUserId = user?.id;
+      } else {
+        if (employeeUserId === "null") filters.employeeUserId = null;
+        else if (employeeUserId) filters.employeeUserId = employeeUserId;
+      }
+      const rows = await storage.listEnrollmentWindows(filters);
+      res.json(rows);
+    } catch (e: any) { res.status(500).json({ message: e.message || "Failed" }); }
+  });
+
+  app.post("/api/enrollment-windows", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      if (!isAdminRole(user?.role)) return res.status(403).json({ message: "Admin access required" });
+      const body = { ...req.body, createdBy: user?.id };
+      ["employeeUserId", "reasonCode", "coverageEffectiveDate", "notes"].forEach(k => { if (body[k] === "") body[k] = null; });
+      body.organizationId = (user as any)?.organizationId ?? null;
+      // If targeting a specific employee, ensure they are in the same org
+      if (body.employeeUserId && user?.role !== "super_admin") {
+        const targetEmp = await storage.getUser(body.employeeUserId);
+        if (!targetEmp || (targetEmp as any).organizationId !== body.organizationId) {
+          return res.status(403).json({ message: "Employee belongs to another organization" });
+        }
+      }
+      const created = await storage.createEnrollmentWindow(body);
+      res.status(201).json(created);
+    } catch (e: any) { res.status(400).json({ message: e.message || "Failed" }); }
+  });
+
+  app.put("/api/enrollment-windows/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      if (!isAdminRole(user?.role)) return res.status(403).json({ message: "Admin access required" });
+      const orgId = (user as any)?.organizationId ?? null;
+      const check = await assertWindowInOrg(req.params.id, orgId, user?.role === "super_admin");
+      if (!check.ok) return res.status(check.status).json({ message: check.msg });
+      const body = { ...req.body };
+      ["employeeUserId", "reasonCode", "coverageEffectiveDate", "notes"].forEach(k => { if (body[k] === "") body[k] = null; });
+      delete body.organizationId;
+      const updated = await storage.updateEnrollmentWindow(req.params.id, body);
+      res.json(updated);
+    } catch (e: any) { res.status(400).json({ message: e.message || "Failed" }); }
+  });
+
+  app.delete("/api/enrollment-windows/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      if (!isAdminRole(user?.role)) return res.status(403).json({ message: "Admin access required" });
+      const orgId = (user as any)?.organizationId ?? null;
+      const check = await assertWindowInOrg(req.params.id, orgId, user?.role === "super_admin");
+      if (!check.ok) return res.status(check.status).json({ message: check.msg });
+      await storage.deleteEnrollmentWindow(req.params.id);
+      res.json({ success: true });
+    } catch (e: any) { res.status(400).json({ message: e.message || "Failed" }); }
+  });
+
+  // Employee self-service: My Benefits
+  app.get("/api/my-benefits", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      if (!user?.id) return res.status(401).json({ message: "Unauthorized" });
+      const userId = user.id;
+      const orgId = (user as any)?.organizationId ?? null;
+      const todayStr = new Date().toISOString().slice(0, 10);
+      const allWindows = await storage.listEnrollmentWindows({ organizationId: orgId, employeeUserId: userId });
+      const myWindows = allWindows;
+      const activeWindow = myWindows.find(w => w.startsAt <= todayStr && w.endsAt >= todayStr) || null;
+      const myEnrollments = await storage.listBenefitEnrollments({ employeeUserId: userId, organizationId: orgId });
+      const enriched = await Promise.all(myEnrollments.map(async (e) => {
+        const deps = await storage.listBenefitDependents(e.id);
+        const plan = e.planId ? await storage.getBenefitPlan(e.planId) : null;
+        return { ...e, dependents: deps, plan };
+      }));
+      const plans = await storage.listBenefitPlans({ organizationId: orgId, activeOnly: true });
+      const plansWithRates = await Promise.all(plans.map(async (p) => {
+        const rates = await storage.listBenefitPlanRates(p.id);
+        return { ...p, rates };
+      }));
+      res.json({ activeWindow, windows: myWindows, enrollments: enriched, plans: plansWithRates });
+    } catch (e: any) { res.status(500).json({ message: e.message || "Failed" }); }
+  });
+
+  // Submit/update enrollment elections — wizard final step
+  app.post("/api/my-benefits/submit", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      if (!user?.id) return res.status(401).json({ message: "Unauthorized" });
+      const { windowId, elections, signedName } = req.body as {
+        windowId: string;
+        signedName: string;
+        elections: Array<{ planId?: string | null; benefitType?: string; tier: string; dependents?: Array<any>; notes?: string }>;
+      };
+      if (!windowId || !signedName || !Array.isArray(elections) || elections.length === 0) {
+        return res.status(400).json({ message: "windowId, signedName, and elections are required" });
+      }
+      const window = await storage.getEnrollmentWindow(windowId);
+      if (!window) return res.status(404).json({ message: "Enrollment window not found" });
+      const todayStr = new Date().toISOString().slice(0, 10);
+      if (window.startsAt > todayStr || window.endsAt < todayStr) {
+        return res.status(400).json({ message: "Enrollment window is not active" });
+      }
+      if (window.employeeUserId && window.employeeUserId !== user.id) {
+        return res.status(403).json({ message: "This enrollment window is not for you" });
+      }
+      const callerOrgId = (user as any)?.organizationId ?? null;
+      if (window.organizationId && window.organizationId !== callerOrgId) {
+        return res.status(403).json({ message: "Enrollment window belongs to another organization" });
+      }
+
+      // Resolve plan + benefitType for each election (waived may omit planId, but must have benefitType)
+      const resolved: Array<{ benefitType: string; planId: string | null; plan: any | null; tier: string; dependents: any[]; notes?: string }> = [];
+      const seenTypes = new Set<string>();
+      for (const el of elections) {
+        let plan: any = null;
+        let benefitType = el.benefitType || null;
+        if (el.planId) {
+          plan = await storage.getBenefitPlan(el.planId);
+          if (!plan) return res.status(400).json({ message: `Unknown plan: ${el.planId}` });
+          if (!plan.isActive) return res.status(400).json({ message: `Plan is not active: ${plan.planName}` });
+          if (plan.organizationId && plan.organizationId !== callerOrgId) {
+            return res.status(403).json({ message: `Plan belongs to another organization: ${plan.planName}` });
+          }
+          benefitType = plan.benefitType;
+        }
+        if (!benefitType) {
+          return res.status(400).json({ message: "Each election must include a planId or a benefitType (for waived)" });
+        }
+        if (el.tier !== "waived" && !el.planId) {
+          return res.status(400).json({ message: `Election for ${benefitType} must include a plan unless waived` });
+        }
+        if (el.tier === "waived" && el.planId) {
+          // Waived means no plan — ignore any incoming planId
+          plan = null;
+        }
+        if (seenTypes.has(benefitType)) {
+          return res.status(400).json({ message: `Only one election allowed per benefit type (${benefitType})` });
+        }
+        seenTypes.add(benefitType);
+        resolved.push({
+          benefitType,
+          planId: el.tier === "waived" ? null : el.planId!,
+          plan,
+          tier: el.tier,
+          dependents: (el.dependents || []).filter(d => d.firstName && d.lastName && d.relationship),
+          notes: el.notes,
+        });
+      }
+
+      const signedAt = new Date();
+      const signatureIp = (req.headers["x-forwarded-for"] as string)?.split(",")[0] || req.socket?.remoteAddress || null;
+      const orgId = (user as any)?.organizationId || null;
+
+      // Replace existing elections for this employee+window for any of these benefit types
+      const existingForWindow = await storage.listBenefitEnrollments({ employeeUserId: user.id, windowId });
+      for (const existing of existingForWindow) {
+        if (seenTypes.has((existing as any).benefitType)) {
+          await storage.deleteBenefitEnrollment(existing.id);
+        }
+      }
+
+      const created: any[] = [];
+      for (const r of resolved) {
+        const payload: any = {
+          organizationId: orgId,
+          employeeUserId: user.id,
+          windowId,
+          benefitType: r.benefitType,
+          planId: r.planId,
+          tier: r.tier,
+          status: r.tier === "waived" ? "waived" : "submitted",
+          coverageEffectiveDate: window.coverageEffectiveDate || null,
+          signedName,
+          signedAt,
+          signatureIp,
+          notes: r.notes || null,
+        };
+        const enrollment = await storage.createBenefitEnrollment(payload);
+        await storage.replaceBenefitDependents(enrollment.id, r.dependents.map(d => ({
+          enrollmentId: enrollment.id,
+          firstName: d.firstName,
+          lastName: d.lastName,
+          relationship: d.relationship,
+          dateOfBirth: d.dateOfBirth || null,
+          ssnLast4: d.ssnLast4 || null,
+          gender: d.gender || null,
+        })));
+        created.push({ ...enrollment, dependents: r.dependents, plan: r.plan });
+      }
+
+      // Required: generate signed PDF and store as employee document. If this fails, fail the whole submit.
+      const employee = await storage.getUser(user.id);
+      const pdfElections = await Promise.all(
+        created.filter(e => e.tier !== "waived" && e.plan).map(async (e) => {
+          const rates = await storage.listBenefitPlanRates(e.planId);
+          const rate = rates.find(rt => rt.tier === e.tier);
+          return { plan: e.plan, tier: e.tier, rate, dependents: e.dependents || [] };
+        })
+      );
+      const pdfBuf = await buildEnrollmentPdf({
+        employee, elections: pdfElections, signedName, signedAt, windowName: window.name,
+      });
+      const filename = `benefits-enrollment-${user.id}-${signedAt.getTime()}.pdf`;
+      const filePath = path.join("uploads", filename);
+      fs.writeFileSync(filePath, pdfBuf);
+      if (isS3Enabled()) {
+        const s3Key = getS3KeyForFile(filename, "uploads");
+        await uploadFileToS3(filePath, s3Key, "application/pdf");
+        fs.unlinkSync(filePath);
+      }
+      const encryptionKey = crypto.randomBytes(32).toString("hex");
+      const doc = await storage.createDocument({
+        userId: user.id,
+        uploadedBy: user.id,
+        officeId: (user as any)?.officeId || null,
+        fileName: filename,
+        originalName: `Benefits Enrollment Summary - ${window.name}.pdf`,
+        fileType: "application/pdf",
+        fileSize: pdfBuf.length,
+        documentType: "benefits_enrollment",
+        documentCategory: "benefits_enrollment",
+        isSigned: true,
+        signedBy: user.id,
+        signedAt,
+        encryptionKey,
+      } as any);
+      for (const e of created) {
+        await storage.updateBenefitEnrollment(e.id, { documentId: doc.id } as any);
+      }
+
+      res.json({ success: true, count: created.length, documentId: doc.id });
+    } catch (e: any) {
+      console.error("submit benefits error:", e);
+      res.status(400).json({ message: e.message || "Failed to submit elections" });
+    }
+  });
+
+  // Admin enrollments dashboard
+  app.get("/api/benefit-enrollments", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      if (!isAdminRole(user?.role)) return res.status(403).json({ message: "Admin access required" });
+      const orgId = (user as any)?.organizationId ?? null;
+      const { windowId, status, employeeUserId } = req.query as any;
+      const rows = await storage.listBenefitEnrollments({
+        organizationId: user?.role === "super_admin" ? undefined : orgId,
+        windowId: windowId || undefined,
+        status: status || undefined,
+        employeeUserId: employeeUserId || undefined,
+      });
+      // Enrich with plan + employee name + dependents count
+      const enriched = await Promise.all(rows.map(async (e) => {
+        const plan = e.planId ? await storage.getBenefitPlan(e.planId) : null;
+        const window = await storage.getEnrollmentWindow(e.windowId);
+        const employee = await storage.getUser(e.employeeUserId);
+        const deps = await storage.listBenefitDependents(e.id);
+        return {
+          ...e,
+          planName: plan?.planName || (e.tier === "waived" ? "— Waived —" : null),
+          carrier: plan?.carrier || null,
+          benefitType: (e as any).benefitType || plan?.benefitType,
+          windowName: window?.name,
+          windowType: window?.windowType,
+          employeeName: `${employee?.firstName || ""} ${employee?.lastName || ""}`.trim() || employee?.email || e.employeeUserId,
+          employeeEmail: employee?.email,
+          dependentCount: deps.length,
+        };
+      }));
+      res.json(enriched);
+    } catch (e: any) { res.status(500).json({ message: e.message || "Failed" }); }
+  });
+
+  // CSV export for broker
+  app.get("/api/benefit-enrollments/export.csv", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      if (!isAdminRole(user?.role)) return res.status(403).json({ message: "Admin access required" });
+      const orgId = (user as any)?.organizationId ?? null;
+      const { windowId, status } = req.query as any;
+      const rows = await storage.listBenefitEnrollments({
+        organizationId: user?.role === "super_admin" ? undefined : orgId,
+        windowId: windowId || undefined,
+        status: status || undefined,
+      });
+      const lines: string[] = [];
+      lines.push([
+        "Employee Name", "Employee Email", "Window", "Window Type", "Benefit Type", "Carrier", "Plan",
+        "Coverage Tier", "Status", "Coverage Effective Date", "Signed Name", "Signed At",
+        "Dependents (count)", "Dependent Details",
+      ].join(","));
+      const esc = (v: any) => {
+        if (v === null || v === undefined) return "";
+        const s = String(v);
+        return /[,"\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+      };
+      for (const e of rows) {
+        const plan = e.planId ? await storage.getBenefitPlan(e.planId) : null;
+        const window = await storage.getEnrollmentWindow(e.windowId);
+        const employee = await storage.getUser(e.employeeUserId);
+        const deps = await storage.listBenefitDependents(e.id);
+        const depDetails = deps.map(d => `${d.firstName} ${d.lastName} (${d.relationship}${d.dateOfBirth ? `, DOB ${d.dateOfBirth}` : ""})`).join("; ");
+        lines.push([
+          `${employee?.firstName || ""} ${employee?.lastName || ""}`.trim(),
+          employee?.email || "",
+          window?.name || "",
+          window?.windowType || "",
+          (e as any).benefitType || plan?.benefitType || "",
+          plan?.carrier || "",
+          plan?.planName || (e.tier === "waived" ? "Waived" : ""),
+          benefitTierLabels[e.tier] || e.tier,
+          e.status,
+          e.coverageEffectiveDate || "",
+          e.signedName || "",
+          e.signedAt ? new Date(e.signedAt).toISOString() : "",
+          deps.length,
+          depDetails,
+        ].map(esc).join(","));
+      }
+      res.setHeader("Content-Type", "text/csv");
+      res.setHeader("Content-Disposition", `attachment; filename="benefits-enrollments-${new Date().toISOString().slice(0,10)}.csv"`);
+      res.send(lines.join("\n"));
+    } catch (e: any) { res.status(500).json({ message: e.message || "Failed" }); }
+  });
+
   // Ledger for one caregiver (admin or the caregiver themselves)
   app.get("/api/caregivers/:id/pto-ledger", isAuthenticated, async (req: any, res) => {
     try {

@@ -4762,3 +4762,135 @@ export const insertOffboardingInstanceSchema = createInsertSchema(offboardingIns
 export type OffboardingInstanceStep = typeof offboardingInstanceSteps.$inferSelect;
 export type InsertOffboardingInstanceStep = typeof offboardingInstanceSteps.$inferInsert;
 export const insertOffboardingInstanceStepSchema = createInsertSchema(offboardingInstanceSteps).omit({ id: true, createdAt: true, completedAt: true });
+
+// ==================== BENEFITS ENROLLMENT (Task 138) ====================
+
+export const benefitTypeEnum = pgEnum("benefit_type", [
+  "health", "dental", "vision", "life", "disability", "retirement_401k", "fsa", "hsa", "other",
+]);
+
+export const benefitTierEnum = pgEnum("benefit_tier", [
+  "employee", "employee_spouse", "employee_children", "employee_family", "waived",
+]);
+
+export const enrollmentWindowTypeEnum = pgEnum("enrollment_window_type", [
+  "open_enrollment", "new_hire", "qualifying_life_event",
+]);
+
+export const benefitEnrollmentStatusEnum = pgEnum("benefit_enrollment_status", [
+  "draft", "submitted", "waived", "cancelled",
+]);
+
+export const benefitDependentRelationshipEnum = pgEnum("benefit_dependent_relationship", [
+  "spouse", "domestic_partner", "child", "stepchild", "other",
+]);
+
+export const benefitPlans = pgTable("benefit_plans", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id"),
+  officeId: varchar("office_id").references(() => offices.id),
+  carrier: varchar("carrier").notNull(),
+  planName: varchar("plan_name").notNull(),
+  benefitType: benefitTypeEnum("benefit_type").notNull(),
+  planYear: integer("plan_year"),
+  effectiveFrom: date("effective_from").notNull(),
+  effectiveTo: date("effective_to"),
+  description: text("description"),
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_benefit_plans_org").on(table.organizationId),
+  index("idx_benefit_plans_office").on(table.officeId),
+  index("idx_benefit_plans_type").on(table.benefitType),
+]);
+
+export type BenefitPlan = typeof benefitPlans.$inferSelect;
+export type InsertBenefitPlan = typeof benefitPlans.$inferInsert;
+export const insertBenefitPlanSchema = createInsertSchema(benefitPlans).omit({ id: true, createdAt: true, updatedAt: true });
+
+export const benefitPlanRates = pgTable("benefit_plan_rates", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  planId: varchar("plan_id").references(() => benefitPlans.id, { onDelete: "cascade" }).notNull(),
+  tier: benefitTierEnum("tier").notNull(),
+  employeeCostPerPayPeriod: numeric("employee_cost_per_pay_period", { precision: 10, scale: 2 }).notNull(),
+  employerCostPerPayPeriod: numeric("employer_cost_per_pay_period", { precision: 10, scale: 2 }).default("0"),
+  payPeriodsPerYear: integer("pay_periods_per_year").default(26),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_benefit_plan_rates_plan").on(table.planId),
+  uniqueIndex("uq_benefit_plan_rates_plan_tier").on(table.planId, table.tier),
+]);
+
+export type BenefitPlanRate = typeof benefitPlanRates.$inferSelect;
+export type InsertBenefitPlanRate = typeof benefitPlanRates.$inferInsert;
+export const insertBenefitPlanRateSchema = createInsertSchema(benefitPlanRates).omit({ id: true, createdAt: true });
+
+export const enrollmentWindows = pgTable("enrollment_windows", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id"),
+  name: varchar("name").notNull(),
+  windowType: enrollmentWindowTypeEnum("window_type").notNull().default("open_enrollment"),
+  employeeUserId: varchar("employee_user_id").references(() => users.id),
+  reasonCode: varchar("reason_code"),
+  startsAt: date("starts_at").notNull(),
+  endsAt: date("ends_at").notNull(),
+  coverageEffectiveDate: date("coverage_effective_date"),
+  notes: text("notes"),
+  createdBy: varchar("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_enrollment_windows_org").on(table.organizationId),
+  index("idx_enrollment_windows_employee").on(table.employeeUserId),
+  index("idx_enrollment_windows_dates").on(table.startsAt, table.endsAt),
+]);
+
+export type EnrollmentWindow = typeof enrollmentWindows.$inferSelect;
+export type InsertEnrollmentWindow = typeof enrollmentWindows.$inferInsert;
+export const insertEnrollmentWindowSchema = createInsertSchema(enrollmentWindows).omit({ id: true, createdAt: true });
+
+export const benefitEnrollments = pgTable("benefit_enrollments", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id"),
+  employeeUserId: varchar("employee_user_id").references(() => users.id).notNull(),
+  windowId: varchar("window_id").references(() => enrollmentWindows.id).notNull(),
+  benefitType: benefitTypeEnum("benefit_type").notNull(),
+  planId: varchar("plan_id").references(() => benefitPlans.id),
+  tier: benefitTierEnum("tier").notNull(),
+  status: benefitEnrollmentStatusEnum("status").notNull().default("draft"),
+  coverageEffectiveDate: date("coverage_effective_date"),
+  signedName: varchar("signed_name"),
+  signedAt: timestamp("signed_at"),
+  signatureIp: varchar("signature_ip"),
+  documentId: varchar("document_id").references(() => documents.id),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_benefit_enrollments_employee").on(table.employeeUserId),
+  index("idx_benefit_enrollments_window").on(table.windowId),
+  index("idx_benefit_enrollments_plan").on(table.planId),
+  uniqueIndex("uq_benefit_enrollments_emp_window_type").on(table.employeeUserId, table.windowId, table.benefitType),
+]);
+
+export type BenefitEnrollment = typeof benefitEnrollments.$inferSelect;
+export type InsertBenefitEnrollment = typeof benefitEnrollments.$inferInsert;
+export const insertBenefitEnrollmentSchema = createInsertSchema(benefitEnrollments).omit({ id: true, createdAt: true, updatedAt: true });
+
+export const benefitDependents = pgTable("benefit_dependents", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  enrollmentId: varchar("enrollment_id").references(() => benefitEnrollments.id, { onDelete: "cascade" }).notNull(),
+  firstName: varchar("first_name").notNull(),
+  lastName: varchar("last_name").notNull(),
+  relationship: benefitDependentRelationshipEnum("relationship").notNull(),
+  dateOfBirth: date("date_of_birth"),
+  ssnLast4: varchar("ssn_last4"),
+  gender: varchar("gender"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_benefit_dependents_enrollment").on(table.enrollmentId),
+]);
+
+export type BenefitDependent = typeof benefitDependents.$inferSelect;
+export type InsertBenefitDependent = typeof benefitDependents.$inferInsert;
+export const insertBenefitDependentSchema = createInsertSchema(benefitDependents).omit({ id: true, createdAt: true });

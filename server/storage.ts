@@ -408,6 +408,21 @@ import {
   clientSurveyResponses,
   type ClientSurveyResponse,
   type InsertClientSurveyResponse,
+  benefitPlans,
+  type BenefitPlan,
+  type InsertBenefitPlan,
+  benefitPlanRates,
+  type BenefitPlanRate,
+  type InsertBenefitPlanRate,
+  enrollmentWindows,
+  type EnrollmentWindow,
+  type InsertEnrollmentWindow,
+  benefitEnrollments,
+  type BenefitEnrollment,
+  type InsertBenefitEnrollment,
+  benefitDependents,
+  type BenefitDependent,
+  type InsertBenefitDependent,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, asc, and, or, count, sql, like, gte, lte, inArray, isNull, ne, type SQL } from "drizzle-orm";
@@ -8815,6 +8830,132 @@ export class DatabaseStorage implements IStorage {
   async createClientSurveyResponse(response: InsertClientSurveyResponse): Promise<ClientSurveyResponse> {
     const [row] = await db.insert(clientSurveyResponses).values(response).returning();
     return row;
+  }
+
+  // ==================== BENEFITS ENROLLMENT (Task 138) ====================
+  async listBenefitPlans(filters?: { organizationId?: string | null; officeId?: string; benefitType?: string; activeOnly?: boolean }): Promise<BenefitPlan[]> {
+    const conds: SQL[] = [];
+    if (filters?.organizationId !== undefined) {
+      conds.push(filters.organizationId === null
+        ? isNull(benefitPlans.organizationId)
+        : or(eq(benefitPlans.organizationId, filters.organizationId), isNull(benefitPlans.organizationId))!);
+    }
+    if (filters?.officeId) conds.push(eq(benefitPlans.officeId, filters.officeId));
+    if (filters?.benefitType) conds.push(eq(benefitPlans.benefitType, filters.benefitType as any));
+    if (filters?.activeOnly) conds.push(eq(benefitPlans.isActive, true));
+    const q = db.select().from(benefitPlans);
+    const rows = conds.length ? await q.where(and(...conds)).orderBy(asc(benefitPlans.benefitType), asc(benefitPlans.planName)) : await q.orderBy(asc(benefitPlans.benefitType), asc(benefitPlans.planName));
+    return rows;
+  }
+  async getBenefitPlan(id: string): Promise<BenefitPlan | undefined> {
+    const [r] = await db.select().from(benefitPlans).where(eq(benefitPlans.id, id));
+    return r;
+  }
+  async createBenefitPlan(data: InsertBenefitPlan): Promise<BenefitPlan> {
+    const [r] = await db.insert(benefitPlans).values(data).returning();
+    return r;
+  }
+  async updateBenefitPlan(id: string, data: Partial<InsertBenefitPlan>): Promise<BenefitPlan> {
+    const [r] = await db.update(benefitPlans).set({ ...data, updatedAt: new Date() }).where(eq(benefitPlans.id, id)).returning();
+    return r;
+  }
+  async deleteBenefitPlan(id: string): Promise<void> {
+    await db.delete(benefitPlanRates).where(eq(benefitPlanRates.planId, id));
+    await db.delete(benefitPlans).where(eq(benefitPlans.id, id));
+  }
+  async listBenefitPlanRates(planId: string): Promise<BenefitPlanRate[]> {
+    return db.select().from(benefitPlanRates).where(eq(benefitPlanRates.planId, planId)).orderBy(asc(benefitPlanRates.tier));
+  }
+  async upsertBenefitPlanRate(data: InsertBenefitPlanRate): Promise<BenefitPlanRate> {
+    const existing = await db.select().from(benefitPlanRates).where(and(eq(benefitPlanRates.planId, data.planId), eq(benefitPlanRates.tier, data.tier as any)));
+    if (existing.length) {
+      const [r] = await db.update(benefitPlanRates).set({
+        employeeCostPerPayPeriod: data.employeeCostPerPayPeriod,
+        employerCostPerPayPeriod: data.employerCostPerPayPeriod,
+        payPeriodsPerYear: data.payPeriodsPerYear,
+      }).where(eq(benefitPlanRates.id, existing[0].id)).returning();
+      return r;
+    }
+    const [r] = await db.insert(benefitPlanRates).values(data).returning();
+    return r;
+  }
+  async deleteBenefitPlanRate(id: string): Promise<void> {
+    await db.delete(benefitPlanRates).where(eq(benefitPlanRates.id, id));
+  }
+
+  async listEnrollmentWindows(filters?: { organizationId?: string | null; employeeUserId?: string | null; activeOnly?: boolean }): Promise<EnrollmentWindow[]> {
+    const conds: SQL[] = [];
+    if (filters?.organizationId !== undefined) {
+      conds.push(filters.organizationId === null
+        ? isNull(enrollmentWindows.organizationId)
+        : or(eq(enrollmentWindows.organizationId, filters.organizationId), isNull(enrollmentWindows.organizationId))!);
+    }
+    if (filters?.employeeUserId === null) {
+      conds.push(isNull(enrollmentWindows.employeeUserId));
+    } else if (filters?.employeeUserId) {
+      conds.push(or(eq(enrollmentWindows.employeeUserId, filters.employeeUserId), isNull(enrollmentWindows.employeeUserId))!);
+    }
+    if (filters?.activeOnly) {
+      const today = new Date().toISOString().slice(0, 10);
+      conds.push(lte(enrollmentWindows.startsAt, today));
+      conds.push(gte(enrollmentWindows.endsAt, today));
+    }
+    const q = db.select().from(enrollmentWindows);
+    return conds.length ? await q.where(and(...conds)).orderBy(desc(enrollmentWindows.startsAt)) : await q.orderBy(desc(enrollmentWindows.startsAt));
+  }
+  async getEnrollmentWindow(id: string): Promise<EnrollmentWindow | undefined> {
+    const [r] = await db.select().from(enrollmentWindows).where(eq(enrollmentWindows.id, id));
+    return r;
+  }
+  async createEnrollmentWindow(data: InsertEnrollmentWindow): Promise<EnrollmentWindow> {
+    const [r] = await db.insert(enrollmentWindows).values(data).returning();
+    return r;
+  }
+  async updateEnrollmentWindow(id: string, data: Partial<InsertEnrollmentWindow>): Promise<EnrollmentWindow> {
+    const [r] = await db.update(enrollmentWindows).set(data).where(eq(enrollmentWindows.id, id)).returning();
+    return r;
+  }
+  async deleteEnrollmentWindow(id: string): Promise<void> {
+    await db.delete(enrollmentWindows).where(eq(enrollmentWindows.id, id));
+  }
+
+  async listBenefitEnrollments(filters?: { organizationId?: string | null; employeeUserId?: string; windowId?: string; status?: string }): Promise<BenefitEnrollment[]> {
+    const conds: SQL[] = [];
+    if (filters?.organizationId !== undefined) {
+      conds.push(filters.organizationId === null
+        ? isNull(benefitEnrollments.organizationId)
+        : eq(benefitEnrollments.organizationId, filters.organizationId));
+    }
+    if (filters?.employeeUserId) conds.push(eq(benefitEnrollments.employeeUserId, filters.employeeUserId));
+    if (filters?.windowId) conds.push(eq(benefitEnrollments.windowId, filters.windowId));
+    if (filters?.status) conds.push(eq(benefitEnrollments.status, filters.status as any));
+    const q = db.select().from(benefitEnrollments);
+    return conds.length ? await q.where(and(...conds)).orderBy(desc(benefitEnrollments.createdAt)) : await q.orderBy(desc(benefitEnrollments.createdAt));
+  }
+  async getBenefitEnrollment(id: string): Promise<BenefitEnrollment | undefined> {
+    const [r] = await db.select().from(benefitEnrollments).where(eq(benefitEnrollments.id, id));
+    return r;
+  }
+  async createBenefitEnrollment(data: InsertBenefitEnrollment): Promise<BenefitEnrollment> {
+    const [r] = await db.insert(benefitEnrollments).values(data).returning();
+    return r;
+  }
+  async updateBenefitEnrollment(id: string, data: Partial<InsertBenefitEnrollment>): Promise<BenefitEnrollment> {
+    const [r] = await db.update(benefitEnrollments).set({ ...data, updatedAt: new Date() }).where(eq(benefitEnrollments.id, id)).returning();
+    return r;
+  }
+  async deleteBenefitEnrollment(id: string): Promise<void> {
+    await db.delete(benefitDependents).where(eq(benefitDependents.enrollmentId, id));
+    await db.delete(benefitEnrollments).where(eq(benefitEnrollments.id, id));
+  }
+  async listBenefitDependents(enrollmentId: string): Promise<BenefitDependent[]> {
+    return db.select().from(benefitDependents).where(eq(benefitDependents.enrollmentId, enrollmentId)).orderBy(asc(benefitDependents.lastName));
+  }
+  async replaceBenefitDependents(enrollmentId: string, deps: InsertBenefitDependent[]): Promise<BenefitDependent[]> {
+    await db.delete(benefitDependents).where(eq(benefitDependents.enrollmentId, enrollmentId));
+    if (!deps.length) return [];
+    const rows = await db.insert(benefitDependents).values(deps.map(d => ({ ...d, enrollmentId }))).returning();
+    return rows;
   }
 }
 
