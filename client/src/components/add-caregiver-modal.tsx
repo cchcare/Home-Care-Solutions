@@ -29,6 +29,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Save, X } from "lucide-react";
 import { insertCaregiverSchema, type Office, type Client } from "@shared/schema";
+import { PersonCombobox } from "@/components/ui/person-combobox";
 
 const caregiverFormSchema = insertCaregiverSchema.extend({
   employeeId: z.string().min(1, "Employee ID is required"),
@@ -51,6 +52,8 @@ const caregiverFormSchema = insertCaregiverSchema.extend({
   zipCode: z.string().optional(),
   county: z.string().optional(),
   hhaxCaregiverCode: z.string().optional(),
+  // Manager (employee directory: who this caregiver reports to)
+  managerId: z.string().nullable().optional(),
   // Client assignments
   clientIds: z.array(z.string()).optional(),
 });
@@ -73,6 +76,13 @@ export function AddCaregiverModal({ isOpen, onClose, onSubmit, isLoading, initia
 
   const { data: clients = [] } = useQuery<Client[]>({
     queryKey: ["/api/clients"],
+    retry: false,
+  });
+
+  const { data: managerCandidates = [] } = useQuery<
+    { id: string; firstName: string | null; lastName: string | null; role: string | null }[]
+  >({
+    queryKey: ["/api/employees/manager-candidates"],
     retry: false,
   });
 
@@ -99,6 +109,7 @@ export function AddCaregiverModal({ isOpen, onClose, onSubmit, isLoading, initia
       zipCode: "",
       county: "",
       hhaxCaregiverCode: "",
+      managerId: null,
       clientIds: [],
     },
   });
@@ -126,6 +137,7 @@ export function AddCaregiverModal({ isOpen, onClose, onSubmit, isLoading, initia
         zipCode: initialData.zipCode || "",
         county: initialData.county || "",
         hhaxCaregiverCode: initialData.hhaxCaregiverCode || "",
+        managerId: initialData.managerId ?? null,
         clientIds: initialData.clientIds || [],
       });
     }
@@ -187,6 +199,28 @@ export function AddCaregiverModal({ isOpen, onClose, onSubmit, isLoading, initia
                         ))}
                       </SelectContent>
                     </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="managerId"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Reports to</FormLabel>
+                    <FormControl>
+                      <PersonCombobox
+                        people={managerCandidates}
+                        value={field.value ?? "__none__"}
+                        onValueChange={(v) => field.onChange(v === "__none__" ? null : v)}
+                        placeholder="Select a manager…"
+                        emptyOption={{ value: "__none__", label: "No manager" }}
+                        testId="combobox-caregiver-manager"
+                        renderExtra={(p) => p.role || ""}
+                      />
+                    </FormControl>
                     <FormMessage />
                   </FormItem>
                 )}

@@ -57,6 +57,13 @@
       "when": 1777717291167,
       "tag": "0007_survey_reminder_log",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1779840000000,
+      "tag": "0008_employee_manager",
+      "breakpoints": true
     }
   ]
 }

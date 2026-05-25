@@ -16,6 +16,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { insertUserSchema, type User } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
 import { Users, Plus, Edit, Trash2, Search, UserCheck, Shield, Eye, EyeOff, User as UserIcon, Download, Upload, KeyRound, Loader2, RefreshCw } from "lucide-react";
+import { PersonCombobox } from "@/components/ui/person-combobox";
 import { ExcelImport } from "@/components/excel-import";
 import { ExcelExport } from "@/components/excel-export";
 import { format } from "date-fns";
@@ -109,6 +110,13 @@ export default function UserManagementPage() {
 
   const { data: offices = [] } = useQuery<any[]>({
     queryKey: ["/api/offices"],
+  });
+
+  // Manager candidates (non-caregiver users, scoped by server)
+  const { data: managerCandidates = [] } = useQuery<
+    { id: string; firstName: string | null; lastName: string | null; role: string | null }[]
+  >({
+    queryKey: ["/api/employees/manager-candidates"],
   });
 
   const createUserMutation = useMutation({
@@ -240,6 +248,7 @@ export default function UserManagementPage() {
       profileImageUrl: "",
       role: "caregiver",
       primaryOfficeId: "",
+      managerId: null,
       address: "",
       address2: "",
       city: "",
@@ -263,6 +272,7 @@ export default function UserManagementPage() {
       profileImageUrl: "",
       role: "caregiver",
       primaryOfficeId: "",
+      managerId: null,
       address: "",
       address2: "",
       city: "",
@@ -295,6 +305,7 @@ export default function UserManagementPage() {
       profileImageUrl: user.profileImageUrl || "",
       role: user.role as any,
       primaryOfficeId: user.primaryOfficeId || "",
+      managerId: (user as any).managerId ?? null,
       address: user.address || "",
       address2: user.address2 || "",
       city: user.city || "",
@@ -416,6 +427,7 @@ export default function UserManagementPage() {
                 profileImageUrl: "",
                 role: "caregiver",
                 primaryOfficeId: "",
+                managerId: null,
                 address: "",
                 address2: "",
                 city: "",
@@ -651,6 +663,30 @@ export default function UserManagementPage() {
                     )}
                   />
                 </div>
+
+                <FormField
+                  control={form.control}
+                  name="managerId"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Reports to</FormLabel>
+                      <FormControl>
+                        <PersonCombobox
+                          people={managerCandidates.filter(
+                            (m) => !editingUser || m.id !== editingUser.id,
+                          )}
+                          value={field.value ?? "__none__"}
+                          onValueChange={(v) => field.onChange(v === "__none__" ? null : v)}
+                          placeholder="Select a manager…"
+                          emptyOption={{ value: "__none__", label: "No manager" }}
+                          testId="combobox-user-manager"
+                          renderExtra={(p) => p.role || ""}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
 
                 <FormField
                   control={form.control}

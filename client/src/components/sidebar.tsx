@@ -184,6 +184,19 @@ export function Sidebar() {
           },
         ]
       },
+      ...(((user as any)?.role === "admin" ||
+        (user as any)?.role === "super_admin" ||
+        (user as any)?.role === "office_admin" ||
+        (user as any)?.role === "manager")
+        ? [{
+            name: "HR",
+            icon: Users2,
+            children: [
+              { name: "Employees", href: "/employees", icon: Users },
+              { name: "Org Chart", href: "/org-chart", icon: Users2 },
+            ],
+          } as NavItem]
+        : []),
       {
         name: "Clinical",
         icon: Stethoscope,

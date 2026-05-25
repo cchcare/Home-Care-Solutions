@@ -395,8 +395,36 @@ import {
   type InsertClientSurveyResponse,
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, desc, asc, and, or, count, sql, like, gte, lte, inArray, isNull } from "drizzle-orm";
+import { eq, desc, asc, and, or, count, sql, like, gte, lte, inArray, isNull, ne } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import { encryptNote, decryptNote } from './encryption';
+
+// Unified employee directory view (caregivers + non-caregiver users)
+export type EmployeeDirectoryEntry = {
+  kind: "user" | "caregiver";
+  id: string;
+  firstName: string | null;
+  lastName: string | null;
+  email: string | null;
+  phone: string | null;
+  role: string | null;
+  title: string | null;
+  officeId: string | null;
+  officeName: string | null;
+  isActive: boolean | null;
+  hireDate: Date | string | null;
+  managerId: string | null;
+  managerName: string | null;
+};
+
+// Lightweight manager candidate list (non-caregiver users only)
+export type EmployeeManagerCandidate = {
+  id: string;
+  firstName: string | null;
+  lastName: string | null;
+  role: string | null;
+  officeId: string | null;
+};
 
 export interface IStorage {
   // User operations
@@ -579,6 +607,11 @@ export interface IStorage {
 
   // Additional user operations for communication
   getAllUsers(): Promise<User[]>;
+
+  // Unified employee directory (caregivers + non-caregiver users)
+  getEmployeeDirectory(officeId?: string): Promise<EmployeeDirectoryEntry[]>;
+  getEmployeeManagerCandidates(officeId?: string): Promise<EmployeeManagerCandidate[]>;
+  setEmployeeManager(kind: "user" | "caregiver", employeeId: string, managerUserId: string | null): Promise<void>;
   updateMessage(id: string, data: Partial<InsertMessage>): Promise<Message>;
 
   // User management operations
@@ -2504,6 +2537,163 @@ export class DatabaseStorage implements IStorage {
   async createUser(userData: Partial<UpsertUser>): Promise<User> {
     const [user] = await db.insert(users).values(userData).returning();
     return user;
+  }
+
+  async getEmployeeDirectory(officeId?: string): Promise<EmployeeDirectoryEntry[]> {
+    const managers = alias(users, "managers");
+
+    const userRows = await db
+      .select({
+        id: users.id,
+        firstName: users.firstName,
+        lastName: users.lastName,
+        email: users.email,
+        phone: users.mobilePhone,
+        role: users.role,
+        officeId: users.primaryOfficeId,
+        isActive: users.isActive,
+        hireDate: users.hireDate,
+        managerId: users.managerId,
+        managerFirstName: managers.firstName,
+        managerLastName: managers.lastName,
+      })
+      .from(users)
+      .leftJoin(managers, eq(users.managerId, managers.id))
+      .where(
+        and(
+          ne(users.role, "caregiver"),
+          ne(users.role, "family"),
+          officeId ? eq(users.primaryOfficeId, officeId) : undefined,
+        ),
+      );
+
+    const cgRows = await db
+      .select({
+        id: caregivers.id,
+        firstName: caregivers.firstName,
+        lastName: caregivers.lastName,
+        email: caregivers.email,
+        phone: caregivers.phone,
+        officeId: caregivers.officeId,
+        isActive: caregivers.isActive,
+        hireDate: caregivers.hireDate,
+        managerId: caregivers.managerId,
+        managerFirstName: managers.firstName,
+        managerLastName: managers.lastName,
+      })
+      .from(caregivers)
+      .leftJoin(managers, eq(caregivers.managerId, managers.id))
+      .where(officeId ? eq(caregivers.officeId, officeId) : undefined);
+
+    const officeRows = await db
+      .select({ id: offices.id, name: offices.name })
+      .from(offices);
+    const officeMap = new Map(officeRows.map((o) => [o.id, o.name]));
+
+    const fmt = (f: string | null, l: string | null) => {
+      const first = (f ?? "").trim();
+      const last = (l ?? "").trim();
+      return [first, last].filter(Boolean).join(" ") || null;
+    };
+
+    const userEntries: EmployeeDirectoryEntry[] = userRows.map((u) => ({
+      kind: "user",
+      id: u.id,
+      firstName: u.firstName ?? null,
+      lastName: u.lastName ?? null,
+      email: u.email ?? null,
+      phone: u.phone ?? null,
+      role: u.role ?? null,
+      title: null,
+      officeId: u.officeId ?? null,
+      officeName: u.officeId ? officeMap.get(u.officeId) ?? null : null,
+      isActive: u.isActive ?? null,
+      hireDate: u.hireDate ?? null,
+      managerId: u.managerId ?? null,
+      managerName: u.managerId ? fmt(u.managerFirstName ?? null, u.managerLastName ?? null) : null,
+    }));
+
+    const cgEntries: EmployeeDirectoryEntry[] = cgRows.map((c) => ({
+      kind: "caregiver",
+      id: c.id,
+      firstName: c.firstName ?? null,
+      lastName: c.lastName ?? null,
+      email: c.email ?? null,
+      phone: c.phone ?? null,
+      role: "caregiver",
+      title: null,
+      officeId: c.officeId ?? null,
+      officeName: c.officeId ? officeMap.get(c.officeId) ?? null : null,
+      isActive: c.isActive ?? null,
+      hireDate: c.hireDate ?? null,
+      managerId: c.managerId ?? null,
+      managerName: c.managerId ? fmt(c.managerFirstName ?? null, c.managerLastName ?? null) : null,
+    }));
+
+    return [...userEntries, ...cgEntries].sort((a, b) => {
+      const an = `${a.lastName ?? ""} ${a.firstName ?? ""}`.trim().toLowerCase();
+      const bn = `${b.lastName ?? ""} ${b.firstName ?? ""}`.trim().toLowerCase();
+      return an.localeCompare(bn);
+    });
+  }
+
+  async getEmployeeManagerCandidates(officeId?: string): Promise<EmployeeManagerCandidate[]> {
+    return await db
+      .select({
+        id: users.id,
+        firstName: users.firstName,
+        lastName: users.lastName,
+        role: users.role,
+        officeId: users.primaryOfficeId,
+      })
+      .from(users)
+      .where(
+        and(
+          ne(users.role, "caregiver"),
+          ne(users.role, "family"),
+          eq(users.isActive, true),
+          officeId ? eq(users.primaryOfficeId, officeId) : undefined,
+        ),
+      );
+  }
+
+  async setEmployeeManager(
+    kind: "user" | "caregiver",
+    employeeId: string,
+    managerUserId: string | null,
+  ): Promise<void> {
+    if (kind === "user") {
+      if (managerUserId && managerUserId === employeeId) {
+        throw new Error("A user cannot report to themselves");
+      }
+      // Prevent simple cycles: if the chosen manager already reports (directly
+      // or transitively) to this user, reject the assignment.
+      if (managerUserId) {
+        let cursor: string | null = managerUserId;
+        const seen = new Set<string>();
+        while (cursor) {
+          if (cursor === employeeId) {
+            throw new Error("That assignment would create a reporting cycle");
+          }
+          if (seen.has(cursor)) break;
+          seen.add(cursor);
+          const [row] = await db
+            .select({ managerId: users.managerId })
+            .from(users)
+            .where(eq(users.id, cursor));
+          cursor = row?.managerId ?? null;
+        }
+      }
+      await db
+        .update(users)
+        .set({ managerId: managerUserId, updatedAt: new Date() })
+        .where(eq(users.id, employeeId));
+    } else {
+      await db
+        .update(caregivers)
+        .set({ managerId: managerUserId, updatedAt: new Date() })
+        .where(eq(caregivers.id, employeeId));
+    }
   }
 
   async updateUser(id: string, userData: Partial<UpsertUser>): Promise<User> {

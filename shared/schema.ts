@@ -109,11 +109,16 @@ export const users = pgTable("users", {
   // Kiosk clock-in
   kioskPin: varchar("kiosk_pin"),
   kioskEnabled: boolean("kiosk_enabled").default(false),
+  // Employee directory: who this person reports to (self-reference) and
+  // when they joined (shown on the unified employee directory page).
+  managerId: varchar("manager_id"),
+  hireDate: timestamp("hire_date"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => [
   index("idx_users_organization").on(table.organizationId),
   index("idx_users_google_id").on(table.googleId),
+  index("idx_users_manager").on(table.managerId),
 ]);
 
 // Per-user saved views and column visibility for list pages
@@ -211,9 +216,13 @@ export const caregivers = pgTable("caregivers", {
   adpCode: varchar("adp_code"),
   npi: varchar("npi"),
   isActive: boolean("is_active").default(true),
+  // Employee directory: who this caregiver reports to (references users.id)
+  managerId: varchar("manager_id"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
-});
+}, (table) => [
+  index("idx_caregivers_manager").on(table.managerId),
+]);
 
 // Certifications and training
 export const certifications = pgTable("certifications", {

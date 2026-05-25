@@ -4765,6 +4765,166 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ---------------------------------------------------------------------------
+  // Employee Directory & Org Chart (Task #131)
+  // Unified view of caregivers + non-caregiver users with manager assignments.
+  // Non-super-admin callers are locked to their primaryOfficeId, mirroring the
+  // office-scoping pattern used by /api/caregivers and /api/staff.
+  // ---------------------------------------------------------------------------
+  // Per task spec: editable by admins and office managers only.
+  const requireEmployeeDirectoryAccess = async (req: any, res: any, next: any) => {
+    try {
+      const userId = req.session?.user?.id;
+      if (!userId) return res.status(401).json({ message: "Not authenticated" });
+      const user = await storage.getUser(userId);
+      const allowed = ["admin", "super_admin", "office_admin", "manager"];
+      if (!user || !allowed.includes(user.role || "")) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      (req as any).currentUser = user;
+      next();
+    } catch (e) {
+      return res.status(500).json({ message: "Failed to verify permissions" });
+    }
+  };
+
+  const resolveEmployeeScope = (req: any): string | undefined => {
+    const current = (req as any).currentUser ?? req.session?.user;
+    if (current?.role === "super_admin") {
+      const q = (req.query.officeId as string | undefined) || undefined;
+      return q && q !== "all" ? q : undefined;
+    }
+    return current?.primaryOfficeId || undefined;
+  };
+
+  app.get("/api/employees", isAuthenticated, requireEmployeeDirectoryAccess, async (req: any, res) => {
+    try {
+      const officeId = resolveEmployeeScope(req);
+      // For non-super-admin users without an office, return nothing rather
+      // than leaking the global directory.
+      if (req.currentUser.role !== "super_admin" && !officeId) return res.json([]);
+      const rows = await storage.getEmployeeDirectory(officeId);
+      res.json(rows);
+    } catch (e) {
+      console.error("Error fetching employees:", e);
+      res.status(500).json({ message: "Failed to fetch employees" });
+    }
+  });
+
+  app.get("/api/employees/manager-candidates", isAuthenticated, requireEmployeeDirectoryAccess, async (req: any, res) => {
+    try {
+      const officeId = resolveEmployeeScope(req);
+      if (req.currentUser.role !== "super_admin" && !officeId) return res.json([]);
+      const rows = await storage.getEmployeeManagerCandidates(officeId);
+      res.json(rows);
+    } catch (e) {
+      console.error("Error fetching manager candidates:", e);
+      res.status(500).json({ message: "Failed to fetch manager candidates" });
+    }
+  });
+
+  app.get("/api/employees/org-tree", isAuthenticated, requireEmployeeDirectoryAccess, async (req: any, res) => {
+    try {
+      const officeId = resolveEmployeeScope(req);
+      if (req.currentUser.role !== "super_admin" && !officeId) {
+        return res.json({ roots: [], unassigned: [] });
+      }
+      const all = await storage.getEmployeeDirectory(officeId);
+
+      type Node = typeof all[number] & { reports: Node[] };
+      const byId = new Map<string, Node>();
+      for (const e of all) {
+        if (e.kind === "user") byId.set(e.id, { ...e, reports: [] });
+      }
+      // Caregivers cannot be managers, so they only appear as leaves under
+      // their assigned manager (or under an "Unassigned" root).
+      const roots: Node[] = [];
+      const unassigned: Node[] = [];
+
+      for (const u of all.filter((x) => x.kind === "user")) {
+        const node = byId.get(u.id)!;
+        if (u.managerId && byId.has(u.managerId)) {
+          byId.get(u.managerId)!.reports.push(node);
+        } else {
+          roots.push(node);
+        }
+      }
+      for (const c of all.filter((x) => x.kind === "caregiver")) {
+        const node: Node = { ...c, reports: [] };
+        if (c.managerId && byId.has(c.managerId)) {
+          byId.get(c.managerId)!.reports.push(node);
+        } else {
+          unassigned.push(node);
+        }
+      }
+      const sortNodes = (nodes: Node[]) => {
+        nodes.sort((a, b) => {
+          const an = `${a.lastName ?? ""} ${a.firstName ?? ""}`.toLowerCase();
+          const bn = `${b.lastName ?? ""} ${b.firstName ?? ""}`.toLowerCase();
+          return an.localeCompare(bn);
+        });
+        nodes.forEach((n) => sortNodes(n.reports));
+      };
+      sortNodes(roots);
+      sortNodes(unassigned);
+
+      res.json({ roots, unassigned });
+    } catch (e) {
+      console.error("Error building org tree:", e);
+      res.status(500).json({ message: "Failed to build org tree" });
+    }
+  });
+
+  app.put("/api/employees/:kind/:id/manager", isAuthenticated, requireEmployeeDirectoryAccess, async (req: any, res) => {
+    try {
+      const kind = req.params.kind === "user" ? "user" : req.params.kind === "caregiver" ? "caregiver" : null;
+      if (!kind) return res.status(400).json({ message: "Invalid employee kind" });
+      const managerId: string | null = req.body?.managerId ?? null;
+      if (managerId !== null && typeof managerId !== "string") {
+        return res.status(400).json({ message: "managerId must be a string or null" });
+      }
+
+      // Office scoping: non-super-admin can only mutate within their office.
+      const officeScope = resolveEmployeeScope(req);
+      if (req.currentUser.role !== "super_admin") {
+        if (kind === "user") {
+          const target = await storage.getUser(req.params.id);
+          if (!target) return res.status(404).json({ message: "User not found" });
+          if (target.primaryOfficeId !== officeScope) {
+            return res.status(403).json({ message: "Cross-office assignment not allowed" });
+          }
+        } else {
+          const target = await storage.getCaregiver(req.params.id);
+          if (!target) return res.status(404).json({ message: "Caregiver not found" });
+          if (target.officeId !== officeScope) {
+            return res.status(403).json({ message: "Cross-office assignment not allowed" });
+          }
+        }
+        if (managerId) {
+          const mgr = await storage.getUser(managerId);
+          if (!mgr || mgr.primaryOfficeId !== officeScope) {
+            return res.status(403).json({ message: "Manager must be in the same office" });
+          }
+        }
+      }
+
+      await storage.setEmployeeManager(kind, req.params.id, managerId);
+      await storage.createAuditLog({
+        userId: req.session?.user?.id,
+        action: "set_manager",
+        entityType: kind === "user" ? "user" : "caregiver",
+        entityId: req.params.id,
+        newValues: { managerId },
+        ipAddress: req.ip,
+        userAgent: req.get("User-Agent"),
+      });
+      res.json({ ok: true });
+    } catch (e: any) {
+      console.error("Error setting employee manager:", e);
+      res.status(400).json({ message: e?.message || "Failed to set manager" });
+    }
+  });
+
   app.delete("/api/users/:id", isAuthenticated, requireAdminOrSupervisor, async (req, res) => {
     try {
       await storage.deleteUser(req.params.id);

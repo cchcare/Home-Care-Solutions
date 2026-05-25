@@ -57,6 +57,8 @@ import ClientIntake from "@/pages/client-intake";
 import ShiftSwapRequests from "@/pages/shift-swap-requests";
 import StaffTimeTracking from "@/pages/staff-time-tracking";
 import Staff from "@/pages/staff";
+import Employees from "@/pages/employees";
+import OrgChart from "@/pages/org-chart";
 import Kiosk from "@/pages/kiosk";
 import KioskSetup from "@/pages/kiosk-setup";
 import CareQualityScorecard from "@/pages/care-quality-scorecard";
@@ -193,6 +195,8 @@ function Router() {
           <Route path="/shift-swap-requests" component={ShiftSwapRequests} />
           <Route path="/staff-time-tracking" component={StaffTimeTracking} />
           <Route path="/staff" component={Staff} />
+          <Route path="/employees" component={Employees} />
+          <Route path="/org-chart" component={OrgChart} />
           <Route path="/kiosk-setup" component={KioskSetup} />
           <Route path="/care-quality-scorecard" component={CareQualityScorecard} />
           <Route path="/financial-reports" component={FinancialReports} />

@@ -44,6 +44,32 @@ const sql = \`
     IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'users_username_unique') THEN
       ALTER TABLE users ADD CONSTRAINT users_username_unique UNIQUE (username);
     END IF;
+    -- Employee directory: manager self-reference on users and caregivers.
+    -- drizzle-kit push is blocked by the doh_audit_responses index conflict,
+    -- so apply these here so prod stays in sync without an interactive push.
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='users' AND column_name='manager_id') THEN
+      ALTER TABLE users ADD COLUMN manager_id varchar;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='users' AND column_name='hire_date') THEN
+      ALTER TABLE users ADD COLUMN hire_date timestamp;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='caregivers' AND column_name='manager_id') THEN
+      ALTER TABLE caregivers ADD COLUMN manager_id varchar;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'users_manager_id_users_id_fk') THEN
+      ALTER TABLE users ADD CONSTRAINT users_manager_id_users_id_fk
+        FOREIGN KEY (manager_id) REFERENCES users(id) ON DELETE SET NULL;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'caregivers_manager_id_users_id_fk') THEN
+      ALTER TABLE caregivers ADD CONSTRAINT caregivers_manager_id_users_id_fk
+        FOREIGN KEY (manager_id) REFERENCES users(id) ON DELETE SET NULL;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'idx_users_manager') THEN
+      CREATE INDEX idx_users_manager ON users (manager_id);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'idx_caregivers_manager') THEN
+      CREATE INDEX idx_caregivers_manager ON caregivers (manager_id);
+    END IF;
   END \\\$\\\$;
 \`;
 
