@@ -2802,6 +2802,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
         userAgent: req.get("User-Agent"),
       });
       
+      // Offboarding auto-launch: if a termination date was set at creation,
+      // try to spin up the matching offboarding workflow.
+      if (processedTerminationDate) {
+        try {
+          const off = await import("./offboarding");
+          await off.maybeAutoLaunchOnTermination({
+            employeeType: "caregiver",
+            employeeCaregiverId: caregiver.id,
+            employeeUserId: user.id,
+            terminationDate: processedTerminationDate,
+            previousTerminationDate: null,
+            organizationId: req.session?.user?.organizationId ?? null,
+            officeId: (caregiver as any).officeId ?? null,
+            launchedBy: req.session?.user?.id ?? null,
+          });
+        } catch (err) {
+          console.error("[Offboarding] Auto-launch on caregiver create failed:", err);
+        }
+      }
+
       // Optionally launch onboarding from template (server-validated)
       if (onboardingTemplateId) {
         try {
@@ -2885,7 +2905,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ipAddress: req.ip,
         userAgent: req.get("User-Agent"),
       });
-      
+
+      // Offboarding auto-launch when terminationDate transitions to a value.
+      try {
+        const off = await import("./offboarding");
+        await off.maybeAutoLaunchOnTermination({
+          employeeType: "caregiver",
+          employeeCaregiverId: caregiver.id,
+          employeeUserId: (caregiver as any).userId ?? null,
+          terminationDate: (caregiver as any).terminationDate ?? null,
+          previousTerminationDate: (oldCaregiver as any).terminationDate ?? null,
+          organizationId: req.session?.user?.organizationId ?? null,
+          officeId: (caregiver as any).officeId ?? null,
+          launchedBy: req.session?.user?.id ?? null,
+        });
+      } catch (err) {
+        console.error("[Offboarding] Auto-launch on caregiver update failed:", err);
+      }
+
       res.json(caregiver);
     } catch (error) {
       console.error("Error updating caregiver:", error);
@@ -4874,10 +4911,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/users/:id", isAuthenticated, requireAdminOrSupervisor, async (req, res) => {
+  app.put("/api/users/:id", isAuthenticated, requireAdminOrSupervisor, async (req: any, res) => {
     try {
+      const prev = await storage.getUser(req.params.id);
+      // Coerce date-string fields the same way the caregiver endpoint does so
+      // termination-date offboarding hooks see a real Date.
+      if (typeof req.body?.terminationDate === "string") {
+        req.body.terminationDate = new Date(req.body.terminationDate);
+      }
       const validatedData = insertUserSchema.partial().omit({ id: true, createdAt: true, updatedAt: true }).parse(req.body);
       const user = await storage.updateUser(req.params.id, validatedData);
+
+      try {
+        const off = await import("./offboarding");
+        await off.maybeAutoLaunchOnTermination({
+          employeeType: "user",
+          employeeUserId: user.id,
+          terminationDate: (user as any).terminationDate ?? null,
+          previousTerminationDate: (prev as any)?.terminationDate ?? null,
+          organizationId: req.session?.user?.organizationId ?? (user as any).organizationId ?? null,
+          officeId: (user as any).primaryOfficeId ?? null,
+          launchedBy: req.session?.user?.id ?? null,
+        });
+      } catch (err) {
+        console.error("[Offboarding] Auto-launch on user update failed:", err);
+      }
+
       res.json(user);
     } catch (error) {
       console.error("Error updating user:", error);
@@ -14048,7 +14107,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ipAddress: req.ip,
         userAgent: req.get("User-Agent"),
       });
-      
+
+      // Offboarding integration: when an exit-interview response transitions
+      // to completed, mark the matching offboarding step done.
+      if (oldSurvey.status !== "completed" && survey.status === "completed") {
+        try {
+          const off = await import("./offboarding");
+          await off.markExitInterviewStepCompleteByResponse(survey.id, req.session?.user?.id ?? null);
+        } catch (err) {
+          console.error("[Offboarding] exit-interview hook failed (non-fatal):", err);
+        }
+      }
+
       res.json(survey);
     } catch (error) {
       console.error("Error updating survey:", error);
@@ -21160,6 +21230,262 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const userId = req.session?.user?.id;
       if (!userId) return res.status(401).json({ message: "Unauthenticated" });
       const rows = await onb.getMyOnboarding(userId);
+      res.json(rows);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // ============================================================================
+  // Offboarding workflow (Task #137) — mirrors onboarding
+  // ============================================================================
+  const off = await import("./offboarding");
+  const OFFBOARDING_ADMIN_ROLES = ["admin", "office_admin", "super_admin", "manager", "supervisor"];
+  const isOffboardingAdmin = (role?: string) => !!role && OFFBOARDING_ADMIN_ROLES.includes(role);
+
+  app.get("/api/offboarding/templates", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      if (!isOffboardingAdmin(user?.role)) return res.status(403).json({ message: "Admin role required" });
+      const { officeId, role, isActive } = req.query;
+      const rows = await off.listTemplates({
+        officeId: officeId as string | undefined,
+        role: role as string | undefined,
+        isActive: isActive === undefined ? undefined : isActive === "true",
+        organizationId: user?.organizationId ?? null,
+      });
+      res.json(rows);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.get("/api/offboarding/templates/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      if (!isOffboardingAdmin(user?.role)) return res.status(403).json({ message: "Admin role required" });
+      const tmpl = await off.getTemplateWithSteps(req.params.id);
+      if (!tmpl) return res.status(404).json({ message: "Not found" });
+      if (tmpl.organizationId && user?.organizationId && tmpl.organizationId !== user.organizationId) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+      res.json(tmpl);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.post("/api/offboarding/templates", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      if (!isOffboardingAdmin(user?.role)) return res.status(403).json({ message: "Admin role required" });
+      const { organizationId: bodyOrg, createdBy: _b, id: _i, createdAt: _c, updatedAt: _u, ...rest } = req.body || {};
+      let organizationId: string | null = user.organizationId ?? null;
+      if (user.role === "super_admin" && bodyOrg) organizationId = bodyOrg;
+      const tmpl = await off.createTemplate({ ...rest, createdBy: user.id, organizationId });
+      res.status(201).json(tmpl);
+    } catch (e: any) { res.status(400).json({ message: e.message }); }
+  });
+
+  app.patch("/api/offboarding/templates/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      if (!isOffboardingAdmin(user?.role)) return res.status(403).json({ message: "Admin role required" });
+      const existing = await off.getTemplateWithSteps(req.params.id);
+      if (!existing) return res.status(404).json({ message: "Not found" });
+      if (existing.organizationId && user?.organizationId && existing.organizationId !== user.organizationId) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+      const { organizationId: _o, createdBy: _b, id: _i, ...patch } = req.body || {};
+      const tmpl = await off.updateTemplate(req.params.id, patch);
+      res.json(tmpl);
+    } catch (e: any) { res.status(400).json({ message: e.message }); }
+  });
+
+  app.delete("/api/offboarding/templates/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      if (!isOffboardingAdmin(user?.role)) return res.status(403).json({ message: "Admin role required" });
+      const existing = await off.getTemplateWithSteps(req.params.id);
+      if (!existing) return res.status(404).json({ message: "Not found" });
+      if (existing.organizationId && user?.organizationId && existing.organizationId !== user.organizationId) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+      await off.deleteTemplate(req.params.id);
+      res.json({ success: true });
+    } catch (e: any) { res.status(400).json({ message: e.message }); }
+  });
+
+  app.get("/api/offboarding/instances", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      if (!isOffboardingAdmin(user?.role)) return res.status(403).json({ message: "Admin role required" });
+      const { status, employeeUserId, employeeCaregiverId } = req.query;
+      const rows = await off.listInstances({
+        status: status as string | undefined,
+        employeeUserId: employeeUserId as string | undefined,
+        employeeCaregiverId: employeeCaregiverId as string | undefined,
+        organizationId: user?.organizationId ?? null,
+      });
+      const out: any[] = [];
+      for (const r of rows) {
+        const full = await off.getInstanceWithSteps(r.id);
+        if (full) {
+          const total = full.steps.length;
+          const done = full.steps.filter((s: any) => s.status === "completed" || s.status === "skipped").length;
+          out.push({ ...full, progress: { total, done } });
+        }
+      }
+      res.json(out);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.get("/api/offboarding/instances/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      const inst = await off.getInstanceWithSteps(req.params.id);
+      if (!inst) return res.status(404).json({ message: "Not found" });
+      const isAdmin = isOffboardingAdmin(user?.role);
+      const isOwner = user?.id ? await off.isUserInstanceOwner(req.params.id, user.id) : false;
+      if (!isAdmin && !isOwner) return res.status(403).json({ message: "Forbidden" });
+      if (isAdmin && inst.organizationId && user?.organizationId && inst.organizationId !== user.organizationId) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+      // Exit-interview responses are HR-only: hide linkId from owners so they
+      // can't read their own confidential survey responses back through the
+      // offboarding endpoint. They still receive the email link to submit.
+      if (!isAdmin) {
+        inst.steps = inst.steps.map((s: any) => s.stepType === "exit_interview" ? { ...s, linkId: undefined } : s);
+      }
+      res.json(inst);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.post("/api/offboarding/instances", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      if (!isOffboardingAdmin(user?.role)) return res.status(403).json({ message: "Admin role required" });
+      const { templateId, employeeType, employeeUserId, employeeCaregiverId, terminationDate } = req.body;
+      if (!templateId || !employeeType) return res.status(400).json({ message: "templateId and employeeType are required" });
+      const tmpl = await off.getTemplateWithSteps(templateId);
+      if (!tmpl) return res.status(404).json({ message: "Template not found" });
+      const guard = off.assertTemplateUsable(tmpl, user, employeeType);
+      if (guard) return res.status(guard.code).json({ message: guard.message });
+      if (employeeType === "caregiver") {
+        if (!employeeCaregiverId) return res.status(400).json({ message: "employeeCaregiverId required" });
+        const cg = await storage.getCaregiver(employeeCaregiverId);
+        if (!cg) return res.status(404).json({ message: "Caregiver not found" });
+        if (user.role !== "super_admin" && (cg as any).organizationId && user.organizationId && (cg as any).organizationId !== user.organizationId) {
+          return res.status(403).json({ message: "Caregiver belongs to a different organization" });
+        }
+      } else if (employeeType === "user") {
+        if (!employeeUserId) return res.status(400).json({ message: "employeeUserId required" });
+        const targetUser = await storage.getUser(employeeUserId);
+        if (!targetUser) return res.status(404).json({ message: "User not found" });
+        if (user.role !== "super_admin" && (targetUser as any).organizationId && user.organizationId && (targetUser as any).organizationId !== user.organizationId) {
+          return res.status(403).json({ message: "User belongs to a different organization" });
+        }
+      } else {
+        return res.status(400).json({ message: "employeeType must be 'caregiver' or 'user'" });
+      }
+      const inst = await off.launchOffboardingInstance({
+        templateId,
+        employeeType,
+        employeeUserId: employeeUserId ?? null,
+        employeeCaregiverId: employeeCaregiverId ?? null,
+        terminationDate: terminationDate ? new Date(terminationDate) : null,
+        launchedBy: user.id,
+        organizationId: user.organizationId ?? null,
+      });
+      res.status(201).json(inst);
+    } catch (e: any) { res.status(400).json({ message: e.message }); }
+  });
+
+  app.post("/api/offboarding/instances/:id/cancel", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      if (!isOffboardingAdmin(user?.role)) return res.status(403).json({ message: "Admin role required" });
+      const existing = await off.getInstanceById(req.params.id);
+      if (!existing) return res.status(404).json({ message: "Not found" });
+      if (existing.organizationId && user?.organizationId && existing.organizationId !== user.organizationId) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+      await off.cancelInstance(req.params.id, user.id);
+      res.json({ success: true });
+    } catch (e: any) { res.status(400).json({ message: e.message }); }
+  });
+
+  app.post("/api/offboarding/instance-steps/:stepId/complete", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      if (!user?.id) return res.status(401).json({ message: "Unauthenticated" });
+      const step = await off.getStepById(req.params.stepId);
+      if (!step) return res.status(404).json({ message: "Not found" });
+      const isAdmin = isOffboardingAdmin(user.role);
+      const isOwner = await off.isUserInstanceOwner(step.instanceId, user.id);
+      if (!isAdmin && !isOwner) return res.status(403).json({ message: "Forbidden" });
+      // Only checklist items are user-markable. Other types (account
+      // deactivation, equipment return, final paycheck, COBRA notice, exit
+      // interview, document) need their dedicated flow or an admin override.
+      const SELF_COMPLETABLE = new Set(["checklist"]);
+      if (!SELF_COMPLETABLE.has(step.stepType as any)) {
+        if (!isAdmin) {
+          return res.status(403).json({ message: `Steps of type '${step.stepType}' must be completed through the dedicated flow.` });
+        }
+        if (!req.body?.adminOverrideReason || String(req.body.adminOverrideReason).trim().length < 5) {
+          return res.status(400).json({ message: `Steps of type '${step.stepType}' require 'adminOverrideReason' (>=5 chars) to be manually completed.` });
+        }
+      }
+      if (isAdmin && !isOwner) {
+        const inst = await off.getInstanceById(step.instanceId);
+        if (inst?.organizationId && user.organizationId && inst.organizationId !== user.organizationId) {
+          return res.status(403).json({ message: "Forbidden" });
+        }
+      }
+      await off.markInstanceStepComplete(req.params.stepId, user.id, req.body?.adminOverrideReason);
+      res.json({ success: true });
+    } catch (e: any) { res.status(400).json({ message: e.message }); }
+  });
+
+  // Manager-confirmation flow: list future shifts to review, then cancel.
+  app.get("/api/offboarding/instances/:id/future-shifts", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      if (!isOffboardingAdmin(user?.role)) return res.status(403).json({ message: "Admin role required" });
+      const inst = await off.getInstanceById(req.params.id);
+      if (!inst) return res.status(404).json({ message: "Not found" });
+      if (inst.organizationId && user?.organizationId && inst.organizationId !== user.organizationId) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+      const shifts = await off.listFutureShiftsForInstance(req.params.id);
+      res.json(shifts);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.post("/api/offboarding/instances/:id/cancel-future-shifts", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      if (!isOffboardingAdmin(user?.role)) return res.status(403).json({ message: "Admin role required" });
+      if (!req.body?.confirm) return res.status(400).json({ message: "Manager confirmation (confirm:true) required" });
+      const inst = await off.getInstanceById(req.params.id);
+      if (!inst) return res.status(404).json({ message: "Not found" });
+      if (inst.organizationId && user?.organizationId && inst.organizationId !== user.organizationId) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+      const result = await off.cancelFutureShiftsForInstance(req.params.id, user.id);
+      res.json({ success: true, ...result });
+    } catch (e: any) { res.status(400).json({ message: e.message }); }
+  });
+
+  // Manual trigger of the daily termination job (super_admin only).
+  app.post("/api/offboarding/process-due-terminations", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      if (user?.role !== "super_admin") return res.status(403).json({ message: "Super admin only" });
+      const result = await off.processDueTerminations();
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.get("/api/my-offboarding", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.session?.user?.id;
+      if (!userId) return res.status(401).json({ message: "Unauthenticated" });
+      const rows = await off.getMyOffboarding(userId);
       res.json(rows);
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });

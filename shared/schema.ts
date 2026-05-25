@@ -113,6 +113,9 @@ export const users = pgTable("users", {
   // when they joined (shown on the unified employee directory page).
   managerId: varchar("manager_id"),
   hireDate: timestamp("hire_date"),
+  // Offboarding (Task #137): when set, auto-creates an offboarding instance
+  // from a matching template and triggers the termination workflow on the date.
+  terminationDate: timestamp("termination_date"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => [
@@ -4576,3 +4579,107 @@ export const insertOnboardingInstanceSchema = createInsertSchema(onboardingInsta
 export type OnboardingInstanceStep = typeof onboardingInstanceSteps.$inferSelect;
 export type InsertOnboardingInstanceStep = typeof onboardingInstanceSteps.$inferInsert;
 export const insertOnboardingInstanceStepSchema = createInsertSchema(onboardingInstanceSteps).omit({ id: true, createdAt: true, completedAt: true });
+
+// ============================================================================
+// Offboarding workflow (Task #137) — mirrors onboarding shape
+// ============================================================================
+export const offboardingStepTypeEnum = pgEnum("offboarding_step_type", [
+  "account_deactivation", "equipment_return", "final_paycheck",
+  "cobra_notice", "exit_interview", "document", "checklist",
+]);
+export const offboardingInstanceStatusEnum = pgEnum("offboarding_instance_status", [
+  "pending", "in_progress", "completed", "cancelled",
+]);
+export const offboardingInstanceStepStatusEnum = pgEnum("offboarding_instance_step_status", [
+  "pending", "completed", "skipped",
+]);
+export const offboardingEmployeeTypeEnum = pgEnum("offboarding_employee_type", [
+  "caregiver", "user",
+]);
+
+export const offboardingTemplates = pgTable("offboarding_templates", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id"),
+  officeId: varchar("office_id").references(() => offices.id),
+  name: varchar("name").notNull(),
+  description: text("description"),
+  role: varchar("role").notNull().default("any"), // caregiver | office_staff | any
+  isActive: boolean("is_active").default(true),
+  createdBy: varchar("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const offboardingTemplateSteps = pgTable("offboarding_template_steps", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  templateId: varchar("template_id").notNull().references(() => offboardingTemplates.id, { onDelete: "cascade" }),
+  stepOrder: integer("step_order").notNull().default(0),
+  stepType: offboardingStepTypeEnum("step_type").notNull(),
+  title: varchar("title").notNull(),
+  description: text("description"),
+  refId: varchar("ref_id"), // survey_templates id for exit_interview, etc.
+  isRequired: boolean("is_required").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_off_tmpl_step_template").on(table.templateId),
+]);
+
+export const offboardingInstances = pgTable("offboarding_instances", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id"),
+  templateId: varchar("template_id").references(() => offboardingTemplates.id),
+  employeeType: offboardingEmployeeTypeEnum("employee_type").notNull(),
+  employeeUserId: varchar("employee_user_id").references(() => users.id),
+  employeeCaregiverId: varchar("employee_caregiver_id").references(() => caregivers.id),
+  status: offboardingInstanceStatusEnum("status").default("in_progress"),
+  terminationDate: timestamp("termination_date"),
+  launchedBy: varchar("launched_by").references(() => users.id),
+  launchedAt: timestamp("launched_at").defaultNow(),
+  completedAt: timestamp("completed_at"),
+  // Tracks that the daily termination-date job already disabled the account
+  // and prompted for shift cancellation so re-runs are no-ops.
+  terminationProcessedAt: timestamp("termination_processed_at"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_off_inst_user").on(table.employeeUserId),
+  index("idx_off_inst_caregiver").on(table.employeeCaregiverId),
+  index("idx_off_inst_status").on(table.status),
+]);
+
+export const offboardingInstanceSteps = pgTable("offboarding_instance_steps", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  instanceId: varchar("instance_id").notNull().references(() => offboardingInstances.id, { onDelete: "cascade" }),
+  templateStepId: varchar("template_step_id").references(() => offboardingTemplateSteps.id),
+  stepOrder: integer("step_order").notNull().default(0),
+  stepType: offboardingStepTypeEnum("step_type").notNull(),
+  title: varchar("title").notNull(),
+  description: text("description"),
+  refId: varchar("ref_id"),
+  linkId: varchar("link_id"), // survey_response id for exit_interview
+  status: offboardingInstanceStepStatusEnum("status").default("pending"),
+  isRequired: boolean("is_required").default(true),
+  completedAt: timestamp("completed_at"),
+  completedBy: varchar("completed_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_off_inst_step_instance").on(table.instanceId),
+  index("idx_off_inst_step_link").on(table.stepType, table.linkId),
+]);
+
+export type OffboardingTemplate = typeof offboardingTemplates.$inferSelect;
+export type InsertOffboardingTemplate = typeof offboardingTemplates.$inferInsert;
+export const insertOffboardingTemplateSchema = createInsertSchema(offboardingTemplates).omit({ id: true, createdAt: true, updatedAt: true });
+
+export type OffboardingTemplateStep = typeof offboardingTemplateSteps.$inferSelect;
+export type InsertOffboardingTemplateStep = typeof offboardingTemplateSteps.$inferInsert;
+export const insertOffboardingTemplateStepSchema = createInsertSchema(offboardingTemplateSteps).omit({ id: true, createdAt: true });
+
+export type OffboardingInstance = typeof offboardingInstances.$inferSelect;
+export type InsertOffboardingInstance = typeof offboardingInstances.$inferInsert;
+export const insertOffboardingInstanceSchema = createInsertSchema(offboardingInstances).omit({ id: true, createdAt: true, updatedAt: true, launchedAt: true, completedAt: true, terminationProcessedAt: true });
+
+export type OffboardingInstanceStep = typeof offboardingInstanceSteps.$inferSelect;
+export type InsertOffboardingInstanceStep = typeof offboardingInstanceSteps.$inferInsert;
+export const insertOffboardingInstanceStepSchema = createInsertSchema(offboardingInstanceSteps).omit({ id: true, createdAt: true, completedAt: true });

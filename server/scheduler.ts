@@ -288,6 +288,26 @@ export function startScheduledJobs() {
     await runPtoAccrualJob();
   });
 
+  // Offboarding termination-date daily job (Task #137). Runs once per day at
+  // 02:15 server-time and disables accounts whose terminationDate has arrived.
+  // Also runs once at startup so a freshly-booted dev environment catches up.
+  cron.schedule("15 2 * * *", async () => {
+    try {
+      const off = await import("./offboarding");
+      const result = await off.processDueTerminations();
+      console.log(`[Scheduler] Offboarding termination job processed ${result.processed}/${result.total} due instances`);
+    } catch (err) {
+      console.error("[Scheduler] Offboarding termination job failed:", err);
+    }
+  });
+  (async () => {
+    try {
+      const off = await import("./offboarding");
+      const r = await off.processDueTerminations();
+      if (r.total) console.log(`[Scheduler] Offboarding catch-up processed ${r.processed}/${r.total}`);
+    } catch (err) { console.error("[Scheduler] Offboarding catch-up failed:", err); }
+  })();
+
   console.log(`[Scheduler] Starting PTO accrual scheduler with cron: ${PTO_ACCRUAL_CRON}`);
   console.log("[Scheduler] Scheduled jobs started successfully");
 }

@@ -27,7 +27,9 @@ const TABLES_TO_TRUNCATE = [
   "letter_templates", "master_week_slots", "master_week_templates",
   "mco_types", "mcos", "medication_logs", "medications", "messages",
   "mileage_logs", "notification_preferences", "notification_queue",
-  "notification_templates", "office_dashboard_links", "office_expenses",
+  "notification_templates", "offboarding_instance_steps", "offboarding_instances",
+  "offboarding_template_steps", "offboarding_templates",
+  "office_dashboard_links", "office_expenses",
   "office_licenses", "office_mco_billing_rates", "office_pa_survey_statuses",
   "office_payroll_configs", "office_staff", "offices", "organizations",
   "pa_survey_checklist_items", "payroll_holidays", "payroll_line_items",
@@ -340,6 +342,121 @@ export async function ensureOnboardingSchema() {
     console.log("[Init] onboarding schema ensured.");
   } catch (err) {
     console.error("[Init] ensureOnboardingSchema failed (non-fatal):", err);
+  } finally {
+    client.release();
+  }
+}
+
+// Offboarding workflow (Task #137) schema bootstrap. Raw DDL so it is safe to
+// run on every boot without drizzle-kit. Mirrors ensureOnboardingSchema.
+let offboardingSchemaReady = false;
+export async function ensureOffboardingSchema() {
+  if (offboardingSchemaReady) return;
+  const client = await pool.connect();
+  try {
+    // Idempotent column addition — users gains a termination_date so the
+    // offboarding launcher and daily termination job can find office staff
+    // exits the same way they find caregiver exits.
+    await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS termination_date timestamp;`);
+
+    const ready = await client.query(`
+      SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'offboarding_init_marker') AS marker_exists;
+    `);
+    if (ready.rows[0]?.marker_exists) {
+      offboardingSchemaReady = true;
+      return;
+    }
+
+    await client.query(`DO $$ BEGIN
+      CREATE TYPE offboarding_step_type AS ENUM ('account_deactivation','equipment_return','final_paycheck','cobra_notice','exit_interview','document','checklist');
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$;`);
+    await client.query(`DO $$ BEGIN
+      CREATE TYPE offboarding_instance_status AS ENUM ('pending','in_progress','completed','cancelled');
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$;`);
+    await client.query(`DO $$ BEGIN
+      CREATE TYPE offboarding_instance_step_status AS ENUM ('pending','completed','skipped');
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$;`);
+    await client.query(`DO $$ BEGIN
+      CREATE TYPE offboarding_employee_type AS ENUM ('caregiver','user');
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$;`);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS offboarding_templates (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        organization_id varchar,
+        office_id varchar REFERENCES offices(id),
+        name varchar NOT NULL,
+        description text,
+        role varchar NOT NULL DEFAULT 'any',
+        is_active boolean DEFAULT true,
+        created_by varchar REFERENCES users(id),
+        created_at timestamp DEFAULT NOW(),
+        updated_at timestamp DEFAULT NOW()
+      );
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS offboarding_template_steps (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        template_id varchar NOT NULL REFERENCES offboarding_templates(id) ON DELETE CASCADE,
+        step_order integer NOT NULL DEFAULT 0,
+        step_type offboarding_step_type NOT NULL,
+        title varchar NOT NULL,
+        description text,
+        ref_id varchar,
+        is_required boolean DEFAULT true,
+        created_at timestamp DEFAULT NOW()
+      );
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS offboarding_instances (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        organization_id varchar,
+        template_id varchar REFERENCES offboarding_templates(id),
+        employee_type offboarding_employee_type NOT NULL,
+        employee_user_id varchar REFERENCES users(id),
+        employee_caregiver_id varchar REFERENCES caregivers(id),
+        status offboarding_instance_status DEFAULT 'in_progress',
+        termination_date timestamp,
+        launched_by varchar REFERENCES users(id),
+        launched_at timestamp DEFAULT NOW(),
+        completed_at timestamp,
+        termination_processed_at timestamp,
+        notes text,
+        created_at timestamp DEFAULT NOW(),
+        updated_at timestamp DEFAULT NOW()
+      );
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS offboarding_instance_steps (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        instance_id varchar NOT NULL REFERENCES offboarding_instances(id) ON DELETE CASCADE,
+        template_step_id varchar REFERENCES offboarding_template_steps(id),
+        step_order integer NOT NULL DEFAULT 0,
+        step_type offboarding_step_type NOT NULL,
+        title varchar NOT NULL,
+        description text,
+        ref_id varchar,
+        link_id varchar,
+        status offboarding_instance_step_status DEFAULT 'pending',
+        is_required boolean DEFAULT true,
+        completed_at timestamp,
+        completed_by varchar REFERENCES users(id),
+        created_at timestamp DEFAULT NOW()
+      );
+    `);
+
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_off_tmpl_step_template ON offboarding_template_steps (template_id);`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_off_inst_user ON offboarding_instances (employee_user_id);`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_off_inst_caregiver ON offboarding_instances (employee_caregiver_id);`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_off_inst_status ON offboarding_instances (status);`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_off_inst_step_instance ON offboarding_instance_steps (instance_id);`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_off_inst_step_link ON offboarding_instance_steps (step_type, link_id);`);
+
+    await client.query(`CREATE TABLE IF NOT EXISTS offboarding_init_marker (initialized_at timestamp DEFAULT NOW());`);
+    offboardingSchemaReady = true;
+    console.log("[Init] offboarding schema ensured.");
+  } catch (err) {
+    console.error("[Init] ensureOffboardingSchema failed (non-fatal):", err);
   } finally {
     client.release();
   }

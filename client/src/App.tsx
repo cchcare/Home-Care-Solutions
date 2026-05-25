@@ -92,6 +92,9 @@ import InfectionControl from "@/pages/infection-control";
 import ClientSatisfactionSurveys from "@/pages/client-satisfaction-surveys";
 import Onboarding from "@/pages/onboarding";
 import OnboardingTemplates from "@/pages/onboarding-templates";
+import Offboarding from "@/pages/offboarding";
+import OffboardingTemplates from "@/pages/offboarding-templates";
+import MyOffboarding from "@/pages/my-offboarding";
 import MyOnboarding from "@/pages/my-onboarding";
 
 import { Redirect } from "wouter";
@@ -231,6 +234,9 @@ function Router() {
           <Route path="/onboarding" component={Onboarding} />
           <Route path="/onboarding/templates" component={OnboardingTemplates} />
           <Route path="/my-onboarding" component={MyOnboarding} />
+          <Route path="/offboarding" component={Offboarding} />
+          <Route path="/offboarding/templates" component={OffboardingTemplates} />
+          <Route path="/my-offboarding" component={MyOffboarding} />
         </>
       )}
       <Route component={NotFound} />

@@ -96,6 +96,17 @@ export default function PayrollHub() {
     retry: false,
   });
 
+  // Task #137: surface in-progress offboarding so payroll knows to expect a
+  // final paycheck / COBRA notice before closing out the next run.
+  const { data: offboardingInProgress = [] } = useQuery<any[]>({
+    queryKey: ["/api/offboarding/instances", { status: "in_progress" }],
+    queryFn: async () => {
+      const r = await fetch("/api/offboarding/instances?status=in_progress", { credentials: "include" });
+      if (!r.ok) return [];
+      return r.json();
+    },
+  });
+
   const alerts: PayrollAlert[] = [
     ...(adpConfig && !adpConfig.isConfigured ? [{
       id: "adp-setup",
@@ -228,6 +239,34 @@ export default function PayrollHub() {
                     </div>
                     <Badge variant="outline" className="bg-amber-100 text-amber-800 border-amber-300">
                       {alerts.length} Alert{alerts.length > 1 ? 's' : ''}
+                    </Badge>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {offboardingInProgress.length > 0 && (
+              <Card
+                className="border-orange-200 bg-orange-50 dark:bg-orange-950/20 dark:border-orange-800 cursor-pointer hover:bg-orange-100/70 transition-colors"
+                onClick={() => { window.location.href = "/offboarding"; }}
+                data-testid="banner-offboarding-in-progress"
+              >
+                <CardContent className="p-4">
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="flex items-center gap-3">
+                      <AlertCircle className="h-5 w-5 text-orange-600" />
+                      <div>
+                        <div className="font-medium text-orange-900 dark:text-orange-100">
+                          Offboarding in progress
+                        </div>
+                        <div className="text-sm text-orange-800/80 dark:text-orange-200/80">
+                          {offboardingInProgress.length} employee
+                          {offboardingInProgress.length === 1 ? " is" : "s are"} mid-exit — final paycheck, COBRA notices, and exit interviews may be outstanding.
+                        </div>
+                      </div>
+                    </div>
+                    <Badge variant="outline" className="bg-orange-100 text-orange-800 border-orange-300">
+                      {offboardingInProgress.length} active
                     </Badge>
                   </div>
                 </CardContent>
