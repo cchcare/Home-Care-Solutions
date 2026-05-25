@@ -457,12 +457,43 @@ export default function Caregivers() {
     url.setMany(next);
   };
 
-  const handleExportCsv = () => {
-    if (caregivers.length === 0) {
-      toast({ title: "No caregivers to export", description: "Adjust your filters and try again." });
-      return;
+  const [isExporting, setIsExporting] = useState(false);
+  const handleExportCsv = async () => {
+    if (isExporting) return;
+    setIsExporting(true);
+    try {
+      const exportParams = new URLSearchParams(queryParams);
+      exportParams.set("export", "csv");
+      const r = await fetch(`/api/caregivers?${exportParams.toString()}`, { credentials: "include" });
+      if (!r.ok) {
+        const body = await r.json().catch(() => ({}));
+        throw new Error(body?.message || `Failed to export caregivers (${r.status})`);
+      }
+      const rows = (await r.json()) as EnrichedCaregiver[];
+      if (rows.length === 0) {
+        toast({ title: "No caregivers to export", description: "Adjust your filters and try again." });
+        return;
+      }
+      if (rows.length >= 1000) {
+        toast({
+          title: "Preparing large export",
+          description: `Downloading ${rows.length.toLocaleString()} caregivers — this may take a moment.`,
+        });
+      }
+      downloadCaregiversCsv(rows, coordinators, visibility);
+      toast({
+        title: "Export ready",
+        description: `Downloaded ${rows.length.toLocaleString()} caregiver${rows.length === 1 ? "" : "s"}.`,
+      });
+    } catch (err: any) {
+      toast({
+        title: "Export failed",
+        description: err?.message || "Could not export caregivers.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsExporting(false);
     }
-    downloadCaregiversCsv(caregivers, coordinators, visibility);
   };
 
   return (
@@ -606,9 +637,10 @@ export default function Caregivers() {
                       variant="outline"
                       size="sm"
                       onClick={handleExportCsv}
+                      disabled={isLoading || isExporting}
                       data-testid="button-export-csv"
                     >
-                      Export CSV
+                      {isExporting ? "Exporting…" : "Export CSV"}
                     </Button>
                     <SavedViewsMenu
                       views={views}

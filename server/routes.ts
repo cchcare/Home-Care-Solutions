@@ -1664,7 +1664,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ageMin,
         ageMax,
         createdWithinDays,
+        export: exportMode,
       } = req.query as Record<string, string | undefined>;
+
+      // `export=csv` is a forward-compatible flag: today this endpoint already
+      // returns every matching row, but if pagination / row caps are added
+      // later, the handler should bypass them when serving an export request
+      // so CSV downloads stay complete.
+      const isExport = exportMode === 'csv';
 
       const conditions: SQL[] = [];
 
@@ -1807,6 +1814,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       let query = db.select().from(clients);
       if (conditions.length > 0) {
         query = query.where(and(...conditions)) as typeof query;
+      }
+
+      if (isExport) {
+        res.setHeader('X-Export-Mode', 'csv');
       }
 
       if (sortField === 'name') {
@@ -2361,7 +2372,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         specializations,
         certType,
         certExpiresWithinDays,
+        export: exportMode,
       } = req.query as Record<string, string | undefined>;
+
+      // `export=csv` is a forward-compatible flag: today this endpoint already
+      // returns every matching row, but if pagination / row caps are added
+      // later, the handler should bypass them when serving an export request.
+      const isExport = exportMode === 'csv';
+      if (isExport) {
+        res.setHeader('X-Export-Mode', 'csv');
+      }
 
       const conditions: SQL[] = [];
 

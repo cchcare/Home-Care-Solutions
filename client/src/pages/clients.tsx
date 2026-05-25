@@ -708,12 +708,43 @@ export default function Clients() {
     url.setMany(next);
   };
 
-  const handleExportCsv = () => {
-    if (clients.length === 0) {
-      toast({ title: "No clients to export", description: "Adjust your filters and try again." });
-      return;
+  const [isExporting, setIsExporting] = useState(false);
+  const handleExportCsv = async () => {
+    if (isExporting) return;
+    setIsExporting(true);
+    try {
+      const exportParams = new URLSearchParams(queryParams);
+      exportParams.set("export", "csv");
+      const r = await fetch(`/api/clients?${exportParams.toString()}`, { credentials: "include" });
+      if (!r.ok) {
+        const body = await r.json().catch(() => ({}));
+        throw new Error(body?.message || `Failed to export clients (${r.status})`);
+      }
+      const rows = (await r.json()) as Client[];
+      if (rows.length === 0) {
+        toast({ title: "No clients to export", description: "Adjust your filters and try again." });
+        return;
+      }
+      if (rows.length >= 1000) {
+        toast({
+          title: "Preparing large export",
+          description: `Downloading ${rows.length.toLocaleString()} clients — this may take a moment.`,
+        });
+      }
+      downloadClientsCsv(rows, coordinators, mcos, visibility);
+      toast({
+        title: "Export ready",
+        description: `Downloaded ${rows.length.toLocaleString()} client${rows.length === 1 ? "" : "s"}.`,
+      });
+    } catch (err: any) {
+      toast({
+        title: "Export failed",
+        description: err?.message || "Could not export clients.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsExporting(false);
     }
-    downloadClientsCsv(clients, coordinators, mcos, visibility);
   };
 
   return (
@@ -1022,11 +1053,11 @@ export default function Clients() {
                       variant="outline"
                       size="sm"
                       onClick={handleExportCsv}
-                      disabled={isLoading}
+                      disabled={isLoading || isExporting}
                       data-testid="button-export-csv"
                     >
                       <Download className="w-4 h-4 mr-2" />
-                      Export CSV
+                      {isExporting ? "Exporting…" : "Export CSV"}
                     </Button>
                     <SavedViewsMenu
                       views={savedViews}
