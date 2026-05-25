@@ -846,6 +846,7 @@ export interface IStorage {
 
   // Office Staff operations
   getOfficeStaff(officeId: string): Promise<OfficeStaff[]>;
+  getAllOfficeStaffWithDetails(filters?: { officeIds?: string[]; position?: string; isActive?: boolean; search?: string }): Promise<Array<OfficeStaff & { firstName: string | null; lastName: string | null; email: string | null; officeName: string | null }>>;
   getOfficeStaffMember(id: string): Promise<OfficeStaff | undefined>;
   createOfficeStaff(staff: InsertOfficeStaff): Promise<OfficeStaff>;
   updateOfficeStaff(id: string, staff: Partial<InsertOfficeStaff>): Promise<OfficeStaff>;
@@ -4516,6 +4517,49 @@ export class DatabaseStorage implements IStorage {
   // Office Staff
   async getOfficeStaff(officeId: string): Promise<OfficeStaff[]> {
     return await db.select().from(officeStaff).where(eq(officeStaff.officeId, officeId)).orderBy(desc(officeStaff.createdAt));
+  }
+
+  async getAllOfficeStaffWithDetails(filters?: { officeIds?: string[]; position?: string; isActive?: boolean; search?: string }) {
+    const conditions: any[] = [];
+    if (filters?.officeIds) {
+      if (filters.officeIds.length === 0) return [] as any;
+      conditions.push(inArray(officeStaff.officeId, filters.officeIds));
+    }
+    if (filters?.position) conditions.push(eq(officeStaff.position, filters.position));
+    if (filters?.isActive !== undefined) conditions.push(eq(officeStaff.isActive, filters.isActive));
+    if (filters?.search && filters.search.trim()) {
+      const q = `%${filters.search.trim().toLowerCase()}%`;
+      conditions.push(or(
+        sql`lower(${users.firstName}) like ${q}`,
+        sql`lower(${users.lastName}) like ${q}`,
+        sql`lower(${users.firstName} || ' ' || ${users.lastName}) like ${q}`,
+      ));
+    }
+    const rows = await db
+      .select({
+        id: officeStaff.id,
+        officeId: officeStaff.officeId,
+        userId: officeStaff.userId,
+        position: officeStaff.position,
+        department: officeStaff.department,
+        startDate: officeStaff.startDate,
+        endDate: officeStaff.endDate,
+        isPrimary: officeStaff.isPrimary,
+        isActive: officeStaff.isActive,
+        notes: officeStaff.notes,
+        createdAt: officeStaff.createdAt,
+        updatedAt: officeStaff.updatedAt,
+        firstName: users.firstName,
+        lastName: users.lastName,
+        email: users.email,
+        officeName: offices.name,
+      })
+      .from(officeStaff)
+      .leftJoin(users, eq(officeStaff.userId, users.id))
+      .leftJoin(offices, eq(officeStaff.officeId, offices.id))
+      .where(conditions.length ? and(...conditions) : undefined)
+      .orderBy(users.lastName, users.firstName);
+    return rows as any;
   }
 
   async getOfficeStaffMember(id: string): Promise<OfficeStaff | undefined> {

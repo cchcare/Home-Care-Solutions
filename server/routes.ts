@@ -7222,9 +7222,75 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Office Staff routes
-  app.get("/api/offices/:officeId/staff", isAuthenticated, async (req, res) => {
+  // Resolve which office IDs the caller is allowed to see staff for.
+  // super_admin -> all; everyone else -> their primaryOfficeId only.
+  const resolveAllowedOfficeIds = async (req: any): Promise<string[] | "ALL"> => {
+    const currentUser = req.session?.user;
+    if (currentUser?.role === "super_admin") return "ALL";
+    if (currentUser?.primaryOfficeId) return [currentUser.primaryOfficeId];
+    return [];
+  };
+
+  // Unified staff list across all offices the caller is allowed to see
+  app.get("/api/staff", isAuthenticated, async (req: any, res) => {
     try {
+      const { officeId, position, status, search } = req.query as Record<string, string | undefined>;
+      const allowed = await resolveAllowedOfficeIds(req);
+      if (Array.isArray(allowed) && allowed.length === 0) return res.json([]);
+
+      let scopedOfficeIds: string[] | undefined;
+      if (allowed === "ALL") {
+        if (officeId && officeId !== "all") scopedOfficeIds = [officeId];
+      } else {
+        if (officeId && officeId !== "all") {
+          if (!allowed.includes(officeId)) return res.status(403).json({ message: "Forbidden" });
+          scopedOfficeIds = [officeId];
+        } else {
+          scopedOfficeIds = allowed;
+        }
+      }
+
+      const filters: { officeIds?: string[]; position?: string; isActive?: boolean; search?: string } = {};
+      if (scopedOfficeIds) filters.officeIds = scopedOfficeIds;
+      if (position && position !== "all") filters.position = position;
+      if (status === "active") filters.isActive = true;
+      else if (status === "inactive") filters.isActive = false;
+      if (search) filters.search = search;
+      const staff = await storage.getAllOfficeStaffWithDetails(filters);
+      res.json(staff);
+    } catch (error) {
+      console.error("Error fetching staff list:", error);
+      res.status(500).json({ message: "Failed to fetch staff list" });
+    }
+  });
+
+  // Distinct staff positions (titles) the caller is allowed to see
+  app.get("/api/staff/positions", isAuthenticated, async (req: any, res) => {
+    try {
+      const allowed = await resolveAllowedOfficeIds(req);
+      if (Array.isArray(allowed) && allowed.length === 0) return res.json([]);
+      const scoped = allowed === "ALL" ? undefined : { officeIds: allowed };
+      const all = await storage.getAllOfficeStaffWithDetails(scoped);
+      const positions = Array.from(new Set(all.map((s: any) => s.position).filter(Boolean))).sort();
+      res.json(positions);
+    } catch (error) {
+      console.error("Error fetching staff positions:", error);
+      res.status(500).json({ message: "Failed to fetch positions" });
+    }
+  });
+
+  // Check that the caller is allowed to access the given officeId.
+  const canAccessOffice = async (req: any, officeId: string): Promise<boolean> => {
+    const allowed = await resolveAllowedOfficeIds(req);
+    return allowed === "ALL" || (Array.isArray(allowed) && allowed.includes(officeId));
+  };
+
+  // Office Staff routes
+  app.get("/api/offices/:officeId/staff", isAuthenticated, async (req: any, res) => {
+    try {
+      if (!(await canAccessOffice(req, req.params.officeId))) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
       const staff = await storage.getOfficeStaff(req.params.officeId);
       res.json(staff);
     } catch (error) {
@@ -7235,6 +7301,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/offices/:officeId/staff", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await canAccessOffice(req, req.params.officeId))) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
       const requestData = {
         ...req.body,
         officeId: req.params.officeId,
@@ -7263,7 +7332,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.put("/api/offices/:officeId/staff/:id", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await canAccessOffice(req, req.params.officeId))) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
       const oldStaff = await storage.getOfficeStaffMember(req.params.id);
+      if (oldStaff && oldStaff.officeId !== req.params.officeId) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
       const validatedData = insertOfficeStaffSchema.partial().parse(req.body);
       const staff = await storage.updateOfficeStaff(req.params.id, validatedData);
       
@@ -7287,9 +7362,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/offices/:officeId/staff/:id", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await canAccessOffice(req, req.params.officeId))) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
       const staff = await storage.getOfficeStaffMember(req.params.id);
       if (!staff) {
         return res.status(404).json({ message: "Staff member not found" });
+      }
+      if (staff.officeId !== req.params.officeId) {
+        return res.status(403).json({ message: "Forbidden" });
       }
       
       await storage.deleteOfficeStaff(req.params.id);

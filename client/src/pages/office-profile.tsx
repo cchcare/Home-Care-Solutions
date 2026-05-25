@@ -182,6 +182,8 @@ export default function OfficeProfile() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/offices", officeId, "staff"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/staff"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/staff/positions"] });
       toast({ title: "Success", description: "Staff member added successfully" });
       setShowAddDialog(false);
     },
@@ -196,6 +198,8 @@ export default function OfficeProfile() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/offices", officeId, "staff"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/staff"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/staff/positions"] });
       toast({ title: "Success", description: "Staff member removed successfully" });
     },
     onError: () => {

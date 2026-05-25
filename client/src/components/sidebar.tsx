@@ -176,6 +176,7 @@ export function Sidebar() {
             name: "Staff",
             icon: UserCog,
             children: [
+              { name: "Staff Directory", href: "/staff", icon: Users },
               { name: "Staff Time Tracking", href: "/staff-time-tracking", icon: Clock },
               { name: "Kiosk Terminal", href: "/kiosk", icon: MonitorCheck },
               { name: "Kiosk Setup", href: "/kiosk-setup", icon: Monitor },
