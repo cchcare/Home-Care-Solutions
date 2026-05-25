@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Search, Users } from "lucide-react";
+import { Sidebar } from "@/components/sidebar";
 
 type StaffRow = {
   id: string;
@@ -57,7 +58,9 @@ export default function Staff() {
   }), [staff]);
 
   return (
-    <div className="space-y-4 p-4 md:p-6" data-testid="page-staff">
+    <div className="flex min-h-screen">
+      <Sidebar />
+      <div className="flex-1 space-y-4 p-4 md:p-6 overflow-auto" data-testid="page-staff">
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div className="flex items-center gap-2">
           <Users className="h-6 w-6" />
@@ -163,6 +166,7 @@ export default function Staff() {
           </Table>
         </CardContent>
       </Card>
+      </div>
     </div>
   );
 }
