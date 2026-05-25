@@ -2,11 +2,15 @@ import cron from "node-cron";
 import { sendTodaysBirthdayNotifications } from "./birthday-service";
 import { exclusionService } from "./exclusion-service";
 import { expirationAlertService } from "./expiration-alert-service";
+import { sendDailyHhaxSummary } from "./hhax-summary-service";
 
 const BIRTHDAY_NOTIFICATION_CRON = process.env.BIRTHDAY_CRON_SCHEDULE || "0 8 * * *";
 const BIRTHDAY_NOTIFICATION_HOUR = parseInt(process.env.BIRTHDAY_NOTIFICATION_HOUR || "8", 10);
 const EXCLUSION_CHECK_CRON = process.env.EXCLUSION_CHECK_CRON || "0 2 1,15 * *";
 const EXPIRATION_ALERT_CRON = process.env.EXPIRATION_ALERT_CRON || "0 7 * * *";
+// HHAX SFTP exports normally land overnight; summarize the prior day at 7:30 AM ET.
+const HHAX_SUMMARY_CRON = process.env.HHAX_SUMMARY_CRON || "30 7 * * *";
+const HHAX_SUMMARY_WINDOW_HOURS = parseInt(process.env.HHAX_SUMMARY_WINDOW_HOURS || "24", 10);
 
 async function runBirthdayJob() {
   console.log(`[Scheduler] Running birthday notifications job at ${new Date().toISOString()}`);
@@ -52,6 +56,20 @@ async function runExclusionCheckJob() {
   }
 }
 
+async function runHhaxSummaryJob() {
+  console.log(`[Scheduler] Running HHAeXchange daily summary job at ${new Date().toISOString()}`);
+  try {
+    const result = await sendDailyHhaxSummary(HHAX_SUMMARY_WINDOW_HOURS);
+    console.log(
+      `[Scheduler] HHAX summary completed: ${result.officeSummaries.length} office(s), ${result.emailsSent} sent, ${result.emailsSkipped} skipped, ${result.emailsFailed} failed`,
+    );
+    return result;
+  } catch (error) {
+    console.error("[Scheduler] HHAX daily summary job failed:", error);
+    throw error;
+  }
+}
+
 async function runExpirationAlertJob() {
   console.log(`[Scheduler] Running expiration alerts job at ${new Date().toISOString()}`);
   try {
@@ -71,6 +89,7 @@ export function startScheduledJobs() {
   console.log(`[Scheduler] Starting birthday notification scheduler with cron: ${BIRTHDAY_NOTIFICATION_CRON}`);
   console.log(`[Scheduler] Starting exclusion check scheduler with cron: ${EXCLUSION_CHECK_CRON}`);
   console.log(`[Scheduler] Starting expiration alert scheduler with cron: ${EXPIRATION_ALERT_CRON}`);
+  console.log(`[Scheduler] Starting HHAeXchange daily summary scheduler with cron: ${HHAX_SUMMARY_CRON}`);
 
   const now = new Date();
   const currentHour = now.getHours();
@@ -92,6 +111,10 @@ export function startScheduledJobs() {
 
   cron.schedule(EXPIRATION_ALERT_CRON, async () => {
     await runExpirationAlertJob();
+  });
+
+  cron.schedule(HHAX_SUMMARY_CRON, async () => {
+    await runHhaxSummaryJob();
   });
 
   console.log("[Scheduler] Scheduled jobs started successfully");
@@ -117,6 +140,18 @@ export async function runExclusionCheckNow() {
     return results;
   } catch (error) {
     console.error("[Scheduler] Manual exclusion check failed:", error);
+    throw error;
+  }
+}
+
+export async function runHhaxSummaryNow(windowHours?: number) {
+  console.log(`[Scheduler] Manual HHAX daily summary triggered at ${new Date().toISOString()}`);
+  try {
+    const result = await sendDailyHhaxSummary(windowHours ?? HHAX_SUMMARY_WINDOW_HOURS);
+    console.log(`[Scheduler] Manual HHAX summary completed`);
+    return result;
+  } catch (error) {
+    console.error("[Scheduler] Manual HHAX summary run failed:", error);
     throw error;
   }
 }

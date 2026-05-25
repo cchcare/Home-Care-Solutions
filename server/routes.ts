@@ -146,7 +146,7 @@ import {
   lookupZip,
 } from "./geocoding-service";
 import { expirationAlertService } from './expiration-alert-service';
-import { runExpirationAlertsNow } from './scheduler';
+import { runExpirationAlertsNow, runHhaxSummaryNow } from './scheduler';
 
 // Helper function to coerce date strings to Date objects
 function coerceDate(value: string | Date | null | undefined): Date | null | undefined {
@@ -13456,6 +13456,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error: any) {
       console.error("Error running full HHAX sync:", error);
       res.status(500).json({ message: error.message || "Failed to run full sync" });
+    }
+  });
+
+  // Manually trigger the HHAeXchange daily summary email job. Useful for
+  // verifying recipients/content without waiting for the scheduled cron.
+  app.post("/api/hhax/send-daily-summary", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      if (!user || (user.role !== "admin" && user.role !== "supervisor" && user.role !== "super_admin")) {
+        return res.status(403).json({ message: "Unauthorized: Admin, supervisor, or super_admin role required" });
+      }
+      const windowHours = req.body?.windowHours ? parseInt(String(req.body.windowHours), 10) : undefined;
+      const result = await runHhaxSummaryNow(
+        Number.isFinite(windowHours) && (windowHours as number) > 0 ? windowHours : undefined,
+      );
+      res.json({ success: true, ...result });
+    } catch (error: any) {
+      console.error("Error sending HHAX daily summary:", error);
+      res.status(500).json({ message: error.message || "Failed to send HHAX daily summary" });
     }
   });
 
