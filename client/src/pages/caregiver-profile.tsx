@@ -180,6 +180,7 @@ const CAREGIVER_MENU_ITEMS = [
   { id: "documents", label: "Document Management", icon: FileText },
   { id: "reviews", label: "Performance Reviews", icon: ClipboardList },
   { id: "office-move", label: "Office Move", icon: ArrowRightLeft },
+  { id: "import-history", label: "Import History", icon: Upload },
 ];
 
 export default function CaregiverProfile() {
@@ -2492,6 +2493,10 @@ export default function CaregiverProfile() {
                 </div>
               )}
 
+              {activeSection === "import-history" && (
+                <ImportHistorySection caregiverId={caregiverId!} />
+              )}
+
               {activeSection === "exclusion" && (
                 <div className="space-y-6">
                   <Card>
@@ -3222,6 +3227,145 @@ export default function CaregiverProfile() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+    </div>
+  );
+}
+
+type ImportHistoryEntry = {
+  id: string;
+  createdAt: string | null;
+  caregiverId: string | null;
+  uploaderId: string | null;
+  uploaderFirstName: string | null;
+  uploaderLastName: string | null;
+  uploaderEmail: string | null;
+  newValues: {
+    employeeId?: string;
+    email?: string;
+    npi?: string;
+    licenseNumber?: string;
+    certificationType?: string;
+  } | null;
+  ipAddress: string | null;
+};
+
+type ImportHistoryUploader = {
+  id: string;
+  firstName: string | null;
+  lastName: string | null;
+  email: string | null;
+};
+
+function ImportHistorySection({ caregiverId }: { caregiverId: string }) {
+  const [uploaderFilter, setUploaderFilter] = useState<string>("all");
+
+  const { data, isLoading } = useQuery<{
+    history: ImportHistoryEntry[];
+    uploaders: ImportHistoryUploader[];
+  }>({
+    queryKey: ["/api/caregivers", caregiverId, "import-history", uploaderFilter],
+    queryFn: () => {
+      const params = new URLSearchParams();
+      if (uploaderFilter !== "all") params.set("uploaderId", uploaderFilter);
+      const qs = params.toString();
+      return fetch(`/api/caregivers/${caregiverId}/import-history${qs ? `?${qs}` : ""}`).then(r => r.json());
+    },
+    enabled: !!caregiverId,
+  });
+
+  const history = data?.history || [];
+  const uploaders = data?.uploaders || [];
+
+  const formatUploader = (u: { firstName: string | null; lastName: string | null; email: string | null }) => {
+    const name = `${u.firstName || ""} ${u.lastName || ""}`.trim();
+    return name || u.email || "Unknown";
+  };
+
+  return (
+    <div className="space-y-6">
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between gap-4 flex-wrap">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <Upload className="w-5 h-5" />
+                Identifier Import History
+              </CardTitle>
+              <CardDescription>
+                Audit trail of NPI / license-number changes made via the bulk identifier importer.
+              </CardDescription>
+            </div>
+            <div className="flex items-center gap-2">
+              <Label className="text-sm text-muted-foreground">Uploaded by</Label>
+              <Select value={uploaderFilter} onValueChange={setUploaderFilter}>
+                <SelectTrigger className="w-[220px]" data-testid="select-import-history-uploader">
+                  <SelectValue placeholder="All uploaders" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All uploaders</SelectItem>
+                  {uploaders.map((u) => (
+                    <SelectItem key={u.id} value={u.id}>{formatUploader(u)}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {isLoading ? (
+            <p className="text-sm text-muted-foreground">Loading import history...</p>
+          ) : history.length === 0 ? (
+            <p className="text-sm text-muted-foreground" data-testid="text-import-history-empty">
+              No identifier imports recorded for this caregiver.
+            </p>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>When</TableHead>
+                  <TableHead>Uploaded by</TableHead>
+                  <TableHead>NPI</TableHead>
+                  <TableHead>License #</TableHead>
+                  <TableHead>Certification Type</TableHead>
+                  <TableHead>Matched by</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {history.map((entry) => {
+                  const v = entry.newValues || {};
+                  const matchedBy = [
+                    v.employeeId ? `Employee ID: ${v.employeeId}` : null,
+                    v.email ? `Email: ${v.email}` : null,
+                  ].filter(Boolean).join(" / ");
+                  return (
+                    <TableRow key={entry.id} data-testid={`row-import-history-${entry.id}`}>
+                      <TableCell className="text-sm whitespace-nowrap">
+                        {entry.createdAt ? format(new Date(entry.createdAt), "MMM d, yyyy 'at' h:mm a") : "—"}
+                      </TableCell>
+                      <TableCell className="text-sm">
+                        {entry.uploaderId ? (
+                          <div>
+                            <div>{formatUploader({ firstName: entry.uploaderFirstName, lastName: entry.uploaderLastName, email: entry.uploaderEmail })}</div>
+                            {entry.uploaderEmail && (
+                              <div className="text-xs text-muted-foreground">{entry.uploaderEmail}</div>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-muted-foreground">System</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="font-mono text-sm">{v.npi || "—"}</TableCell>
+                      <TableCell className="font-mono text-sm">{v.licenseNumber || "—"}</TableCell>
+                      <TableCell className="text-sm">{v.certificationType || "—"}</TableCell>
+                      <TableCell className="text-sm text-muted-foreground">{matchedBy || "—"}</TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

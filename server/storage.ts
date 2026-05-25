@@ -608,6 +608,27 @@ export interface IStorage {
 
   // Audit logging
   createAuditLog(log: InsertAuditLog): Promise<AuditLog>;
+  getIdentifierImportHistory(filters: {
+    caregiverId?: string;
+    uploaderId?: string;
+    officeId?: string;
+  }): Promise<Array<{
+    id: string;
+    createdAt: Date | null;
+    caregiverId: string | null;
+    caregiverFirstName: string | null;
+    caregiverLastName: string | null;
+    uploaderId: string | null;
+    uploaderFirstName: string | null;
+    uploaderLastName: string | null;
+    uploaderEmail: string | null;
+    newValues: any;
+    ipAddress: string | null;
+  }>>;
+  getIdentifierImportUploaders(filters: {
+    caregiverId?: string;
+    officeId?: string;
+  }): Promise<Array<{ id: string; firstName: string | null; lastName: string | null; email: string | null }>>;
 
 
   // Training operations
@@ -2518,6 +2539,91 @@ export class DatabaseStorage implements IStorage {
   async createAuditLog(log: InsertAuditLog): Promise<AuditLog> {
     const [newLog] = await db.insert(auditLogs).values(log).returning();
     return newLog;
+  }
+
+  async getIdentifierImportHistory(filters: {
+    caregiverId?: string;
+    uploaderId?: string;
+    officeId?: string;
+  }): Promise<Array<{
+    id: string;
+    createdAt: Date | null;
+    caregiverId: string | null;
+    caregiverFirstName: string | null;
+    caregiverLastName: string | null;
+    uploaderId: string | null;
+    uploaderFirstName: string | null;
+    uploaderLastName: string | null;
+    uploaderEmail: string | null;
+    newValues: any;
+    ipAddress: string | null;
+  }>> {
+    const conditions: any[] = [
+      eq(auditLogs.action, "bulk_import_identifiers"),
+      eq(auditLogs.entityType, "caregiver"),
+    ];
+    if (filters.caregiverId) {
+      conditions.push(eq(auditLogs.entityId, filters.caregiverId));
+    }
+    if (filters.uploaderId) {
+      conditions.push(eq(auditLogs.userId, filters.uploaderId));
+    }
+    if (filters.officeId) {
+      conditions.push(eq(caregivers.officeId, filters.officeId));
+    }
+
+    const rows = await db
+      .select({
+        id: auditLogs.id,
+        createdAt: auditLogs.createdAt,
+        caregiverId: auditLogs.entityId,
+        caregiverFirstName: caregivers.firstName,
+        caregiverLastName: caregivers.lastName,
+        uploaderId: auditLogs.userId,
+        uploaderFirstName: users.firstName,
+        uploaderLastName: users.lastName,
+        uploaderEmail: users.email,
+        newValues: auditLogs.newValues,
+        ipAddress: auditLogs.ipAddress,
+      })
+      .from(auditLogs)
+      .leftJoin(users, eq(auditLogs.userId, users.id))
+      .leftJoin(caregivers, eq(auditLogs.entityId, caregivers.id))
+      .where(and(...conditions))
+      .orderBy(desc(auditLogs.createdAt))
+      .limit(500);
+
+    return rows as any;
+  }
+
+  async getIdentifierImportUploaders(filters: {
+    caregiverId?: string;
+    officeId?: string;
+  }): Promise<Array<{ id: string; firstName: string | null; lastName: string | null; email: string | null }>> {
+    const conditions: any[] = [
+      eq(auditLogs.action, "bulk_import_identifiers"),
+      eq(auditLogs.entityType, "caregiver"),
+    ];
+    if (filters.caregiverId) {
+      conditions.push(eq(auditLogs.entityId, filters.caregiverId));
+    }
+    if (filters.officeId) {
+      conditions.push(eq(caregivers.officeId, filters.officeId));
+    }
+
+    const rows = await db
+      .selectDistinct({
+        id: users.id,
+        firstName: users.firstName,
+        lastName: users.lastName,
+        email: users.email,
+      })
+      .from(auditLogs)
+      .innerJoin(users, eq(auditLogs.userId, users.id))
+      .leftJoin(caregivers, eq(auditLogs.entityId, caregivers.id))
+      .where(and(...conditions));
+
+    return rows;
   }
 
 

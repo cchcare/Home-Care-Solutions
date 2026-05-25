@@ -3458,6 +3458,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Identifier import history (audit trail) for a specific caregiver
+  app.get("/api/caregivers/:id/import-history", isAuthenticated, async (req: any, res) => {
+    try {
+      const currentUser = req.session?.user;
+      const caregiver = await storage.getCaregiver(req.params.id);
+      if (!caregiver) {
+        return res.status(404).json({ message: "Caregiver not found" });
+      }
+
+      const isSuperAdmin = currentUser?.role === "super_admin";
+      const userOfficeId = currentUser?.primaryOfficeId || currentUser?.officeId || null;
+      if (!isSuperAdmin && caregiver.officeId && caregiver.officeId !== userOfficeId) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+
+      const uploaderId = typeof req.query.uploaderId === "string" && req.query.uploaderId
+        ? req.query.uploaderId
+        : undefined;
+
+      const [history, uploaders] = await Promise.all([
+        storage.getIdentifierImportHistory({ caregiverId: req.params.id, uploaderId }),
+        storage.getIdentifierImportUploaders({ caregiverId: req.params.id }),
+      ]);
+
+      res.json({ history, uploaders });
+    } catch (error: any) {
+      console.error("Error fetching identifier import history:", error);
+      res.status(500).json({ message: error.message || "Failed to fetch import history" });
+    }
+  });
+
   // Caregiver bulk update
   app.post("/api/caregivers/bulk-update", isAuthenticated, async (req: any, res) => {
     try {
