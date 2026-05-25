@@ -41,7 +41,42 @@ import {
   MapPin,
   X,
   IdCard,
+  Download,
 } from "lucide-react";
+
+const TEMPLATE_HEADERS = [
+  "Employee ID",
+  "Email",
+  "NPI",
+  "License Number",
+  "Certification Type",
+];
+const TEMPLATE_EXAMPLE_ROW = [
+  "EMP1234",
+  "jane.doe@example.com",
+  "1234567890",
+  "RN123456",
+  "RN",
+];
+
+function downloadIdentifierTemplate() {
+  const escape = (v: string) =>
+    /[",\n\r]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
+  const csv =
+    TEMPLATE_HEADERS.map(escape).join(",") +
+    "\n" +
+    TEMPLATE_EXAMPLE_ROW.map(escape).join(",") +
+    "\n";
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "identifier-import-template.csv";
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
 
 interface IdentifierImportDialogProps {
   onImportComplete?: () => void;
@@ -535,6 +570,23 @@ export function IdentifierImportDialog({ onImportComplete }: IdentifierImportDia
                 className="hidden"
                 data-testid="input-identifier-file"
               />
+            </div>
+
+            <div className="flex items-center justify-between gap-3 p-3 border rounded-lg bg-muted/30">
+              <div className="text-xs text-muted-foreground">
+                Not sure where to start? Download a CSV template with the right
+                column headers and one example row.
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={downloadIdentifierTemplate}
+                data-testid="button-download-identifier-template"
+              >
+                <Download className="w-4 h-4 mr-2" />
+                Download template
+              </Button>
             </div>
 
             <Card>
