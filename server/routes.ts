@@ -12234,13 +12234,81 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // ==================== PERFORMANCE REVIEWS ROUTES ====================
 
-  app.get("/api/performance-reviews", isAuthenticated, async (req, res) => {
+  app.get("/api/performance-reviews", isAuthenticated, async (req: any, res) => {
     try {
-      const reviews = await storage.getAllPerformanceReviews();
+      const user = req.session?.user;
+      if (!user) return res.status(401).json({ message: "Unauthorized" });
+      const { reviewerId, status, mine } = req.query as { reviewerId?: string; status?: string; mine?: string };
+      let reviews = await storage.getAllPerformanceReviews();
+      const adminRoles = ["super_admin", "admin", "office_admin", "manager"];
+      const isAdmin = adminRoles.includes(user.role);
+      if (mine === "1") {
+        reviews = reviews.filter(r => r.reviewerId === user.id);
+      } else if (reviewerId) {
+        if (!isAdmin && reviewerId !== user.id) {
+          return res.status(403).json({ message: "Access denied" });
+        }
+        reviews = reviews.filter(r => r.reviewerId === reviewerId);
+      } else if (!isAdmin) {
+        // Non-admins can only see reviews they conduct or are the subject of.
+        const myCaregiver = await storage.getCaregiverByUserId(user.id).catch(() => null);
+        const myCgId = myCaregiver?.id;
+        reviews = reviews.filter(r => r.reviewerId === user.id || (myCgId && r.caregiverId === myCgId));
+      }
+      if (status) {
+        const statuses = status.split(",");
+        reviews = reviews.filter(r => r.status && statuses.includes(r.status));
+      }
       res.json(reviews);
     } catch (error) {
       console.error("Error fetching performance reviews:", error);
       res.status(500).json({ message: "Failed to fetch performance reviews" });
+    }
+  });
+
+  // Launch a new review cycle for a group of caregivers
+  app.post("/api/performance-reviews/launch-cycle", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      if (!user || !["super_admin", "admin", "office_admin", "manager"].includes(user.role)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      const { reviewType, scheduledDate, reviewPeriodStart, reviewPeriodEnd, officeId, caregiverIds, specialization, targetMode } = req.body || {};
+      if (!reviewType || !scheduledDate) {
+        return res.status(400).json({ message: "reviewType and scheduledDate are required" });
+      }
+      if (targetMode === "custom" && (!Array.isArray(caregiverIds) || caregiverIds.length === 0)) {
+        return res.status(400).json({ message: "Custom target requires at least one caregiver" });
+      }
+      if (targetMode === "role" && (!specialization || typeof specialization !== "string")) {
+        return res.status(400).json({ message: "Role target requires a specialization" });
+      }
+      if (!targetMode && (Array.isArray(caregiverIds) ? caregiverIds.length === 0 : false)) {
+        return res.status(400).json({ message: "caregiverIds may not be an empty list" });
+      }
+      const result = await storage.launchPerformanceReviewCycle({
+        reviewType,
+        scheduledDate: new Date(scheduledDate),
+        reviewPeriodStart: reviewPeriodStart ? new Date(reviewPeriodStart) : null,
+        reviewPeriodEnd: reviewPeriodEnd ? new Date(reviewPeriodEnd) : null,
+        officeId: officeId || null,
+        caregiverIds: Array.isArray(caregiverIds) ? caregiverIds : undefined,
+        specialization: specialization || null,
+        fallbackReviewerId: user.id,
+      });
+      await storage.createAuditLog({
+        userId: user.id,
+        action: "launch_cycle",
+        entityType: "performance_review_cycle",
+        entityId: `${reviewType}-${scheduledDate}`,
+        newValues: { count: result.created.length, skipped: result.skipped.length, officeId, reviewType },
+        ipAddress: req.ip,
+        userAgent: req.get("User-Agent"),
+      });
+      res.status(201).json({ createdCount: result.created.length, skippedCount: result.skipped.length, skipped: result.skipped, reviews: result.created });
+    } catch (error: any) {
+      console.error("Error launching review cycle:", error);
+      res.status(500).json({ message: error?.message || "Failed to launch review cycle" });
     }
   });
 
@@ -12255,11 +12323,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/performance-reviews/:id", isAuthenticated, async (req, res) => {
+  app.get("/api/performance-reviews/:id", isAuthenticated, async (req: any, res) => {
     try {
+      const user = req.session?.user;
+      if (!user) return res.status(401).json({ message: "Unauthorized" });
       const review = await storage.getPerformanceReview(req.params.id);
       if (!review) {
         return res.status(404).json({ message: "Performance review not found" });
+      }
+      const adminRoles = ["super_admin", "admin", "office_admin", "manager"];
+      const isAdmin = adminRoles.includes(user.role);
+      if (!isAdmin && review.reviewerId !== user.id) {
+        const myCaregiver = await storage.getCaregiverByUserId(user.id).catch(() => null);
+        if (!myCaregiver || myCaregiver.id !== review.caregiverId) {
+          return res.status(403).json({ message: "Access denied" });
+        }
       }
       res.json(review);
     } catch (error) {
@@ -12299,11 +12377,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.patch("/api/performance-reviews/:id", isAuthenticated, async (req: any, res) => {
     try {
-      const oldReview = await storage.getPerformanceReview(req.params.id);
-      if (!oldReview) {
-        return res.status(404).json({ message: "Performance review not found" });
-      }
-      
+      const ctx = await assertReviewMutationAllowed(req, res, req.params.id);
+      if (!ctx) return;
+      const oldReview = ctx.review;
+
       const processedBody = {
         ...req.body,
         reviewPeriodStart: coerceDate(req.body.reviewPeriodStart),
@@ -12344,11 +12421,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/performance-reviews/:id/metrics", isAuthenticated, async (req: any, res) => {
     try {
-      const review = await storage.getPerformanceReview(req.params.id);
-      if (!review) {
-        return res.status(404).json({ message: "Performance review not found" });
-      }
-      
+      const ctx = await assertReviewMutationAllowed(req, res, req.params.id);
+      if (!ctx) return;
+      const review = ctx.review;
+
       const validatedData = insertPerformanceMetricSchema.parse({
         ...req.body,
         reviewId: req.params.id,
@@ -12410,8 +12486,178 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/caregivers/:id/performance-reviews", isAuthenticated, async (req, res) => {
+  // Helper: only the assigned reviewer or HR/admin can mutate a review's data
+  const assertReviewMutationAllowed = async (req: any, res: any, reviewId: string) => {
+    const user = req.session?.user;
+    if (!user) { res.status(401).json({ message: "Unauthorized" }); return null; }
+    const review = await storage.getPerformanceReview(reviewId);
+    if (!review) { res.status(404).json({ message: "Performance review not found" }); return null; }
+    if (review.acknowledgedAt) { res.status(400).json({ message: "Review already acknowledged and is locked" }); return null; }
+    const isPrivileged = ["super_admin", "admin", "office_admin", "manager"].includes(user.role);
+    if (!isPrivileged && review.reviewerId !== user.id) {
+      res.status(403).json({ message: "Access denied" }); return null;
+    }
+    return { user, review };
+  };
+
+  // Update an existing metric
+  app.patch("/api/performance-metrics/:id", isAuthenticated, async (req: any, res) => {
     try {
+      const existing = await storage.getPerformanceMetric(req.params.id);
+      if (!existing) return res.status(404).json({ message: "Metric not found" });
+      const ctx = await assertReviewMutationAllowed(req, res, existing.reviewId);
+      if (!ctx) return;
+      const validated = insertPerformanceMetricSchema.partial().parse(req.body);
+      const metric = await storage.updatePerformanceMetric(req.params.id, validated);
+      res.json(metric);
+    } catch (error: any) {
+      console.error("Error updating performance metric:", error);
+      res.status(400).json({ message: error?.message || "Failed to update metric" });
+    }
+  });
+
+  // Delete a metric
+  app.delete("/api/performance-metrics/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const existing = await storage.getPerformanceMetric(req.params.id);
+      if (!existing) return res.status(404).json({ message: "Metric not found" });
+      const ctx = await assertReviewMutationAllowed(req, res, existing.reviewId);
+      if (!ctx) return;
+      await storage.deletePerformanceMetric(req.params.id);
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Error deleting performance metric:", error);
+      res.status(400).json({ message: error?.message || "Failed to delete metric" });
+    }
+  });
+
+  // Send a review for employee acknowledgement via the eSignature flow
+  app.post("/api/performance-reviews/:id/send-for-acknowledgement", isAuthenticated, async (req: any, res) => {
+    try {
+      const ctx = await assertReviewMutationAllowed(req, res, req.params.id);
+      if (!ctx) return;
+      const { user, review } = ctx;
+
+      const caregiver = await storage.getCaregiver(review.caregiverId);
+      if (!caregiver) return res.status(404).json({ message: "Caregiver not found" });
+
+      let recipientEmail = caregiver.email || null;
+      let recipientName = `${caregiver.firstName || ""} ${caregiver.lastName || ""}`.trim();
+      if (!recipientEmail && caregiver.userId) {
+        const cgUser = await storage.getUser(caregiver.userId);
+        if (cgUser) {
+          recipientEmail = recipientEmail || cgUser.email || null;
+          if (!recipientName) recipientName = `${cgUser.firstName || ""} ${cgUser.lastName || ""}`.trim();
+        }
+      }
+      if (!recipientEmail) {
+        return res.status(400).json({ message: "Caregiver has no email on file. Cannot send for acknowledgement." });
+      }
+
+      const metrics = await storage.getPerformanceMetrics(review.id);
+      const overall = await storage.calculateOverallRating(review.id);
+      const metricRows = metrics.map(m => `<tr><td style="padding:4px 8px;border:1px solid #ccc;">${m.metricName}</td><td style="padding:4px 8px;border:1px solid #ccc;text-align:center;">${m.rating}/5</td><td style="padding:4px 8px;border:1px solid #ccc;">${m.comments || ""}</td></tr>`).join("");
+      const documentContent = `
+        <div style="font-family:Arial,sans-serif;">
+          <h1>Performance Review</h1>
+          <p><strong>Employee:</strong> ${recipientName}</p>
+          <p><strong>Review Type:</strong> ${review.reviewType}</p>
+          <p><strong>Review Period:</strong> ${review.reviewPeriodStart ? new Date(review.reviewPeriodStart).toLocaleDateString() : "—"} – ${review.reviewPeriodEnd ? new Date(review.reviewPeriodEnd).toLocaleDateString() : "—"}</p>
+          <p><strong>Overall Rating:</strong> ${overall ?? review.overallRating ?? "—"}</p>
+          <h2>Ratings</h2>
+          <table style="border-collapse:collapse;border:1px solid #ccc;"><thead><tr><th style="padding:4px 8px;border:1px solid #ccc;">Metric</th><th style="padding:4px 8px;border:1px solid #ccc;">Rating</th><th style="padding:4px 8px;border:1px solid #ccc;">Comments</th></tr></thead><tbody>${metricRows || '<tr><td colspan="3" style="padding:8px;">No metrics recorded</td></tr>'}</tbody></table>
+          <h2>Strengths</h2><p>${(review.strengths || "—").replace(/\n/g, "<br/>")}</p>
+          <h2>Areas for Improvement</h2><p>${(review.areasForImprovement || "—").replace(/\n/g, "<br/>")}</p>
+          <h2>Goals</h2><p>${(review.goals || "—").replace(/\n/g, "<br/>")}</p>
+          <h2>Action Items</h2><p>${(review.actionItems || "—").replace(/\n/g, "<br/>")}</p>
+          <h2>Reviewer Comments</h2><p>${(review.reviewerComments || "—").replace(/\n/g, "<br/>")}</p>
+        </div>
+      `;
+
+      const accessToken = crypto.randomBytes(32).toString("hex");
+      const expiresAt = new Date();
+      expiresAt.setDate(expiresAt.getDate() + 30);
+
+      const esignRequest = await storage.createESignatureRequest({
+        documentContent,
+        recipientEmail,
+        recipientName: recipientName || "Employee",
+        recipientType: "caregiver",
+        recipientId: caregiver.id,
+        accessToken,
+        expiresAt,
+        sentBy: user.id,
+        status: "pending",
+        signatureData: { performanceReviewId: review.id },
+      } as any);
+
+      await storage.updatePerformanceReview(review.id, { status: "in_progress" });
+
+      // Send notification email with signing link
+      try {
+        const { sendTemplatedEmail } = await import("./agentmail");
+        const signingLink = `${process.env.BASE_URL || `${req.protocol}://${req.get("host")}`}/esign/${accessToken}`;
+        const senderName = (user.firstName && user.lastName) ? `${user.firstName} ${user.lastName}` : user.username || "Your manager";
+        const deadline = expiresAt.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+        await sendTemplatedEmail(
+          recipientEmail,
+          "esignature_request",
+          {
+            firstName: recipientName.split(" ")[0] || recipientName,
+            documentName: `Performance Review (${review.reviewType})`,
+            senderName,
+            deadline,
+            signUrl: signingLink,
+          },
+          "Action Required: Performance Review Ready for Your Acknowledgement",
+          `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
+            <h2>Performance Review Ready for Acknowledgement</h2>
+            <p>Hello ${recipientName},</p>
+            <p>Your performance review is ready for your acknowledgement.</p>
+            <p><a href="${signingLink}" style="background:#1a6faf;color:#fff;padding:12px 24px;text-decoration:none;border-radius:6px;display:inline-block;">Review and Sign</a></p>
+            <p style="color:#666;font-size:14px;">This link will expire on ${deadline}.</p>
+          </div>`,
+          `Hello ${recipientName}, your performance review is ready. Please visit: ${signingLink}`,
+        );
+      } catch (mailErr) {
+        console.warn("Failed to send acknowledgement email:", mailErr);
+      }
+
+      await storage.createAuditLog({
+        userId: user.id,
+        action: "send_for_acknowledgement",
+        entityType: "performance_review",
+        entityId: review.id,
+        newValues: { esignatureRequestId: esignRequest.id },
+        ipAddress: req.ip,
+        userAgent: req.get("User-Agent"),
+      });
+
+      res.status(201).json({ esignatureRequest: esignRequest, signUrl: `/esign/${accessToken}` });
+    } catch (error: any) {
+      console.error("Error sending review for acknowledgement:", error);
+      res.status(500).json({ message: error?.message || "Failed to send for acknowledgement" });
+    }
+  });
+
+  app.get("/api/caregivers/:id/performance-reviews", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      if (!user) return res.status(401).json({ message: "Unauthorized" });
+      const adminRoles = ["super_admin", "admin", "office_admin", "manager"];
+      const isAdmin = adminRoles.includes(user.role);
+      if (!isAdmin) {
+        const myCaregiver = await storage.getCaregiverByUserId(user.id).catch(() => null);
+        const ownsRecord = myCaregiver?.id === req.params.id;
+        if (!ownsRecord) {
+          const all = await storage.getPerformanceReviewsByCaregiver(req.params.id);
+          const reviewerScoped = all.filter(r => r.reviewerId === user.id);
+          if (reviewerScoped.length === 0) {
+            return res.status(403).json({ message: "Access denied" });
+          }
+          return res.json(reviewerScoped);
+        }
+      }
       const reviews = await storage.getPerformanceReviewsByCaregiver(req.params.id);
       res.json(reviews);
     } catch (error) {
@@ -17959,17 +18205,116 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!signatureData) {
         return res.status(400).json({ message: "Signature data is required" });
       }
-      
+
+      // Preserve any pre-set metadata (e.g. performanceReviewId) on signatureData
+      const existingMeta = request.signatureData && typeof request.signatureData === "object" && !Array.isArray(request.signatureData)
+        ? request.signatureData as Record<string, any>
+        : {};
+      const mergedSignatureData = { ...existingMeta, ...signatureData };
+
+      const signedAt = new Date();
+      let signedDocumentId: string | undefined;
+
+      // If this e-sign request is linked to a performance review, persist the
+      // signed document into the caregiver's document library and acknowledge
+      // the review.
+      const perfReviewId = (existingMeta as any).performanceReviewId as string | undefined;
+      if (perfReviewId) {
+        try {
+          const review = await storage.getPerformanceReview(perfReviewId);
+          if (review) {
+            const fs = await import("fs");
+            const path = await import("path");
+            const PDFDocument = (await import("pdfkit")).default;
+            const dir = path.join(process.cwd(), "uploads");
+            fs.mkdirSync(dir, { recursive: true });
+            const fileBase = `performance-review-${review.id}-${Date.now()}.pdf`;
+            const filePath = path.join(dir, fileBase);
+
+            // Render the e-sign document content + signature footer to PDF.
+            const plainText = String(request.documentContent || "")
+              .replace(/<style[\s\S]*?<\/style>/gi, "")
+              .replace(/<script[\s\S]*?<\/script>/gi, "")
+              .replace(/<br\s*\/?>/gi, "\n")
+              .replace(/<\/(p|div|h[1-6]|li|tr)>/gi, "\n")
+              .replace(/<li[^>]*>/gi, "  • ")
+              .replace(/<[^>]+>/g, "")
+              .replace(/&nbsp;/g, " ")
+              .replace(/&amp;/g, "&")
+              .replace(/&lt;/g, "<")
+              .replace(/&gt;/g, ">")
+              .replace(/&quot;/g, '"')
+              .replace(/&#39;/g, "'")
+              .replace(/\n{3,}/g, "\n\n")
+              .trim();
+
+            await new Promise<void>((resolve, reject) => {
+              const pdfDoc = new PDFDocument({ size: "LETTER", margin: 50 });
+              const stream = fs.createWriteStream(filePath);
+              pdfDoc.pipe(stream);
+              pdfDoc.fontSize(16).text(`Performance Review — ${review.reviewType || ""}`, { underline: true });
+              pdfDoc.moveDown(0.5);
+              pdfDoc.fontSize(10).fillColor("#444")
+                .text(`Review ID: ${review.id}`)
+                .text(`Scheduled: ${review.scheduledDate ? new Date(review.scheduledDate).toISOString().slice(0, 10) : "—"}`)
+                .text(`Overall Rating: ${review.overallRating ?? "—"}`);
+              pdfDoc.moveDown();
+              pdfDoc.fontSize(11).fillColor("#000").text(plainText, { align: "left" });
+              pdfDoc.moveDown(2);
+              pdfDoc.fontSize(10).fillColor("#222")
+                .text("Electronic Signature", { underline: true })
+                .moveDown(0.3)
+                .text(`Signed by: ${request.recipientName}`)
+                .text(`Email: ${request.recipientEmail}`)
+                .text(`Date: ${signedAt.toISOString()}`);
+              pdfDoc.end();
+              stream.on("finish", () => resolve());
+              stream.on("error", reject);
+            });
+
+            const stat = fs.statSync(filePath);
+            const caregiver = await storage.getCaregiver(review.caregiverId);
+            const doc = await storage.createDocument({
+              fileName: fileBase,
+              originalName: `Performance Review (${review.reviewType}) - signed.pdf`,
+              fileType: "application/pdf",
+              fileSize: stat.size,
+              documentType: "performance_review",
+              documentCategory: "performance_review",
+              caregiverId: review.caregiverId,
+              officeId: caregiver?.officeId ?? null,
+              uploadedBy: request.sentBy || review.reviewerId,
+              isSignatureRequired: true,
+              isSigned: true,
+              signedBy: caregiver?.userId ?? null,
+              signedAt,
+            } as any);
+            signedDocumentId = doc.id;
+            await storage.updatePerformanceReview(review.id, {
+              status: "completed",
+              acknowledgedAt: signedAt,
+              acknowledgedBy: caregiver?.userId ?? null,
+              completedDate: signedAt,
+            } as any);
+          }
+        } catch (linkErr) {
+          console.error("Failed to link signed esign request to performance review:", linkErr);
+          return res.status(500).json({ message: "Failed to finalize signed performance review. Please contact support." });
+        }
+      }
+
       // Update request with signature
       const updated = await storage.updateESignatureRequest(request.id, {
         status: 'signed',
-        signedAt: new Date(),
-        signatureData,
-      });
-      
-      res.json({ 
+        signedAt,
+        signatureData: mergedSignatureData,
+        ...(signedDocumentId ? { signedDocumentId } : {}),
+      } as any);
+
+      res.json({
         message: "Document signed successfully",
         signedAt: updated.signedAt,
+        signedDocumentId,
       });
     } catch (error: any) {
       res.status(500).json({ message: error.message || "Failed to submit signature" });

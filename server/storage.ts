@@ -1048,12 +1048,26 @@ export interface IStorage {
   updatePerformanceReview(id: string, review: Partial<InsertPerformanceReview>): Promise<PerformanceReview>;
   getPerformanceReview(id: string): Promise<PerformanceReview | undefined>;
   getPerformanceReviewsByCaregiver(caregiverId: string): Promise<PerformanceReview[]>;
+  getPerformanceReviewsByReviewer(reviewerId: string): Promise<PerformanceReview[]>;
   getAllPerformanceReviews(): Promise<PerformanceReview[]>;
   getUpcomingReviews(daysAhead: number): Promise<PerformanceReview[]>;
   acknowledgeReview(reviewId: string, caregiverId: string): Promise<PerformanceReview>;
+  launchPerformanceReviewCycle(params: {
+    reviewType: "annual" | "semi_annual" | "quarterly" | "probationary" | "improvement_plan";
+    scheduledDate: Date;
+    reviewPeriodStart?: Date | null;
+    reviewPeriodEnd?: Date | null;
+    officeId?: string | null;
+    caregiverIds?: string[];
+    specialization?: string | null;
+    fallbackReviewerId: string;
+  }): Promise<{ created: PerformanceReview[]; skipped: { caregiverId: string; reason: string }[] }>;
 
   // Performance Metrics operations
   createPerformanceMetric(metric: InsertPerformanceMetric): Promise<PerformanceMetric>;
+  updatePerformanceMetric(id: string, metric: Partial<InsertPerformanceMetric>): Promise<PerformanceMetric>;
+  deletePerformanceMetric(id: string): Promise<void>;
+  getPerformanceMetric(id: string): Promise<PerformanceMetric | undefined>;
   getPerformanceMetrics(reviewId: string): Promise<PerformanceMetric[]>;
   calculateOverallRating(reviewId: string): Promise<number | null>;
 
@@ -5868,6 +5882,61 @@ export class DatabaseStorage implements IStorage {
       .orderBy(desc(performanceReviews.createdAt));
   }
 
+  async getPerformanceReviewsByReviewer(reviewerId: string): Promise<PerformanceReview[]> {
+    return await db
+      .select()
+      .from(performanceReviews)
+      .where(eq(performanceReviews.reviewerId, reviewerId))
+      .orderBy(desc(performanceReviews.createdAt));
+  }
+
+  async launchPerformanceReviewCycle(params: {
+    reviewType: "annual" | "semi_annual" | "quarterly" | "probationary" | "improvement_plan";
+    scheduledDate: Date;
+    reviewPeriodStart?: Date | null;
+    reviewPeriodEnd?: Date | null;
+    officeId?: string | null;
+    caregiverIds?: string[];
+    specialization?: string | null;
+    fallbackReviewerId: string;
+  }): Promise<{ created: PerformanceReview[]; skipped: { caregiverId: string; reason: string }[] }> {
+    const conditions: any[] = [eq(caregivers.isActive, true)];
+    if (params.officeId) conditions.push(eq(caregivers.officeId, params.officeId));
+    if (params.caregiverIds && params.caregiverIds.length > 0) {
+      conditions.push(inArray(caregivers.id, params.caregiverIds));
+    }
+    let targets = await db.select().from(caregivers).where(and(...conditions));
+    if (params.specialization) {
+      const spec = params.specialization;
+      targets = targets.filter(t => Array.isArray(t.specializations) && t.specializations.includes(spec));
+    }
+
+    const created: PerformanceReview[] = [];
+    const skipped: { caregiverId: string; reason: string }[] = [];
+    for (const cg of targets) {
+      const reviewerId = cg.managerId || params.fallbackReviewerId;
+      if (!reviewerId) {
+        skipped.push({ caregiverId: cg.id, reason: "No manager assigned and no fallback reviewer" });
+        continue;
+      }
+      try {
+        const [row] = await db.insert(performanceReviews).values({
+          caregiverId: cg.id,
+          reviewerId,
+          reviewType: params.reviewType,
+          scheduledDate: params.scheduledDate,
+          reviewPeriodStart: params.reviewPeriodStart ?? null,
+          reviewPeriodEnd: params.reviewPeriodEnd ?? null,
+          status: "scheduled",
+        }).returning();
+        created.push(row);
+      } catch (err: any) {
+        skipped.push({ caregiverId: cg.id, reason: err?.message || "Insert failed" });
+      }
+    }
+    return { created, skipped };
+  }
+
   async getAllPerformanceReviews(): Promise<PerformanceReview[]> {
     return await db
       .select()
@@ -5916,6 +5985,24 @@ export class DatabaseStorage implements IStorage {
       .from(performanceMetrics)
       .where(eq(performanceMetrics.reviewId, reviewId))
       .orderBy(asc(performanceMetrics.createdAt));
+  }
+
+  async updatePerformanceMetric(id: string, metric: Partial<InsertPerformanceMetric>): Promise<PerformanceMetric> {
+    const [updated] = await db
+      .update(performanceMetrics)
+      .set(metric)
+      .where(eq(performanceMetrics.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deletePerformanceMetric(id: string): Promise<void> {
+    await db.delete(performanceMetrics).where(eq(performanceMetrics.id, id));
+  }
+
+  async getPerformanceMetric(id: string): Promise<PerformanceMetric | undefined> {
+    const [row] = await db.select().from(performanceMetrics).where(eq(performanceMetrics.id, id));
+    return row;
   }
 
   async calculateOverallRating(reviewId: string): Promise<number | null> {

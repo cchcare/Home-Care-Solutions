@@ -176,6 +176,7 @@ const CAREGIVER_MENU_ITEMS = [
   { id: "member-history", label: "Member History", icon: History },
   { id: "others", label: "Others", icon: MoreHorizontal },
   { id: "documents", label: "Document Management", icon: FileText },
+  { id: "reviews", label: "Performance Reviews", icon: ClipboardList },
   { id: "office-move", label: "Office Move", icon: ArrowRightLeft },
 ];
 
@@ -289,6 +290,21 @@ export default function CaregiverProfile() {
   const { data: assignedClients = [] } = useQuery<Client[]>({
     queryKey: ["/api/caregivers", caregiverId, "clients"],
     queryFn: () => fetch(`/api/caregivers/${caregiverId}/clients`).then(r => r.json()),
+    enabled: !!caregiverId,
+  });
+
+  const { data: performanceReviewsList = [] } = useQuery<any[]>({
+    queryKey: ["/api/caregivers", caregiverId, "performance-reviews"],
+    queryFn: () => fetch(`/api/caregivers/${caregiverId}/performance-reviews`).then(r => r.json()),
+    enabled: !!caregiverId,
+  });
+
+  const { data: performanceReviewDocs = [] } = useQuery<any[]>({
+    queryKey: ["/api/caregivers", caregiverId, "documents", "performance-review"],
+    queryFn: async () => {
+      const all = await fetch(`/api/caregivers/${caregiverId}/documents`).then(r => r.json());
+      return Array.isArray(all) ? all.filter((d: any) => d.documentType === "performance_review") : [];
+    },
     enabled: !!caregiverId,
   });
 
@@ -2621,6 +2637,91 @@ export default function CaregiverProfile() {
                             );
                           })}
                         </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
+
+              {activeSection === "reviews" && (
+                <div className="space-y-6">
+                  <Card>
+                    <CardHeader>
+                      <div className="flex items-center justify-between">
+                        <CardTitle className="flex items-center gap-2">
+                          <ClipboardList className="w-5 h-5" /> Performance Reviews
+                        </CardTitle>
+                        <Link href="/performance-reviews">
+                          <Button size="sm" variant="outline" data-testid="button-go-perf-reviews">
+                            Open Reviews Hub
+                          </Button>
+                        </Link>
+                      </div>
+                      <CardDescription>
+                        All performance reviews for this caregiver, including completed evaluations and acknowledgement status.
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      {performanceReviewsList.length === 0 ? (
+                        <p className="text-center text-muted-foreground py-6">No performance reviews yet.</p>
+                      ) : (
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Type</TableHead>
+                              <TableHead>Period</TableHead>
+                              <TableHead>Scheduled</TableHead>
+                              <TableHead>Status</TableHead>
+                              <TableHead>Overall Rating</TableHead>
+                              <TableHead>Acknowledged</TableHead>
+                              <TableHead>Signed Document</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {performanceReviewsList.map((r: any) => {
+                              const matchingDoc = performanceReviewDocs.find((d: any) =>
+                                d.fileName && d.fileName.startsWith(`performance-review-${r.id}-`)
+                              );
+                              return (
+                                <TableRow key={r.id} data-testid={`row-perf-review-${r.id}`}>
+                                  <TableCell className="capitalize">{(r.reviewType || "").replace(/_/g, " ")}</TableCell>
+                                  <TableCell>
+                                    {r.reviewPeriodStart ? format(new Date(r.reviewPeriodStart), "MMM d, yyyy") : "—"}
+                                    {" – "}
+                                    {r.reviewPeriodEnd ? format(new Date(r.reviewPeriodEnd), "MMM d, yyyy") : "—"}
+                                  </TableCell>
+                                  <TableCell>{r.scheduledDate ? format(new Date(r.scheduledDate), "MMM d, yyyy") : "—"}</TableCell>
+                                  <TableCell>
+                                    <Badge variant={r.status === "completed" ? "default" : "secondary"}>
+                                      {(r.status || "scheduled").replace(/_/g, " ")}
+                                    </Badge>
+                                  </TableCell>
+                                  <TableCell>{r.overallRating ?? "—"}</TableCell>
+                                  <TableCell>
+                                    {r.acknowledgedAt
+                                      ? <Badge className="bg-green-100 text-green-800">{format(new Date(r.acknowledgedAt), "MMM d, yyyy")}</Badge>
+                                      : <Badge variant="outline">Pending</Badge>}
+                                  </TableCell>
+                                  <TableCell>
+                                    {matchingDoc ? (
+                                      <a
+                                        href={`/api/documents/${matchingDoc.id}/view`}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="text-blue-600 hover:underline text-sm inline-flex items-center gap-1"
+                                        data-testid={`link-signed-doc-${r.id}`}
+                                      >
+                                        <FileText className="w-3.5 h-3.5" /> View
+                                      </a>
+                                    ) : (
+                                      <span className="text-xs text-muted-foreground">—</span>
+                                    )}
+                                  </TableCell>
+                                </TableRow>
+                              );
+                            })}
+                          </TableBody>
+                        </Table>
                       )}
                     </CardContent>
                   </Card>

@@ -194,6 +194,7 @@ export function Sidebar() {
             children: [
               { name: "Employees", href: "/employees", icon: Users },
               { name: "Org Chart", href: "/org-chart", icon: Users2 },
+              { name: "Performance Reviews", href: "/performance-reviews", icon: Star },
             ],
           } as NavItem]
         : []),

@@ -13,9 +13,11 @@ import { Label } from "@/components/ui/label";
 import { apiRequest } from "@/lib/queryClient";
 import { format } from "date-fns";
 import { 
-  User, Mail, Phone, Calendar, Building, Edit, Save, X
+  User, Mail, Phone, Calendar, Building, Edit, Save, X, ClipboardList, FileText
 } from "lucide-react";
-import type { Caregiver, Office } from "@shared/schema";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Link } from "wouter";
+import type { Caregiver, Office, PerformanceReview } from "@shared/schema";
 
 export default function MyProfilePage() {
   const { user } = useAuth();
@@ -36,6 +38,22 @@ export default function MyProfilePage() {
 
   const { data: offices = [] } = useQuery<Office[]>({
     queryKey: ["/api/offices"],
+  });
+
+  // Performance reviews for this office-staff / caregiver self-service view.
+  // Server-side authz restricts the result to reviews this user conducts or
+  // is the subject of.
+  const { data: myReviews = [] } = useQuery<PerformanceReview[]>({
+    queryKey: ["/api/performance-reviews"],
+  });
+  const { data: myProfileDocs = [] } = useQuery<any[]>({
+    queryKey: ["/api/caregivers", profile?.id, "documents", "performance-review"],
+    queryFn: async () => {
+      if (!profile?.id) return [];
+      const all = await fetch(`/api/caregivers/${profile.id}/documents`).then(r => r.json());
+      return Array.isArray(all) ? all.filter((d: any) => d.documentType === "performance_review") : [];
+    },
+    enabled: !!profile?.id,
   });
 
   const updateMutation = useMutation({
@@ -266,6 +284,82 @@ export default function MyProfilePage() {
             </Card>
 
             <MyPtoBalanceCard />
+
+            <Card data-testid="card-my-performance-reviews">
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <ClipboardList className="w-5 h-5" />
+                    <CardTitle>My Performance Reviews</CardTitle>
+                  </div>
+                  <Link href="/performance-reviews">
+                    <Button variant="outline" size="sm" data-testid="link-open-performance-reviews">
+                      Open Reviews
+                    </Button>
+                  </Link>
+                </div>
+                <CardDescription>
+                  Reviews you conduct or have received. Signed reviews are stored in your document library.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {myReviews.length === 0 ? (
+                  <p className="text-sm text-muted-foreground py-4 text-center">No performance reviews yet.</p>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Type</TableHead>
+                        <TableHead>Scheduled</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead>Overall</TableHead>
+                        <TableHead>Acknowledged</TableHead>
+                        <TableHead>Signed Document</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {myReviews.map((r: any) => {
+                        const matchingDoc = myProfileDocs.find((d: any) =>
+                          d.fileName && d.fileName.startsWith(`performance-review-${r.id}-`)
+                        );
+                        return (
+                          <TableRow key={r.id} data-testid={`row-my-review-${r.id}`}>
+                            <TableCell className="capitalize">{(r.reviewType || "").replace(/_/g, " ")}</TableCell>
+                            <TableCell>{r.scheduledDate ? format(new Date(r.scheduledDate), "MMM d, yyyy") : "—"}</TableCell>
+                            <TableCell>
+                              <Badge variant={r.status === "completed" ? "default" : "secondary"}>
+                                {(r.status || "scheduled").replace(/_/g, " ")}
+                              </Badge>
+                            </TableCell>
+                            <TableCell>{r.overallRating ?? "—"}</TableCell>
+                            <TableCell>
+                              {r.acknowledgedAt
+                                ? <Badge className="bg-green-100 text-green-800">{format(new Date(r.acknowledgedAt), "MMM d, yyyy")}</Badge>
+                                : <Badge variant="outline">Pending</Badge>}
+                            </TableCell>
+                            <TableCell>
+                              {matchingDoc ? (
+                                <a
+                                  href={`/api/documents/${matchingDoc.id}/view`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-blue-600 hover:underline text-sm inline-flex items-center gap-1"
+                                  data-testid={`link-my-signed-doc-${r.id}`}
+                                >
+                                  <FileText className="w-3.5 h-3.5" /> View
+                                </a>
+                              ) : (
+                                <span className="text-xs text-muted-foreground">—</span>
+                              )}
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                )}
+              </CardContent>
+            </Card>
           </div>
         </main>
       </div>
