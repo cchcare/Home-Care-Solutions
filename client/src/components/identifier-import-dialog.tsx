@@ -101,6 +101,7 @@ interface ImportSummary {
   certificatesUpdated: number;
   errors: number;
   results: RowResult[];
+  recheckEnqueued?: number;
 }
 
 interface SystemField {
@@ -798,6 +799,23 @@ export function IdentifierImportDialog({ onImportComplete }: IdentifierImportDia
               />
               <SummaryStat label="Errors" value={result.errors} highlight={result.errors > 0} />
             </div>
+
+            {(result.recheckEnqueued ?? 0) > 0 && (
+              <div
+                className="p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-lg text-blue-800 dark:text-blue-200 text-sm flex items-start gap-2"
+                data-testid="banner-exclusion-recheck"
+              >
+                <CheckCircle2 className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                <div>
+                  We're now re-checking{" "}
+                  {result.recheckEnqueued === 1
+                    ? "this caregiver"
+                    : `these ${result.recheckEnqueued} caregivers`}{" "}
+                  against OIG / Medicheck / SAM.gov — results will appear in the
+                  Exclusion Verification view.
+                </div>
+              </div>
+            )}
 
             <div className="rounded border max-h-[360px] overflow-y-auto">
               <Table>

@@ -3272,7 +3272,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         certificatesUpdated: 0,
         errors: 0,
         results: [] as RowResult[],
+        recheckEnqueued: 0,
       };
+
+      // Track caregivers whose identifiers actually changed so we can
+      // re-run the exclusion matcher against the new NPI / license number
+      // immediately after the import returns.
+      const caregiversToRecheck = new Set<string>();
 
       const norm = (v: unknown) =>
         typeof v === "string" ? v.trim() : v == null ? "" : String(v).trim();
@@ -3402,6 +3408,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
           if (npiUpdated || certificationCreated || certificationUpdated) {
             summary.caregiversUpdated++;
+            caregiversToRecheck.add(caregiver.id);
 
             await storage.createAuditLog({
               userId: req.session?.user?.id,
@@ -3447,6 +3454,39 @@ export async function registerRoutes(app: Express): Promise<Server> {
             message: rowError?.message || "Failed to update row",
           });
         }
+      }
+
+      // Kick off background exclusion re-checks for the caregivers we
+      // actually updated. Fire-and-forget so the user's import response is
+      // not held up by network calls to OIG/Medicheck/SAM. The per-caregiver
+      // entry point already serializes concurrent calls and applies the
+      // existing dedup-window, so repeated triggers are safe.
+      const recheckIds = Array.from(caregiversToRecheck);
+      summary.recheckEnqueued = recheckIds.length;
+
+      if (recheckIds.length > 0) {
+        // Don't await — schedule on the next tick so the HTTP response
+        // returns immediately.
+        setImmediate(async () => {
+          try {
+            const { exclusionService } = await import("./exclusion-service");
+            for (const caregiverId of recheckIds) {
+              try {
+                await exclusionService.runCaregiverExclusionCheck(caregiverId);
+              } catch (err: any) {
+                console.error(
+                  `[bulk-import-identifiers] Background exclusion check failed for caregiver ${caregiverId}:`,
+                  err?.message || err,
+                );
+              }
+            }
+          } catch (err: any) {
+            console.error(
+              "[bulk-import-identifiers] Failed to load exclusion service for background recheck:",
+              err?.message || err,
+            );
+          }
+        });
       }
 
       res.json(summary);
