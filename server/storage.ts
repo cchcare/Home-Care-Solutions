@@ -553,7 +553,16 @@ export interface IStorage {
   deleteDocument(id: string): Promise<void>;
 
   // Incident report operations
-  getAllIncidentReports(officeId?: string): Promise<IncidentReport[]>;
+  getAllIncidentReports(filters?: string | {
+    officeId?: string;
+    search?: string;
+    statuses?: string[];
+    severities?: string[];
+    cirClasses?: string[];
+    dohStatuses?: string[];
+    from?: Date;
+    to?: Date;
+  }): Promise<IncidentReport[]>;
   createIncidentReport(report: InsertIncidentReport): Promise<IncidentReport>;
   updateIncidentReport(id: string, report: Partial<InsertIncidentReport>): Promise<IncidentReport>;
 
@@ -2883,10 +2892,50 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Incident report operations
-  async getAllIncidentReports(officeId?: string): Promise<IncidentReport[]> {
-    const conditions = [];
-    if (officeId) {
-      conditions.push(eq(incidentReports.officeId, officeId));
+  async getAllIncidentReports(filters?: string | {
+    officeId?: string;
+    search?: string;
+    statuses?: string[];
+    severities?: string[];
+    cirClasses?: string[];
+    dohStatuses?: string[];
+    from?: Date;
+    to?: Date;
+  }): Promise<IncidentReport[]> {
+    const opts = typeof filters === "string" || filters === undefined
+      ? { officeId: filters as string | undefined }
+      : filters;
+    const conditions: any[] = [];
+    if (opts.officeId) {
+      conditions.push(eq(incidentReports.officeId, opts.officeId));
+    }
+    if (opts.search) {
+      const pattern = `%${opts.search}%`;
+      const c = or(
+        like(incidentReports.description, pattern),
+        like(incidentReports.incidentType, pattern),
+        like(incidentReports.location, pattern),
+        like(incidentReports.injuries, pattern),
+      );
+      if (c) conditions.push(c);
+    }
+    if (opts.statuses && opts.statuses.length > 0) {
+      conditions.push(inArray(incidentReports.status, opts.statuses));
+    }
+    if (opts.severities && opts.severities.length > 0) {
+      conditions.push(inArray(incidentReports.severity, opts.severities));
+    }
+    if (opts.cirClasses && opts.cirClasses.length > 0) {
+      conditions.push(inArray(incidentReports.cirClass, opts.cirClasses));
+    }
+    if (opts.dohStatuses && opts.dohStatuses.length > 0) {
+      conditions.push(inArray(incidentReports.dohSubmissionStatus, opts.dohStatuses));
+    }
+    if (opts.from) {
+      conditions.push(gte(incidentReports.incidentDate, opts.from));
+    }
+    if (opts.to) {
+      conditions.push(lte(incidentReports.incidentDate, opts.to));
     }
     return await db
       .select()

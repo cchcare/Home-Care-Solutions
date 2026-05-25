@@ -1277,9 +1277,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const userId = req.session?.user?.id;
       if (!userId) return res.status(401).json({ message: "Unauthorized" });
       const page = String(req.query.page || "");
-      const allowedPages = ["caregivers", "clients"];
+      const allowedPages = ["caregivers", "clients", "incidents"];
       if (!allowedPages.includes(page)) {
-        return res.status(400).json({ message: "page must be one of: caregivers, clients" });
+        return res.status(400).json({ message: "page must be one of: caregivers, clients, incidents" });
       }
       const views = await storage.getUserSavedViews(userId, page);
       res.json(views);
@@ -1297,9 +1297,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!parsed.success) {
         return res.status(400).json({ message: "Invalid view data", errors: parsed.error.flatten() });
       }
-      const allowedPages = ["caregivers", "clients"];
+      const allowedPages = ["caregivers", "clients", "incidents"];
       if (!allowedPages.includes(parsed.data.page)) {
-        return res.status(400).json({ message: "page must be one of: caregivers, clients" });
+        return res.status(400).json({ message: "page must be one of: caregivers, clients, incidents" });
       }
       // `__default` is reserved for the per-page column-visibility row written
       // by the columns menu. Block reuse from the user-named saved-views API
@@ -1343,9 +1343,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       // Lock down `page` reassignment to the same allowed set as POST
       if (patch.page !== undefined) {
-        const allowedPages = ["caregivers", "clients"];
+        const allowedPages = ["caregivers", "clients", "incidents"];
         if (!allowedPages.includes(patch.page)) {
-          return res.status(400).json({ message: "page must be one of: caregivers, clients" });
+          return res.status(400).json({ message: "page must be one of: caregivers, clients, incidents" });
         }
       }
       const view = await storage.updateUserSavedView(req.params.id, patch);
@@ -4190,9 +4190,67 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Incident report routes
   app.get("/api/incident-reports", isAuthenticated, async (req, res) => {
     try {
-      const { officeId } = req.query;
+      const {
+        officeId,
+        search,
+        statuses,
+        severities,
+        cirClasses,
+        dohStatuses,
+        from,
+        to,
+      } = req.query as Record<string, string | undefined>;
+
       const officeFilter = officeId && officeId !== 'all' ? String(officeId) : undefined;
-      const reports = await storage.getAllIncidentReports(officeFilter);
+
+      const parseList = (raw: string | undefined, name: string): string[] | undefined => {
+        if (!raw) return undefined;
+        const items = raw.split(',').map((s) => s.trim()).filter(Boolean);
+        if (items.length === 0 || items.length > 50) {
+          throw new Error(`${name} must contain 1–50 values`);
+        }
+        return items;
+      };
+
+      const filters: {
+        officeId?: string;
+        search?: string;
+        statuses?: string[];
+        severities?: string[];
+        cirClasses?: string[];
+        dohStatuses?: string[];
+        from?: Date;
+        to?: Date;
+      } = { officeId: officeFilter };
+
+      if (search !== undefined) {
+        if (search.length > 100 || search.trim().length === 0) {
+          return res.status(400).json({ message: "Invalid search parameter" });
+        }
+        filters.search = search.trim();
+      }
+
+      try {
+        filters.statuses = parseList(statuses, "statuses");
+        filters.severities = parseList(severities, "severities");
+        filters.cirClasses = parseList(cirClasses, "cirClasses");
+        filters.dohStatuses = parseList(dohStatuses, "dohStatuses");
+      } catch (err: any) {
+        return res.status(400).json({ message: err?.message ?? "Invalid list parameter" });
+      }
+
+      if (from) {
+        const d = new Date(from);
+        if (isNaN(d.getTime())) return res.status(400).json({ message: "Invalid 'from' date" });
+        filters.from = d;
+      }
+      if (to) {
+        const d = new Date(to);
+        if (isNaN(d.getTime())) return res.status(400).json({ message: "Invalid 'to' date" });
+        filters.to = d;
+      }
+
+      const reports = await storage.getAllIncidentReports(filters);
       res.json(reports);
     } catch (error) {
       console.error("Error fetching incident reports:", error);

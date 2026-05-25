@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
@@ -23,6 +23,122 @@ import { useToast } from "@/hooks/use-toast";
 import { AlertTriangle, Plus, Search, Eye, Calendar, User, MapPin, Clock, FileWarning, CheckCircle2, AlertCircle } from "lucide-react";
 import { format, differenceInHours, differenceInCalendarDays } from "date-fns";
 import { z } from "zod";
+import { useUrlState } from "@/hooks/use-url-state";
+import { useSavedViews } from "@/hooks/use-saved-views";
+import { MultiSelectPopover } from "@/components/filters/multi-select-popover";
+import { ActiveFilterChips, type FilterChip } from "@/components/filters/active-filter-chips";
+import { ColumnsMenu, type ColumnDef } from "@/components/filters/columns-menu";
+import { SavedViewsMenu } from "@/components/filters/saved-views-menu";
+
+const STATUS_OPTIONS = [
+  { value: "open", label: "Open" },
+  { value: "under_investigation", label: "Under Investigation" },
+  { value: "resolved", label: "Resolved" },
+  { value: "closed", label: "Closed" },
+];
+
+const SEVERITY_OPTIONS = [
+  { value: "critical", label: "Critical" },
+  { value: "high", label: "High" },
+  { value: "medium", label: "Medium" },
+  { value: "low", label: "Low" },
+];
+
+const CIR_CLASS_OPTIONS = [
+  { value: "class_1", label: "CIR Class I (24h)" },
+  { value: "class_2", label: "CIR Class II (5d)" },
+  { value: "not_applicable", label: "Not Applicable" },
+];
+
+const DOH_STATUS_OPTIONS = [
+  { value: "not_required", label: "Not Required" },
+  { value: "pending", label: "Pending" },
+  { value: "submitted", label: "Submitted" },
+  { value: "acknowledged", label: "Acknowledged" },
+];
+
+const COLUMN_DEFS: ColumnDef[] = [
+  { key: "summary", label: "Title & Badges" },
+  { key: "person", label: "Person / Date / Location" },
+  { key: "description", label: "Description" },
+  { key: "injuries", label: "Injuries" },
+  { key: "followUp", label: "Follow-up" },
+  { key: "notifications", label: "Notifications" },
+  { key: "actions", label: "Actions" },
+];
+
+const REQUIRED_COLUMNS = new Set(["summary", "actions"]);
+
+function downloadIncidentsCsv(
+  rows: IncidentReport[],
+  resolveName: (i: IncidentReport) => string,
+  visibility: Record<string, boolean>,
+) {
+  const isVisible = (k: string) => visibility[k] !== false;
+  const fmtDate = (d: unknown) => (d ? new Date(d as string).toISOString() : "");
+  type Field = { header: string; accessor: (i: IncidentReport) => unknown };
+  const fields: Field[] = [
+    { header: "ID", accessor: (i) => i.id },
+    { header: "Incident Type", accessor: (i) => i.incidentType },
+    { header: "Severity", accessor: (i) => i.severity },
+    { header: "Status", accessor: (i) => i.status },
+  ];
+  if (isVisible("person")) {
+    fields.push(
+      { header: "Entity Type", accessor: (i) => i.entityType },
+      { header: "Person", accessor: (i) => resolveName(i) },
+      { header: "Incident Date", accessor: (i) => fmtDate(i.incidentDate) },
+      { header: "Location", accessor: (i) => i.location ?? "" },
+    );
+  }
+  if (isVisible("description")) {
+    fields.push({ header: "Description", accessor: (i) => i.description });
+  }
+  if (isVisible("injuries")) {
+    fields.push({ header: "Injuries", accessor: (i) => i.injuries ?? "" });
+  }
+  if (isVisible("followUp")) {
+    fields.push(
+      { header: "Follow-up Required", accessor: (i) => (i.followUpRequired ? "Yes" : "No") },
+      { header: "Follow-up Date", accessor: (i) => fmtDate(i.followUpDate) },
+    );
+  }
+  if (isVisible("notifications")) {
+    fields.push(
+      { header: "Notified Family", accessor: (i) => (i.notifiedFamily ? "Yes" : "No") },
+      { header: "Notified Doctor", accessor: (i) => (i.notifiedDoctor ? "Yes" : "No") },
+      { header: "Notified Agency", accessor: (i) => (i.notifiedAgency ? "Yes" : "No") },
+    );
+  }
+  fields.push(
+    { header: "CIR Class", accessor: (i) => (i as any).cirClass ?? "" },
+    { header: "DOH Submission Status", accessor: (i) => (i as any).dohSubmissionStatus ?? "" },
+    { header: "DOH Report Due", accessor: (i) => fmtDate((i as any).dohReportDue) },
+    { header: "Created At", accessor: (i) => fmtDate(i.createdAt) },
+  );
+
+  const escape = (v: unknown): string => {
+    if (v === null || v === undefined) return "";
+    const s = typeof v === "string" ? v : String(v);
+    if (s.includes(",") || s.includes('"') || s.includes("\n")) {
+      return `"${s.replace(/"/g, '""')}"`;
+    }
+    return s;
+  };
+  const lines = [fields.map((f) => f.header).join(",")];
+  for (const i of rows) {
+    lines.push(fields.map((f) => escape(f.accessor(i))).join(","));
+  }
+  const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `incidents-${new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
 
 const incidentFormSchema = insertIncidentReportSchema.extend({
   incidentDate: z.string().min(1, "Incident date is required"),
@@ -35,15 +151,34 @@ type IncidentFormData = z.infer<typeof incidentFormSchema>;
 
 export default function IncidentsPage() {
   const [open, setOpen] = useState(false);
-  const [searchTerm, setSearchTerm] = useState("");
-  const [statusFilter, setStatusFilter] = useState<string>("all");
-  const [severityFilter, setSeverityFilter] = useState<string>("all");
   const [highlightId, setHighlightId] = useState<string | null>(null);
   const cardRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { selectedOfficeId, setSelectedOfficeId, isAllOffices, canMutate, viewOnlyMessage } = useOfficeScope();
-  const officeQuery = selectedOfficeId !== "all" ? `?officeId=${selectedOfficeId}` : "";
+
+  // URL-as-source-of-truth filters
+  const url = useUrlState("/incidents");
+  const search = url.getString("search");
+  const statuses = url.getList("statuses");
+  const severities = url.getList("severities");
+  const cirClasses = url.getList("cirClasses");
+  const dohStatuses = url.getList("dohStatuses");
+  const from = url.getString("from");
+  const to = url.getString("to");
+
+  // Debounced search input
+  const [searchInput, setSearchInput] = useState(search);
+  useEffect(() => setSearchInput(search), [search]);
+  useEffect(() => {
+    const handle = setTimeout(() => {
+      if (searchInput.trim() !== search) {
+        url.setOne("search", searchInput.trim() || null);
+      }
+    }, 300);
+    return () => clearTimeout(handle);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchInput, search]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -57,9 +192,25 @@ export default function IncidentsPage() {
     }
   }, []);
 
+  const queryParams = useMemo(() => {
+    const p = new URLSearchParams();
+    if (selectedOfficeId !== "all") p.set("officeId", selectedOfficeId);
+    if (search) p.set("search", search);
+    if (statuses.length) p.set("statuses", statuses.join(","));
+    if (severities.length) p.set("severities", severities.join(","));
+    if (cirClasses.length) p.set("cirClasses", cirClasses.join(","));
+    if (dohStatuses.length) p.set("dohStatuses", dohStatuses.join(","));
+    if (from) p.set("from", from);
+    if (to) p.set("to", to);
+    return p.toString();
+  }, [selectedOfficeId, search, statuses, severities, cirClasses, dohStatuses, from, to]);
+
   const { data: incidents = [], isLoading } = useQuery<IncidentReport[]>({
-    queryKey: ["/api/incident-reports", selectedOfficeId],
-    queryFn: () => fetch(`/api/incident-reports${officeQuery}`, { credentials: "include" }).then(r => r.json()),
+    queryKey: ["/api/incident-reports", queryParams],
+    queryFn: () => fetch(
+      queryParams ? `/api/incident-reports?${queryParams}` : "/api/incident-reports",
+      { credentials: "include" },
+    ).then(r => r.json()),
   });
 
   const { data: clients = [] } = useQuery<any[]>({
@@ -86,7 +237,7 @@ export default function IncidentsPage() {
       return response.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/incident-reports", selectedOfficeId] });
+      queryClient.invalidateQueries({ queryKey: ["/api/incident-reports"] });
       toast({ title: "DOH Submission Recorded", description: "Incident marked as submitted to DOH" });
     },
   });
@@ -111,7 +262,7 @@ export default function IncidentsPage() {
       return response.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/incident-reports", selectedOfficeId] });
+      queryClient.invalidateQueries({ queryKey: ["/api/incident-reports"] });
       setOpen(false);
       form.reset();
       toast({
@@ -195,14 +346,7 @@ export default function IncidentsPage() {
     createIncidentMutation.mutate(payload);
   };
 
-  const filteredIncidents = incidents.filter((incident: IncidentReport) => {
-    const matchesSearch = incident.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         incident.incidentType.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         incident.location?.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesStatus = statusFilter === "all" || incident.status === statusFilter;
-    const matchesSeverity = severityFilter === "all" || incident.severity === severityFilter;
-    return matchesSearch && matchesStatus && matchesSeverity;
-  });
+  const filteredIncidents = incidents;
 
   const getSeverityColor = (severity: string) => {
     switch (severity) {
@@ -235,6 +379,123 @@ export default function IncidentsPage() {
       const user = users.find((u: any) => u.id === incident.entityId);
       return user ? `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.email : "Unknown Staff";
     }
+  };
+
+  // Saved views and column prefs
+  const {
+    views,
+    columnPrefs,
+    saveView,
+    deleteView,
+    renameView,
+    setColumnPrefs,
+  } = useSavedViews("incidents");
+
+  const visibility = useMemo(() => {
+    const out: Record<string, boolean> = {};
+    for (const c of COLUMN_DEFS) {
+      out[c.key] = columnPrefs[c.key] !== false;
+    }
+    return out;
+  }, [columnPrefs]);
+
+  const isVisible = (key: string) => visibility[key] !== false;
+
+  const labelFor = (opts: { value: string; label: string }[], v: string) =>
+    opts.find((o) => o.value === v)?.label ?? v;
+
+  const activeFilters: Record<string, unknown> = {
+    search: search || undefined,
+    statuses: statuses.length ? statuses : undefined,
+    severities: severities.length ? severities : undefined,
+    cirClasses: cirClasses.length ? cirClasses : undefined,
+    dohStatuses: dohStatuses.length ? dohStatuses : undefined,
+    from: from || undefined,
+    to: to || undefined,
+  };
+
+  const chips: FilterChip[] = [];
+  if (search) {
+    chips.push({
+      key: "search",
+      label: "Search",
+      value: search,
+      onRemove: () => url.setOne("search", null),
+    });
+  }
+  if (statuses.length) {
+    chips.push({
+      key: "statuses",
+      label: "Status",
+      value: statuses.map((s) => labelFor(STATUS_OPTIONS, s)).join(", "),
+      onRemove: () => url.setOne("statuses", null),
+    });
+  }
+  if (severities.length) {
+    chips.push({
+      key: "severities",
+      label: "Severity",
+      value: severities.map((s) => labelFor(SEVERITY_OPTIONS, s)).join(", "),
+      onRemove: () => url.setOne("severities", null),
+    });
+  }
+  if (cirClasses.length) {
+    chips.push({
+      key: "cirClasses",
+      label: "CIR Class",
+      value: cirClasses.map((s) => labelFor(CIR_CLASS_OPTIONS, s)).join(", "),
+      onRemove: () => url.setOne("cirClasses", null),
+    });
+  }
+  if (dohStatuses.length) {
+    chips.push({
+      key: "dohStatuses",
+      label: "DOH Status",
+      value: dohStatuses.map((s) => labelFor(DOH_STATUS_OPTIONS, s)).join(", "),
+      onRemove: () => url.setOne("dohStatuses", null),
+    });
+  }
+  if (from) {
+    chips.push({
+      key: "from",
+      label: "From",
+      value: from,
+      onRemove: () => url.setOne("from", null),
+    });
+  }
+  if (to) {
+    chips.push({
+      key: "to",
+      label: "To",
+      value: to,
+      onRemove: () => url.setOne("to", null),
+    });
+  }
+
+  const applySavedView = (filters: Record<string, unknown>) => {
+    const next: Record<string, string | string[] | null> = {
+      search: null,
+      statuses: null,
+      severities: null,
+      cirClasses: null,
+      dohStatuses: null,
+      from: null,
+      to: null,
+    };
+    for (const [k, v] of Object.entries(filters)) {
+      if (Array.isArray(v)) next[k] = v as string[];
+      else if (v == null) next[k] = null;
+      else next[k] = String(v);
+    }
+    url.setMany(next);
+  };
+
+  const handleExportCsv = () => {
+    if (incidents.length === 0) {
+      toast({ title: "No incidents to export", description: "Adjust your filters and try again." });
+      return;
+    }
+    downloadIncidentsCsv(incidents, getEntityName, visibility);
   };
 
   return (
@@ -727,48 +988,107 @@ export default function IncidentsPage() {
 
           {/* Filters */}
       <Card>
-        <CardHeader>
-          <CardTitle className="text-lg">Filter Incidents</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="flex flex-col sm:flex-row gap-4">
-            <div className="flex-1">
-              <div className="relative">
-                <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
-                <Input
-                  placeholder="Search incidents..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-8"
-                  data-testid="input-search-incidents"
-                />
-              </div>
+        <CardContent className="p-6 space-y-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex-1 min-w-[240px] relative">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search by type, description, location, injuries…"
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
+                className="pl-10"
+                data-testid="input-search-incidents"
+              />
             </div>
-            <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="w-[180px]" data-testid="select-status-filter">
-                <SelectValue placeholder="Filter by status" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Statuses</SelectItem>
-                <SelectItem value="open">Open</SelectItem>
-                <SelectItem value="under_investigation">Under Investigation</SelectItem>
-                <SelectItem value="resolved">Resolved</SelectItem>
-                <SelectItem value="closed">Closed</SelectItem>
-              </SelectContent>
-            </Select>
-            <Select value={severityFilter} onValueChange={setSeverityFilter}>
-              <SelectTrigger className="w-[180px]" data-testid="select-severity-filter">
-                <SelectValue placeholder="Filter by severity" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Severities</SelectItem>
-                <SelectItem value="critical">Critical</SelectItem>
-                <SelectItem value="high">High</SelectItem>
-                <SelectItem value="medium">Medium</SelectItem>
-                <SelectItem value="low">Low</SelectItem>
-              </SelectContent>
-            </Select>
+
+            <MultiSelectPopover
+              label="Status"
+              placeholder="Status"
+              options={STATUS_OPTIONS}
+              values={statuses}
+              onChange={(next) => url.setOne("statuses", next.length ? next : null)}
+              testId="filter-statuses"
+            />
+
+            <MultiSelectPopover
+              label="Severity"
+              placeholder="Severity"
+              options={SEVERITY_OPTIONS}
+              values={severities}
+              onChange={(next) => url.setOne("severities", next.length ? next : null)}
+              testId="filter-severities"
+            />
+
+            <MultiSelectPopover
+              label="CIR Class"
+              placeholder="CIR Class"
+              options={CIR_CLASS_OPTIONS}
+              values={cirClasses}
+              onChange={(next) => url.setOne("cirClasses", next.length ? next : null)}
+              testId="filter-cir-classes"
+            />
+
+            <MultiSelectPopover
+              label="DOH Status"
+              placeholder="DOH Status"
+              options={DOH_STATUS_OPTIONS}
+              values={dohStatuses}
+              onChange={(next) => url.setOne("dohStatuses", next.length ? next : null)}
+              testId="filter-doh-statuses"
+            />
+
+            <Input
+              type="date"
+              value={from}
+              onChange={(e) => url.setOne("from", e.target.value || null)}
+              className="w-[160px]"
+              aria-label="From date"
+              data-testid="input-from-date"
+            />
+            <Input
+              type="date"
+              value={to}
+              onChange={(e) => url.setOne("to", e.target.value || null)}
+              className="w-[160px]"
+              aria-label="To date"
+              data-testid="input-to-date"
+            />
+
+            <div className="flex items-center gap-2 ml-auto">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleExportCsv}
+                data-testid="button-export-csv"
+              >
+                Export CSV
+              </Button>
+              <SavedViewsMenu
+                views={views}
+                currentFilters={activeFilters}
+                onApply={applySavedView}
+                onSave={(input) => saveView.mutateAsync(input)}
+                onDelete={(id) => deleteView.mutateAsync(id)}
+                onRename={(input) => renameView.mutateAsync(input)}
+              />
+              <ColumnsMenu
+                columns={COLUMN_DEFS}
+                visibility={visibility}
+                onChange={(next) => {
+                  const safe: Record<string, boolean> = { ...next };
+                  REQUIRED_COLUMNS.forEach((k) => { safe[k] = true; });
+                  setColumnPrefs.mutate(safe);
+                }}
+              />
+            </div>
           </div>
+
+          {chips.length > 0 && (
+            <ActiveFilterChips
+              chips={chips}
+              onClearAll={() => url.clearAll()}
+            />
+          )}
         </CardContent>
       </Card>
 
@@ -783,8 +1103,8 @@ export default function IncidentsPage() {
                 <AlertTriangle className="mx-auto h-12 w-12 text-muted-foreground" />
                 <h3 className="mt-2 text-sm font-semibold text-gray-900">No incidents found</h3>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  {searchTerm || statusFilter !== "all" || severityFilter !== "all" 
-                    ? "Try adjusting your filters" 
+                  {chips.length > 0
+                    ? "Try adjusting your filters"
                     : "No incident reports have been created yet"
                   }
                 </p>
@@ -849,48 +1169,54 @@ export default function IncidentsPage() {
                             );
                           })()}
                         </div>
-                        <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                          <div className="flex items-center gap-1">
-                            <User className="h-4 w-4" />
-                            <span>{getEntityName(incident)} ({incident.entityType})</span>
-                          </div>
-                          <div className="flex items-center gap-1">
-                            <Calendar className="h-4 w-4" />
-                            <span>{format(new Date(incident.incidentDate), "MMM d, yyyy 'at' h:mm a")}</span>
-                          </div>
-                          {incident.location && (
+                        {isVisible("person") && (
+                          <div className="flex items-center gap-4 text-sm text-muted-foreground">
                             <div className="flex items-center gap-1">
-                              <MapPin className="h-4 w-4" />
-                              <span>{incident.location}</span>
+                              <User className="h-4 w-4" />
+                              <span>{getEntityName(incident)} ({incident.entityType})</span>
                             </div>
-                          )}
-                        </div>
+                            <div className="flex items-center gap-1">
+                              <Calendar className="h-4 w-4" />
+                              <span>{format(new Date(incident.incidentDate), "MMM d, yyyy 'at' h:mm a")}</span>
+                            </div>
+                            {incident.location && (
+                              <div className="flex items-center gap-1">
+                                <MapPin className="h-4 w-4" />
+                                <span>{incident.location}</span>
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
                     </div>
 
-                    <p className="text-gray-700 line-clamp-2">{incident.description}</p>
+                    {isVisible("description") && (
+                      <p className="text-gray-700 line-clamp-2">{incident.description}</p>
+                    )}
 
-                    {incident.injuries && (
+                    {isVisible("injuries") && incident.injuries && (
                       <div className="text-sm">
                         <span className="font-medium text-red-600">Injuries: </span>
                         <span className="text-gray-700">{incident.injuries}</span>
                       </div>
                     )}
 
-                    <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                      <div className="flex items-center gap-1">
-                        <Clock className="h-3 w-3" />
-                        <span>Reported {incident.createdAt ? format(new Date(incident.createdAt), "MMM d, yyyy") : "Unknown"}</span>
-                      </div>
-                      {incident.followUpRequired && incident.followUpDate && (
-                        <div className="flex items-center gap-1 text-orange-600">
-                          <Calendar className="h-3 w-3" />
-                          <span>Follow-up: {format(new Date(incident.followUpDate), "MMM d, yyyy")}</span>
+                    {isVisible("followUp") && (
+                      <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                        <div className="flex items-center gap-1">
+                          <Clock className="h-3 w-3" />
+                          <span>Reported {incident.createdAt ? format(new Date(incident.createdAt), "MMM d, yyyy") : "Unknown"}</span>
                         </div>
-                      )}
-                    </div>
+                        {incident.followUpRequired && incident.followUpDate && (
+                          <div className="flex items-center gap-1 text-orange-600">
+                            <Calendar className="h-3 w-3" />
+                            <span>Follow-up: {format(new Date(incident.followUpDate), "MMM d, yyyy")}</span>
+                          </div>
+                        )}
+                      </div>
+                    )}
 
-                    {(incident.notifiedFamily || incident.notifiedDoctor || incident.notifiedAgency) && (
+                    {isVisible("notifications") && (incident.notifiedFamily || incident.notifiedDoctor || incident.notifiedAgency) && (
                       <div className="flex items-center gap-2 text-xs">
                         <span className="text-muted-foreground">Notifications:</span>
                         {incident.notifiedFamily && <Badge variant="outline">Family</Badge>}
@@ -900,25 +1226,27 @@ export default function IncidentsPage() {
                     )}
                   </div>
 
-                  <div className="flex flex-col items-end gap-2">
-                    <Button variant="outline" size="sm" data-testid={`button-view-incident-${incident.id}`}>
-                      <Eye className="mr-2 h-4 w-4" />
-                      View Details
-                    </Button>
-                    {(incident as any).dohSubmissionStatus === "pending" && canMutate && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="border-green-500 text-green-700 hover:bg-green-50"
-                        onClick={() => markDohSubmittedMutation.mutate(incident.id)}
-                        disabled={markDohSubmittedMutation.isPending}
-                        data-testid={`button-doh-submit-${incident.id}`}
-                      >
-                        <CheckCircle2 className="mr-2 h-4 w-4" />
-                        Mark DOH Submitted
+                  {isVisible("actions") && (
+                    <div className="flex flex-col items-end gap-2">
+                      <Button variant="outline" size="sm" data-testid={`button-view-incident-${incident.id}`}>
+                        <Eye className="mr-2 h-4 w-4" />
+                        View Details
                       </Button>
-                    )}
-                  </div>
+                      {(incident as any).dohSubmissionStatus === "pending" && canMutate && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="border-green-500 text-green-700 hover:bg-green-50"
+                          onClick={() => markDohSubmittedMutation.mutate(incident.id)}
+                          disabled={markDohSubmittedMutation.isPending}
+                          data-testid={`button-doh-submit-${incident.id}`}
+                        >
+                          <CheckCircle2 className="mr-2 h-4 w-4" />
+                          Mark DOH Submitted
+                        </Button>
+                      )}
+                    </div>
+                  )}
                 </div>
               </CardContent>
             </Card>
