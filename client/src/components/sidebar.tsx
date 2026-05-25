@@ -70,6 +70,9 @@ import {
   Biohazard,
   Activity,
   ListChecks,
+  Receipt,
+  CalendarClock,
+  UserCircle,
 } from "lucide-react";
 
 interface NavItem {
@@ -115,16 +118,26 @@ export function Sidebar() {
       ];
     }
 
+    // Self-service "My Account" group — available to caregivers AND office
+    // staff (Task #139). Caregivers see this as their entire sidebar; office
+    // staff see it as an additional group within the main navigation.
+    const myAccountChildren: NavItem[] = [
+      { name: "My Profile", href: "/my-profile", icon: UserCircle },
+      { name: "My Paystubs", href: "/my-paystubs", icon: Receipt },
+      { name: "My PTO", href: "/my-pto", icon: CalendarClock },
+      { name: "My Tax Forms", href: "/my-tax-forms", icon: FileSignature },
+      { name: "My Onboarding", href: "/my-onboarding", icon: ClipboardList },
+      { name: "My Offboarding", href: "/my-offboarding", icon: ClipboardList },
+      { name: "My Compliance", href: "/my-compliance", icon: Shield },
+      { name: "Forms & Documents", href: "/my-documents", icon: FileText },
+      { name: "Communication", href: "/my-communication", icon: MessageSquare },
+      { name: "Support Tickets", href: "/my-support-tickets", icon: Ticket },
+      { name: "Help & Support", href: "/support-center", icon: HelpCircle, external: true },
+    ];
+
     if ((user as any)?.role === "caregiver") {
       return [
-        { name: "My Profile", href: "/my-profile", icon: UserCheck },
-        { name: "My Onboarding", href: "/my-onboarding", icon: ClipboardList },
-        { name: "My Offboarding", href: "/my-offboarding", icon: ClipboardList },
-        { name: "My Compliance", href: "/my-compliance", icon: Shield },
-        { name: "Forms & Documents", href: "/my-documents", icon: FileText },
-        { name: "Communication", href: "/my-communication", icon: MessageSquare },
-        { name: "Support Tickets", href: "/my-support-tickets", icon: Ticket },
-        { name: "Help & Support", href: "/support-center", icon: HelpCircle, external: true },
+        { name: "My Account", icon: UserCircle, children: myAccountChildren },
       ];
     }
 
@@ -286,6 +299,10 @@ export function Sidebar() {
     ) {
       baseNavigation.push({ name: "Admin", icon: Cog, children: adminChildren });
     }
+
+    // Every authenticated non-family user gets the consolidated "My Account"
+    // self-service group (Task #139).
+    baseNavigation.push({ name: "My Account", icon: UserCircle, children: myAccountChildren });
 
     return baseNavigation;
   };

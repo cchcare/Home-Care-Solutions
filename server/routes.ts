@@ -13792,11 +13792,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/my-pto-balance", isAuthenticated, async (req: any, res) => {
     try {
       const user = req.session?.user;
-      if (user?.role !== "caregiver") {
-        return res.status(403).json({ message: "Access restricted to caregivers only" });
-      }
-      const cg = await storage.getCaregiverByUserId(user.id);
-      if (!cg) return res.status(404).json({ message: "Caregiver profile not found" });
+      if (!user) return res.status(401).json({ message: "Not authenticated" });
+      const cg = await storage.getCaregiverByUserId(user.id).catch(() => null);
+      // Office staff don't yet have PTO ledger rows — return zeros so the
+      // shared self-service UI renders cleanly.
+      if (!cg) return res.json({ balances: { vacation: 0, sick: 0, personal: 0 }, ledger: [] });
       const balances = await storage.getPtoBalancesFromLedger(cg.id);
       const ledger = await storage.getPtoLedger(cg.id);
       const byType: Record<string, number> = { vacation: 0, sick: 0, personal: 0 };
@@ -16274,101 +16274,107 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ============================================
-  // Caregiver Self-Service Routes (My Profile, My Compliance, etc.)
+  // Employee Self-Service Routes (Task #139)
+  //
+  // All `/api/my-*` endpoints are available to every authenticated user
+  // (caregivers AND office staff). For caregivers we hydrate the caregiver
+  // profile; for office staff we fall back to the users row. Endpoints that
+  // are inherently caregiver-only (compliance items, caregiver documents)
+  // return an empty array for office staff rather than 403, so the shared
+  // self-service UI works for everyone.
   // ============================================
 
-  // Get caregiver's own profile (sanitized - only safe fields)
+  // Get current employee's own profile (caregiver row if caregiver, else users row)
   app.get("/api/my-profile", isAuthenticated, async (req: any, res) => {
     try {
       const user = req.session?.user;
-      if (!user) {
-        return res.status(401).json({ message: "Not authenticated" });
+      if (!user) return res.status(401).json({ message: "Not authenticated" });
+      const caregiver = await storage.getCaregiverByUserId(user.id).catch(() => null);
+      if (caregiver) {
+        return res.json({
+          id: caregiver.id,
+          employeeType: "caregiver",
+          firstName: caregiver.firstName,
+          lastName: caregiver.lastName,
+          email: caregiver.email,
+          phone: caregiver.phone,
+          address: caregiver.address,
+          city: caregiver.city,
+          state: caregiver.state,
+          zipCode: caregiver.zipCode,
+          officeId: caregiver.officeId,
+          isActive: caregiver.isActive,
+          startDate: caregiver.startDate,
+          hhaxCaregiverCode: caregiver.hhaxCaregiverCode,
+        });
       }
-      if (user.role !== "caregiver") {
-        return res.status(403).json({ message: "Access restricted to caregivers only" });
-      }
-      const caregiver = await storage.getCaregiverByUserId(user.id);
-      if (!caregiver) {
-        return res.status(404).json({ message: "Caregiver profile not found" });
-      }
-      const sanitizedProfile = {
-        id: caregiver.id,
-        firstName: caregiver.firstName,
-        lastName: caregiver.lastName,
-        email: caregiver.email,
-        phone: caregiver.phone,
-        address: caregiver.address,
-        city: caregiver.city,
-        state: caregiver.state,
-        zipCode: caregiver.zipCode,
-        officeId: caregiver.officeId,
-        isActive: caregiver.isActive,
-        startDate: caregiver.startDate,
-        hhaxCaregiverCode: caregiver.hhaxCaregiverCode,
-      };
-      res.json(sanitizedProfile);
+      const u = await storage.getUser(user.id);
+      if (!u) return res.status(404).json({ message: "Profile not found" });
+      res.json({
+        id: u.id,
+        employeeType: "user",
+        firstName: (u as any).firstName,
+        lastName: (u as any).lastName,
+        email: (u as any).email,
+        phone: (u as any).phone,
+        address: (u as any).address,
+        city: (u as any).city,
+        state: (u as any).state,
+        zipCode: (u as any).zipCode,
+        officeId: (u as any).primaryOfficeId ?? null,
+        isActive: (u as any).isActive,
+        role: (u as any).role,
+        startDate: (u as any).createdAt,
+      });
     } catch (error: any) {
       res.status(500).json({ message: error.message || "Failed to fetch profile" });
     }
   });
 
-  // Update caregiver's own profile (limited fields)
+  // Update current employee's own profile (limited fields)
   app.patch("/api/my-profile", isAuthenticated, async (req: any, res) => {
     try {
       const user = req.session?.user;
-      if (!user) {
-        return res.status(401).json({ message: "Not authenticated" });
-      }
-      if (user.role !== "caregiver") {
-        return res.status(403).json({ message: "Access restricted to caregivers only" });
-      }
-      const caregiver = await storage.getCaregiverByUserId(user.id);
-      if (!caregiver) {
-        return res.status(404).json({ message: "Caregiver profile not found" });
-      }
+      if (!user) return res.status(401).json({ message: "Not authenticated" });
       const allowedFields = ['phone', 'address', 'city', 'state', 'zipCode'];
       const updateData: any = {};
       for (const field of allowedFields) {
-        if (req.body[field] !== undefined) {
-          updateData[field] = req.body[field];
-        }
+        if (req.body[field] !== undefined) updateData[field] = req.body[field];
       }
-      const updated = await storage.updateCaregiver(caregiver.id, updateData);
-      const sanitizedProfile = {
-        id: updated.id,
-        firstName: updated.firstName,
-        lastName: updated.lastName,
-        email: updated.email,
-        phone: updated.phone,
-        address: updated.address,
-        city: updated.city,
-        state: updated.state,
-        zipCode: updated.zipCode,
-        officeId: updated.officeId,
-        isActive: updated.isActive,
-        startDate: updated.startDate,
-        hhaxCaregiverCode: updated.hhaxCaregiverCode,
-      };
-      res.json(sanitizedProfile);
+      const caregiver = await storage.getCaregiverByUserId(user.id).catch(() => null);
+      if (caregiver) {
+        const updated = await storage.updateCaregiver(caregiver.id, updateData);
+        return res.json({
+          id: updated.id, employeeType: "caregiver",
+          firstName: updated.firstName, lastName: updated.lastName, email: updated.email,
+          phone: updated.phone, address: updated.address, city: updated.city,
+          state: updated.state, zipCode: updated.zipCode, officeId: updated.officeId,
+          isActive: updated.isActive, startDate: updated.startDate,
+          hhaxCaregiverCode: updated.hhaxCaregiverCode,
+        });
+      }
+      const updatedUser = await storage.updateUser(user.id, updateData);
+      res.json({
+        id: updatedUser.id, employeeType: "user",
+        firstName: (updatedUser as any).firstName, lastName: (updatedUser as any).lastName,
+        email: (updatedUser as any).email, phone: (updatedUser as any).phone,
+        address: (updatedUser as any).address, city: (updatedUser as any).city,
+        state: (updatedUser as any).state, zipCode: (updatedUser as any).zipCode,
+        officeId: (updatedUser as any).primaryOfficeId ?? null,
+        isActive: (updatedUser as any).isActive, role: (updatedUser as any).role,
+      });
     } catch (error: any) {
       res.status(500).json({ message: error.message || "Failed to update profile" });
     }
   });
 
-  // Get caregiver's own compliance items
+  // Get current employee's own compliance items (empty for non-caregivers)
   app.get("/api/my-compliance", isAuthenticated, async (req: any, res) => {
     try {
       const user = req.session?.user;
-      if (!user) {
-        return res.status(401).json({ message: "Not authenticated" });
-      }
-      if (user.role !== "caregiver") {
-        return res.status(403).json({ message: "Access restricted to caregivers only" });
-      }
-      const caregiver = await storage.getCaregiverByUserId(user.id);
-      if (!caregiver) {
-        return res.status(404).json({ message: "Caregiver profile not found" });
-      }
+      if (!user) return res.status(401).json({ message: "Not authenticated" });
+      const caregiver = await storage.getCaregiverByUserId(user.id).catch(() => null);
+      if (!caregiver) return res.json([]);
       const complianceItems = await storage.getCaregiverComplianceByCaregiver(caregiver.id);
       res.json(complianceItems);
     } catch (error: any) {
@@ -16376,69 +16382,57 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Get caregiver's own documents
+  // Get current employee's own documents (caregiver docs + user-tagged docs)
   app.get("/api/my-documents", isAuthenticated, async (req: any, res) => {
     try {
       const user = req.session?.user;
-      if (!user) {
-        return res.status(401).json({ message: "Not authenticated" });
+      if (!user) return res.status(401).json({ message: "Not authenticated" });
+      const caregiver = await storage.getCaregiverByUserId(user.id).catch(() => null);
+      let docs: any[] = [];
+      if (caregiver) {
+        docs = await storage.getDocumentsByCaregiver(caregiver.id);
+      } else {
+        // For office staff, surface documents uploaded against their user_id.
+        const { documents: docsTable } = await import("@shared/schema");
+        const { eq, desc } = await import("drizzle-orm");
+        const { db } = await import("./db");
+        docs = await db.select().from(docsTable).where(eq(docsTable.userId, user.id)).orderBy(desc(docsTable.createdAt));
       }
-      if (user.role !== "caregiver") {
-        return res.status(403).json({ message: "Access restricted to caregivers only" });
-      }
-      const caregiver = await storage.getCaregiverByUserId(user.id);
-      if (!caregiver) {
-        return res.status(404).json({ message: "Caregiver profile not found" });
-      }
-      const documents = await storage.getDocumentsByCaregiver(caregiver.id);
-      res.json(documents);
+      // Hide write-ups from the employee's own view (admin-only).
+      const filtered = docs.filter((d: any) => !(d?.documentType === "employee_write_up" || d?.documentCategory === "employee_write_up" || d?.documentCategory === "write_up"));
+      res.json(filtered);
     } catch (error: any) {
       res.status(500).json({ message: error.message || "Failed to fetch documents" });
     }
   });
 
-  // Get caregiver's own communication messages (placeholder - returns empty for now)
+  // Get current employee's own communication messages (placeholder)
   app.get("/api/my-communication/messages", isAuthenticated, async (req: any, res) => {
     try {
       const user = req.session?.user;
-      if (!user) {
-        return res.status(401).json({ message: "Not authenticated" });
-      }
-      if (user.role !== "caregiver") {
-        return res.status(403).json({ message: "Access restricted to caregivers only" });
-      }
+      if (!user) return res.status(401).json({ message: "Not authenticated" });
       res.json([]);
     } catch (error: any) {
       res.status(500).json({ message: error.message || "Failed to fetch messages" });
     }
   });
 
-  // Get caregiver's own notifications (placeholder - returns empty for now)
+  // Get current employee's own notifications (placeholder)
   app.get("/api/my-communication/notifications", isAuthenticated, async (req: any, res) => {
     try {
       const user = req.session?.user;
-      if (!user) {
-        return res.status(401).json({ message: "Not authenticated" });
-      }
-      if (user.role !== "caregiver") {
-        return res.status(403).json({ message: "Access restricted to caregivers only" });
-      }
+      if (!user) return res.status(401).json({ message: "Not authenticated" });
       res.json([]);
     } catch (error: any) {
       res.status(500).json({ message: error.message || "Failed to fetch notifications" });
     }
   });
 
-  // Get caregiver's own support tickets (only tickets they created)
+  // Get current employee's own support tickets
   app.get("/api/my-support-tickets", isAuthenticated, async (req: any, res) => {
     try {
       const user = req.session?.user;
-      if (!user) {
-        return res.status(401).json({ message: "Not authenticated" });
-      }
-      if (user.role !== "caregiver") {
-        return res.status(403).json({ message: "Access restricted to caregivers only" });
-      }
+      if (!user) return res.status(401).json({ message: "Not authenticated" });
       const allTickets = await storage.getSupportTicketsByOrganization(user.organizationId);
       const myTickets = allTickets.filter((t: any) => t.userId === user.id);
       res.json(myTickets);
@@ -16447,16 +16441,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Create a support ticket for caregiver
+  // Create a support ticket
   app.post("/api/my-support-tickets", isAuthenticated, async (req: any, res) => {
     try {
       const user = req.session?.user;
-      if (!user?.organizationId) {
-        return res.status(400).json({ message: "Organization required" });
-      }
-      if (user.role !== "caregiver") {
-        return res.status(403).json({ message: "Access restricted to caregivers only" });
-      }
+      if (!user?.organizationId) return res.status(400).json({ message: "Organization required" });
       const validatedData = insertSupportTicketSchema.parse({
         ...req.body,
         organizationId: user.organizationId,
@@ -16469,23 +16458,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Get a specific support ticket (only if caregiver owns it)
+  // Get a specific support ticket (only if user owns it)
   app.get("/api/my-support-tickets/:id", isAuthenticated, async (req: any, res) => {
     try {
       const user = req.session?.user;
-      if (!user) {
-        return res.status(401).json({ message: "Not authenticated" });
-      }
-      if (user.role !== "caregiver") {
-        return res.status(403).json({ message: "Access restricted to caregivers only" });
-      }
+      if (!user) return res.status(401).json({ message: "Not authenticated" });
       const ticket = await storage.getSupportTicket(req.params.id);
-      if (!ticket) {
-        return res.status(404).json({ message: "Ticket not found" });
-      }
-      if (ticket.userId !== user.id) {
-        return res.status(403).json({ message: "Unauthorized" });
-      }
+      if (!ticket) return res.status(404).json({ message: "Ticket not found" });
+      if (ticket.userId !== user.id) return res.status(403).json({ message: "Unauthorized" });
       const messages = await storage.getTicketMessages(ticket.id);
       res.json({ ...ticket, messages });
     } catch (error: any) {
@@ -16493,23 +16473,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Add message to caregiver's own support ticket
+  // Add message to user's own support ticket
   app.post("/api/my-support-tickets/:id/messages", isAuthenticated, async (req: any, res) => {
     try {
       const user = req.session?.user;
-      if (!user) {
-        return res.status(401).json({ message: "Not authenticated" });
-      }
-      if (user.role !== "caregiver") {
-        return res.status(403).json({ message: "Access restricted to caregivers only" });
-      }
+      if (!user) return res.status(401).json({ message: "Not authenticated" });
       const ticket = await storage.getSupportTicket(req.params.id);
-      if (!ticket) {
-        return res.status(404).json({ message: "Ticket not found" });
-      }
-      if (ticket.userId !== user.id) {
-        return res.status(403).json({ message: "Unauthorized" });
-      }
+      if (!ticket) return res.status(404).json({ message: "Ticket not found" });
+      if (ticket.userId !== user.id) return res.status(403).json({ message: "Unauthorized" });
       const validatedData = insertTicketMessageSchema.parse({
         ...req.body,
         ticketId: ticket.id,
@@ -16520,6 +16491,143 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(201).json(message);
     } catch (error: any) {
       res.status(400).json({ message: error.message || "Failed to add message" });
+    }
+  });
+
+  // ----- My Paystubs (Task #139) -----------------------------------------
+  // Returns the current employee's paystubs. Caregivers see caregiver_paychecks,
+  // office staff see office_staff_paychecks. Both shapes share the same
+  // important fields used by the UI (payPeriodStart/End, payDate, grossPay,
+  // netPay, status, paystubDocumentId).
+  app.get("/api/my-paystubs", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      if (!user) return res.status(401).json({ message: "Not authenticated" });
+      const { caregiverPaychecks, officeStaffPaychecks } = await import("@shared/schema");
+      const { eq, desc } = await import("drizzle-orm");
+      const { db } = await import("./db");
+      const caregiver = await storage.getCaregiverByUserId(user.id).catch(() => null);
+      if (caregiver) {
+        const rows = await db
+          .select()
+          .from(caregiverPaychecks)
+          .where(eq(caregiverPaychecks.caregiverId, caregiver.id))
+          .orderBy(desc(caregiverPaychecks.payDate));
+        return res.json(rows.map((r: any) => ({ ...r, employeeType: "caregiver" })));
+      }
+      const rows = await db
+        .select()
+        .from(officeStaffPaychecks)
+        .where(eq(officeStaffPaychecks.userId, user.id))
+        .orderBy(desc(officeStaffPaychecks.payDate));
+      res.json(rows.map((r: any) => ({ ...r, employeeType: "user" })));
+    } catch (error: any) {
+      console.error("/api/my-paystubs failed", error);
+      res.status(500).json({ message: error.message || "Failed to fetch paystubs" });
+    }
+  });
+
+  // ----- My Tax Forms (Task #139) ----------------------------------------
+  // List the current employee's on-file tax forms (W-4, direct deposit, etc.).
+  app.get("/api/my-tax-forms", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      if (!user) return res.status(401).json({ message: "Not authenticated" });
+      const { employeeTaxForms } = await import("@shared/schema");
+      const { eq, and, desc } = await import("drizzle-orm");
+      const { db } = await import("./db");
+      const caregiver = await storage.getCaregiverByUserId(user.id).catch(() => null);
+      const employeeType = caregiver ? "caregiver" : "user";
+      const employeeId = caregiver ? caregiver.id : user.id;
+      const rows = await db
+        .select()
+        .from(employeeTaxForms)
+        .where(and(eq(employeeTaxForms.employeeType, employeeType), eq(employeeTaxForms.employeeId, employeeId)))
+        .orderBy(desc(employeeTaxForms.createdAt));
+      res.json(rows);
+    } catch (error: any) {
+      console.error("/api/my-tax-forms failed", error);
+      res.status(500).json({ message: error.message || "Failed to fetch tax forms" });
+    }
+  });
+
+  // List the current employee's change requests.
+  app.get("/api/my-tax-forms/change-requests", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      if (!user) return res.status(401).json({ message: "Not authenticated" });
+      const { employeeTaxFormChangeRequests } = await import("@shared/schema");
+      const { eq, and, desc } = await import("drizzle-orm");
+      const { db } = await import("./db");
+      const caregiver = await storage.getCaregiverByUserId(user.id).catch(() => null);
+      const employeeType = caregiver ? "caregiver" : "user";
+      const employeeId = caregiver ? caregiver.id : user.id;
+      const rows = await db
+        .select()
+        .from(employeeTaxFormChangeRequests)
+        .where(and(
+          eq(employeeTaxFormChangeRequests.employeeType, employeeType),
+          eq(employeeTaxFormChangeRequests.employeeId, employeeId),
+        ))
+        .orderBy(desc(employeeTaxFormChangeRequests.createdAt));
+      res.json(rows);
+    } catch (error: any) {
+      console.error("/api/my-tax-forms/change-requests failed", error);
+      res.status(500).json({ message: error.message || "Failed to fetch change requests" });
+    }
+  });
+
+  // Submit a tax-form change request. Creates a high-priority task assigned to
+  // the first admin/office_admin in the org (HR-style triage queue).
+  app.post("/api/my-tax-forms/change-request", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      if (!user) return res.status(401).json({ message: "Not authenticated" });
+      const formType = String(req.body?.formType || "").trim();
+      const reason = req.body?.reason ? String(req.body.reason) : null;
+      if (!["w4", "direct_deposit", "state_withholding"].includes(formType)) {
+        return res.status(400).json({ message: "Invalid formType" });
+      }
+      const caregiver = await storage.getCaregiverByUserId(user.id).catch(() => null);
+      const employeeType = caregiver ? "caregiver" : "user";
+      const employeeId = caregiver ? caregiver.id : user.id;
+
+      // Find HR-style recipient in the same org.
+      const allUsers = await storage.getAllUsers().catch(() => [] as any[]);
+      const orgUsers = (allUsers || []).filter((u: any) =>
+        (!user.organizationId || u.organizationId === user.organizationId)
+        && ["admin", "office_admin", "super_admin", "manager"].includes(u.role)
+        && u.isActive !== false
+      );
+      const assignee = orgUsers[0];
+
+      const friendly = formType === "w4" ? "W-4" : formType === "direct_deposit" ? "Direct Deposit" : "State Withholding";
+      const task = await storage.createTask({
+        title: `Tax form change request: ${friendly}`,
+        description: `${user.firstName || user.email} requested a change to their ${friendly} form.${reason ? `\n\nReason: ${reason}` : ""}`,
+        priority: "high",
+        status: "pending",
+        assignedTo: assignee?.id ?? null,
+        createdBy: user.id,
+        officeId: (user as any).primaryOfficeId ?? null,
+      } as any).catch((e: any) => { console.error("tax form task create failed:", e); return null; });
+
+      const { employeeTaxFormChangeRequests } = await import("@shared/schema");
+      const { db } = await import("./db");
+      const [row] = await db.insert(employeeTaxFormChangeRequests).values({
+        organizationId: user.organizationId ?? null,
+        employeeType,
+        employeeId,
+        requestedByUserId: user.id,
+        formType,
+        reason,
+        status: "pending",
+        hrTaskId: task?.id ?? null,
+      }).returning();
+      res.status(201).json(row);
+    } catch (error: any) {
+      console.error("/api/my-tax-forms/change-request failed", error);
+      res.status(500).json({ message: error.message || "Failed to submit change request" });
     }
   });
 

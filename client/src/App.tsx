@@ -96,6 +96,9 @@ import Offboarding from "@/pages/offboarding";
 import OffboardingTemplates from "@/pages/offboarding-templates";
 import MyOffboarding from "@/pages/my-offboarding";
 import MyOnboarding from "@/pages/my-onboarding";
+import MyPaystubs from "@/pages/my-paystubs";
+import MyPto from "@/pages/my-pto";
+import MyTaxForms from "@/pages/my-tax-forms";
 
 import { Redirect } from "wouter";
 
@@ -220,6 +223,9 @@ function Router() {
           <Route path="/my-documents" component={MyDocuments} />
           <Route path="/my-communication" component={MyCommunication} />
           <Route path="/my-support-tickets" component={MySupportTickets} />
+          <Route path="/my-paystubs" component={MyPaystubs} />
+          <Route path="/my-pto" component={MyPto} />
+          <Route path="/my-tax-forms" component={MyTaxForms} />
           <Route path="/error-log" component={ErrorLog} />
           <Route path="/help-center-admin" component={HelpCenterAdmin} />
           <Route path="/search" component={SearchPage} />

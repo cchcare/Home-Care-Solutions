@@ -462,6 +462,105 @@ export async function ensureOffboardingSchema() {
   }
 }
 
+// Self-service upgrade (Task #139) — adds office_staff_paychecks +
+// employee tax-form tables for the employee self-service portal. Raw DDL so it
+// is safe to run on every boot without drizzle-kit.
+let selfServiceSchemaReady = false;
+export async function ensureSelfServiceSchema() {
+  if (selfServiceSchemaReady) return;
+  const client = await pool.connect();
+  try {
+    const ready = await client.query(`
+      SELECT EXISTS (
+        SELECT 1 FROM information_schema.tables WHERE table_name = 'self_service_init_marker'
+      ) AS marker_exists;
+    `);
+    if (ready.rows[0]?.marker_exists) {
+      selfServiceSchemaReady = true;
+      return;
+    }
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS office_staff_paychecks (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id varchar NOT NULL REFERENCES users(id),
+        payroll_run_id varchar REFERENCES payroll_runs(id),
+        pay_period_start timestamp NOT NULL,
+        pay_period_end timestamp NOT NULL,
+        pay_date timestamp NOT NULL,
+        regular_hours numeric(10,2) DEFAULT 0,
+        overtime_hours numeric(10,2) DEFAULT 0,
+        holiday_hours numeric(10,2) DEFAULT 0,
+        gross_pay numeric(10,2) NOT NULL,
+        federal_tax numeric(10,2) DEFAULT 0,
+        state_tax numeric(10,2) DEFAULT 0,
+        social_security numeric(10,2) DEFAULT 0,
+        medicare numeric(10,2) DEFAULT 0,
+        other_deductions numeric(10,2) DEFAULT 0,
+        net_pay numeric(10,2) NOT NULL,
+        status varchar DEFAULT 'pending',
+        check_number varchar,
+        paystub_document_id varchar REFERENCES documents(id),
+        notes text,
+        created_at timestamp DEFAULT NOW(),
+        updated_at timestamp DEFAULT NOW()
+      );
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_office_staff_paychecks_user ON office_staff_paychecks (user_id);`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_office_staff_paychecks_run ON office_staff_paychecks (payroll_run_id);`);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS employee_tax_forms (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        organization_id varchar,
+        employee_type varchar NOT NULL,
+        employee_id varchar NOT NULL,
+        form_type varchar NOT NULL,
+        document_id varchar REFERENCES documents(id),
+        signed_at timestamp,
+        effective_date timestamp,
+        is_current boolean DEFAULT true,
+        notes text,
+        created_by varchar REFERENCES users(id),
+        created_at timestamp DEFAULT NOW(),
+        updated_at timestamp DEFAULT NOW()
+      );
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_employee_tax_forms_employee ON employee_tax_forms (employee_type, employee_id);`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_employee_tax_forms_current ON employee_tax_forms (employee_type, employee_id, form_type) WHERE is_current = true;`);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS employee_tax_form_change_requests (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        organization_id varchar,
+        employee_type varchar NOT NULL,
+        employee_id varchar NOT NULL,
+        requested_by_user_id varchar REFERENCES users(id),
+        form_type varchar NOT NULL,
+        reason text,
+        status varchar DEFAULT 'pending',
+        hr_task_id varchar REFERENCES tasks(id),
+        esignature_request_id varchar REFERENCES esignature_requests(id),
+        reviewed_by_user_id varchar REFERENCES users(id),
+        reviewed_at timestamp,
+        review_notes text,
+        created_at timestamp DEFAULT NOW(),
+        updated_at timestamp DEFAULT NOW()
+      );
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_tax_form_reqs_employee ON employee_tax_form_change_requests (employee_type, employee_id);`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_tax_form_reqs_status ON employee_tax_form_change_requests (status);`);
+
+    await client.query(`CREATE TABLE IF NOT EXISTS self_service_init_marker (initialized_at timestamp DEFAULT NOW());`);
+    selfServiceSchemaReady = true;
+    console.log("[Init] self-service (paystubs + tax forms) schema ensured.");
+  } catch (err) {
+    console.error("[Init] ensureSelfServiceSchema failed (non-fatal):", err);
+  } finally {
+    client.release();
+  }
+}
+
 export async function runProductionInit() {
   const client = await pool.connect();
   try {

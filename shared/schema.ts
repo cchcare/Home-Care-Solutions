@@ -1812,6 +1812,84 @@ export const caregiverPaychecks = pgTable("caregiver_paychecks", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
+// Office Staff Paychecks — mirrors caregiver_paychecks for non-caregiver employees.
+// Lets office staff see paystubs in the self-service portal alongside caregivers.
+export const officeStaffPaychecks = pgTable("office_staff_paychecks", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").references(() => users.id).notNull(),
+  payrollRunId: varchar("payroll_run_id").references(() => payrollRuns.id),
+  payPeriodStart: timestamp("pay_period_start").notNull(),
+  payPeriodEnd: timestamp("pay_period_end").notNull(),
+  payDate: timestamp("pay_date").notNull(),
+  regularHours: numeric("regular_hours", { precision: 10, scale: 2 }).default("0"),
+  overtimeHours: numeric("overtime_hours", { precision: 10, scale: 2 }).default("0"),
+  holidayHours: numeric("holiday_hours", { precision: 10, scale: 2 }).default("0"),
+  grossPay: numeric("gross_pay", { precision: 10, scale: 2 }).notNull(),
+  federalTax: numeric("federal_tax", { precision: 10, scale: 2 }).default("0"),
+  stateTax: numeric("state_tax", { precision: 10, scale: 2 }).default("0"),
+  socialSecurity: numeric("social_security", { precision: 10, scale: 2 }).default("0"),
+  medicare: numeric("medicare", { precision: 10, scale: 2 }).default("0"),
+  otherDeductions: numeric("other_deductions", { precision: 10, scale: 2 }).default("0"),
+  netPay: numeric("net_pay", { precision: 10, scale: 2 }).notNull(),
+  status: varchar("status").default("pending"),
+  checkNumber: varchar("check_number"),
+  paystubDocumentId: varchar("paystub_document_id").references(() => documents.id),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+export type OfficeStaffPaycheck = typeof officeStaffPaychecks.$inferSelect;
+export type InsertOfficeStaffPaycheck = typeof officeStaffPaychecks.$inferInsert;
+export const insertOfficeStaffPaycheckSchema = createInsertSchema(officeStaffPaychecks).omit({ id: true, createdAt: true, updatedAt: true });
+
+// Employee Tax Forms — current W-4 / direct-deposit / state-withholding forms
+// on file for an employee (caregiver or user). The actual signed PDF lives in
+// the documents table; this row tracks which document is the current copy.
+export const employeeTaxForms = pgTable("employee_tax_forms", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id"),
+  employeeType: varchar("employee_type").notNull(), // 'caregiver' | 'user'
+  employeeId: varchar("employee_id").notNull(),
+  formType: varchar("form_type").notNull(), // 'w4' | 'direct_deposit' | 'state_withholding'
+  documentId: varchar("document_id").references(() => documents.id),
+  signedAt: timestamp("signed_at"),
+  effectiveDate: timestamp("effective_date"),
+  isCurrent: boolean("is_current").default(true),
+  notes: text("notes"),
+  createdBy: varchar("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+export type EmployeeTaxForm = typeof employeeTaxForms.$inferSelect;
+export type InsertEmployeeTaxForm = typeof employeeTaxForms.$inferInsert;
+export const insertEmployeeTaxFormSchema = createInsertSchema(employeeTaxForms).omit({ id: true, createdAt: true, updatedAt: true });
+
+// Tax-form change requests — submitted by employee, reviewed by HR, optionally
+// resolved by re-signing a new tax form via eSignature.
+export const employeeTaxFormChangeRequests = pgTable("employee_tax_form_change_requests", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id"),
+  employeeType: varchar("employee_type").notNull(),
+  employeeId: varchar("employee_id").notNull(),
+  requestedByUserId: varchar("requested_by_user_id").references(() => users.id),
+  formType: varchar("form_type").notNull(),
+  reason: text("reason"),
+  status: varchar("status").default("pending"), // pending, in_review, completed, rejected
+  hrTaskId: varchar("hr_task_id").references(() => tasks.id),
+  esignatureRequestId: varchar("esignature_request_id").references(() => eSignatureRequests.id),
+  reviewedByUserId: varchar("reviewed_by_user_id").references(() => users.id),
+  reviewedAt: timestamp("reviewed_at"),
+  reviewNotes: text("review_notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+export type EmployeeTaxFormChangeRequest = typeof employeeTaxFormChangeRequests.$inferSelect;
+export type InsertEmployeeTaxFormChangeRequest = typeof employeeTaxFormChangeRequests.$inferInsert;
+export const insertEmployeeTaxFormChangeRequestSchema = createInsertSchema(employeeTaxFormChangeRequests).omit({
+  id: true, createdAt: true, updatedAt: true, reviewedAt: true, reviewedByUserId: true,
+  hrTaskId: true, esignatureRequestId: true, status: true,
+});
+
 // Caregiver Rates - Rates section (different from base hourly wage)
 export const caregiverRates = pgTable("caregiver_rates", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
