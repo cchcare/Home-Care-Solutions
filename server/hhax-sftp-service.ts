@@ -38,7 +38,7 @@ export interface OutboxFile {
  * importer normalizes every header to a canonical key by stripping non-alnum
  * characters and lowercasing — and then matches against the alias maps below.
  */
-const CAREGIVER_HEADER_ALIASES: Record<string, string[]> = {
+export const CAREGIVER_HEADER_ALIASES: Record<string, string[]> = {
   CaregiverCode: ['caregivercode', 'caregiverid', 'caregiver', 'employeeid', 'employeecode', 'externalid'],
   FirstName: ['firstname', 'first', 'givenname'],
   LastName: ['lastname', 'last', 'surname', 'familyname'],
@@ -62,7 +62,7 @@ const CAREGIVER_HEADER_ALIASES: Record<string, string[]> = {
   Branch: ['branch', 'office', 'officebranch', 'location', 'site'],
 };
 
-const PATIENT_HEADER_ALIASES: Record<string, string[]> = {
+export const PATIENT_HEADER_ALIASES: Record<string, string[]> = {
   PatientCode: ['patientcode', 'patientid', 'memberid', 'clientcode', 'clientid'],
   AdmissionID: ['admissionid', 'admission', 'admissionnumber', 'admissionno', 'admit', 'admitid'],
   FirstName: ['firstname', 'first', 'givenname'],
@@ -88,7 +88,7 @@ const PATIENT_HEADER_ALIASES: Record<string, string[]> = {
   ServiceStartDate: ['servicestartdate', 'sostartdate', 'startofcare', 'soc'],
 };
 
-const SCHEDULE_HEADER_ALIASES: Record<string, string[]> = {
+export const SCHEDULE_HEADER_ALIASES: Record<string, string[]> = {
   ScheduleID: ['scheduleid', 'visitid', 'shiftid', 'visitnumber', 'scheduleno', 'visitno'],
   PatientCode: ['patientcode', 'patientid', 'memberid', 'clientcode', 'clientid'],
   CaregiverCode: ['caregivercode', 'caregiverid', 'caregiver', 'employeeid', 'employeecode'],
@@ -106,17 +106,31 @@ const SCHEDULE_HEADER_ALIASES: Record<string, string[]> = {
  * accept several common aliases — HHAX customers configure their own export
  * names and they are not always "Caregiver_*.csv".
  */
-const FILE_KIND_ALIASES: Record<'caregiver' | 'patient' | 'schedule', string[]> = {
+export const FILE_KIND_ALIASES: Record<'caregiver' | 'patient' | 'schedule', string[]> = {
   caregiver: ['caregiver', 'aide', 'employee', 'staff', 'worker'],
   patient: ['patient', 'client', 'member', 'admission'],
   schedule: ['schedule', 'visit', 'shift', 'authorization', 'plan'],
 };
 
-function canonicalizeHeader(raw: string): string {
+export function canonicalizeHeader(raw: string): string {
   return raw.toLowerCase().replace(/[^a-z0-9]/g, '');
 }
 
-function normalizeRecord<T extends Record<string, any>>(
+export function pickFileForKind(
+  files: OutboxFile[],
+  kind: 'caregiver' | 'patient' | 'schedule',
+): OutboxFile | null {
+  const aliases = FILE_KIND_ALIASES[kind];
+  const matches = files.filter((f) => {
+    const lower = f.name.toLowerCase();
+    return aliases.some((a) => lower.includes(a));
+  });
+  if (matches.length === 0) return null;
+  matches.sort((a, b) => b.modifyTime.getTime() - a.modifyTime.getTime());
+  return matches[0];
+}
+
+export function normalizeRecord<T extends Record<string, any>>(
   raw: Record<string, unknown>,
   aliasMap: Record<string, string[]>,
 ): { normalized: T; unknownHeaders: string[] } {
@@ -314,24 +328,6 @@ export class HhaxSftpService {
     return buffer as Buffer;
   }
 
-  /**
-   * Pick the most-recently-modified file whose name (case-insensitively)
-   * matches one of the kind aliases. Returns null when nothing matches.
-   */
-  private pickFileForKind(
-    files: OutboxFile[],
-    kind: 'caregiver' | 'patient' | 'schedule',
-  ): OutboxFile | null {
-    const aliases = FILE_KIND_ALIASES[kind];
-    const matches = files.filter((f) => {
-      const lower = f.name.toLowerCase();
-      return aliases.some((a) => lower.includes(a));
-    });
-    if (matches.length === 0) return null;
-    matches.sort((a, b) => b.modifyTime.getTime() - a.modifyTime.getTime());
-    return matches[0];
-  }
-
   private async parseCsvRaw(content: Buffer): Promise<Record<string, unknown>[]> {
     return new Promise((resolve, reject) => {
       const records: Record<string, unknown>[] = [];
@@ -431,7 +427,7 @@ export class HhaxSftpService {
         let fileToProcess = opts.fileName;
         if (!fileToProcess) {
           const files = await this.listOutboxFiles();
-          const picked = this.pickFileForKind(files, 'caregiver');
+          const picked = pickFileForKind(files, 'caregiver');
           if (!picked) {
             result.success = false;
             result.errors.push(
@@ -543,7 +539,7 @@ export class HhaxSftpService {
         let fileToProcess = opts.fileName;
         if (!fileToProcess) {
           const files = await this.listOutboxFiles();
-          const picked = this.pickFileForKind(files, 'patient');
+          const picked = pickFileForKind(files, 'patient');
           if (!picked) {
             result.success = false;
             result.errors.push(
@@ -658,7 +654,7 @@ export class HhaxSftpService {
         let fileToProcess = opts.fileName;
         if (!fileToProcess) {
           const files = await this.listOutboxFiles();
-          const picked = this.pickFileForKind(files, 'schedule');
+          const picked = pickFileForKind(files, 'schedule');
           if (!picked) {
             result.success = false;
             result.errors.push(
