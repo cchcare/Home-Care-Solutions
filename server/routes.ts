@@ -14945,6 +14945,42 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Get current /Outbox cleanup configuration (read-only — env-driven)
+  app.get("/api/hhax/cleanup-config", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      if (!user || (user.role !== "admin" && user.role !== "supervisor" && user.role !== "super_admin")) {
+        return res.status(403).json({ message: "Unauthorized: Admin, supervisor, or super_admin role required" });
+      }
+      const { getOutboxCleanupConfig } = await import('./hhax-sftp-service');
+      res.json(getOutboxCleanupConfig());
+    } catch (error: any) {
+      console.error("Error fetching HHAX cleanup config:", error);
+      res.status(500).json({ message: error.message || "Failed to fetch cleanup config" });
+    }
+  });
+
+  // Manually sweep the /Outbox now using the configured cleanup mode.
+  app.post("/api/hhax/cleanup-outbox", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      if (!user || (user.role !== "admin" && user.role !== "supervisor" && user.role !== "super_admin")) {
+        return res.status(403).json({ message: "Unauthorized: Admin, supervisor, or super_admin role required" });
+      }
+      const { hhaxSftpService, getOutboxCleanupConfig } = await import('./hhax-sftp-service');
+      const cfg = getOutboxCleanupConfig();
+      if (cfg.mode === 'off') {
+        return res.status(400).json({ message: "Outbox cleanup is disabled. Set HHAX_OUTBOX_CLEANUP to 'archive' or 'delete' to enable." });
+      }
+      const summary = await hhaxSftpService.sweepOutbox();
+      try { await hhaxSftpService.disconnect(); } catch { /* noop */ }
+      res.json(summary);
+    } catch (error: any) {
+      console.error("Error cleaning HHAX outbox:", error);
+      res.status(500).json({ message: error.message || "Failed to clean outbox" });
+    }
+  });
+
   // List available files in HHAX Outbox
   app.get("/api/hhax/files", isAuthenticated, async (req: any, res) => {
     try {

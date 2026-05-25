@@ -24,12 +24,60 @@ export interface HhaxSyncResult {
   unrecognizedHeaders?: string[];
   /** True when no DB writes happened (validation/dry-run mode). */
   dryRun?: boolean;
+  /** Result of the post-import /Outbox cleanup, if any was performed. */
+  cleanup?: OutboxCleanupAction;
+  /** Result of the post-import sweep of aged files, if retention is configured. */
+  cleanupSweep?: OutboxCleanupSummary;
 }
 
 export interface OutboxFile {
   name: string;
   size: number;
   modifyTime: Date;
+}
+
+export type OutboxCleanupMode = 'off' | 'archive' | 'delete';
+
+export interface OutboxCleanupConfig {
+  mode: OutboxCleanupMode;
+  archiveDir: string;
+  deleteAfterDays: number;
+}
+
+export interface OutboxCleanupAction {
+  fileName: string;
+  action: 'archived' | 'deleted' | 'retained' | 'skipped';
+  destination?: string;
+  error?: string;
+}
+
+export interface OutboxCleanupSummary {
+  mode: OutboxCleanupMode;
+  archived: OutboxCleanupAction[];
+  deleted: OutboxCleanupAction[];
+  retained: OutboxCleanupAction[];
+  errors: OutboxCleanupAction[];
+}
+
+/**
+ * Cleanup behavior is opt-in via env vars. Defaults to 'off' so existing
+ * deployments are unaffected.
+ *
+ *   HHAX_OUTBOX_CLEANUP            'off' | 'archive' | 'delete'  (default 'off')
+ *   HHAX_OUTBOX_ARCHIVE_DIR        remote path                    (default '/Archive')
+ *   HHAX_OUTBOX_DELETE_AFTER_DAYS  integer N >= 0                 (default 0)
+ *       - In 'delete' mode, files newer than N days are kept; older files are
+ *         deleted. N=0 means delete immediately after a successful import.
+ *       - In 'archive' mode, the just-imported file is always moved.
+ */
+export function getOutboxCleanupConfig(): OutboxCleanupConfig {
+  const raw = (process.env.HHAX_OUTBOX_CLEANUP || 'off').toLowerCase().trim();
+  const mode: OutboxCleanupMode =
+    raw === 'archive' || raw === 'delete' ? raw : 'off';
+  const archiveDir = (process.env.HHAX_OUTBOX_ARCHIVE_DIR || '/Archive').replace(/\/+$/, '') || '/Archive';
+  const daysRaw = parseInt(process.env.HHAX_OUTBOX_DELETE_AFTER_DAYS || '0', 10);
+  const deleteAfterDays = Number.isFinite(daysRaw) && daysRaw > 0 ? daysRaw : 0;
+  return { mode, archiveDir, deleteAfterDays };
 }
 
 /**
@@ -328,6 +376,94 @@ export class HhaxSftpService {
     return buffer as Buffer;
   }
 
+  private async ensureRemoteDir(dir: string): Promise<void> {
+    if (!this.sftp) await this.connect();
+    try {
+      const existsType = await this.sftp!.exists(dir);
+      if (existsType) return;
+      await this.sftp!.mkdir(dir, true);
+    } catch (err: any) {
+      // Bubble up so callers can record the cleanup failure rather than
+      // silently leaving files in /Outbox.
+      throw new Error(`Could not ensure remote dir ${dir}: ${err?.message || err}`);
+    }
+  }
+
+  /**
+   * Clean up a single just-imported file in /Outbox according to env config.
+   * Safe to call when cleanup is off (returns 'skipped' with no error).
+   */
+  async cleanupOutboxFile(fileName: string): Promise<OutboxCleanupAction> {
+    const cfg = getOutboxCleanupConfig();
+    if (cfg.mode === 'off') return { fileName, action: 'skipped' };
+    if (!this.sftp) await this.connect();
+    const src = `/Outbox/${fileName}`;
+    try {
+      if (cfg.mode === 'archive') {
+        await this.ensureRemoteDir(cfg.archiveDir);
+        const ts = new Date().toISOString().replace(/[:.]/g, '-');
+        const dest = `${cfg.archiveDir}/${ts}_${fileName}`;
+        await this.sftp!.rename(src, dest);
+        console.log(`[HHAX SFTP] Archived ${src} -> ${dest}`);
+        return { fileName, action: 'archived', destination: dest };
+      }
+      if (cfg.mode === 'delete') {
+        if (cfg.deleteAfterDays > 0) {
+          try {
+            const stat = await this.sftp!.stat(src);
+            const ageMs = Date.now() - Number(stat.modifyTime);
+            if (ageMs < cfg.deleteAfterDays * 86_400_000) {
+              return { fileName, action: 'retained' };
+            }
+          } catch (err: any) {
+            return { fileName, action: 'skipped', error: err?.message || String(err) };
+          }
+        }
+        await this.sftp!.delete(src);
+        console.log(`[HHAX SFTP] Deleted ${src}`);
+        return { fileName, action: 'deleted' };
+      }
+      return { fileName, action: 'skipped' };
+    } catch (err: any) {
+      console.warn(`[HHAX SFTP] Cleanup of ${src} failed:`, err?.message || err);
+      return { fileName, action: 'skipped', error: err?.message || String(err) };
+    }
+  }
+
+  /**
+   * Sweep every file currently in /Outbox, applying the configured cleanup
+   * policy. Used by the manual "Clean up now" button and at the end of a
+   * full sync to catch stragglers from prior runs.
+   */
+  async sweepOutbox(): Promise<OutboxCleanupSummary> {
+    const cfg = getOutboxCleanupConfig();
+    const summary: OutboxCleanupSummary = {
+      mode: cfg.mode,
+      archived: [],
+      deleted: [],
+      retained: [],
+      errors: [],
+    };
+    if (cfg.mode === 'off') return summary;
+    let ownedConnection = false;
+    try {
+      if (!this.sftp) { await this.connect(); ownedConnection = true; }
+      const files = await this.listOutboxFiles();
+      for (const f of files) {
+        const action = await this.cleanupOutboxFile(f.name);
+        if (action.action === 'archived') summary.archived.push(action);
+        else if (action.action === 'deleted') summary.deleted.push(action);
+        else if (action.action === 'retained') summary.retained.push(action);
+        if (action.error) summary.errors.push(action);
+      }
+    } finally {
+      if (ownedConnection) {
+        try { await this.disconnect(); } catch { /* noop */ }
+      }
+    }
+    return summary;
+  }
+
   private async parseCsvRaw(content: Buffer): Promise<Record<string, unknown>[]> {
     return new Promise((resolve, reject) => {
       const records: Record<string, unknown>[] = [];
@@ -513,6 +649,7 @@ export class HhaxSftpService {
       result.errors.push(error.message);
     }
 
+    await this.maybeCleanupAfterImport(opts, result);
     return result;
   }
 
@@ -628,6 +765,7 @@ export class HhaxSftpService {
       result.errors.push(error.message);
     }
 
+    await this.maybeCleanupAfterImport(opts, result);
     return result;
   }
 
@@ -753,15 +891,67 @@ export class HhaxSftpService {
       result.errors.push(error.message);
     }
 
+    await this.maybeCleanupAfterImport(opts, result);
     return result;
+  }
+
+  /**
+   * Run cleanup for an import that just finished. Only runs when:
+   *   - the importer pulled from SFTP (not an in-memory sample buffer),
+   *   - it wasn't a dry run,
+   *   - the import itself succeeded and a file was actually processed.
+   * Records the action on the result so callers/UI can surface it.
+   */
+  private async maybeCleanupAfterImport(
+    opts: { buffer?: Buffer; dryRun?: boolean },
+    result: HhaxSyncResult,
+  ): Promise<void> {
+    if (opts.buffer || opts.dryRun) return;
+    if (!result.success || !result.fileName) return;
+    const cfg = getOutboxCleanupConfig();
+    if (cfg.mode === 'off') return;
+    try {
+      // Per-file action for the just-imported file. In 'archive' mode this
+      // moves it; in 'delete' mode with N=0 it deletes it immediately; in
+      // 'delete' mode with N>0 it is reported as 'retained' (still too new).
+      const action = await this.cleanupOutboxFile(result.fileName);
+      if (action.action !== 'skipped' || action.error) {
+        result.cleanup = action;
+      }
+      // Retention-based delete also needs to revisit older files in /Outbox
+      // that have now aged past N days, otherwise processed files would
+      // accumulate forever. Sweep them here so each successful import keeps
+      // the directory tidy without requiring a manual click.
+      if (cfg.mode === 'delete' && cfg.deleteAfterDays > 0) {
+        try {
+          const sweep = await this.sweepOutbox();
+          // Only attach the sweep summary if it actually did something
+          // worth surfacing — purely-retained sweeps would be noise.
+          if (sweep.deleted.length > 0 || sweep.archived.length > 0 || sweep.errors.length > 0) {
+            result.cleanupSweep = sweep;
+          }
+        } catch (err: any) {
+          console.warn('[HHAX SFTP] post-import sweep error:', err?.message || err);
+        }
+      }
+    } catch (err: any) {
+      // Cleanup failure must never fail the import itself.
+      console.warn('[HHAX SFTP] post-import cleanup error:', err?.message || err);
+    }
   }
 
   async runFullSync(fallbackOfficeId?: string): Promise<{
     caregivers: HhaxSyncResult;
     clients: HhaxSyncResult;
     schedules: HhaxSyncResult;
+    cleanupSweep?: OutboxCleanupSummary;
   }> {
-    const results = {
+    const results: {
+      caregivers: HhaxSyncResult;
+      clients: HhaxSyncResult;
+      schedules: HhaxSyncResult;
+      cleanupSweep?: OutboxCleanupSummary;
+    } = {
       caregivers: emptyResult(),
       clients: emptyResult(),
       schedules: emptyResult(),
@@ -777,6 +967,19 @@ export class HhaxSftpService {
       results.clients = await this.importClients({ fallbackOfficeId });
       results.caregivers = await this.importCaregivers({ fallbackOfficeId });
       results.schedules = await this.importSchedules({ fallbackOfficeId });
+
+      // Age-based sweep ONLY runs in retention mode ('delete' with N>0).
+      // In archive mode and immediate-delete mode, the per-import cleanup
+      // already handled each processed file, and unprocessed files in
+      // /Outbox must be left alone (they may be queued for a later run).
+      const cfg = getOutboxCleanupConfig();
+      if (cfg.mode === 'delete' && cfg.deleteAfterDays > 0) {
+        try {
+          results.cleanupSweep = await this.sweepOutbox();
+        } catch (err: any) {
+          console.warn('[HHAX SFTP] full-sync sweep error:', err?.message || err);
+        }
+      }
     } catch (error: any) {
       console.error('[HHAX SFTP] Full sync error:', error);
       // Attribute the unexpected error to whichever stage hadn't started yet.

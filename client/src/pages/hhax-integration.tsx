@@ -35,6 +35,7 @@ import {
   Link as LinkIcon,
   Eye,
   FileWarning,
+  Archive,
 } from "lucide-react";
 import { format } from "date-fns";
 import type { Office, HhaxOfficeMapping, HhaxSyncLog } from "@shared/schema";
@@ -83,6 +84,27 @@ interface OutboxFile {
   modifyTime: string;
 }
 
+interface CleanupConfig {
+  mode: "off" | "archive" | "delete";
+  archiveDir: string;
+  deleteAfterDays: number;
+}
+
+interface CleanupAction {
+  fileName: string;
+  action: "archived" | "deleted" | "retained" | "skipped";
+  destination?: string;
+  error?: string;
+}
+
+interface CleanupSummary {
+  mode: "off" | "archive" | "delete";
+  archived: CleanupAction[];
+  deleted: CleanupAction[];
+  retained: CleanupAction[];
+  errors: CleanupAction[];
+}
+
 const TARGET_LABEL: Record<ImportTarget, string> = {
   caregivers: "Caregivers",
   clients: "Clients",
@@ -127,6 +149,44 @@ export default function HhaxIntegration() {
   } = useQuery<OutboxFile[]>({
     queryKey: ["/api/hhax/files"],
     retry: false,
+  });
+
+  const { data: cleanupConfig } = useQuery<CleanupConfig>({
+    queryKey: ["/api/hhax/cleanup-config"],
+    retry: false,
+  });
+
+  const cleanupMutation = useMutation({
+    mutationFn: async (): Promise<CleanupSummary> => {
+      const response = await apiRequest("POST", "/api/hhax/cleanup-outbox", {});
+      return response.json();
+    },
+    onSuccess: (summary) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/hhax/files"] });
+      const moved = summary.archived.length + summary.deleted.length;
+      const verb = summary.mode === "archive" ? "archived" : "deleted";
+      toast({
+        title: moved > 0 ? "Outbox cleaned" : "Nothing to clean",
+        description:
+          moved > 0
+            ? `${moved} file${moved === 1 ? "" : "s"} ${verb}.${summary.retained.length ? ` ${summary.retained.length} retained.` : ""}`
+            : `No files were ${verb}.${summary.retained.length ? ` ${summary.retained.length} still within retention window.` : ""}`,
+      });
+      if (summary.errors.length > 0) {
+        toast({
+          title: "Some files couldn't be cleaned",
+          description: summary.errors.map((e) => `${e.fileName}: ${e.error || "unknown error"}`).join("; "),
+          variant: "destructive",
+        });
+      }
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Cleanup failed",
+        description: error?.message || "Could not clean the Outbox",
+        variant: "destructive",
+      });
+    },
   });
 
   const form = useForm<OfficeMappingFormData>({
@@ -175,6 +235,7 @@ export default function HhaxIntegration() {
     onSuccess: ({ type, payload }) => {
       queryClient.invalidateQueries({ queryKey: ["/api/hhax/sync-logs"] });
       queryClient.invalidateQueries({ queryKey: [`/api/${type}`] });
+      queryClient.invalidateQueries({ queryKey: ["/api/hhax/files"] });
       setImportResult({
         target: type,
         label: `${TARGET_LABEL[type]} import`,
@@ -211,6 +272,7 @@ export default function HhaxIntegration() {
       queryClient.invalidateQueries({ queryKey: ["/api/hhax/sync-logs"] });
       queryClient.invalidateQueries({ queryKey: ["/api/caregivers"] });
       queryClient.invalidateQueries({ queryKey: ["/api/clients"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/hhax/files"] });
       const { caregivers, clients, schedules } = response.results;
       // Show all 3 stages together; show clients first (they ran first server-side).
       setImportResult({
@@ -445,18 +507,51 @@ export default function HhaxIntegration() {
                   Files currently sitting in <code className="font-mono text-xs">/Outbox</code> on the SFTP server
                 </CardDescription>
               </div>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => refreshFiles()}
-                disabled={loadingFiles || refetchingFiles}
-                data-testid="button-refresh-outbox"
-              >
-                {(loadingFiles || refetchingFiles) ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <RefreshCw className="w-4 h-4 mr-2" />}
-                Refresh
-              </Button>
+              <div className="flex gap-2">
+                {cleanupConfig && cleanupConfig.mode !== "off" && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => cleanupMutation.mutate()}
+                    disabled={cleanupMutation.isPending || loadingFiles || refetchingFiles}
+                    data-testid="button-cleanup-outbox"
+                  >
+                    {cleanupMutation.isPending
+                      ? <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      : <Archive className="w-4 h-4 mr-2" />}
+                    Clean up now
+                  </Button>
+                )}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => refreshFiles()}
+                  disabled={loadingFiles || refetchingFiles}
+                  data-testid="button-refresh-outbox"
+                >
+                  {(loadingFiles || refetchingFiles) ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <RefreshCw className="w-4 h-4 mr-2" />}
+                  Refresh
+                </Button>
+              </div>
             </CardHeader>
             <CardContent>
+              {cleanupConfig && (
+                <div
+                  className="mb-3 rounded-md border bg-muted/40 px-3 py-2 text-xs text-muted-foreground"
+                  data-testid="text-cleanup-status"
+                >
+                  <span className="font-semibold">Outbox cleanup:</span>{" "}
+                  {cleanupConfig.mode === "off" && (
+                    <>disabled — processed files stay in <code className="font-mono">/Outbox</code> forever. Set <code className="font-mono">HHAX_OUTBOX_CLEANUP</code> to <code className="font-mono">archive</code> or <code className="font-mono">delete</code> to enable.</>
+                  )}
+                  {cleanupConfig.mode === "archive" && (
+                    <>after a successful import, the file is moved to <code className="font-mono">{cleanupConfig.archiveDir}</code>.</>
+                  )}
+                  {cleanupConfig.mode === "delete" && (
+                    <>after a successful import, the file is deleted{cleanupConfig.deleteAfterDays > 0 ? <> once it is older than {cleanupConfig.deleteAfterDays} day{cleanupConfig.deleteAfterDays === 1 ? "" : "s"}</> : <> immediately</>}.</>
+                  )}
+                </div>
+              )}
               {loadingFiles ? (
                 <div className="flex justify-center py-6">
                   <Loader2 className="w-5 h-5 animate-spin" />
