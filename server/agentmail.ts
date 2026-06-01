@@ -204,36 +204,127 @@ export interface EmailOptions {
   fromName?: string;
 }
 
+const BRAND_PRIMARY = "#0066cc";
+const BRAND_SECONDARY = "#0d8a7c";
+const BRAND_TEXT = "#1a1a2e";
+const BRAND_MUTED = "#6b7280";
+const BRAND_BG = "#f8fafc";
+const BRAND_CARD = "#ffffff";
+
+function getBrandConfig() {
+  const baseUrl = process.env.BASE_URL || "https://portal.carechc.com";
+  const companyName = process.env.COMPANY_NAME || "CCHC Solutions";
+  return {
+    baseUrl,
+    companyName,
+    logoUrl: `${baseUrl}/logo.png`,
+    currentYear: new Date().getFullYear().toString(),
+  };
+}
+
+function buildEmailFooter(config: ReturnType<typeof getBrandConfig>): string {
+  return `
+  <tr>
+    <td style="padding:24px 24px 16px;background:${BRAND_BG};text-align:center;">
+      <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+        <tr>
+          <td style="padding:16px 0;border-top:1px solid #e2e8f0;text-align:center;">
+            <p style="margin:0 0 8px;font-size:13px;color:${BRAND_MUTED};font-family:Arial,Helvetica,sans-serif;">
+              ${config.companyName} &copy; ${config.currentYear}
+            </p>
+            <p style="margin:0 0 12px;font-size:12px;color:${BRAND_MUTED};font-family:Arial,Helvetica,sans-serif;">
+              HIPAA-Compliant Home Care Management
+            </p>
+            <p style="margin:0;font-size:12px;font-family:Arial,Helvetica,sans-serif;">
+              <a href="${config.baseUrl}" style="color:${BRAND_PRIMARY};text-decoration:none;font-weight:500;">Visit Portal</a>
+              <span style="color:#cbd5e1;margin:0 8px;">|</span>
+              <a href="${config.baseUrl}/login" style="color:${BRAND_PRIMARY};text-decoration:none;font-weight:500;">Staff Login</a>
+              <span style="color:#cbd5e1;margin:0 8px;">|</span>
+              <a href="${config.baseUrl}/caregiver-login" style="color:${BRAND_PRIMARY};text-decoration:none;font-weight:500;">Caregiver Portal</a>
+            </p>
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+  <tr>
+    <td style="padding:0 24px 24px;background:${BRAND_BG};text-align:center;">
+      <p style="margin:0;font-size:11px;color:#94a3b8;font-family:Arial,Helvetica,sans-serif;">
+        This is an automated system message. Do not reply directly to this email.
+      </p>
+    </td>
+  </tr>`;
+}
+
+export function wrapEmailWithBrand(contentHtml: string, title?: string): string {
+  const config = getBrandConfig();
+  const footer = buildEmailFooter(config);
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light">
+  <meta name="supported-color-schemes" content="light">
+  <title>${title || config.companyName}</title>
+</head>
+<body style="margin:0;padding:0;background:${BRAND_BG};font-family:Arial,Helvetica,sans-serif;-webkit-font-smoothing:antialiased;">
+  <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background:${BRAND_BG};">
+    <tr>
+      <td align="center" style="padding:24px 16px;">
+        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="600" style="max-width:600px;width:100%;background:${BRAND_CARD};border-radius:12px;overflow:hidden;box-shadow:0 4px 6px -1px rgba(0,0,0,0.05),0 2px 4px -1px rgba(0,0,0,0.03);">
+          <tr>
+            <td style="padding:24px 24px 16px;text-align:center;border-bottom:1px solid #f1f5f9;">
+              <a href="${config.baseUrl}" style="display:inline-block;text-decoration:none;">
+                <img src="${config.logoUrl}" alt="${config.companyName}" width="120" height="auto" style="display:block;margin:0 auto;border:0;max-width:120px;">
+              </a>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:24px;font-size:15px;line-height:1.6;color:${BRAND_TEXT};font-family:Arial,Helvetica,sans-serif;">
+              ${contentHtml}
+            </td>
+          </tr>
+          ${footer}
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
+}
+
 export async function sendEmail(to: string, subject: string, body: string, fromName?: string) {
   return sendEmailWithOptions({ to, subject, text: body, fromName });
 }
 
 export async function sendEmailWithOptions(options: EmailOptions) {
   const client = await getAgentMailClient();
-  
+
   const inboxId = await getCustomInboxId();
-  
+
   const draftOptions: any = {
     to: [options.to],
     subject: options.subject,
   };
-  
+
   if (options.html) {
-    draftOptions.html = options.html;
+    draftOptions.html = wrapEmailWithBrand(options.html, options.subject);
   }
   if (options.text) {
     draftOptions.text = options.text;
   }
-  
+
   const draft = await client.inboxes.drafts.create(inboxId, draftOptions);
   const draftId = (draft as any).draft_id || (draft as any).draftId;
-  
+
   const sendResponse = await client.inboxes.drafts.send(inboxId, draftId, {});
-  
+
   console.log(`Email sent from ${CUSTOM_EMAIL} to ${options.to}`);
-  
-  return { 
-    success: true, 
+
+  return {
+    success: true,
     messageId: (sendResponse as any).message_id || (sendResponse as any).messageId,
     inboxId: inboxId,
     from: CUSTOM_EMAIL
