@@ -32,4 +32,4 @@ Disallow: /kiosk
 Disallow: /esign/
 Disallow: /reset-password
 
-Sitemap: https://cchcsolutions.com/sitemap.xml
+Sitemap: https://portal.carechc.com/sitemap.xml
