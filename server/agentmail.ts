@@ -170,28 +170,30 @@ async function getCustomInboxId(): Promise<string> {
   }
 
   const client = await getAgentMailClient();
-  
-  try {
-    const response = await client.inboxes.list() as any;
-    const inboxes = response.inboxes || response.items || [];
-    
-    for (const inbox of inboxes) {
-      if ((inbox.username === CUSTOM_USERNAME && inbox.domain === CUSTOM_DOMAIN) ||
-          (inbox.username === CUSTOM_USERNAME)) {
-        cachedCustomInboxId = inbox.inbox_id || inbox.inboxId;
-        console.log(`Found custom inbox: ${inbox.username}@${inbox.domain} (${cachedCustomInboxId})`);
-        return cachedCustomInboxId!;
-      }
+
+  const response = await client.inboxes.list() as any;
+  const inboxes = response.inboxes || response.items || [];
+
+  for (const inbox of inboxes) {
+    if ((inbox.username === CUSTOM_USERNAME && inbox.domain === CUSTOM_DOMAIN) ||
+        (inbox.username === CUSTOM_USERNAME)) {
+      cachedCustomInboxId = inbox.inbox_id || inbox.inboxId;
+      console.log(`Found custom inbox: ${inbox.username}@${inbox.domain} (${cachedCustomInboxId})`);
+      return cachedCustomInboxId!;
     }
-    
-    console.log('Custom inbox not found, creating new inbox for sending');
-    const newInbox = await client.inboxes.create({});
-    return (newInbox as any).inbox_id || (newInbox as any).inboxId;
-  } catch (error) {
-    console.error('Error finding custom inbox:', error);
-    const newInbox = await client.inboxes.create({});
-    return (newInbox as any).inbox_id || (newInbox as any).inboxId;
   }
+
+  if (inboxes.length > 0) {
+    const first = inboxes[0];
+    cachedCustomInboxId = first.inbox_id || first.inboxId;
+    console.log(`Custom inbox not found; reusing first available inbox: ${first.username}@${first.domain} (${cachedCustomInboxId})`);
+    return cachedCustomInboxId!;
+  }
+
+  console.log('No inboxes found, creating new inbox for sending');
+  const newInbox = await client.inboxes.create({});
+  cachedCustomInboxId = (newInbox as any).inbox_id || (newInbox as any).inboxId;
+  return cachedCustomInboxId!;
 }
 
 export interface EmailOptions {
