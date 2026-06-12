@@ -4894,3 +4894,197 @@ export const benefitDependents = pgTable("benefit_dependents", {
 export type BenefitDependent = typeof benefitDependents.$inferSelect;
 export type InsertBenefitDependent = typeof benefitDependents.$inferInsert;
 export const insertBenefitDependentSchema = createInsertSchema(benefitDependents).omit({ id: true, createdAt: true });
+
+// ==================== QUALITY MANAGEMENT PLAN ====================
+
+export const qmpStatusEnum = pgEnum("qmp_status", ["active", "draft", "archived"]);
+export const qmpReviewStatusEnum = pgEnum("qmp_review_status", ["pending", "in_review", "completed", "overdue"]);
+export const qmpOadriStatusEnum = pgEnum("qmp_oadri_status", ["not_started", "in_progress", "completed", "needs_improvement"]);
+export const complaintStatusEnum = pgEnum("complaint_status", ["open", "under_investigation", "resolved_satisfactory", "resolved_unsatisfactory", "referred", "closed"]);
+export const complaintSourceEnum = pgEnum("complaint_source", ["patient", "family", "staff", "regulatory", "other"]);
+export const complaintCategoryEnum = pgEnum("complaint_category", ["care_quality", "staff_conduct", "scheduling", "communication", "billing", "safety", "privacy", "other"]);
+
+export const qualityManagementPlans = pgTable("quality_management_plans", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  officeId: varchar("office_id").references(() => offices.id),
+  organizationId: varchar("organization_id"),
+  title: varchar("title").notNull().default("Quality Management Plan"),
+  description: text("description"),
+  policyDocumentUrl: varchar("policy_document_url"),
+  effectiveDate: date("effective_date").notNull(),
+  revision: varchar("revision").default("1.0"),
+  reviewedBy: varchar("reviewed_by").references(() => users.id),
+  reviewedAt: date("reviewed_at"),
+  nextReviewDate: date("next_review_date"),
+  status: qmpStatusEnum("status").default("active").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_qmp_office").on(table.officeId),
+  index("idx_qmp_status").on(table.status),
+]);
+
+export type QualityManagementPlan = typeof qualityManagementPlans.$inferSelect;
+export type InsertQualityManagementPlan = typeof qualityManagementPlans.$inferInsert;
+export const insertQualityManagementPlanSchema = createInsertSchema(qualityManagementPlans).omit({ id: true, createdAt: true, updatedAt: true });
+
+export const qmpMeasurableOutcomes = pgTable("qmp_measurable_outcomes", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  planId: varchar("plan_id").references(() => qualityManagementPlans.id).notNull(),
+  officeId: varchar("office_id").references(() => offices.id),
+  name: varchar("name").notNull(),
+  description: text("description"),
+  targetValue: varchar("target_value"),
+  targetUnit: varchar("target_unit"),
+  actualValue: varchar("actual_value"),
+  measurementMethod: text("measurement_method"),
+  frequency: varchar("frequency").default("quarterly"),
+  lastMeasuredAt: date("last_measured_at"),
+  nextMeasurementDue: date("next_measurement_due"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_qmp_outcomes_plan").on(table.planId),
+  index("idx_qmp_outcomes_office").on(table.officeId),
+]);
+
+export type QmpMeasurableOutcome = typeof qmpMeasurableOutcomes.$inferSelect;
+export type InsertQmpMeasurableOutcome = typeof qmpMeasurableOutcomes.$inferInsert;
+export const insertQmpMeasurableOutcomeSchema = createInsertSchema(qmpMeasurableOutcomes).omit({ id: true, createdAt: true, updatedAt: true });
+
+export const qmpQuarterlyReviews = pgTable("qmp_quarterly_reviews", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  planId: varchar("plan_id").references(() => qualityManagementPlans.id).notNull(),
+  officeId: varchar("office_id").references(() => offices.id),
+  quarter: integer("quarter").notNull(),
+  year: integer("year").notNull(),
+  reviewDate: date("review_date"),
+  dueDate: date("due_date").notNull(),
+  reviewedBy: varchar("reviewed_by").references(() => users.id),
+  findings: text("findings"),
+  actionItems: text("action_items"),
+  status: qmpReviewStatusEnum("status").default("pending").notNull(),
+  completedAt: date("completed_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_qmp_reviews_plan").on(table.planId),
+  index("idx_qmp_reviews_office").on(table.officeId),
+  index("idx_qmp_reviews_quarter").on(table.quarter, table.year),
+]);
+
+export type QmpQuarterlyReview = typeof qmpQuarterlyReviews.$inferSelect;
+export type InsertQmpQuarterlyReview = typeof qmpQuarterlyReviews.$inferInsert;
+export const insertQmpQuarterlyReviewSchema = createInsertSchema(qmpQuarterlyReviews).omit({ id: true, createdAt: true, updatedAt: true });
+
+export const qmpOadriCycles = pgTable("qmp_oadri_cycles", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  planId: varchar("plan_id").references(() => qualityManagementPlans.id).notNull(),
+  officeId: varchar("office_id").references(() => offices.id),
+  cycleName: varchar("cycle_name").notNull(),
+  objectives: text("objectives"),
+  objectivesStatus: qmpOadriStatusEnum("objectives_status").default("not_started"),
+  approach: text("approach"),
+  approachStatus: qmpOadriStatusEnum("approach_status").default("not_started"),
+  deployment: text("deployment"),
+  deploymentStatus: qmpOadriStatusEnum("deployment_status").default("not_started"),
+  results: text("results"),
+  resultsStatus: qmpOadriStatusEnum("results_status").default("not_started"),
+  improvement: text("improvement"),
+  improvementStatus: qmpOadriStatusEnum("improvement_status").default("not_started"),
+  overallStatus: qmpOadriStatusEnum("overall_status").default("not_started"),
+  startedAt: date("started_at"),
+  completedAt: date("completed_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_qmp_oadri_plan").on(table.planId),
+  index("idx_qmp_oadri_office").on(table.officeId),
+]);
+
+export type QmpOadriCycle = typeof qmpOadriCycles.$inferSelect;
+export type InsertQmpOadriCycle = typeof qmpOadriCycles.$inferInsert;
+export const insertQmpOadriCycleSchema = createInsertSchema(qmpOadriCycles).omit({ id: true, createdAt: true, updatedAt: true });
+
+export const patientComplaints = pgTable("patient_complaints", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  officeId: varchar("office_id").references(() => offices.id).notNull(),
+  clientId: varchar("client_id").references(() => clients.id),
+  caregiverId: varchar("caregiver_id").references(() => caregivers.id),
+  complaintNumber: varchar("complaint_number").notNull(),
+  complaintDate: date("complaint_date").notNull(),
+  receivedBy: varchar("received_by").references(() => users.id),
+  source: complaintSourceEnum("source").notNull(),
+  category: complaintCategoryEnum("category").notNull(),
+  description: text("description").notNull(),
+  incidentOutcome: text("incident_outcome"),
+  rootCause: text("root_cause"),
+  correctiveAction: text("corrective_action"),
+  preventiveMeasures: text("preventive_measures"),
+  employeeInvolved: boolean("employee_involved").default(false),
+  departmentInvolved: boolean("department_involved").default(false),
+  employeeNames: text("employee_names"),
+  departmentNames: text("department_names"),
+  resolvedAt: date("resolved_at"),
+  resolvedBy: varchar("resolved_by").references(() => users.id),
+  resolutionNotes: text("resolution_notes"),
+  patientSatisfied: boolean("patient_satisfied"),
+  referredToDepartment: boolean("referred_to_department").default(false),
+  followUpRequired: boolean("follow_up_required").default(false),
+  followUpDate: date("follow_up_date"),
+  surveySent: boolean("survey_sent").default(false),
+  surveyResults: varchar("survey_results"),
+  surveyRating: integer("survey_rating"),
+  incidentReportId: varchar("incident_report_id").references(() => incidentReports.id),
+  status: complaintStatusEnum("status").default("open").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_patient_complaints_office").on(table.officeId),
+  index("idx_patient_complaints_status").on(table.status),
+  index("idx_patient_complaints_date").on(table.complaintDate),
+  index("idx_patient_complaints_number").on(table.complaintNumber),
+]);
+
+export type PatientComplaint = typeof patientComplaints.$inferSelect;
+export type InsertPatientComplaint = typeof patientComplaints.$inferInsert;
+export const insertPatientComplaintSchema = createInsertSchema(patientComplaints).omit({ id: true, createdAt: true, updatedAt: true });
+
+export const qualityManagementLogs = pgTable("quality_management_logs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  officeId: varchar("office_id").references(() => offices.id).notNull(),
+  complaintId: varchar("complaint_id").references(() => patientComplaints.id),
+  incidentReportId: varchar("incident_report_id").references(() => incidentReports.id),
+  logDate: date("log_date").notNull(),
+  complaintNumber: varchar("complaint_number"),
+  patientName: varchar("patient_name"),
+  patientLocation: varchar("patient_location"),
+  patientIssues: text("patient_issues"),
+  incidentOutcome: text("incident_outcome"),
+  preventableMeasures: text("preventable_measures"),
+  qualitySatisfactionCode: varchar("quality_satisfaction_code"),
+  surveySent: boolean("survey_sent").default(false),
+  surveyResults: varchar("survey_results"),
+  rating1: integer("rating_1"),
+  rating2: integer("rating_2"),
+  rating3: integer("rating_3"),
+  rating4: integer("rating_4"),
+  rating5: integer("rating_5"),
+  employeeInvolved: boolean("employee_involved").default(false),
+  departmentInvolved: boolean("department_involved").default(false),
+  notes: text("notes"),
+  loggedBy: varchar("logged_by").references(() => users.id),
+  reviewedAt: date("reviewed_at"),
+  reviewedBy: varchar("reviewed_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_qm_logs_office").on(table.officeId),
+  index("idx_qm_logs_date").on(table.logDate),
+  index("idx_qm_logs_complaint").on(table.complaintId),
+]);
+
+export type QualityManagementLog = typeof qualityManagementLogs.$inferSelect;
+export type InsertQualityManagementLog = typeof qualityManagementLogs.$inferInsert;
+export const insertQualityManagementLogSchema = createInsertSchema(qualityManagementLogs).omit({ id: true, createdAt: true, updatedAt: true });

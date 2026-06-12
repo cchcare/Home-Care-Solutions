@@ -238,6 +238,10 @@ export function Sidebar() {
               { name: "Supervisory Visits", href: "/supervisory-visits", icon: Clipboard },
               { name: "Policy Management", href: "/policy-management", icon: FileText },
               { name: "QAPI", href: "/qapi", icon: BarChart3 },
+              { name: "Quality Management", href: "/quality-management", icon: ShieldCheck },
+              { name: "Patient Complaints", href: "/patient-complaints", icon: AlertTriangle },
+              { name: "QM Logs", href: "/quality-management-logs", icon: ClipboardList },
+              { name: "OADRI Cycle", href: "/oadri-cycle", icon: Activity },
               { name: "Infection Control", href: "/infection-control", icon: Biohazard },
               { name: "Client Surveys", href: "/client-satisfaction-surveys", icon: Star },
             ]

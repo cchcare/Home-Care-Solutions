@@ -94,6 +94,10 @@ import PolicyManagement from "@/pages/policy-management";
 import Qapi from "@/pages/qapi";
 import InfectionControl from "@/pages/infection-control";
 import ClientSatisfactionSurveys from "@/pages/client-satisfaction-surveys";
+import QualityManagement from "@/pages/quality-management";
+import PatientComplaints from "@/pages/patient-complaints";
+import QualityManagementLogs from "@/pages/quality-management-logs";
+import OadriCycle from "@/pages/oadri-cycle";
 import Onboarding from "@/pages/onboarding";
 import OnboardingTemplates from "@/pages/onboarding-templates";
 import Offboarding from "@/pages/offboarding";
@@ -243,6 +247,10 @@ function Router() {
           <Route path="/supervisory-visits" component={SupervisoryVisits} />
           <Route path="/policy-management" component={PolicyManagement} />
           <Route path="/qapi" component={Qapi} />
+          <Route path="/quality-management" component={QualityManagement} />
+          <Route path="/patient-complaints" component={PatientComplaints} />
+          <Route path="/quality-management-logs" component={QualityManagementLogs} />
+          <Route path="/oadri-cycle" component={OadriCycle} />
           <Route path="/infection-control" component={InfectionControl} />
           <Route path="/client-satisfaction-surveys" component={ClientSatisfactionSurveys} />
           <Route path="/onboarding" component={Onboarding} />

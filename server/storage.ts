@@ -423,6 +423,24 @@ import {
   benefitDependents,
   type BenefitDependent,
   type InsertBenefitDependent,
+  qualityManagementPlans,
+  type QualityManagementPlan,
+  type InsertQualityManagementPlan,
+  qmpMeasurableOutcomes,
+  type QmpMeasurableOutcome,
+  type InsertQmpMeasurableOutcome,
+  qmpQuarterlyReviews,
+  type QmpQuarterlyReview,
+  type InsertQmpQuarterlyReview,
+  qmpOadriCycles,
+  type QmpOadriCycle,
+  type InsertQmpOadriCycle,
+  patientComplaints,
+  type PatientComplaint,
+  type InsertPatientComplaint,
+  qualityManagementLogs,
+  type QualityManagementLog,
+  type InsertQualityManagementLog,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, asc, and, or, count, sql, like, gte, lte, inArray, isNull, ne, type SQL } from "drizzle-orm";
@@ -1469,6 +1487,58 @@ export interface IStorage {
   getExclusionRecordsByLicenseNumbers(
     licenseNumbers: string[],
   ): Promise<ExclusionRecord[]>;
+
+  // ==================== QUALITY MANAGEMENT PLAN ====================
+  // Quality Management Plans
+  getQualityManagementPlans(officeId?: string): Promise<QualityManagementPlan[]>;
+  getQualityManagementPlan(id: string): Promise<QualityManagementPlan | undefined>;
+  createQualityManagementPlan(plan: InsertQualityManagementPlan): Promise<QualityManagementPlan>;
+  updateQualityManagementPlan(id: string, plan: Partial<InsertQualityManagementPlan>): Promise<QualityManagementPlan>;
+  deleteQualityManagementPlan(id: string): Promise<void>;
+
+  // QMP Measurable Outcomes
+  getQmpMeasurableOutcomes(planId?: string, officeId?: string): Promise<QmpMeasurableOutcome[]>;
+  getQmpMeasurableOutcome(id: string): Promise<QmpMeasurableOutcome | undefined>;
+  createQmpMeasurableOutcome(outcome: InsertQmpMeasurableOutcome): Promise<QmpMeasurableOutcome>;
+  updateQmpMeasurableOutcome(id: string, outcome: Partial<InsertQmpMeasurableOutcome>): Promise<QmpMeasurableOutcome>;
+  deleteQmpMeasurableOutcome(id: string): Promise<void>;
+
+  // QMP Quarterly Reviews
+  getQmpQuarterlyReviews(planId?: string, officeId?: string): Promise<QmpQuarterlyReview[]>;
+  getQmpQuarterlyReview(id: string): Promise<QmpQuarterlyReview | undefined>;
+  createQmpQuarterlyReview(review: InsertQmpQuarterlyReview): Promise<QmpQuarterlyReview>;
+  updateQmpQuarterlyReview(id: string, review: Partial<InsertQmpQuarterlyReview>): Promise<QmpQuarterlyReview>;
+  deleteQmpQuarterlyReview(id: string): Promise<void>;
+
+  // QMP OADRI Cycles
+  getQmpOadriCycles(planId?: string, officeId?: string): Promise<QmpOadriCycle[]>;
+  getQmpOadriCycle(id: string): Promise<QmpOadriCycle | undefined>;
+  createQmpOadriCycle(cycle: InsertQmpOadriCycle): Promise<QmpOadriCycle>;
+  updateQmpOadriCycle(id: string, cycle: Partial<InsertQmpOadriCycle>): Promise<QmpOadriCycle>;
+  deleteQmpOadriCycle(id: string): Promise<void>;
+
+  // Patient Complaints
+  getPatientComplaints(officeId?: string): Promise<PatientComplaint[]>;
+  getPatientComplaint(id: string): Promise<PatientComplaint | undefined>;
+  getPatientComplaintsByStatus(officeId: string, status: string): Promise<PatientComplaint[]>;
+  getPatientComplaintStats(officeId: string): Promise<{
+    total: number;
+    open: number;
+    resolvedSatisfactory: number;
+    resolvedUnsatisfactory: number;
+    underInvestigation: number;
+    satisfactoryRatio: number;
+  }>;
+  createPatientComplaint(complaint: InsertPatientComplaint): Promise<PatientComplaint>;
+  updatePatientComplaint(id: string, complaint: Partial<InsertPatientComplaint>): Promise<PatientComplaint>;
+  deletePatientComplaint(id: string): Promise<void>;
+
+  // Quality Management Logs
+  getQualityManagementLogs(officeId?: string): Promise<QualityManagementLog[]>;
+  getQualityManagementLog(id: string): Promise<QualityManagementLog | undefined>;
+  createQualityManagementLog(log: InsertQualityManagementLog): Promise<QualityManagementLog>;
+  updateQualityManagementLog(id: string, log: Partial<InsertQualityManagementLog>): Promise<QualityManagementLog>;
+  deleteQualityManagementLog(id: string): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -8956,6 +9026,178 @@ export class DatabaseStorage implements IStorage {
     if (!deps.length) return [];
     const rows = await db.insert(benefitDependents).values(deps.map(d => ({ ...d, enrollmentId }))).returning();
     return rows;
+  }
+
+  // ==================== QUALITY MANAGEMENT PLAN ====================
+  // Quality Management Plans
+  async getQualityManagementPlans(officeId?: string): Promise<QualityManagementPlan[]> {
+    if (officeId) {
+      return db.select().from(qualityManagementPlans).where(eq(qualityManagementPlans.officeId, officeId)).orderBy(desc(qualityManagementPlans.createdAt));
+    }
+    return db.select().from(qualityManagementPlans).orderBy(desc(qualityManagementPlans.createdAt));
+  }
+  async getQualityManagementPlan(id: string): Promise<QualityManagementPlan | undefined> {
+    const [row] = await db.select().from(qualityManagementPlans).where(eq(qualityManagementPlans.id, id));
+    return row;
+  }
+  async createQualityManagementPlan(plan: InsertQualityManagementPlan): Promise<QualityManagementPlan> {
+    const [row] = await db.insert(qualityManagementPlans).values(plan).returning();
+    return row;
+  }
+  async updateQualityManagementPlan(id: string, plan: Partial<InsertQualityManagementPlan>): Promise<QualityManagementPlan> {
+    const [row] = await db.update(qualityManagementPlans).set({ ...plan, updatedAt: new Date() }).where(eq(qualityManagementPlans.id, id)).returning();
+    return row;
+  }
+  async deleteQualityManagementPlan(id: string): Promise<void> {
+    await db.delete(qualityManagementPlans).where(eq(qualityManagementPlans.id, id));
+  }
+
+  // QMP Measurable Outcomes
+  async getQmpMeasurableOutcomes(planId?: string, officeId?: string): Promise<QmpMeasurableOutcome[]> {
+    const conds: SQL[] = [];
+    if (planId) conds.push(eq(qmpMeasurableOutcomes.planId, planId));
+    if (officeId) conds.push(eq(qmpMeasurableOutcomes.officeId, officeId));
+    const q = db.select().from(qmpMeasurableOutcomes);
+    if (conds.length) {
+      return await q.where(and(...conds)).orderBy(asc(qmpMeasurableOutcomes.name));
+    }
+    return await q.orderBy(asc(qmpMeasurableOutcomes.name));
+  }
+  async getQmpMeasurableOutcome(id: string): Promise<QmpMeasurableOutcome | undefined> {
+    const [row] = await db.select().from(qmpMeasurableOutcomes).where(eq(qmpMeasurableOutcomes.id, id));
+    return row;
+  }
+  async createQmpMeasurableOutcome(outcome: InsertQmpMeasurableOutcome): Promise<QmpMeasurableOutcome> {
+    const [row] = await db.insert(qmpMeasurableOutcomes).values(outcome).returning();
+    return row;
+  }
+  async updateQmpMeasurableOutcome(id: string, outcome: Partial<InsertQmpMeasurableOutcome>): Promise<QmpMeasurableOutcome> {
+    const [row] = await db.update(qmpMeasurableOutcomes).set({ ...outcome, updatedAt: new Date() }).where(eq(qmpMeasurableOutcomes.id, id)).returning();
+    return row;
+  }
+  async deleteQmpMeasurableOutcome(id: string): Promise<void> {
+    await db.delete(qmpMeasurableOutcomes).where(eq(qmpMeasurableOutcomes.id, id));
+  }
+
+  // QMP Quarterly Reviews
+  async getQmpQuarterlyReviews(planId?: string, officeId?: string): Promise<QmpQuarterlyReview[]> {
+    const conds: SQL[] = [];
+    if (planId) conds.push(eq(qmpQuarterlyReviews.planId, planId));
+    if (officeId) conds.push(eq(qmpQuarterlyReviews.officeId, officeId));
+    const q = db.select().from(qmpQuarterlyReviews);
+    if (conds.length) {
+      return await q.where(and(...conds)).orderBy(desc(qmpQuarterlyReviews.year), desc(qmpQuarterlyReviews.quarter));
+    }
+    return await q.orderBy(desc(qmpQuarterlyReviews.year), desc(qmpQuarterlyReviews.quarter));
+  }
+  async getQmpQuarterlyReview(id: string): Promise<QmpQuarterlyReview | undefined> {
+    const [row] = await db.select().from(qmpQuarterlyReviews).where(eq(qmpQuarterlyReviews.id, id));
+    return row;
+  }
+  async createQmpQuarterlyReview(review: InsertQmpQuarterlyReview): Promise<QmpQuarterlyReview> {
+    const [row] = await db.insert(qmpQuarterlyReviews).values(review).returning();
+    return row;
+  }
+  async updateQmpQuarterlyReview(id: string, review: Partial<InsertQmpQuarterlyReview>): Promise<QmpQuarterlyReview> {
+    const [row] = await db.update(qmpQuarterlyReviews).set({ ...review, updatedAt: new Date() }).where(eq(qmpQuarterlyReviews.id, id)).returning();
+    return row;
+  }
+  async deleteQmpQuarterlyReview(id: string): Promise<void> {
+    await db.delete(qmpQuarterlyReviews).where(eq(qmpQuarterlyReviews.id, id));
+  }
+
+  // QMP OADRI Cycles
+  async getQmpOadriCycles(planId?: string, officeId?: string): Promise<QmpOadriCycle[]> {
+    const conds: SQL[] = [];
+    if (planId) conds.push(eq(qmpOadriCycles.planId, planId));
+    if (officeId) conds.push(eq(qmpOadriCycles.officeId, officeId));
+    const q = db.select().from(qmpOadriCycles);
+    if (conds.length) {
+      return await q.where(and(...conds)).orderBy(desc(qmpOadriCycles.createdAt));
+    }
+    return await q.orderBy(desc(qmpOadriCycles.createdAt));
+  }
+  async getQmpOadriCycle(id: string): Promise<QmpOadriCycle | undefined> {
+    const [row] = await db.select().from(qmpOadriCycles).where(eq(qmpOadriCycles.id, id));
+    return row;
+  }
+  async createQmpOadriCycle(cycle: InsertQmpOadriCycle): Promise<QmpOadriCycle> {
+    const [row] = await db.insert(qmpOadriCycles).values(cycle).returning();
+    return row;
+  }
+  async updateQmpOadriCycle(id: string, cycle: Partial<InsertQmpOadriCycle>): Promise<QmpOadriCycle> {
+    const [row] = await db.update(qmpOadriCycles).set({ ...cycle, updatedAt: new Date() }).where(eq(qmpOadriCycles.id, id)).returning();
+    return row;
+  }
+  async deleteQmpOadriCycle(id: string): Promise<void> {
+    await db.delete(qmpOadriCycles).where(eq(qmpOadriCycles.id, id));
+  }
+
+  // Patient Complaints
+  async getPatientComplaints(officeId?: string): Promise<PatientComplaint[]> {
+    if (officeId) {
+      return db.select().from(patientComplaints).where(eq(patientComplaints.officeId, officeId)).orderBy(desc(patientComplaints.complaintDate));
+    }
+    return db.select().from(patientComplaints).orderBy(desc(patientComplaints.complaintDate));
+  }
+  async getPatientComplaint(id: string): Promise<PatientComplaint | undefined> {
+    const [row] = await db.select().from(patientComplaints).where(eq(patientComplaints.id, id));
+    return row;
+  }
+  async getPatientComplaintsByStatus(officeId: string, status: string): Promise<PatientComplaint[]> {
+    return db.select().from(patientComplaints).where(and(eq(patientComplaints.officeId, officeId), eq(patientComplaints.status, status as any))).orderBy(desc(patientComplaints.complaintDate));
+  }
+  async getPatientComplaintStats(officeId: string): Promise<{
+    total: number;
+    open: number;
+    resolvedSatisfactory: number;
+    resolvedUnsatisfactory: number;
+    underInvestigation: number;
+    satisfactoryRatio: number;
+  }> {
+    const all = await db.select().from(patientComplaints).where(eq(patientComplaints.officeId, officeId));
+    const total = all.length;
+    const open = all.filter(c => c.status === "open").length;
+    const resolvedSatisfactory = all.filter(c => c.status === "resolved_satisfactory").length;
+    const resolvedUnsatisfactory = all.filter(c => c.status === "resolved_unsatisfactory").length;
+    const underInvestigation = all.filter(c => c.status === "under_investigation").length;
+    const resolved = resolvedSatisfactory + resolvedUnsatisfactory;
+    const satisfactoryRatio = resolved > 0 ? (resolvedSatisfactory / resolved) * 100 : 0;
+    return { total, open, resolvedSatisfactory, resolvedUnsatisfactory, underInvestigation, satisfactoryRatio };
+  }
+  async createPatientComplaint(complaint: InsertPatientComplaint): Promise<PatientComplaint> {
+    const [row] = await db.insert(patientComplaints).values(complaint).returning();
+    return row;
+  }
+  async updatePatientComplaint(id: string, complaint: Partial<InsertPatientComplaint>): Promise<PatientComplaint> {
+    const [row] = await db.update(patientComplaints).set({ ...complaint, updatedAt: new Date() }).where(eq(patientComplaints.id, id)).returning();
+    return row;
+  }
+  async deletePatientComplaint(id: string): Promise<void> {
+    await db.delete(patientComplaints).where(eq(patientComplaints.id, id));
+  }
+
+  // Quality Management Logs
+  async getQualityManagementLogs(officeId?: string): Promise<QualityManagementLog[]> {
+    if (officeId) {
+      return db.select().from(qualityManagementLogs).where(eq(qualityManagementLogs.officeId, officeId)).orderBy(desc(qualityManagementLogs.logDate));
+    }
+    return db.select().from(qualityManagementLogs).orderBy(desc(qualityManagementLogs.logDate));
+  }
+  async getQualityManagementLog(id: string): Promise<QualityManagementLog | undefined> {
+    const [row] = await db.select().from(qualityManagementLogs).where(eq(qualityManagementLogs.id, id));
+    return row;
+  }
+  async createQualityManagementLog(log: InsertQualityManagementLog): Promise<QualityManagementLog> {
+    const [row] = await db.insert(qualityManagementLogs).values(log).returning();
+    return row;
+  }
+  async updateQualityManagementLog(id: string, log: Partial<InsertQualityManagementLog>): Promise<QualityManagementLog> {
+    const [row] = await db.update(qualityManagementLogs).set({ ...log, updatedAt: new Date() }).where(eq(qualityManagementLogs.id, id)).returning();
+    return row;
+  }
+  async deleteQualityManagementLog(id: string): Promise<void> {
+    await db.delete(qualityManagementLogs).where(eq(qualityManagementLogs.id, id));
   }
 }
 
