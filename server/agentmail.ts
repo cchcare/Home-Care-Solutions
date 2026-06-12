@@ -68,6 +68,7 @@ function buildGlobalDefaults(): TemplatePlaceholders {
     currentYear: new Date().getFullYear().toString(),
     portalUrl: `${baseUrl}/caregiver-login`,
     loginUrl: `${baseUrl}/login`,
+    baseUrl,
   };
 }
 
@@ -120,7 +121,12 @@ export async function sendTemplatedEmail(
     console.log(`[Email Templates] No active template found for ${templateType}, using fallback for ${to}`);
   }
   
-  return sendEmailWithOptions({ to, subject, html, text });
+  try {
+    return await sendEmailWithOptions({ to, subject, html, text });
+  } catch (err: any) {
+    console.error(`[sendTemplatedEmail] Failed to send ${templateType} email to ${to}:`, err.message || err);
+    return { success: false, error: err.message || String(err) } as any;
+  }
 }
 
 async function getCredentials() {
@@ -256,7 +262,16 @@ function buildEmailFooter(config: ReturnType<typeof getBrandConfig>): string {
   </tr>`;
 }
 
+function isFullHtmlDocument(content: string): boolean {
+  const trimmed = content.trim().toLowerCase();
+  return trimmed.includes("<!doctype html") || trimmed.includes("<html");
+}
+
 export function wrapEmailWithBrand(contentHtml: string, title?: string): string {
+  if (isFullHtmlDocument(contentHtml)) {
+    return contentHtml;
+  }
+
   const config = getBrandConfig();
   const footer = buildEmailFooter(config);
 

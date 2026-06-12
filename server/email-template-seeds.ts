@@ -25,11 +25,10 @@ function emailShell(bodyContent: string): string {
           <!-- Header -->
           <tr>
             <td style="background:linear-gradient(135deg,${PRIMARY_COLOR} 0%,${DARK_BLUE} 100%);padding:32px 40px;text-align:center;">
-              <div style="display:inline-block;background:#ffffff;border-radius:10px;padding:10px 20px;margin-bottom:14px;">
-                <span style="font-size:20px;font-weight:800;color:${PRIMARY_COLOR};letter-spacing:-0.5px;">CCHC</span>
-                <span style="font-size:20px;font-weight:400;color:${TEXT_COLOR};"> Solutions</span>
-              </div>
-              <div style="font-size:13px;color:rgba(255,255,255,0.8);letter-spacing:0.5px;">Home Care Management</div>
+              <a href="{{baseUrl}}" style="display:inline-block;text-decoration:none;">
+                <img src="{{baseUrl}}/logo.png" alt="{{companyName}}" width="120" height="auto" style="display:block;margin:0 auto;border:0;max-width:120px;">
+              </a>
+              <div style="font-size:13px;color:rgba(255,255,255,0.8);letter-spacing:0.5px;margin-top:10px;">Home Care Management</div>
             </td>
           </tr>
 
