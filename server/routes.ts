@@ -2059,12 +2059,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
         errors: []
       };
 
-      // Pre-fetch MCOs once per import for name → id lookup (case-insensitive)
-      const allMcos = await storage.getAllMcos();
+      // Pre-fetch MCOs for name → id lookup, checking both direct officeId
+      // and office_mco_billing_rates junction (where MCOs are often linked).
+      const uniqueOfficeIds = new Set<string>();
+      for (const row of data) {
+        const oid = row?.officeId || importOfficeId;
+        if (oid) uniqueOfficeIds.add(oid);
+      }
       const mcosByOfficeAndName = new Map<string, string>();
-      for (const mco of allMcos) {
-        if (mco.officeId && mco.name) {
-          mcosByOfficeAndName.set(`${mco.officeId}::${mco.name.trim().toLowerCase()}`, mco.id);
+      for (const officeId of uniqueOfficeIds) {
+        const officeMcos = await storage.getMcosByOffice(officeId);
+        for (const mco of officeMcos) {
+          if (mco.name) {
+            mcosByOfficeAndName.set(`${officeId}::${mco.name.trim().toLowerCase()}`, mco.id);
+          }
         }
       }
 
