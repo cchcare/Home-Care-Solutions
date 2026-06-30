@@ -424,8 +424,30 @@ export default function UserManagementPage() {
           }} />
           <Dialog open={open} onOpenChange={(isOpen) => {
             setOpen(isOpen);
-            // When opening for new user creation (not via handleEdit), reset form with isEditing=false
-            if (isOpen && !editingUser) {
+            if (!isOpen) {
+              // Reset edit state when dialog closes (click outside, Escape, or after submit)
+              setEditingUser(null);
+              form.reset({
+                username: "",
+                email: "",
+                password: "",
+                passwordConfirm: "",
+                firstName: "",
+                lastName: "",
+                profileImageUrl: "",
+                role: "caregiver",
+                primaryOfficeId: "",
+                managerId: null,
+                address: "",
+                address2: "",
+                city: "",
+                state: "",
+                zipCode: "",
+                isActive: true,
+                isEditing: false,
+              });
+            } else if (!editingUser) {
+              // When opening for new user creation (not via handleEdit)
               form.reset({
                 username: "",
                 email: "",
