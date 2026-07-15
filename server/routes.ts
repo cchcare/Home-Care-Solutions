@@ -280,6 +280,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.status(200).json({ status: "ok", timestamp: new Date().toISOString() });
   });
 
+  // ─── Tenant scoping helpers (used throughout this file) ────────────────────
+  // Resolve which office IDs the caller is allowed to see data for.
+  // super_admin -> all; everyone else -> their primaryOfficeId only.
+  const resolveAllowedOfficeIds = async (req: any): Promise<string[] | "ALL"> => {
+    const currentUser = req.session?.user;
+    if (currentUser?.role === "super_admin") return "ALL";
+    if (currentUser?.primaryOfficeId) return [currentUser.primaryOfficeId];
+    return [];
+  };
+
+  // Check that the caller is allowed to access the given officeId.
+  const canAccessOffice = async (req: any, officeId: string | null | undefined): Promise<boolean> => {
+    if (!officeId) return false;
+    const allowed = await resolveAllowedOfficeIds(req);
+    return allowed === "ALL" || (Array.isArray(allowed) && allowed.includes(officeId));
+  };
+
+  // Gate for RBAC administration (custom roles, permissions, role assignment).
+  // No legitimate non-admin use case reads or writes this data.
+  const requireAdminRole = (req: any, res: any, next: any) => {
+    const role = req.session?.user?.role;
+    if (!role || !["super_admin", "admin", "office_admin"].includes(role)) {
+      return res.status(403).json({ message: "Admin access required" });
+    }
+    next();
+  };
+
   // Auth middleware
   await setupAuth(app);
   
@@ -1876,10 +1903,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/clients/:id", isAuthenticated, async (req, res) => {
+  app.get("/api/clients/:id", isAuthenticated, async (req: any, res) => {
     try {
       const client = await storage.getClient(req.params.id);
-      if (!client) {
+      if (!client || !(await canAccessOffice(req, client.officeId))) {
         return res.status(404).json({ message: "Client not found" });
       }
       res.json(client);
@@ -1922,6 +1949,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put("/api/clients/:id", isAuthenticated, async (req: any, res) => {
     try {
       const oldClient = await storage.getClient(req.params.id);
+      if (!oldClient || !(await canAccessOffice(req, oldClient.officeId))) {
+        return res.status(404).json({ message: "Client not found" });
+      }
       // Convert date strings to Date objects; null-safe coordinator
       const processedBody = {
         ...req.body,
@@ -1971,10 +2001,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       const client = await storage.getClient(req.params.id);
-      if (!client) {
+      if (!client || !(await canAccessOffice(req, client.officeId))) {
         return res.status(404).json({ message: "Client not found" });
       }
-      
+
       await storage.deleteClient(req.params.id);
       
       // Log audit trail
@@ -2574,13 +2604,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/caregivers/:id", isAuthenticated, async (req, res) => {
+  app.get("/api/caregivers/:id", isAuthenticated, async (req: any, res) => {
     try {
       const caregiver = await storage.getCaregiver(req.params.id);
-      if (!caregiver) {
+      if (!caregiver || !(await canAccessOffice(req, caregiver.officeId))) {
         return res.status(404).json({ message: "Caregiver not found" });
       }
-      
+
       // Enrich caregiver with user data
       let enrichedCaregiver: any = { ...caregiver, email: null as string | null };
       if (caregiver.userId) {
@@ -2910,7 +2940,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put("/api/caregivers/:id", isAuthenticated, async (req: any, res) => {
     try {
       const oldCaregiver = await storage.getCaregiver(req.params.id);
-      if (!oldCaregiver) {
+      if (!oldCaregiver || !(await canAccessOffice(req, oldCaregiver.officeId))) {
         return res.status(404).json({ message: "Caregiver not found" });
       }
 
@@ -2985,10 +3015,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       const caregiver = await storage.getCaregiver(req.params.id);
-      if (!caregiver) {
+      if (!caregiver || !(await canAccessOffice(req, caregiver.officeId))) {
         return res.status(404).json({ message: "Caregiver not found" });
       }
-      
+
       await storage.deleteCaregiver(req.params.id);
       
       // Log audit trail
@@ -4868,10 +4898,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Users route (for communication functionality)
-  app.get("/api/users", isAuthenticated, async (req, res) => {
+  app.get("/api/users", isAuthenticated, async (req: any, res) => {
     try {
-      const users = await storage.getAllUsers();
-      res.json(users);
+      const currentUser = req.session?.user;
+      const allowedRoles = ["admin", "supervisor", "super_admin", "office_admin", "manager"];
+      if (!currentUser || !allowedRoles.includes(currentUser.role || "")) {
+        return res.status(403).json({ message: "Access denied." });
+      }
+      const allUsers = await storage.getAllUsers();
+      const allowed = await resolveAllowedOfficeIds(req);
+      const scoped = allowed === "ALL"
+        ? allUsers
+        : allUsers.filter((u) => u.primaryOfficeId && allowed.includes(u.primaryOfficeId));
+      res.json(scoped);
     } catch (error) {
       console.error("Error fetching users:", error);
       res.status(500).json({ message: "Failed to fetch users" });
@@ -6221,7 +6260,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Role and Permission Management routes
   // Custom roles
-  app.get("/api/custom-roles", isAuthenticated, async (req, res) => {
+  app.get("/api/custom-roles", isAuthenticated, requireAdminRole, async (req, res) => {
     try {
       const roles = await storage.getAllCustomRoles();
       res.json(roles);
@@ -6231,7 +6270,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/custom-roles/:id", isAuthenticated, async (req, res) => {
+  app.get("/api/custom-roles/:id", isAuthenticated, requireAdminRole, async (req, res) => {
     try {
       const role = await storage.getCustomRole(req.params.id);
       if (!role) {
@@ -6244,7 +6283,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/custom-roles", isAuthenticated, async (req, res) => {
+  app.post("/api/custom-roles", isAuthenticated, requireAdminRole, async (req, res) => {
     try {
       const roleData = insertCustomRoleSchema.parse(req.body);
       const role = await storage.createCustomRole(roleData);
@@ -6255,7 +6294,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/custom-roles/:id", isAuthenticated, async (req, res) => {
+  app.put("/api/custom-roles/:id", isAuthenticated, requireAdminRole, async (req, res) => {
     try {
       const roleData = insertCustomRoleSchema.partial().parse(req.body);
       const role = await storage.updateCustomRole(req.params.id, roleData);
@@ -6266,7 +6305,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/custom-roles/:id", isAuthenticated, async (req, res) => {
+  app.delete("/api/custom-roles/:id", isAuthenticated, requireAdminRole, async (req, res) => {
     try {
       await storage.deleteCustomRole(req.params.id);
       res.json({ message: "Custom role deleted successfully" });
@@ -6297,7 +6336,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/permissions", isAuthenticated, async (req, res) => {
+  app.post("/api/permissions", isAuthenticated, requireAdminRole, async (req, res) => {
     try {
       const permissionData = insertPermissionSchema.parse(req.body);
       const permission = await storage.createPermission(permissionData);
@@ -6309,7 +6348,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Role permissions
-  app.get("/api/custom-roles/:roleId/permissions", isAuthenticated, async (req, res) => {
+  app.get("/api/custom-roles/:roleId/permissions", isAuthenticated, requireAdminRole, async (req, res) => {
     try {
       const permissions = await storage.getRolePermissions(req.params.roleId);
       res.json(permissions);
@@ -6319,7 +6358,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/custom-roles/:roleId/permissions", isAuthenticated, async (req, res) => {
+  app.post("/api/custom-roles/:roleId/permissions", isAuthenticated, requireAdminRole, async (req, res) => {
     try {
       const rolePermissionData = insertRolePermissionSchema.parse({
         roleId: req.params.roleId,
@@ -6333,7 +6372,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/custom-roles/:roleId/permissions/:permissionId", isAuthenticated, async (req, res) => {
+  app.delete("/api/custom-roles/:roleId/permissions/:permissionId", isAuthenticated, requireAdminRole, async (req, res) => {
     try {
       await storage.removePermissionFromRole(req.params.roleId, req.params.permissionId);
       res.json({ message: "Permission removed from role successfully" });
@@ -6344,7 +6383,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // User roles
-  app.get("/api/users/:userId/custom-roles", isAuthenticated, async (req, res) => {
+  app.get("/api/users/:userId/custom-roles", isAuthenticated, requireAdminRole, async (req, res) => {
     try {
       const roles = await storage.getUserCustomRoles(req.params.userId);
       res.json(roles);
@@ -6354,7 +6393,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/users/:userId/custom-roles", isAuthenticated, async (req, res) => {
+  app.post("/api/users/:userId/custom-roles", isAuthenticated, requireAdminRole, async (req, res) => {
     try {
       const userRoleData = insertUserCustomRoleSchema.parse({
         userId: req.params.userId,
@@ -6370,7 +6409,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/users/:userId/custom-roles/:roleId", isAuthenticated, async (req, res) => {
+  app.delete("/api/users/:userId/custom-roles/:roleId", isAuthenticated, requireAdminRole, async (req, res) => {
     try {
       await storage.removeRoleFromUser(req.params.userId, req.params.roleId);
       res.json({ message: "Role removed from user successfully" });
@@ -6380,7 +6419,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/users/:userId/permissions", isAuthenticated, async (req, res) => {
+  app.get("/api/users/:userId/permissions", isAuthenticated, requireAdminRole, async (req, res) => {
     try {
       const permissions = await storage.getUserPermissions(req.params.userId);
       res.json(permissions);
@@ -6391,7 +6430,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Create multiple roles at once
-  app.post("/api/custom-roles/bulk", isAuthenticated, async (req, res) => {
+  app.post("/api/custom-roles/bulk", isAuthenticated, requireAdminRole, async (req, res) => {
     try {
       const rolesData = req.body.roles;
       const createdRoles = [];
@@ -6418,7 +6457,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Seed default permissions (for super admin use)
-  app.post("/api/permissions/seed", isAuthenticated, async (req, res) => {
+  app.post("/api/permissions/seed", isAuthenticated, requireAdminRole, async (req, res) => {
     try {
       const defaultPermissions = [
         // Client Management
@@ -8163,15 +8202,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Resolve which office IDs the caller is allowed to see staff for.
-  // super_admin -> all; everyone else -> their primaryOfficeId only.
-  const resolveAllowedOfficeIds = async (req: any): Promise<string[] | "ALL"> => {
-    const currentUser = req.session?.user;
-    if (currentUser?.role === "super_admin") return "ALL";
-    if (currentUser?.primaryOfficeId) return [currentUser.primaryOfficeId];
-    return [];
-  };
-
   // Unified staff list across all offices the caller is allowed to see
   app.get("/api/staff", isAuthenticated, async (req: any, res) => {
     try {
@@ -8219,12 +8249,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ message: "Failed to fetch positions" });
     }
   });
-
-  // Check that the caller is allowed to access the given officeId.
-  const canAccessOffice = async (req: any, officeId: string): Promise<boolean> => {
-    const allowed = await resolveAllowedOfficeIds(req);
-    return allowed === "ALL" || (Array.isArray(allowed) && allowed.includes(officeId));
-  };
 
   // Office Staff routes
   app.get("/api/offices/:officeId/staff", isAuthenticated, async (req: any, res) => {
@@ -13545,6 +13569,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!oldRequest) {
         return res.status(404).json({ message: "Time-off request not found" });
       }
+      const reviewRole = req.session?.user?.role;
+      if (!["super_admin", "admin", "office_admin", "supervisor"].includes(reviewRole || "")) {
+        return res.status(403).json({ message: "You do not have permission to approve time-off requests" });
+      }
+      const reviewedCaregiver = await storage.getCaregiver(oldRequest.caregiverId);
+      if (!reviewedCaregiver || !(await canAccessOffice(req, reviewedCaregiver.officeId))) {
+        return res.status(404).json({ message: "Time-off request not found" });
+      }
       if (oldRequest.status === 'approved') {
         return res.status(400).json({ message: "Request is already approved" });
       }
@@ -13612,7 +13644,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!oldRequest) {
         return res.status(404).json({ message: "Time-off request not found" });
       }
-      
+      const reviewRole = req.session?.user?.role;
+      if (!["super_admin", "admin", "office_admin", "supervisor"].includes(reviewRole || "")) {
+        return res.status(403).json({ message: "You do not have permission to deny time-off requests" });
+      }
+      const reviewedCaregiver = await storage.getCaregiver(oldRequest.caregiverId);
+      if (!reviewedCaregiver || !(await canAccessOffice(req, reviewedCaregiver.officeId))) {
+        return res.status(404).json({ message: "Time-off request not found" });
+      }
+
       const reviewerId = req.session?.user?.id;
       const notes = req.body.notes;
       const request = await storage.denyTimeOffRequest(req.params.id, reviewerId, notes);
@@ -13737,9 +13777,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Create or update PTO balance
   app.post("/api/caregivers/:id/pto-balance", isAuthenticated, async (req: any, res) => {
     try {
+      const actorRole = req.session?.user?.role;
+      if (!["super_admin", "admin", "office_admin", "supervisor"].includes(actorRole || "")) {
+        return res.status(403).json({ message: "You do not have permission to modify PTO balances" });
+      }
+      const targetCaregiver = await storage.getCaregiver(req.params.id);
+      if (!targetCaregiver || !(await canAccessOffice(req, targetCaregiver.officeId))) {
+        return res.status(404).json({ message: "Caregiver not found" });
+      }
+
       const year = req.body.year || new Date().getFullYear();
       const ptoType = req.body.ptoType;
-      
+
       // Check if balance already exists
       const existingBalance = await storage.getPtoBalanceByType(req.params.id, year, ptoType);
       
@@ -20062,6 +20111,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/staff/live-dashboard", isAuthenticated, async (req: any, res) => {
     try {
       const sessionUser = req.session.user;
+      const managerRoles = ["super_admin", "admin", "office_admin", "supervisor", "manager"];
+      if (!managerRoles.includes(sessionUser?.role || "")) {
+        return res.status(403).json({ message: "You do not have permission to view the live staff dashboard" });
+      }
+      const allowedOffices = await resolveAllowedOfficeIds(req);
+      if (Array.isArray(allowedOffices) && allowedOffices.length === 0) return res.json([]);
+
+      const whereClause = allowedOffices === "ALL"
+        ? isNull(staffTimeRecords.clockOutTime)
+        : and(isNull(staffTimeRecords.clockOutTime), inArray(users.primaryOfficeId, allowedOffices));
+
       const active = await db.select({
         id: staffTimeRecords.id,
         userId: staffTimeRecords.userId,
@@ -20078,7 +20138,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       })
       .from(staffTimeRecords)
       .leftJoin(users, eq(staffTimeRecords.userId, users.id))
-      .where(isNull(staffTimeRecords.clockOutTime))
+      .where(whereClause)
       .orderBy(staffTimeRecords.clockInTime);
 
       // Auto-flag sessions over 12 hours
