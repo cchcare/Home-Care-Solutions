@@ -58,6 +58,17 @@ check.
 - [x] `GET /api/background-checks/pending`, `/expiring`, `/by-status/:status` — added `scopeBackgroundChecks` in-process filter (no officeId column exists to filter by in SQL for this table)
 - [x] `POST /api/background-checks/bulk` — added ownership check on the target applicant/caregiver
 
+## Fixed in a third pass (credential exposure + the DOH/quality-compliance cluster) — same verification as above
+
+- [x] `GET /api/users/:id` — was returning the raw user row **including `passwordHash`**; now strips it from the response and adds a self-or-same-office check
+- [x] `GET/POST /api/doh-audits`, `GET/PATCH/DELETE /api/doh-audits/:id`, `/responses`, `/documents/upload`, `GET /documents`, `GET/DELETE /documents/:docId`, `GET/POST/DELETE /custom-items[/:itemId]` — applied the existing `authorizeAuditAccess()` helper (it already existed, correctly used only on the corrective-action sub-routes — this was a clear oversight, not a design gap) plus `canAccessOffice` on the two officeId-driven list/create routes
+- [x] `GET/POST/PATCH/DELETE /api/supervisory-visits[/:id]` — added `canAccessOffice` throughout; PATCH/DELETE previously didn't even fetch the record before mutating it
+- [x] `GET/POST/PATCH/DELETE /api/policy-documents[/:id]`, `/acknowledgments`, `/acknowledge` — same treatment; the acknowledge routes didn't check the policy's office at all before
+- [x] `GET/POST/PATCH/DELETE /api/qapi-meetings[/:id]` — same treatment
+- [x] `GET/POST/PATCH/DELETE /api/infection-control[/:id]` — same treatment (PHI-adjacent: affected clients/staff)
+- [x] `GET/PUT /api/clients/:clientId/emergency-plan`, `GET /api/emergency-plans` — added `getClientInScope`/`canAccessOffice` checks
+- [x] `GET/POST/PATCH/DELETE /api/client-surveys[/:id]` — same treatment. **Not touched**: `POST /api/client-surveys/:id/responses` is intentionally unauthenticated (family/client respondents with no account) — it needs an unguessable token added to the schema, not a scope check; that's a small design decision, not a quick fix, so it's left for a deliberate follow-up rather than rushed here.
+
 Everything below this line is **not yet fixed** and needs the same treatment:
 read the actual route, apply `canAccessOffice`/`resolveAllowedOfficeIds` (or a role gate, or
 both), verify against a real Postgres instance, and check off the line.
@@ -75,7 +86,7 @@ both), verify against a real Postgres instance, and check off the line.
 - [ ] `GET /api/dashboard/metrics`, `/api/dashboard/monthly-stats`, `/api/admin/care-quality-metrics`, `/api/reports/schedule-overlaps`, `/api/incident-reports`, `/api/compliance`, `/api/trainings`, `/api/tasks` — all trust a client-supplied `officeId`/`userId` with no enforcement for non-super-admins
 - [ ] `POST/PUT/DELETE /api/offices`, `/api/coordinators/*`, `DELETE /api/communications/:id` — only `isAuthenticated`, no role check
 - [ ] Nested resources never checking the parent id's office/org: `care-plans`, `progress-notes`, `master-week`, `billing-rates`, `documents-by-client/caregiver`, `certifications`, `compliance` (client/caregiver sub-resources)
-- [ ] `GET /api/users/:id` — returns raw user row **including `passwordHash`**, no scope check at all — fix this one first if picking up here, it's a credential-exposure bug, not just tenant leakage
+- [x] ~~`GET /api/users/:id`~~ — fixed, see above
 - [ ] `GET/PUT /api/documents/:id`, `/download`, `/view` — no tenant check except a special case for one document type; any other document (medical records, IDs) fetchable/downloadable cross-org by id
 
 ### Office config, EVV, medications, vitals, applicants, background checks (lines ~4500–9300)
@@ -131,10 +142,10 @@ both), verify against a real Postgres instance, and check off the line.
 - [ ] `PATCH /api/staff/time-records/:id`, `/approve`, `/flag`, `POST /lock-payroll` — manager-gated but no officeId scoping, cross-org edit/approve/flag by guessable id
 - [ ] `GET /api/staff/audit-logs`, `/ot-report` — manager-gated, no officeId scoping
 - [ ] `POST/DELETE /api/kiosk/setup/:userId/pin` — manager-gated but never verifies `:userId` belongs to caller's org (**cross-tenant kiosk PIN takeover** — high)
-- [ ] `GET /api/doh-audits`, `GET/PATCH/DELETE /api/doh-audits/:id`, `/responses`, `/documents*`, `/custom-items*` — zero ownership check; note `authorizeAuditAccess` (line ~21342 pre-edit) already exists and is correctly used for corrective-action sub-routes — **apply that same helper here**, it's a clear oversight, not a design gap
-- [ ] `GET /api/supervisory-visits[/:id]`, `/api/policy-documents[/:id][/acknowledgments]`, `/api/qapi-meetings[/:id]`, `/api/infection-control[/:id]` — same pattern throughout: list trusts officeId, by-id has zero check
-- [ ] `GET/PUT /api/clients/:clientId/emergency-plan`, `GET /api/emergency-plans` — no ownership check on a client's medical emergency plan
-- [ ] `GET/PATCH/DELETE /api/client-surveys[/:id]`, `POST /api/client-surveys/:id/responses` — the POST has **no `isAuthenticated` at all** and uses a plain id rather than an unguessable token (contrast with the properly-tokened `/api/esign/:token` pattern)
+- [x] ~~`GET /api/doh-audits`, `GET/PATCH/DELETE /api/doh-audits/:id`, `/responses`, `/documents*`, `/custom-items*`~~ — fixed, see above
+- [x] ~~`GET /api/supervisory-visits[/:id]`, `/api/policy-documents[/:id][/acknowledgments]`, `/api/qapi-meetings[/:id]`, `/api/infection-control[/:id]`~~ — fixed, see above
+- [x] ~~`GET/PUT /api/clients/:clientId/emergency-plan`, `GET /api/emergency-plans`~~ — fixed, see above
+- [x] ~~`GET/PATCH/DELETE /api/client-surveys[/:id]`~~ — fixed, see above. `POST /api/client-surveys/:id/responses` still needs a token redesign (tracked above, not a quick fix)
 - [ ] Quality-management family — `GET/POST /api/quality-management-plans`, `/qmp-measurable-outcomes`, `/qmp-quarterly-reviews`, `/qmp-oadri-cycles`, `/patient-complaints[-stats]`, `/quality-management-logs` — officeId trusted with zero enforcement (note: the single-record `GET/PATCH/DELETE .../:id` routes in this family compare against `user?.officeId`, which **does not exist on the session object** — it's always `undefined`, so those currently fail closed / block everyone; that's a separate functional bug worth fixing at the same time, not a leak)
 
 ### Lower priority / lower sensitivity (reference data, not PHI)

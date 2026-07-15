@@ -2299,13 +2299,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // User routes
-  app.get("/api/users/:id", isAuthenticated, async (req, res) => {
+  app.get("/api/users/:id", isAuthenticated, async (req: any, res) => {
     try {
       const user = await storage.getUser(req.params.id);
       if (!user) {
         return res.status(404).json({ message: "User not found" });
       }
-      res.json(user);
+      const isSelf = req.session?.user?.id === user.id;
+      if (!isSelf && !(await canAccessOffice(req, user.primaryOfficeId))) {
+        return res.status(404).json({ message: "User not found" });
+      }
+      const { passwordHash, ...safeUser } = user;
+      res.json(safeUser);
     } catch (error) {
       console.error("Error fetching user:", error);
       res.status(500).json({ message: "Failed to fetch user" });
@@ -21327,6 +21332,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { officeId } = req.query;
       if (!officeId) return res.status(400).json({ message: "officeId is required" });
+      if (!(await canAccessOffice(req, officeId as string))) {
+        return res.status(403).json({ message: "Office is outside your scope" });
+      }
       const audits = await storage.getDohAuditAssessments(officeId as string);
       res.json(audits);
     } catch (error: any) {
@@ -21337,6 +21345,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // GET /api/doh-audits/:id
   app.get("/api/doh-audits/:id", isAuthenticated, async (req: any, res) => {
     try {
+      if (!await authorizeAuditAccess(req, res)) return;
       const audit = await storage.getDohAuditAssessment(req.params.id);
       if (!audit) return res.status(404).json({ message: "Audit not found" });
       const [responses, documents, customItems] = await Promise.all([
@@ -21357,6 +21366,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!title || !officeId) {
       return res.status(400).json({ message: "title and officeId are required" });
     }
+    if (!(await canAccessOffice(req, officeId))) {
+      return res.status(403).json({ message: "Office is outside your scope" });
+    }
     try {
       const audit = await storage.createDohAuditAssessment({
         title: String(title),
@@ -21376,6 +21388,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // PATCH /api/doh-audits/:id
   app.patch("/api/doh-audits/:id", isAuthenticated, async (req: any, res) => {
     try {
+      if (!await authorizeAuditAccess(req, res)) return;
       const audit = await storage.updateDohAuditAssessment(req.params.id, req.body);
       res.json(audit);
     } catch (error: any) {
@@ -21386,6 +21399,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // DELETE /api/doh-audits/:id
   app.delete("/api/doh-audits/:id", isAuthenticated, async (req: any, res) => {
     try {
+      if (!await authorizeAuditAccess(req, res)) return;
       await storage.deleteDohAuditAssessment(req.params.id);
       res.json({ success: true });
     } catch (error: any) {
@@ -21396,6 +21410,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // PUT /api/doh-audits/:id/responses  (upsert a single item response)
   app.put("/api/doh-audits/:id/responses", isAuthenticated, async (req: any, res) => {
     try {
+      if (!await authorizeAuditAccess(req, res)) return;
       const { itemKey, category, status, notes } = req.body;
       if (!itemKey || !category || !status) return res.status(400).json({ message: "itemKey, category, status required" });
       const response = await storage.upsertDohAuditResponse(req.params.id, itemKey, category, status, notes ?? null);
@@ -21408,6 +21423,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // POST /api/doh-audits/:id/documents/upload
   app.post("/api/doh-audits/:id/documents/upload", isAuthenticated, auditDocUpload.single("file"), async (req: any, res) => {
     try {
+      if (!await authorizeAuditAccess(req, res)) return;
       if (!req.file) return res.status(400).json({ message: "No file uploaded" });
       const auditId = req.params.id;
 
@@ -21442,6 +21458,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // GET /api/doh-audits/:id/documents
   app.get("/api/doh-audits/:id/documents", isAuthenticated, async (req: any, res) => {
     try {
+      if (!await authorizeAuditAccess(req, res)) return;
       const docs = await storage.getDohAuditDocuments(req.params.id);
       res.json(docs);
     } catch (error: any) {
@@ -21452,6 +21469,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // GET /api/doh-audits/:id/documents/:docId  (serve/download file)
   app.get("/api/doh-audits/:id/documents/:docId", isAuthenticated, async (req: any, res) => {
     try {
+      if (!await authorizeAuditAccess(req, res)) return;
       const docs = await storage.getDohAuditDocuments(req.params.id);
       const doc = docs.find(d => d.id === req.params.docId);
       if (!doc) return res.status(404).json({ message: "Document not found" });
@@ -21469,6 +21487,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // DELETE /api/doh-audits/:id/documents/:docId
   app.delete("/api/doh-audits/:id/documents/:docId", isAuthenticated, async (req: any, res) => {
     try {
+      if (!await authorizeAuditAccess(req, res)) return;
       const doc = await storage.deleteDohAuditDocument(req.params.docId);
       if (doc) {
         const localPath = path.join("uploads", doc.fileName);
@@ -21483,6 +21502,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // GET /api/doh-audits/:id/custom-items
   app.get("/api/doh-audits/:id/custom-items", isAuthenticated, async (req: any, res) => {
     try {
+      if (!await authorizeAuditAccess(req, res)) return;
       const items = await storage.getDohAuditCustomItems(req.params.id);
       res.json(items);
     } catch (error: any) {
@@ -21493,6 +21513,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // POST /api/doh-audits/:id/custom-items
   app.post("/api/doh-audits/:id/custom-items", isAuthenticated, async (req: any, res) => {
     try {
+      if (!await authorizeAuditAccess(req, res)) return;
       const { category, label } = req.body;
       if (!category || !label?.trim()) return res.status(400).json({ message: "category and label required" });
       const item = await storage.createDohAuditCustomItem({ auditId: req.params.id, category, label: label.trim() });
@@ -21505,6 +21526,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // DELETE /api/doh-audits/:id/custom-items/:itemId
   app.delete("/api/doh-audits/:id/custom-items/:itemId", isAuthenticated, async (req: any, res) => {
     try {
+      if (!await authorizeAuditAccess(req, res)) return;
       await storage.deleteDohAuditCustomItem(req.params.itemId);
       res.json({ success: true });
     } catch (error: any) {
@@ -21592,6 +21614,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/supervisory-visits", isAuthenticated, async (req: any, res) => {
     try {
       const { officeId, caregiverId } = req.query;
+      if (!officeId) return res.status(400).json({ message: "officeId is required" });
+      if (!(await canAccessOffice(req, officeId as string))) {
+        return res.status(403).json({ message: "Office is outside your scope" });
+      }
       const visits = await storage.getSupervisoryVisits(officeId as string, caregiverId ? { caregiverId: caregiverId as string } : undefined);
       res.json(visits);
     } catch (e: any) { res.status(500).json({ message: e.message }); }
@@ -21599,24 +21625,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/supervisory-visits/:id", isAuthenticated, async (req: any, res) => {
     try {
       const visit = await storage.getSupervisoryVisit(req.params.id);
-      if (!visit) return res.status(404).json({ message: "Not found" });
+      if (!visit || !(await canAccessOffice(req, visit.officeId))) {
+        return res.status(404).json({ message: "Not found" });
+      }
       res.json(visit);
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
   app.post("/api/supervisory-visits", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await canAccessOffice(req, req.body.officeId))) {
+        return res.status(403).json({ message: "Office is outside your scope" });
+      }
       const visit = await storage.createSupervisoryVisit({ ...req.body, createdBy: req.session.user?.id });
       res.status(201).json(visit);
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
   app.patch("/api/supervisory-visits/:id", isAuthenticated, async (req: any, res) => {
     try {
+      const existing = await storage.getSupervisoryVisit(req.params.id);
+      if (!existing || !(await canAccessOffice(req, existing.officeId))) {
+        return res.status(404).json({ message: "Not found" });
+      }
       const visit = await storage.updateSupervisoryVisit(req.params.id, req.body);
       res.json(visit);
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
   app.delete("/api/supervisory-visits/:id", isAuthenticated, async (req: any, res) => {
     try {
+      const existing = await storage.getSupervisoryVisit(req.params.id);
+      if (!existing || !(await canAccessOffice(req, existing.officeId))) {
+        return res.status(404).json({ message: "Not found" });
+      }
       await storage.deleteSupervisoryVisit(req.params.id);
       res.json({ success: true });
     } catch (e: any) { res.status(500).json({ message: e.message }); }
@@ -21626,6 +21665,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   const policyUpload = multer({ dest: "uploads/policies/", limits: { fileSize: 25 * 1024 * 1024 } });
   app.get("/api/policy-documents", isAuthenticated, async (req: any, res) => {
     try {
+      if (!req.query.officeId) return res.status(400).json({ message: "officeId is required" });
+      if (!(await canAccessOffice(req, req.query.officeId as string))) {
+        return res.status(403).json({ message: "Office is outside your scope" });
+      }
       const docs = await storage.getPolicyDocuments(req.query.officeId as string);
       res.json(docs);
     } catch (e: any) { res.status(500).json({ message: e.message }); }
@@ -21633,13 +21676,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/policy-documents/:id", isAuthenticated, async (req: any, res) => {
     try {
       const doc = await storage.getPolicyDocument(req.params.id);
-      if (!doc) return res.status(404).json({ message: "Not found" });
+      if (!doc || !(await canAccessOffice(req, doc.officeId))) {
+        return res.status(404).json({ message: "Not found" });
+      }
       res.json(doc);
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
   app.post("/api/policy-documents", isAuthenticated, policyUpload.single("file"), async (req: any, res) => {
     try {
       const { title, category, version, effectiveDate, reviewDate, content, requiresAcknowledgment, acknowledgmentDueDays, officeId } = req.body;
+      if (!(await canAccessOffice(req, officeId))) {
+        return res.status(403).json({ message: "Office is outside your scope" });
+      }
       const doc = await storage.createPolicyDocument({
         title, category, version: version || "1.0",
         effectiveDate: effectiveDate || null, reviewDate: reviewDate || null,
@@ -21655,6 +21703,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
   app.patch("/api/policy-documents/:id", isAuthenticated, async (req: any, res) => {
     try {
+      const existing = await storage.getPolicyDocument(req.params.id);
+      if (!existing || !(await canAccessOffice(req, existing.officeId))) {
+        return res.status(404).json({ message: "Not found" });
+      }
       const updates: any = { ...req.body };
       if (updates.status === "active" && !updates.publishedAt) updates.publishedAt = new Date();
       const doc = await storage.updatePolicyDocument(req.params.id, updates);
@@ -21663,18 +21715,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
   app.delete("/api/policy-documents/:id", isAuthenticated, async (req: any, res) => {
     try {
+      const existing = await storage.getPolicyDocument(req.params.id);
+      if (!existing || !(await canAccessOffice(req, existing.officeId))) {
+        return res.status(404).json({ message: "Not found" });
+      }
       await storage.deletePolicyDocument(req.params.id);
       res.json({ success: true });
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
   app.get("/api/policy-documents/:id/acknowledgments", isAuthenticated, async (req: any, res) => {
     try {
+      const policy = await storage.getPolicyDocument(req.params.id);
+      if (!policy || !(await canAccessOffice(req, policy.officeId))) {
+        return res.status(404).json({ message: "Not found" });
+      }
       const acks = await storage.getPolicyAcknowledgments(req.params.id);
       res.json(acks);
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
   app.post("/api/policy-documents/:id/acknowledge", isAuthenticated, async (req: any, res) => {
     try {
+      const policy = await storage.getPolicyDocument(req.params.id);
+      if (!policy || !(await canAccessOffice(req, policy.officeId))) {
+        return res.status(404).json({ message: "Not found" });
+      }
       const ack = await storage.createPolicyAcknowledgment({
         policyId: req.params.id,
         userId: req.session.user?.id,
@@ -21694,6 +21758,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ─── QAPI Meetings ──────────────────────────────────────────────────────────
   app.get("/api/qapi-meetings", isAuthenticated, async (req: any, res) => {
     try {
+      if (!req.query.officeId) return res.status(400).json({ message: "officeId is required" });
+      if (!(await canAccessOffice(req, req.query.officeId as string))) {
+        return res.status(403).json({ message: "Office is outside your scope" });
+      }
       const meetings = await storage.getQapiMeetings(req.query.officeId as string);
       res.json(meetings);
     } catch (e: any) { res.status(500).json({ message: e.message }); }
@@ -21701,24 +21769,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/qapi-meetings/:id", isAuthenticated, async (req: any, res) => {
     try {
       const m = await storage.getQapiMeeting(req.params.id);
-      if (!m) return res.status(404).json({ message: "Not found" });
+      if (!m || !(await canAccessOffice(req, m.officeId))) {
+        return res.status(404).json({ message: "Not found" });
+      }
       res.json(m);
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
   app.post("/api/qapi-meetings", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await canAccessOffice(req, req.body.officeId))) {
+        return res.status(403).json({ message: "Office is outside your scope" });
+      }
       const meeting = await storage.createQapiMeeting({ ...req.body, createdBy: req.session.user?.id });
       res.status(201).json(meeting);
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
   app.patch("/api/qapi-meetings/:id", isAuthenticated, async (req: any, res) => {
     try {
+      const existing = await storage.getQapiMeeting(req.params.id);
+      if (!existing || !(await canAccessOffice(req, existing.officeId))) {
+        return res.status(404).json({ message: "Not found" });
+      }
       const m = await storage.updateQapiMeeting(req.params.id, req.body);
       res.json(m);
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
   app.delete("/api/qapi-meetings/:id", isAuthenticated, async (req: any, res) => {
     try {
+      const existing = await storage.getQapiMeeting(req.params.id);
+      if (!existing || !(await canAccessOffice(req, existing.officeId))) {
+        return res.status(404).json({ message: "Not found" });
+      }
       await storage.deleteQapiMeeting(req.params.id);
       res.json({ success: true });
     } catch (e: any) { res.status(500).json({ message: e.message }); }
@@ -21727,6 +21808,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ─── Infection Control Logs ─────────────────────────────────────────────────
   app.get("/api/infection-control", isAuthenticated, async (req: any, res) => {
     try {
+      if (!req.query.officeId) return res.status(400).json({ message: "officeId is required" });
+      if (!(await canAccessOffice(req, req.query.officeId as string))) {
+        return res.status(403).json({ message: "Office is outside your scope" });
+      }
       const logs = await storage.getInfectionControlLogs(req.query.officeId as string);
       res.json(logs);
     } catch (e: any) { res.status(500).json({ message: e.message }); }
@@ -21734,24 +21819,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/infection-control/:id", isAuthenticated, async (req: any, res) => {
     try {
       const log = await storage.getInfectionControlLog(req.params.id);
-      if (!log) return res.status(404).json({ message: "Not found" });
+      if (!log || !(await canAccessOffice(req, log.officeId))) {
+        return res.status(404).json({ message: "Not found" });
+      }
       res.json(log);
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
   app.post("/api/infection-control", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await canAccessOffice(req, req.body.officeId))) {
+        return res.status(403).json({ message: "Office is outside your scope" });
+      }
       const log = await storage.createInfectionControlLog({ ...req.body, reportedBy: req.body.reportedBy || req.session.user?.id });
       res.status(201).json(log);
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
   app.patch("/api/infection-control/:id", isAuthenticated, async (req: any, res) => {
     try {
+      const existing = await storage.getInfectionControlLog(req.params.id);
+      if (!existing || !(await canAccessOffice(req, existing.officeId))) {
+        return res.status(404).json({ message: "Not found" });
+      }
       const log = await storage.updateInfectionControlLog(req.params.id, req.body);
       res.json(log);
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
   app.delete("/api/infection-control/:id", isAuthenticated, async (req: any, res) => {
     try {
+      const existing = await storage.getInfectionControlLog(req.params.id);
+      if (!existing || !(await canAccessOffice(req, existing.officeId))) {
+        return res.status(404).json({ message: "Not found" });
+      }
       await storage.deleteInfectionControlLog(req.params.id);
       res.json({ success: true });
     } catch (e: any) { res.status(500).json({ message: e.message }); }
@@ -21760,12 +21858,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ─── Client Emergency Plans ─────────────────────────────────────────────────
   app.get("/api/clients/:clientId/emergency-plan", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getClientInScope(req, req.params.clientId))) {
+        return res.status(404).json({ message: "Client not found" });
+      }
       const plan = await storage.getClientEmergencyPlan(req.params.clientId);
       res.json(plan || null);
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
   app.put("/api/clients/:clientId/emergency-plan", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getClientInScope(req, req.params.clientId))) {
+        return res.status(404).json({ message: "Client not found" });
+      }
       const plan = await storage.upsertClientEmergencyPlan({
         ...req.body,
         clientId: req.params.clientId,
@@ -21776,6 +21880,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
   app.get("/api/emergency-plans", isAuthenticated, async (req: any, res) => {
     try {
+      if (!req.query.officeId) return res.status(400).json({ message: "officeId is required" });
+      if (!(await canAccessOffice(req, req.query.officeId as string))) {
+        return res.status(403).json({ message: "Office is outside your scope" });
+      }
       const plans = await storage.getClientEmergencyPlans(req.query.officeId as string);
       res.json(plans);
     } catch (e: any) { res.status(500).json({ message: e.message }); }
@@ -21784,6 +21892,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ─── Client Satisfaction Surveys ────────────────────────────────────────────
   app.get("/api/client-surveys", isAuthenticated, async (req: any, res) => {
     try {
+      if (!req.query.officeId) return res.status(400).json({ message: "officeId is required" });
+      if (!(await canAccessOffice(req, req.query.officeId as string))) {
+        return res.status(403).json({ message: "Office is outside your scope" });
+      }
       const surveys = await storage.getClientSatisfactionSurveys(req.query.officeId as string);
       res.json(surveys);
     } catch (e: any) { res.status(500).json({ message: e.message }); }
@@ -21791,19 +21903,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/client-surveys/:id", isAuthenticated, async (req: any, res) => {
     try {
       const survey = await storage.getClientSatisfactionSurvey(req.params.id);
-      if (!survey) return res.status(404).json({ message: "Not found" });
+      if (!survey || !(await canAccessOffice(req, survey.officeId))) {
+        return res.status(404).json({ message: "Not found" });
+      }
       const responses = await storage.getClientSurveyResponses(req.params.id);
       res.json({ ...survey, responses });
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
   app.post("/api/client-surveys", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await canAccessOffice(req, req.body.officeId))) {
+        return res.status(403).json({ message: "Office is outside your scope" });
+      }
       const survey = await storage.createClientSatisfactionSurvey({ ...req.body, createdBy: req.session.user?.id });
       res.status(201).json(survey);
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
   app.patch("/api/client-surveys/:id", isAuthenticated, async (req: any, res) => {
     try {
+      const existing = await storage.getClientSatisfactionSurvey(req.params.id);
+      if (!existing || !(await canAccessOffice(req, existing.officeId))) {
+        return res.status(404).json({ message: "Not found" });
+      }
       const updates: any = { ...req.body };
       if (updates.status === "active" && !updates.sentAt) updates.sentAt = new Date();
       if (updates.status === "closed" && !updates.closedAt) updates.closedAt = new Date();
@@ -21813,6 +21934,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
   app.delete("/api/client-surveys/:id", isAuthenticated, async (req: any, res) => {
     try {
+      const existing = await storage.getClientSatisfactionSurvey(req.params.id);
+      if (!existing || !(await canAccessOffice(req, existing.officeId))) {
+        return res.status(404).json({ message: "Not found" });
+      }
       await storage.deleteClientSatisfactionSurvey(req.params.id);
       res.json({ success: true });
     } catch (e: any) { res.status(500).json({ message: e.message }); }
