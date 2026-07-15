@@ -90,7 +90,7 @@ async function findContactByPhone(phone: string) {
     }
   }
   
-  const allCaregivers = await db.select().from(caregivers).where(eq(caregivers.status, 'active'));
+  const allCaregivers = await db.select().from(caregivers).where(eq(caregivers.isActive, true));
   for (const caregiver of allCaregivers) {
     if (caregiver.phone) {
       const caregiverNormalized = normalizePhoneForLookup(caregiver.phone);
