@@ -7923,7 +7923,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/admin/mco-types", isAuthenticated, async (req: any, res) => {
+  app.post("/api/admin/mco-types", isAuthenticated, requireAdminRole, async (req: any, res) => {
     try {
       const validatedData = insertMcoTypeSchema.parse(req.body);
       const mcoType = await storage.createMcoType(validatedData);
@@ -7945,7 +7945,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/admin/mco-types/:id", isAuthenticated, async (req: any, res) => {
+  app.put("/api/admin/mco-types/:id", isAuthenticated, requireAdminRole, async (req: any, res) => {
     try {
       const oldMcoType = await storage.getMcoType(req.params.id);
       const validatedData = insertMcoTypeSchema.partial().parse(req.body);
@@ -7969,7 +7969,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/admin/mco-types/:id", isAuthenticated, async (req: any, res) => {
+  app.delete("/api/admin/mco-types/:id", isAuthenticated, requireAdminRole, async (req: any, res) => {
     try {
       const mcoType = await storage.getMcoType(req.params.id);
       if (!mcoType) {
@@ -8521,20 +8521,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // MCOs routes - admin endpoint
-  app.get("/api/admin/mcos", isAuthenticated, async (req, res) => {
+  app.get("/api/admin/mcos", isAuthenticated, requireAdminRole, async (req: any, res) => {
     try {
-      const mcos = await storage.getAllMcos();
-      res.json(mcos);
+      const currentUser = req.session?.user;
+      if (currentUser?.role === "super_admin") {
+        return res.json(await storage.getAllMcos());
+      }
+      const scope = currentUser?.primaryOfficeId;
+      if (!scope) return res.json([]);
+      res.json(await storage.getMcosByOffice(scope));
     } catch (error) {
       console.error("Error fetching MCOs:", error);
       res.status(500).json({ message: "Failed to fetch MCOs" });
     }
   });
 
-  app.get("/api/admin/mcos/:id", isAuthenticated, async (req, res) => {
+  app.get("/api/admin/mcos/:id", isAuthenticated, requireAdminRole, async (req: any, res) => {
     try {
       const mco = await storage.getMco(req.params.id);
-      if (!mco) {
+      if (!mco || !(await canAccessOffice(req, mco.officeId))) {
         return res.status(404).json({ message: "MCO not found" });
       }
       res.json(mco);
@@ -8544,8 +8549,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/admin/mcos", isAuthenticated, async (req: any, res) => {
+  app.post("/api/admin/mcos", isAuthenticated, requireAdminRole, async (req: any, res) => {
     try {
+      if (!(await canAccessOffice(req, req.body.officeId))) {
+        return res.status(403).json({ message: "Office is outside your scope" });
+      }
       const validatedData = insertMcoSchema.parse(req.body);
       const mco = await storage.createMco(validatedData);
       
@@ -8566,9 +8574,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/admin/mcos/:id", isAuthenticated, async (req: any, res) => {
+  app.put("/api/admin/mcos/:id", isAuthenticated, requireAdminRole, async (req: any, res) => {
     try {
       const oldMco = await storage.getMco(req.params.id);
+      if (!oldMco || !(await canAccessOffice(req, oldMco.officeId))) {
+        return res.status(404).json({ message: "MCO not found" });
+      }
       const validatedData = insertMcoSchema.partial().parse(req.body);
       const mco = await storage.updateMco(req.params.id, validatedData);
       
@@ -8590,13 +8601,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/admin/mcos/:id", isAuthenticated, async (req: any, res) => {
+  app.delete("/api/admin/mcos/:id", isAuthenticated, requireAdminRole, async (req: any, res) => {
     try {
       const mco = await storage.getMco(req.params.id);
-      if (!mco) {
+      if (!mco || !(await canAccessOffice(req, mco.officeId))) {
         return res.status(404).json({ message: "MCO not found" });
       }
-      
+
       await storage.deleteMco(req.params.id);
       
       await storage.createAuditLog({
@@ -8843,7 +8854,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/admin/settings", isAuthenticated, async (req: any, res) => {
+  app.post("/api/admin/settings", isAuthenticated, requireAdminRole, async (req: any, res) => {
     try {
       const validatedData = insertSystemSettingSchema.parse(req.body);
       const setting = await storage.createSystemSetting(validatedData);
@@ -8865,7 +8876,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/admin/settings/:key", isAuthenticated, async (req: any, res) => {
+  app.put("/api/admin/settings/:key", isAuthenticated, requireAdminRole, async (req: any, res) => {
     try {
       const oldSetting = await storage.getSystemSetting(req.params.key);
       const validatedData = insertSystemSettingSchema.partial().parse(req.body);
@@ -8889,7 +8900,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/admin/settings/:key", isAuthenticated, async (req: any, res) => {
+  app.delete("/api/admin/settings/:key", isAuthenticated, requireAdminRole, async (req: any, res) => {
     try {
       const setting = await storage.getSystemSetting(req.params.key);
       if (!setting) {
@@ -8947,7 +8958,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/admin/field-configs", isAuthenticated, async (req: any, res) => {
+  app.post("/api/admin/field-configs", isAuthenticated, requireAdminRole, async (req: any, res) => {
     try {
       const validatedData = insertEntityFieldConfigSchema.parse(req.body);
       const config = await storage.createEntityFieldConfig(validatedData);
@@ -8969,7 +8980,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/admin/field-configs/:id", isAuthenticated, async (req: any, res) => {
+  app.put("/api/admin/field-configs/:id", isAuthenticated, requireAdminRole, async (req: any, res) => {
     try {
       const oldConfig = await storage.getEntityFieldConfig(req.params.id);
       const validatedData = insertEntityFieldConfigSchema.partial().parse(req.body);
@@ -8993,7 +9004,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/admin/field-configs/:id", isAuthenticated, async (req: any, res) => {
+  app.delete("/api/admin/field-configs/:id", isAuthenticated, requireAdminRole, async (req: any, res) => {
     try {
       const config = await storage.getEntityFieldConfig(req.params.id);
       if (!config) {
@@ -9044,10 +9055,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
     return new Date(billDate.getTime() + dueDays * 24 * 60 * 60 * 1000);
   };
 
-  app.get("/api/billing", isAuthenticated, requireFeature('billing_payroll'), async (req, res) => {
+  app.get("/api/billing", isAuthenticated, requireFeature('billing_payroll'), async (req: any, res) => {
     try {
       const { officeId } = req.query;
-      const officeFilter = officeId && officeId !== 'all' ? String(officeId) : undefined;
+      const currentUser = req.session?.user;
+      const isSuperAdmin = currentUser?.role === "super_admin";
+      let officeFilter: string | undefined;
+      if (isSuperAdmin) {
+        officeFilter = officeId && officeId !== 'all' ? String(officeId) : undefined;
+      } else {
+        officeFilter = currentUser?.primaryOfficeId;
+        if (!officeFilter) return res.json([]);
+      }
       const records = await storage.getBillingRecords(officeFilter);
       res.json(records);
     } catch (error) {
@@ -9056,10 +9075,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/billing/:id", isAuthenticated, requireFeature('billing_payroll'), async (req, res) => {
+  app.get("/api/billing/:id", isAuthenticated, requireFeature('billing_payroll'), async (req: any, res) => {
     try {
       const record = await storage.getBillingRecord(req.params.id);
-      if (!record) {
+      if (!record || !(await canAccessOffice(req, record.officeId))) {
         return res.status(404).json({ message: "Billing record not found" });
       }
       res.json(record);
@@ -9071,6 +9090,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/billing", isAuthenticated, requireFeature('billing_payroll'), async (req: any, res) => {
     try {
+      if (!(await canAccessOffice(req, req.body.officeId))) {
+        return res.status(403).json({ message: "Office is outside your scope" });
+      }
       const billDate = new Date(req.body.billDate);
       const dueDate = await calculateDueDate(req.body.mcoId, billDate);
       const serviceStartDate = new Date(req.body.serviceStartDate);
@@ -9093,17 +9115,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.put("/api/billing/:id", isAuthenticated, requireFeature('billing_payroll'), async (req: any, res) => {
     try {
+      const existingRecord = await storage.getBillingRecord(req.params.id);
+      if (!existingRecord || !(await canAccessOffice(req, existingRecord.officeId))) {
+        return res.status(404).json({ message: "Billing record not found" });
+      }
       // Recalculate due date if MCO or billDate changed
       let dueDate;
       if (req.body.mcoId || req.body.billDate) {
-        const existingRecord = await storage.getBillingRecord(req.params.id);
         const mcoId = req.body.mcoId || existingRecord?.mcoId;
         const billDate = req.body.billDate ? new Date(req.body.billDate) : existingRecord?.billDate;
         if (billDate) {
           dueDate = await calculateDueDate(mcoId, billDate);
         }
       }
-      
+
       const record = await storage.updateBillingRecord(req.params.id, {
         ...req.body,
         ...(dueDate && { dueDate }),
@@ -9115,8 +9140,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/billing/:id", isAuthenticated, requireFeature('billing_payroll'), async (req, res) => {
+  app.delete("/api/billing/:id", isAuthenticated, requireFeature('billing_payroll'), async (req: any, res) => {
     try {
+      const existingRecord = await storage.getBillingRecord(req.params.id);
+      if (!existingRecord || !(await canAccessOffice(req, existingRecord.officeId))) {
+        return res.status(404).json({ message: "Billing record not found" });
+      }
       await storage.deleteBillingRecord(req.params.id);
       res.status(204).send();
     } catch (error) {
@@ -9203,9 +9232,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ==================== PAYROLL RUNS ROUTES ====================
-  app.get("/api/payroll", isAuthenticated, requireFeature('billing_payroll'), async (req, res) => {
+  app.get("/api/payroll", isAuthenticated, requireFeature('billing_payroll'), async (req: any, res) => {
     try {
-      const officeId = req.query.officeId as string | undefined;
+      const requestedOfficeId = req.query.officeId as string | undefined;
+      const currentUser = req.session?.user;
+      const isSuperAdmin = currentUser?.role === "super_admin";
+      let officeId: string | undefined;
+      if (isSuperAdmin) {
+        officeId = requestedOfficeId;
+      } else {
+        officeId = currentUser?.primaryOfficeId;
+        if (!officeId) return res.json([]);
+      }
       const runs = await storage.getPayrollRuns(officeId);
       res.json(runs);
     } catch (error) {
@@ -9214,10 +9252,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/payroll/:id", isAuthenticated, requireFeature('billing_payroll'), async (req, res) => {
+  app.get("/api/payroll/:id", isAuthenticated, requireFeature('billing_payroll'), async (req: any, res) => {
     try {
       const run = await storage.getPayrollRun(req.params.id);
-      if (!run) {
+      if (!run || !(await canAccessOffice(req, run.officeId))) {
         return res.status(404).json({ message: "Payroll run not found" });
       }
       const lineItems = await storage.getPayrollLineItems(req.params.id);
@@ -9230,6 +9268,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/payroll", isAuthenticated, requireFeature('billing_payroll'), async (req: any, res) => {
     try {
+      if (!(await canAccessOffice(req, req.body.officeId))) {
+        return res.status(403).json({ message: "Office is outside your scope" });
+      }
       const data = {
         ...req.body,
         createdBy: req.session?.user?.id,
@@ -9247,6 +9288,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.put("/api/payroll/:id", isAuthenticated, requireFeature('billing_payroll'), async (req: any, res) => {
     try {
+      const existingRun = await storage.getPayrollRun(req.params.id);
+      if (!existingRun || !(await canAccessOffice(req, existingRun.officeId))) {
+        return res.status(404).json({ message: "Payroll run not found" });
+      }
       const updateData = {
         ...req.body,
         payPeriodStart: req.body.payPeriodStart ? new Date(req.body.payPeriodStart) : undefined,
@@ -9265,8 +9310,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/payroll/:id", isAuthenticated, requireFeature('billing_payroll'), async (req, res) => {
+  app.delete("/api/payroll/:id", isAuthenticated, requireFeature('billing_payroll'), async (req: any, res) => {
     try {
+      const existingRun = await storage.getPayrollRun(req.params.id);
+      if (!existingRun || !(await canAccessOffice(req, existingRun.officeId))) {
+        return res.status(404).json({ message: "Payroll run not found" });
+      }
       await storage.deletePayrollRun(req.params.id);
       res.status(204).send();
     } catch (error) {
@@ -9276,8 +9325,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Payroll line items
-  app.post("/api/payroll/:runId/line-items", isAuthenticated, requireFeature('billing_payroll'), async (req, res) => {
+  app.post("/api/payroll/:runId/line-items", isAuthenticated, requireFeature('billing_payroll'), async (req: any, res) => {
     try {
+      const run = await storage.getPayrollRun(req.params.runId);
+      if (!run || !(await canAccessOffice(req, run.officeId))) {
+        return res.status(404).json({ message: "Payroll run not found" });
+      }
       const item = await storage.createPayrollLineItem({
         ...req.body,
         payrollRunId: req.params.runId,
@@ -9289,8 +9342,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/payroll-line-items/:id", isAuthenticated, requireFeature('billing_payroll'), async (req, res) => {
+  app.put("/api/payroll-line-items/:id", isAuthenticated, requireFeature('billing_payroll'), async (req: any, res) => {
     try {
+      const existingItem = await storage.getPayrollLineItem(req.params.id);
+      const parentRun = existingItem ? await storage.getPayrollRun(existingItem.payrollRunId) : undefined;
+      if (!existingItem || !parentRun || !(await canAccessOffice(req, parentRun.officeId))) {
+        return res.status(404).json({ message: "Line item not found" });
+      }
       const item = await storage.updatePayrollLineItem(req.params.id, req.body);
       res.json(item);
     } catch (error) {
@@ -9299,8 +9357,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/payroll-line-items/:id", isAuthenticated, requireFeature('billing_payroll'), async (req, res) => {
+  app.delete("/api/payroll-line-items/:id", isAuthenticated, requireFeature('billing_payroll'), async (req: any, res) => {
     try {
+      const existingItem = await storage.getPayrollLineItem(req.params.id);
+      const parentRun = existingItem ? await storage.getPayrollRun(existingItem.payrollRunId) : undefined;
+      if (!existingItem || !parentRun || !(await canAccessOffice(req, parentRun.officeId))) {
+        return res.status(404).json({ message: "Line item not found" });
+      }
       await storage.deletePayrollLineItem(req.params.id);
       res.status(204).send();
     } catch (error) {
@@ -9312,18 +9375,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ==================== BILLING HOURS IMPORT/EXPORT ROUTES ====================
   
   // Import billing hours from spreadsheet
-  app.post("/api/payroll/:runId/import-hours", isAuthenticated, requireFeature('billing_payroll'), excelUpload.single("file"), async (req, res) => {
+  app.post("/api/payroll/:runId/import-hours", isAuthenticated, requireFeature('billing_payroll'), excelUpload.single("file"), async (req: any, res) => {
     try {
       const { runId } = req.params;
       const file = req.file;
-      
+
       if (!file) {
         return res.status(400).json({ message: "No file uploaded" });
       }
 
       // Get the payroll run to determine pay period dates
       const payrollRun = await storage.getPayrollRun(runId);
-      if (!payrollRun) {
+      if (!payrollRun || !(await canAccessOffice(req, payrollRun.officeId))) {
         return res.status(404).json({ message: "Payroll run not found" });
       }
 
@@ -9525,12 +9588,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Calculate overtime hours for a payroll run
-  app.post("/api/payroll/:runId/calculate-overtime", isAuthenticated, requireFeature('billing_payroll'), async (req, res) => {
+  app.post("/api/payroll/:runId/calculate-overtime", isAuthenticated, requireFeature('billing_payroll'), async (req: any, res) => {
     try {
       const { runId } = req.params;
-      
+
       const payrollRun = await storage.getPayrollRun(runId);
-      if (!payrollRun) {
+      if (!payrollRun || !(await canAccessOffice(req, payrollRun.officeId))) {
         return res.status(404).json({ message: "Payroll run not found" });
       }
 
@@ -9610,12 +9673,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Export payroll hours by caregiver with ADP code
-  app.get("/api/payroll/:runId/export-hours", isAuthenticated, requireFeature('billing_payroll'), async (req, res) => {
+  app.get("/api/payroll/:runId/export-hours", isAuthenticated, requireFeature('billing_payroll'), async (req: any, res) => {
     try {
       const { runId } = req.params;
-      
+
       const payrollRun = await storage.getPayrollRun(runId);
-      if (!payrollRun) {
+      if (!payrollRun || !(await canAccessOffice(req, payrollRun.officeId))) {
         return res.status(404).json({ message: "Payroll run not found" });
       }
 
@@ -9690,7 +9753,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { runId } = req.params;
 
       const payrollRun = await storage.getPayrollRun(runId);
-      if (!payrollRun) {
+      if (!payrollRun || !(await canAccessOffice(req, payrollRun.officeId))) {
         return res.status(404).json({ message: "Payroll run not found" });
       }
 
@@ -9794,8 +9857,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get time entries for a payroll run
-  app.get("/api/payroll/:runId/time-entries", isAuthenticated, requireFeature('billing_payroll'), async (req, res) => {
+  app.get("/api/payroll/:runId/time-entries", isAuthenticated, requireFeature('billing_payroll'), async (req: any, res) => {
     try {
+      const payrollRun = await storage.getPayrollRun(req.params.runId);
+      if (!payrollRun || !(await canAccessOffice(req, payrollRun.officeId))) {
+        return res.status(404).json({ message: "Payroll run not found" });
+      }
       const entries = await storage.getTimeEntriesByPayrollRun(req.params.runId);
       res.json(entries);
     } catch (error) {
@@ -9805,12 +9872,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ==================== PAYROLL HOLIDAYS ROUTES ====================
-  app.get("/api/payroll-holidays", isAuthenticated, requireFeature('billing_payroll'), async (req, res) => {
+  app.get("/api/payroll-holidays", isAuthenticated, requireFeature('billing_payroll'), async (req: any, res) => {
     try {
       const officeId = req.query.officeId as string;
       const year = req.query.year ? parseInt(req.query.year as string) : undefined;
       if (!officeId) {
         return res.status(400).json({ message: "Office ID is required" });
+      }
+      if (!(await canAccessOffice(req, officeId))) {
+        return res.status(403).json({ message: "Office is outside your scope" });
       }
       if (year) {
         await storage.initializeDefaultHolidays(officeId, year);
@@ -9823,8 +9893,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/payroll-holidays", isAuthenticated, requireFeature('billing_payroll'), async (req, res) => {
+  app.post("/api/payroll-holidays", isAuthenticated, requireFeature('billing_payroll'), async (req: any, res) => {
     try {
+      if (!(await canAccessOffice(req, req.body.officeId))) {
+        return res.status(403).json({ message: "Office is outside your scope" });
+      }
       const data = {
         ...req.body,
         date: req.body.date ? new Date(req.body.date) : null,
@@ -9838,8 +9911,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/payroll-holidays/:id", isAuthenticated, requireFeature('billing_payroll'), async (req, res) => {
+  app.put("/api/payroll-holidays/:id", isAuthenticated, requireFeature('billing_payroll'), async (req: any, res) => {
     try {
+      const existing = await storage.getPayrollHoliday(req.params.id);
+      if (!existing || !(await canAccessOffice(req, existing.officeId))) {
+        return res.status(404).json({ message: "Holiday not found" });
+      }
       const data = {
         ...req.body,
         date: req.body.date ? new Date(req.body.date) : undefined,
@@ -9852,8 +9929,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/payroll-holidays/:id", isAuthenticated, requireFeature('billing_payroll'), async (req, res) => {
+  app.delete("/api/payroll-holidays/:id", isAuthenticated, requireFeature('billing_payroll'), async (req: any, res) => {
     try {
+      const existing = await storage.getPayrollHoliday(req.params.id);
+      if (!existing || !(await canAccessOffice(req, existing.officeId))) {
+        return res.status(404).json({ message: "Holiday not found" });
+      }
       await storage.deletePayrollHoliday(req.params.id);
       res.status(204).send();
     } catch (error) {

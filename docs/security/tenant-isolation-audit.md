@@ -69,6 +69,15 @@ check.
 - [x] `GET/PUT /api/clients/:clientId/emergency-plan`, `GET /api/emergency-plans` — added `getClientInScope`/`canAccessOffice` checks
 - [x] `GET/POST/PATCH/DELETE /api/client-surveys[/:id]` — same treatment. **Not touched**: `POST /api/client-surveys/:id/responses` is intentionally unauthenticated (family/client respondents with no account) — it needs an unguessable token added to the schema, not a scope check; that's a small design decision, not a quick fix, so it's left for a deliberate follow-up rather than rushed here.
 
+## Fixed in a fourth pass (admin config with zero role check + payroll/billing financials) — same verification as above
+
+- [x] `POST/PUT/DELETE /api/admin/mco-types[/:id]` — added `requireAdminRole` (previously any authenticated user)
+- [x] `GET/POST/PUT/DELETE /api/admin/mcos[/:id]` — added `requireAdminRole` + `canAccessOffice` (previously fully unscoped and ungated — mirrors the already-correct `GET /api/mcos` pattern)
+- [x] `POST/PUT/DELETE /api/admin/settings[/:key]`, `/api/admin/field-configs[/:id]` — added `requireAdminRole` (previously any authenticated user could write global platform config)
+- [x] `GET/POST/PUT/DELETE /api/billing[/:id]` — added `canAccessOffice`/office-scoped list, matching the `GET /api/clients` reference pattern
+- [x] `GET/POST/PUT/DELETE /api/payroll[/:id]`, `/api/payroll-line-items/:id`, `POST /:runId/line-items`, `/import-hours`, `/calculate-overtime`, `GET /:runId/export-hours[/pdf]`, `/time-entries` — added `canAccessOffice` throughout; added `getPayrollLineItem()` to storage.ts since no single-item fetcher existed for the line-item ownership check
+- [x] `GET/POST/PUT/DELETE /api/payroll-holidays[/:id]` — added `canAccessOffice`; added `getPayrollHoliday()` to storage.ts (PUT/DELETE didn't fetch the record before mutating it)
+
 Everything below this line is **not yet fixed** and needs the same treatment:
 read the actual route, apply `canAccessOffice`/`resolveAllowedOfficeIds` (or a role gate, or
 both), verify against a real Postgres instance, and check off the line.
@@ -94,11 +103,10 @@ both), verify against a real Postgres instance, and check off the line.
 - [ ] `GET/PUT/DELETE /api/eligibility-checks/:id`, `/api/caregiver-compliance/:id`, `/api/evv-data/:id` (+ `GET /api/evv-data` officeId-trust)
 - [ ] `PUT /api/admin/family-updates/:id/review`, `GET /api/admin/family-updates` — role-gated but no org check on the target record
 - [ ] `GET/PUT/DELETE /api/authorizations/:id` — raw query, no clientId/office check; `POST /api/authorizations/bulk-import` — no role check at all
-- [ ] `GET/PUT/DELETE /api/custom-roles/:id`-adjacent: `GET/PUT/DELETE /api/billing/:id`, `/api/payroll/:id` (+ `/line-items`) — financial data, no ownership check
-- [ ] `GET/PUT/DELETE /api/admin/mcos[/:id]` — **no role check at all** despite `/admin/` prefix
-- [ ] `GET/POST/PUT/DELETE /api/admin/settings[/:key]`, `/api/admin/field-configs`, `/api/admin/mco-types[/:id]` — **no role check at all** despite `/admin/` prefix
+- [x] ~~`GET/PUT/DELETE /api/billing/:id`, `/api/payroll/:id` (+ `/line-items`)~~ — fixed, see above
+- [x] ~~`GET/PUT/DELETE /api/admin/mcos[/:id]`~~ — fixed, see above
+- [x] ~~`GET/POST/PUT/DELETE /api/admin/settings[/:key]`, `/api/admin/field-configs`, `/api/admin/mco-types[/:id]`~~ — fixed, see above
 - [ ] `GET /api/admin/financial-reports` — role-gated but `officeId` not enforced for non-super-admins, leaks cross-org billing/AR data when omitted
-- [ ] `POST /api/permissions/seed`-adjacent — already fixed above
 - [ ] Every caregiver profile sub-resource never checks `:caregiverId` belongs to caller's office: notes, preferences, absences, availability(+exceptions), payroll-info (bank/tax data — high), expenses, paychecks (financial — high), rates, in-services, office-moves (can move a caregiver between offices with no check — high), schedules
 - [ ] `POST /api/schedules/:id/clock-in`, `/clock-out` — no ownership check on the schedule; also emails PHI in-flow
 - [x] ~~`GET /api/clients/:id/medications`, `GET/PATCH/DELETE /api/medications/:id`, `/log`, `/adherence`, `/logs`~~ — fixed, see above
@@ -108,8 +116,8 @@ both), verify against a real Postgres instance, and check off the line.
 - [ ] `GET /api/mileage/pending` — returns all pending mileage system-wide; `/approve` — no org check on target log
 
 ### Payroll runs, PTO, performance reviews, shift matching (lines ~9100–13900)
-- [ ] `GET/PUT/DELETE /api/payroll/:id`, `/api/payroll-line-items/:id`, `POST /api/payroll/:runId/import-hours`, `/calculate-overtime`, `GET .../export-hours[/pdf]`, `/time-entries` — no ownership check; export endpoints leak caregiver names/wages/ADP codes cross-org
-- [ ] `GET/POST/PUT/DELETE /api/payroll-holidays` — officeId trusted, unenforced
+- [x] ~~`GET/PUT/DELETE /api/payroll/:id`, `/api/payroll-line-items/:id`, `POST /api/payroll/:runId/import-hours`, `/calculate-overtime`, `GET .../export-hours[/pdf]`, `/time-entries`~~ — fixed, see above
+- [x] ~~`GET/POST/PUT/DELETE /api/payroll-holidays`~~ — fixed, see above
 - [ ] `GET /api/time-off-requests`, `/pending` — **zero scoping at all**, any role sees every org's requests
 - [ ] `PATCH /api/time-off-requests/:id` — no ownership/role check, any authenticated user can edit any request
 - [ ] `POST /api/time-off-requests/:id/cancel` — no role/ownership check (note: needs "owner OR admin" logic, not a flat role gate, since requesters cancel their own)

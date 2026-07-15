@@ -4179,6 +4179,11 @@ export class DatabaseStorage implements IStorage {
     return await db.select().from(payrollLineItems).where(eq(payrollLineItems.payrollRunId, payrollRunId));
   }
 
+  async getPayrollLineItem(id: string): Promise<PayrollLineItem | undefined> {
+    const [item] = await db.select().from(payrollLineItems).where(eq(payrollLineItems.id, id));
+    return item;
+  }
+
   async createPayrollLineItem(data: InsertPayrollLineItem): Promise<PayrollLineItem> {
     const [item] = await db.insert(payrollLineItems).values(data).returning();
     return item;
@@ -4266,6 +4271,11 @@ export class DatabaseStorage implements IStorage {
     return await db.select().from(payrollHolidays)
       .where(eq(payrollHolidays.officeId, officeId))
       .orderBy(payrollHolidays.date);
+  }
+
+  async getPayrollHoliday(id: string): Promise<PayrollHoliday | undefined> {
+    const [holiday] = await db.select().from(payrollHolidays).where(eq(payrollHolidays.id, id));
+    return holiday;
   }
 
   async createPayrollHoliday(data: InsertPayrollHoliday): Promise<PayrollHoliday> {
