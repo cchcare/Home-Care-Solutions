@@ -306,6 +306,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
     return client;
   };
 
+  // Same as getClientInScope, for the caregiver profile sub-resources
+  // (notes, preferences, absences, availability, payroll-info, expenses,
+  // paychecks, rates, in-services, office-moves, schedules, ...) that key
+  // off caregiverId but don't carry an officeId of their own.
+  const getCaregiverInScope = async (req: any, caregiverId: string) => {
+    const caregiver = await storage.getCaregiver(caregiverId);
+    if (!caregiver || !(await canAccessOffice(req, caregiver.officeId))) return undefined;
+    return caregiver;
+  };
+
   // Gate for RBAC administration (custom roles, permissions, role assignment).
   // No legitimate non-admin use case reads or writes this data.
   const requireAdminRole = (req: any, res: any, next: any) => {
@@ -10037,8 +10047,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ==================== CAREGIVER PROFILE ROUTES ====================
 
   // Caregiver Notes
-  app.get("/api/caregivers/:caregiverId/notes", isAuthenticated, async (req, res) => {
+  app.get("/api/caregivers/:caregiverId/notes", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getCaregiverInScope(req, req.params.caregiverId))) {
+        return res.status(404).json({ message: "Caregiver not found" });
+      }
       const notes = await storage.getCaregiverNotes(req.params.caregiverId);
       res.json(notes);
     } catch (error) {
@@ -10049,6 +10062,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/caregivers/:caregiverId/notes", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getCaregiverInScope(req, req.params.caregiverId))) {
+        return res.status(404).json({ message: "Caregiver not found" });
+      }
       const { caregiverId: _, authorId: __, ...userBody } = req.body;
       const validatedBody = insertCaregiverNoteSchema.omit({ caregiverId: true, authorId: true }).parse(userBody);
       const note = await storage.createCaregiverNote({
@@ -10063,8 +10079,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/caregiver-notes/:id", isAuthenticated, async (req, res) => {
+  app.put("/api/caregiver-notes/:id", isAuthenticated, async (req: any, res) => {
     try {
+      const existing = await storage.getCaregiverNote(req.params.id);
+      if (!existing || !(await getCaregiverInScope(req, existing.caregiverId))) {
+        return res.status(404).json({ message: "Note not found" });
+      }
       const { caregiverId, authorId, ...updateData } = req.body;
       const validatedData = insertCaregiverNoteSchema.partial().parse(updateData);
       const note = await storage.updateCaregiverNote(req.params.id, validatedData);
@@ -10075,8 +10095,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/caregiver-notes/:id", isAuthenticated, async (req, res) => {
+  app.delete("/api/caregiver-notes/:id", isAuthenticated, async (req: any, res) => {
     try {
+      const existing = await storage.getCaregiverNote(req.params.id);
+      if (!existing || !(await getCaregiverInScope(req, existing.caregiverId))) {
+        return res.status(404).json({ message: "Note not found" });
+      }
       await storage.deleteCaregiverNote(req.params.id);
       res.status(204).send();
     } catch (error) {
@@ -10515,8 +10539,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Caregiver Preferences
-  app.get("/api/caregivers/:caregiverId/preferences", isAuthenticated, async (req, res) => {
+  app.get("/api/caregivers/:caregiverId/preferences", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getCaregiverInScope(req, req.params.caregiverId))) {
+        return res.status(404).json({ message: "Caregiver not found" });
+      }
       const preferences = await storage.getCaregiverPreferences(req.params.caregiverId);
       res.json(preferences);
     } catch (error) {
@@ -10525,8 +10552,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/caregivers/:caregiverId/preferences", isAuthenticated, async (req, res) => {
+  app.post("/api/caregivers/:caregiverId/preferences", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getCaregiverInScope(req, req.params.caregiverId))) {
+        return res.status(404).json({ message: "Caregiver not found" });
+      }
       const { caregiverId: _, ...userBody } = req.body;
       const validatedBody = insertCaregiverPreferenceSchema.omit({ caregiverId: true }).parse(userBody);
       const preference = await storage.createCaregiverPreference({
@@ -10540,8 +10570,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/caregiver-preferences/:id", isAuthenticated, async (req, res) => {
+  app.put("/api/caregiver-preferences/:id", isAuthenticated, async (req: any, res) => {
     try {
+      const existing = await storage.getCaregiverPreference(req.params.id);
+      if (!existing || !(await getCaregiverInScope(req, existing.caregiverId))) {
+        return res.status(404).json({ message: "Preference not found" });
+      }
       const { caregiverId, ...updateData } = req.body;
       const validatedData = insertCaregiverPreferenceSchema.partial().parse(updateData);
       const preference = await storage.updateCaregiverPreference(req.params.id, validatedData);
@@ -10552,8 +10586,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/caregiver-preferences/:id", isAuthenticated, async (req, res) => {
+  app.delete("/api/caregiver-preferences/:id", isAuthenticated, async (req: any, res) => {
     try {
+      const existing = await storage.getCaregiverPreference(req.params.id);
+      if (!existing || !(await getCaregiverInScope(req, existing.caregiverId))) {
+        return res.status(404).json({ message: "Preference not found" });
+      }
       await storage.deleteCaregiverPreference(req.params.id);
       res.status(204).send();
     } catch (error) {
@@ -10563,8 +10601,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Caregiver Absences
-  app.get("/api/caregivers/:caregiverId/absences", isAuthenticated, async (req, res) => {
+  app.get("/api/caregivers/:caregiverId/absences", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getCaregiverInScope(req, req.params.caregiverId))) {
+        return res.status(404).json({ message: "Caregiver not found" });
+      }
       const absences = await storage.getCaregiverAbsences(req.params.caregiverId);
       res.json(absences);
     } catch (error) {
@@ -10573,8 +10614,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/caregivers/:caregiverId/absences", isAuthenticated, async (req, res) => {
+  app.post("/api/caregivers/:caregiverId/absences", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getCaregiverInScope(req, req.params.caregiverId))) {
+        return res.status(404).json({ message: "Caregiver not found" });
+      }
       const { caregiverId: _, ...userBody } = req.body;
       const coercedData = {
         ...userBody,
@@ -10594,8 +10638,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/caregiver-absences/:id", isAuthenticated, async (req, res) => {
+  app.put("/api/caregiver-absences/:id", isAuthenticated, async (req: any, res) => {
     try {
+      const existing = await storage.getCaregiverAbsence(req.params.id);
+      if (!existing || !(await getCaregiverInScope(req, existing.caregiverId))) {
+        return res.status(404).json({ message: "Absence not found" });
+      }
       const { caregiverId, ...updateData } = req.body;
       const coercedData = {
         ...updateData,
@@ -10612,8 +10660,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/caregiver-absences/:id", isAuthenticated, async (req, res) => {
+  app.delete("/api/caregiver-absences/:id", isAuthenticated, async (req: any, res) => {
     try {
+      const existing = await storage.getCaregiverAbsence(req.params.id);
+      if (!existing || !(await getCaregiverInScope(req, existing.caregiverId))) {
+        return res.status(404).json({ message: "Absence not found" });
+      }
       await storage.deleteCaregiverAbsence(req.params.id);
       res.status(204).send();
     } catch (error) {
@@ -10623,8 +10675,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Caregiver Availability
-  app.get("/api/caregivers/:caregiverId/availability", isAuthenticated, async (req, res) => {
+  app.get("/api/caregivers/:caregiverId/availability", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getCaregiverInScope(req, req.params.caregiverId))) {
+        return res.status(404).json({ message: "Caregiver not found" });
+      }
       const availability = await storage.getCaregiverAvailability(req.params.caregiverId);
       res.json(availability);
     } catch (error) {
@@ -10633,8 +10688,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/caregivers/:caregiverId/availability", isAuthenticated, async (req, res) => {
+  app.post("/api/caregivers/:caregiverId/availability", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getCaregiverInScope(req, req.params.caregiverId))) {
+        return res.status(404).json({ message: "Caregiver not found" });
+      }
       const { caregiverId: _, ...userBody } = req.body;
       const validatedBody = insertCaregiverAvailabilitySchema.omit({ caregiverId: true }).parse(userBody);
       const availability = await storage.createCaregiverAvailability({
@@ -10648,8 +10706,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/caregiver-availability/:id", isAuthenticated, async (req, res) => {
+  app.put("/api/caregiver-availability/:id", isAuthenticated, async (req: any, res) => {
     try {
+      const existing = await storage.getCaregiverAvailabilityById(req.params.id);
+      if (!existing || !(await getCaregiverInScope(req, existing.caregiverId))) {
+        return res.status(404).json({ message: "Availability not found" });
+      }
       const { caregiverId, ...updateData } = req.body;
       const validatedData = insertCaregiverAvailabilitySchema.partial().parse(updateData);
       const availability = await storage.updateCaregiverAvailability(req.params.id, validatedData);
@@ -10660,8 +10722,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/caregiver-availability/:id", isAuthenticated, async (req, res) => {
+  app.delete("/api/caregiver-availability/:id", isAuthenticated, async (req: any, res) => {
     try {
+      const existing = await storage.getCaregiverAvailabilityById(req.params.id);
+      if (!existing || !(await getCaregiverInScope(req, existing.caregiverId))) {
+        return res.status(404).json({ message: "Availability not found" });
+      }
       await storage.deleteCaregiverAvailability(req.params.id);
       res.status(204).send();
     } catch (error) {
@@ -10671,8 +10737,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Weekly Availability - GET/PUT bulk operations
-  app.get("/api/caregivers/:id/weekly-availability", isAuthenticated, async (req, res) => {
+  app.get("/api/caregivers/:id/weekly-availability", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getCaregiverInScope(req, req.params.id))) {
+        return res.status(404).json({ message: "Caregiver not found" });
+      }
       const availability = await storage.getCaregiverAvailability(req.params.id);
       res.json(availability);
     } catch (error) {
@@ -10681,8 +10750,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/caregivers/:id/weekly-availability", isAuthenticated, async (req, res) => {
+  app.put("/api/caregivers/:id/weekly-availability", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getCaregiverInScope(req, req.params.id))) {
+        return res.status(404).json({ message: "Caregiver not found" });
+      }
       const { availability } = req.body;
       if (!Array.isArray(availability)) {
         return res.status(400).json({ message: "availability must be an array" });
@@ -10696,8 +10768,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Availability Exceptions
-  app.get("/api/caregivers/:id/availability-exceptions", isAuthenticated, async (req, res) => {
+  app.get("/api/caregivers/:id/availability-exceptions", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getCaregiverInScope(req, req.params.id))) {
+        return res.status(404).json({ message: "Caregiver not found" });
+      }
       const { startDate, endDate } = req.query;
       const exceptions = await storage.getAvailabilityExceptions(
         req.params.id,
@@ -10711,8 +10786,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/caregivers/:id/availability-exceptions", isAuthenticated, async (req, res) => {
+  app.post("/api/caregivers/:id/availability-exceptions", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getCaregiverInScope(req, req.params.id))) {
+        return res.status(404).json({ message: "Caregiver not found" });
+      }
       const { caregiverId: _, ...userBody } = req.body;
       const coercedData = {
         ...userBody,
@@ -10731,8 +10809,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/caregivers/:id/availability-exceptions/:exceptionId", isAuthenticated, async (req, res) => {
+  app.delete("/api/caregivers/:id/availability-exceptions/:exceptionId", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getCaregiverInScope(req, req.params.id))) {
+        return res.status(404).json({ message: "Caregiver not found" });
+      }
       await storage.deleteAvailabilityException(req.params.exceptionId);
       res.status(204).send();
     } catch (error) {
@@ -10782,8 +10863,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Caregiver Payroll Info
-  app.get("/api/caregivers/:caregiverId/payroll-info", isAuthenticated, async (req, res) => {
+  app.get("/api/caregivers/:caregiverId/payroll-info", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getCaregiverInScope(req, req.params.caregiverId))) {
+        return res.status(404).json({ message: "Caregiver not found" });
+      }
       const info = await storage.getCaregiverPayrollInfo(req.params.caregiverId);
       res.json(info || null);
     } catch (error) {
@@ -10792,8 +10876,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/caregivers/:caregiverId/payroll-info", isAuthenticated, async (req, res) => {
+  app.post("/api/caregivers/:caregiverId/payroll-info", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getCaregiverInScope(req, req.params.caregiverId))) {
+        return res.status(404).json({ message: "Caregiver not found" });
+      }
       const { caregiverId: _, ...userBody } = req.body;
       const validatedBody = insertCaregiverPayrollInfoSchema.omit({ caregiverId: true }).parse(userBody);
       const info = await storage.upsertCaregiverPayrollInfo({
@@ -10808,8 +10895,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Caregiver Expenses
-  app.get("/api/caregivers/:caregiverId/expenses", isAuthenticated, async (req, res) => {
+  app.get("/api/caregivers/:caregiverId/expenses", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getCaregiverInScope(req, req.params.caregiverId))) {
+        return res.status(404).json({ message: "Caregiver not found" });
+      }
       const expenses = await storage.getCaregiverExpenses(req.params.caregiverId);
       res.json(expenses);
     } catch (error) {
@@ -10818,8 +10908,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/caregivers/:caregiverId/expenses", isAuthenticated, async (req, res) => {
+  app.post("/api/caregivers/:caregiverId/expenses", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getCaregiverInScope(req, req.params.caregiverId))) {
+        return res.status(404).json({ message: "Caregiver not found" });
+      }
       const { caregiverId: _, ...userBody } = req.body;
       const coercedData = {
         ...userBody,
@@ -10839,8 +10932,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/caregiver-expenses/:id", isAuthenticated, async (req, res) => {
+  app.put("/api/caregiver-expenses/:id", isAuthenticated, async (req: any, res) => {
     try {
+      const existing = await storage.getCaregiverExpense(req.params.id);
+      if (!existing || !(await getCaregiverInScope(req, existing.caregiverId))) {
+        return res.status(404).json({ message: "Expense not found" });
+      }
       const { caregiverId, ...updateData } = req.body;
       const coercedData = {
         ...updateData,
@@ -10857,8 +10954,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/caregiver-expenses/:id", isAuthenticated, async (req, res) => {
+  app.delete("/api/caregiver-expenses/:id", isAuthenticated, async (req: any, res) => {
     try {
+      const existing = await storage.getCaregiverExpense(req.params.id);
+      if (!existing || !(await getCaregiverInScope(req, existing.caregiverId))) {
+        return res.status(404).json({ message: "Expense not found" });
+      }
       await storage.deleteCaregiverExpense(req.params.id);
       res.status(204).send();
     } catch (error) {
@@ -10868,8 +10969,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Caregiver Paychecks
-  app.get("/api/caregivers/:caregiverId/paychecks", isAuthenticated, async (req, res) => {
+  app.get("/api/caregivers/:caregiverId/paychecks", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getCaregiverInScope(req, req.params.caregiverId))) {
+        return res.status(404).json({ message: "Caregiver not found" });
+      }
       const paychecks = await storage.getCaregiverPaychecks(req.params.caregiverId);
       res.json(paychecks);
     } catch (error) {
@@ -10878,8 +10982,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/caregivers/:caregiverId/paychecks", isAuthenticated, async (req, res) => {
+  app.post("/api/caregivers/:caregiverId/paychecks", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getCaregiverInScope(req, req.params.caregiverId))) {
+        return res.status(404).json({ message: "Caregiver not found" });
+      }
       const { caregiverId: _, ...userBody } = req.body;
       const coercedData = {
         ...userBody,
@@ -10899,8 +11006,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/caregiver-paychecks/:id", isAuthenticated, async (req, res) => {
+  app.put("/api/caregiver-paychecks/:id", isAuthenticated, async (req: any, res) => {
     try {
+      const existing = await storage.getCaregiverPaycheck(req.params.id);
+      if (!existing || !(await getCaregiverInScope(req, existing.caregiverId))) {
+        return res.status(404).json({ message: "Paycheck not found" });
+      }
       const { caregiverId, ...updateData } = req.body;
       const coercedData = {
         ...updateData,
@@ -10918,8 +11029,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Caregiver Rates
-  app.get("/api/caregivers/:caregiverId/rates", isAuthenticated, async (req, res) => {
+  app.get("/api/caregivers/:caregiverId/rates", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getCaregiverInScope(req, req.params.caregiverId))) {
+        return res.status(404).json({ message: "Caregiver not found" });
+      }
       const rates = await storage.getCaregiverRates(req.params.caregiverId);
       res.json(rates);
     } catch (error) {
@@ -10928,8 +11042,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/caregivers/:caregiverId/rates", isAuthenticated, async (req, res) => {
+  app.post("/api/caregivers/:caregiverId/rates", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getCaregiverInScope(req, req.params.caregiverId))) {
+        return res.status(404).json({ message: "Caregiver not found" });
+      }
       const { caregiverId: _, ...userBody } = req.body;
       const coercedData = {
         ...userBody,
@@ -10948,8 +11065,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/caregiver-rates/:id", isAuthenticated, async (req, res) => {
+  app.put("/api/caregiver-rates/:id", isAuthenticated, async (req: any, res) => {
     try {
+      const existing = await storage.getCaregiverRate(req.params.id);
+      if (!existing || !(await getCaregiverInScope(req, existing.caregiverId))) {
+        return res.status(404).json({ message: "Rate not found" });
+      }
       const { caregiverId, ...updateData } = req.body;
       const coercedData = {
         ...updateData,
@@ -10965,8 +11086,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/caregiver-rates/:id", isAuthenticated, async (req, res) => {
+  app.delete("/api/caregiver-rates/:id", isAuthenticated, async (req: any, res) => {
     try {
+      const existing = await storage.getCaregiverRate(req.params.id);
+      if (!existing || !(await getCaregiverInScope(req, existing.caregiverId))) {
+        return res.status(404).json({ message: "Rate not found" });
+      }
       await storage.deleteCaregiverRate(req.params.id);
       res.status(204).send();
     } catch (error) {
@@ -10976,8 +11101,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Caregiver In-Services
-  app.get("/api/caregivers/:caregiverId/in-services", isAuthenticated, async (req, res) => {
+  app.get("/api/caregivers/:caregiverId/in-services", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getCaregiverInScope(req, req.params.caregiverId))) {
+        return res.status(404).json({ message: "Caregiver not found" });
+      }
       const inServices = await storage.getCaregiverInServices(req.params.caregiverId);
       res.json(inServices);
     } catch (error) {
@@ -10986,8 +11114,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/caregivers/:caregiverId/in-services", isAuthenticated, async (req, res) => {
+  app.post("/api/caregivers/:caregiverId/in-services", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getCaregiverInScope(req, req.params.caregiverId))) {
+        return res.status(404).json({ message: "Caregiver not found" });
+      }
       const { caregiverId: _, ...userBody } = req.body;
       const coercedData = {
         ...userBody,
@@ -11006,8 +11137,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/caregiver-in-services/:id", isAuthenticated, async (req, res) => {
+  app.put("/api/caregiver-in-services/:id", isAuthenticated, async (req: any, res) => {
     try {
+      const existing = await storage.getCaregiverInService(req.params.id);
+      if (!existing || !(await getCaregiverInScope(req, existing.caregiverId))) {
+        return res.status(404).json({ message: "In-service not found" });
+      }
       const { caregiverId, ...updateData } = req.body;
       const coercedData = {
         ...updateData,
@@ -11023,8 +11158,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/caregiver-in-services/:id", isAuthenticated, async (req, res) => {
+  app.delete("/api/caregiver-in-services/:id", isAuthenticated, async (req: any, res) => {
     try {
+      const existing = await storage.getCaregiverInService(req.params.id);
+      if (!existing || !(await getCaregiverInScope(req, existing.caregiverId))) {
+        return res.status(404).json({ message: "In-service not found" });
+      }
       await storage.deleteCaregiverInService(req.params.id);
       res.status(204).send();
     } catch (error) {
@@ -11034,8 +11173,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Caregiver Office Moves
-  app.get("/api/caregivers/:caregiverId/office-moves", isAuthenticated, async (req, res) => {
+  app.get("/api/caregivers/:caregiverId/office-moves", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getCaregiverInScope(req, req.params.caregiverId))) {
+        return res.status(404).json({ message: "Caregiver not found" });
+      }
       const moves = await storage.getCaregiverOfficeMoves(req.params.caregiverId);
       res.json(moves);
     } catch (error) {
@@ -11046,6 +11188,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/caregivers/:caregiverId/office-moves", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getCaregiverInScope(req, req.params.caregiverId))) {
+        return res.status(404).json({ message: "Caregiver not found" });
+      }
       const { caregiverId: _, approvedBy: __, ...userBody } = req.body;
       const coercedData = {
         ...userBody,
@@ -11064,8 +11209,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/caregiver-office-moves/:id", isAuthenticated, async (req, res) => {
+  app.put("/api/caregiver-office-moves/:id", isAuthenticated, async (req: any, res) => {
     try {
+      const existing = await storage.getCaregiverOfficeMove(req.params.id);
+      if (!existing || !(await getCaregiverInScope(req, existing.caregiverId))) {
+        return res.status(404).json({ message: "Office move not found" });
+      }
       const { caregiverId, approvedBy, ...updateData } = req.body;
       const coercedData = {
         ...updateData,
@@ -11081,8 +11230,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Caregiver Schedules
-  app.get("/api/caregivers/:caregiverId/schedules", isAuthenticated, async (req, res) => {
+  app.get("/api/caregivers/:caregiverId/schedules", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getCaregiverInScope(req, req.params.caregiverId))) {
+        return res.status(404).json({ message: "Caregiver not found" });
+      }
       const { startDate, endDate } = req.query;
       const schedules = await storage.getCaregiverSchedules(
         req.params.caregiverId,
@@ -11110,6 +11262,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/caregivers/:caregiverId/schedules", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getCaregiverInScope(req, req.params.caregiverId))) {
+        return res.status(404).json({ message: "Caregiver not found" });
+      }
       const { caregiverId: _, createdBy: __, ...userBody } = req.body;
       const coercedData = {
         ...userBody,
@@ -11130,8 +11285,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/caregiver-schedules/:id", isAuthenticated, async (req, res) => {
+  app.put("/api/caregiver-schedules/:id", isAuthenticated, async (req: any, res) => {
     try {
+      const existing = await storage.getCaregiverSchedule(req.params.id);
+      if (!existing || !(await getCaregiverInScope(req, existing.caregiverId))) {
+        return res.status(404).json({ message: "Schedule not found" });
+      }
       const { caregiverId, createdBy, ...updateData } = req.body;
       const coercedData = {
         ...updateData,
@@ -11148,8 +11307,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/caregiver-schedules/:id", isAuthenticated, async (req, res) => {
+  app.delete("/api/caregiver-schedules/:id", isAuthenticated, async (req: any, res) => {
     try {
+      const existing = await storage.getCaregiverSchedule(req.params.id);
+      if (!existing || !(await getCaregiverInScope(req, existing.caregiverId))) {
+        return res.status(404).json({ message: "Schedule not found" });
+      }
       await storage.deleteCaregiverSchedule(req.params.id);
       res.status(204).send();
     } catch (error) {
@@ -11170,12 +11333,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Latitude and longitude are required" });
       }
       
-      // Verify the schedule exists
+      // Verify the schedule exists and belongs to the requester (either the
+      // caregiver themselves clocking in, or office staff in their scope —
+      // clock-in is a self-service action, so this can't be a flat
+      // office-staff-only check).
       const existingSchedule = await storage.getCaregiverSchedule(id);
       if (!existingSchedule) {
         return res.status(404).json({ message: "Schedule not found" });
       }
-      
+      const scheduleCaregiver = await storage.getCaregiver(existingSchedule.caregiverId);
+      const isOwnSchedule = scheduleCaregiver?.userId && scheduleCaregiver.userId === req.session?.user?.id;
+      if (!scheduleCaregiver || (!isOwnSchedule && !(await canAccessOffice(req, scheduleCaregiver.officeId)))) {
+        return res.status(404).json({ message: "Schedule not found" });
+      }
+
       // Check if already clocked in
       if (existingSchedule.clockInTime) {
         return res.status(400).json({ message: "Already clocked in for this schedule" });
@@ -11216,12 +11387,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Latitude and longitude are required" });
       }
       
-      // Verify the schedule exists
+      // Verify the schedule exists and belongs to the requester (either the
+      // caregiver themselves clocking out, or office staff in their scope).
       const existingSchedule = await storage.getCaregiverSchedule(id);
       if (!existingSchedule) {
         return res.status(404).json({ message: "Schedule not found" });
       }
-      
+      const scheduleCaregiver = await storage.getCaregiver(existingSchedule.caregiverId);
+      const isOwnSchedule = scheduleCaregiver?.userId && scheduleCaregiver.userId === req.session?.user?.id;
+      if (!scheduleCaregiver || (!isOwnSchedule && !(await canAccessOffice(req, scheduleCaregiver.officeId)))) {
+        return res.status(404).json({ message: "Schedule not found" });
+      }
+
       // Check if not clocked in yet
       if (!existingSchedule.clockInTime) {
         return res.status(400).json({ message: "Must clock in before clocking out" });

@@ -4444,6 +4444,12 @@ export class DatabaseStorage implements IStorage {
     }));
   }
 
+  async getCaregiverNote(id: string): Promise<CaregiverNote | undefined> {
+    const [note] = await db.select().from(caregiverNotes).where(eq(caregiverNotes.id, id));
+    if (!note) return undefined;
+    return { ...note, content: decryptNote(note.content) || note.content };
+  }
+
   async createCaregiverNote(note: InsertCaregiverNote): Promise<CaregiverNote> {
     const encryptedData = {
       ...note,
@@ -4681,6 +4687,11 @@ export class DatabaseStorage implements IStorage {
     return await db.select().from(caregiverPreferences).where(eq(caregiverPreferences.caregiverId, caregiverId)).orderBy(asc(caregiverPreferences.priority));
   }
 
+  async getCaregiverPreference(id: string): Promise<CaregiverPreference | undefined> {
+    const [pref] = await db.select().from(caregiverPreferences).where(eq(caregiverPreferences.id, id));
+    return pref;
+  }
+
   async createCaregiverPreference(preference: InsertCaregiverPreference): Promise<CaregiverPreference> {
     const [created] = await db.insert(caregiverPreferences).values(preference).returning();
     return created;
@@ -4700,6 +4711,11 @@ export class DatabaseStorage implements IStorage {
     return await db.select().from(caregiverAbsences).where(eq(caregiverAbsences.caregiverId, caregiverId)).orderBy(desc(caregiverAbsences.startDate));
   }
 
+  async getCaregiverAbsence(id: string): Promise<CaregiverAbsence | undefined> {
+    const [absence] = await db.select().from(caregiverAbsences).where(eq(caregiverAbsences.id, id));
+    return absence;
+  }
+
   async createCaregiverAbsence(absence: InsertCaregiverAbsence): Promise<CaregiverAbsence> {
     const [created] = await db.insert(caregiverAbsences).values(absence).returning();
     return created;
@@ -4717,6 +4733,11 @@ export class DatabaseStorage implements IStorage {
   // Caregiver Availability
   async getCaregiverAvailability(caregiverId: string): Promise<CaregiverAvailability[]> {
     return await db.select().from(caregiverAvailability).where(eq(caregiverAvailability.caregiverId, caregiverId)).orderBy(asc(caregiverAvailability.dayOfWeek));
+  }
+
+  async getCaregiverAvailabilityById(id: string): Promise<CaregiverAvailability | undefined> {
+    const [avail] = await db.select().from(caregiverAvailability).where(eq(caregiverAvailability.id, id));
+    return avail;
   }
 
   async createCaregiverAvailability(availability: InsertCaregiverAvailability): Promise<CaregiverAvailability> {
@@ -4930,6 +4951,11 @@ export class DatabaseStorage implements IStorage {
     return await db.select().from(caregiverExpenses).where(eq(caregiverExpenses.caregiverId, caregiverId)).orderBy(desc(caregiverExpenses.expenseDate));
   }
 
+  async getCaregiverExpense(id: string): Promise<CaregiverExpense | undefined> {
+    const [expense] = await db.select().from(caregiverExpenses).where(eq(caregiverExpenses.id, id));
+    return expense;
+  }
+
   async createCaregiverExpense(expense: InsertCaregiverExpense): Promise<CaregiverExpense> {
     const [created] = await db.insert(caregiverExpenses).values(expense).returning();
     return created;
@@ -4949,6 +4975,11 @@ export class DatabaseStorage implements IStorage {
     return await db.select().from(caregiverPaychecks).where(eq(caregiverPaychecks.caregiverId, caregiverId)).orderBy(desc(caregiverPaychecks.payDate));
   }
 
+  async getCaregiverPaycheck(id: string): Promise<CaregiverPaycheck | undefined> {
+    const [paycheck] = await db.select().from(caregiverPaychecks).where(eq(caregiverPaychecks.id, id));
+    return paycheck;
+  }
+
   async createCaregiverPaycheck(paycheck: InsertCaregiverPaycheck): Promise<CaregiverPaycheck> {
     const [created] = await db.insert(caregiverPaychecks).values(paycheck).returning();
     return created;
@@ -4962,6 +4993,11 @@ export class DatabaseStorage implements IStorage {
   // Caregiver Rates
   async getCaregiverRates(caregiverId: string): Promise<CaregiverRate[]> {
     return await db.select().from(caregiverRates).where(eq(caregiverRates.caregiverId, caregiverId)).orderBy(desc(caregiverRates.createdAt));
+  }
+
+  async getCaregiverRate(id: string): Promise<CaregiverRate | undefined> {
+    const [rate] = await db.select().from(caregiverRates).where(eq(caregiverRates.id, id));
+    return rate;
   }
 
   async createCaregiverRate(rate: InsertCaregiverRate): Promise<CaregiverRate> {
@@ -4983,6 +5019,11 @@ export class DatabaseStorage implements IStorage {
     return await db.select().from(caregiverInServices).where(eq(caregiverInServices.caregiverId, caregiverId)).orderBy(desc(caregiverInServices.trainingDate));
   }
 
+  async getCaregiverInService(id: string): Promise<CaregiverInService | undefined> {
+    const [inService] = await db.select().from(caregiverInServices).where(eq(caregiverInServices.id, id));
+    return inService;
+  }
+
   async createCaregiverInService(inService: InsertCaregiverInService): Promise<CaregiverInService> {
     const [created] = await db.insert(caregiverInServices).values(inService).returning();
     return created;
@@ -5000,6 +5041,11 @@ export class DatabaseStorage implements IStorage {
   // Caregiver Office Moves
   async getCaregiverOfficeMoves(caregiverId: string): Promise<CaregiverOfficeMove[]> {
     return await db.select().from(caregiverOfficeMoves).where(eq(caregiverOfficeMoves.caregiverId, caregiverId)).orderBy(desc(caregiverOfficeMoves.moveDate));
+  }
+
+  async getCaregiverOfficeMove(id: string): Promise<CaregiverOfficeMove | undefined> {
+    const [move] = await db.select().from(caregiverOfficeMoves).where(eq(caregiverOfficeMoves.id, id));
+    return move;
   }
 
   async createCaregiverOfficeMove(move: InsertCaregiverOfficeMove): Promise<CaregiverOfficeMove> {

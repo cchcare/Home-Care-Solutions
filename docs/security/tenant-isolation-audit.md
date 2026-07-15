@@ -78,6 +78,29 @@ check.
 - [x] `GET/POST/PUT/DELETE /api/payroll[/:id]`, `/api/payroll-line-items/:id`, `POST /:runId/line-items`, `/import-hours`, `/calculate-overtime`, `GET /:runId/export-hours[/pdf]`, `/time-entries` — added `canAccessOffice` throughout; added `getPayrollLineItem()` to storage.ts since no single-item fetcher existed for the line-item ownership check
 - [x] `GET/POST/PUT/DELETE /api/payroll-holidays[/:id]` — added `canAccessOffice`; added `getPayrollHoliday()` to storage.ts (PUT/DELETE didn't fetch the record before mutating it)
 
+## Fixed in a fifth pass (the full caregiver profile sub-resource cluster) — same verification as above
+
+Added a `getCaregiverInScope(req, caregiverId)` helper (mirrors `getClientInScope`) and applied it
+across every caregiver profile sub-resource. Most of these tables had no single-record fetcher at
+all, since nothing had ever needed to check ownership on them — added one for each in storage.ts:
+`getCaregiverNote`, `getCaregiverPreference`, `getCaregiverAbsence`, `getCaregiverAvailabilityById`,
+`getCaregiverExpense`, `getCaregiverPaycheck`, `getCaregiverRate`, `getCaregiverInService`,
+`getCaregiverOfficeMove` (schedules already had one).
+
+- [x] `GET/POST /api/caregivers/:caregiverId/notes`, `PUT/DELETE /api/caregiver-notes/:id`
+- [x] `GET/POST /api/caregivers/:caregiverId/preferences`, `PUT/DELETE /api/caregiver-preferences/:id`
+- [x] `GET/POST /api/caregivers/:caregiverId/absences`, `PUT/DELETE /api/caregiver-absences/:id`
+- [x] `GET/POST/PUT/DELETE /api/caregivers/:caregiverId/availability[/:id]`, `GET/PUT /api/caregivers/:id/weekly-availability`
+- [x] `GET/POST/DELETE /api/caregivers/:id/availability-exceptions[/:exceptionId]`
+- [x] `GET/POST /api/caregivers/:caregiverId/payroll-info` (bank/tax data)
+- [x] `GET/POST /api/caregivers/:caregiverId/expenses`, `PUT/DELETE /api/caregiver-expenses/:id`
+- [x] `GET/POST /api/caregivers/:caregiverId/paychecks`, `PUT /api/caregiver-paychecks/:id` (financial data)
+- [x] `GET/POST /api/caregivers/:caregiverId/rates`, `PUT/DELETE /api/caregiver-rates/:id`
+- [x] `GET/POST /api/caregivers/:caregiverId/in-services`, `PUT/DELETE /api/caregiver-in-services/:id`
+- [x] `GET/POST /api/caregivers/:caregiverId/office-moves`, `PUT /api/caregiver-office-moves/:id` (could previously move a caregiver between offices with no check at all)
+- [x] `GET/POST /api/caregivers/:caregiverId/schedules`, `PUT/DELETE /api/caregiver-schedules/:id`
+- [x] `POST /api/schedules/:id/clock-in`, `/clock-out` — these needed different logic from the rest of the cluster: clock-in is a **self-service** action a caregiver performs on their own schedule from the field (`evv-clock.tsx`), so a flat office-staff-only check would have broken it. Fixed with "requester is either the caregiver themselves (`caregiver.userId === session.user.id`) or office staff in scope."
+
 Everything below this line is **not yet fixed** and needs the same treatment:
 read the actual route, apply `canAccessOffice`/`resolveAllowedOfficeIds` (or a role gate, or
 both), verify against a real Postgres instance, and check off the line.
@@ -107,8 +130,8 @@ both), verify against a real Postgres instance, and check off the line.
 - [x] ~~`GET/PUT/DELETE /api/admin/mcos[/:id]`~~ — fixed, see above
 - [x] ~~`GET/POST/PUT/DELETE /api/admin/settings[/:key]`, `/api/admin/field-configs`, `/api/admin/mco-types[/:id]`~~ — fixed, see above
 - [ ] `GET /api/admin/financial-reports` — role-gated but `officeId` not enforced for non-super-admins, leaks cross-org billing/AR data when omitted
-- [ ] Every caregiver profile sub-resource never checks `:caregiverId` belongs to caller's office: notes, preferences, absences, availability(+exceptions), payroll-info (bank/tax data — high), expenses, paychecks (financial — high), rates, in-services, office-moves (can move a caregiver between offices with no check — high), schedules
-- [ ] `POST /api/schedules/:id/clock-in`, `/clock-out` — no ownership check on the schedule; also emails PHI in-flow
+- [x] ~~Every caregiver profile sub-resource: notes, preferences, absences, availability(+exceptions), payroll-info, expenses, paychecks, rates, in-services, office-moves, schedules~~ — fixed, see above
+- [x] ~~`POST /api/schedules/:id/clock-in`, `/clock-out`~~ — fixed, see above (note: the "emails PHI in-flow" behavior on clock-out is by design — an EVV confirmation email — not a bug)
 - [x] ~~`GET /api/clients/:id/medications`, `GET/PATCH/DELETE /api/medications/:id`, `/log`, `/adherence`, `/logs`~~ — fixed, see above
 - [x] ~~`GET/POST /api/clients/:id/vitals`, `/history`, `/trends`~~ — fixed, see above
 - [ ] `GET /api/notifications/history` — `recipientId` trusted from query
