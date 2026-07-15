@@ -561,7 +561,33 @@ export async function ensureSelfServiceSchema() {
   }
 }
 
+// Guards runProductionInit() so it can only ever execute once per database,
+// no matter how many times the app restarts with INIT_PRODUCTION_DB=true left
+// set. Without this marker, every reboot/redeploy that inherited the env var
+// from the first deploy would silently truncate all production data.
+async function hasProductionInitRun(): Promise<boolean> {
+  const client = await pool.connect();
+  try {
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS production_init_marker (initialized_at timestamp DEFAULT NOW());
+    `);
+    const result = await client.query(`SELECT 1 FROM production_init_marker LIMIT 1;`);
+    return (result.rowCount ?? 0) > 0;
+  } finally {
+    client.release();
+  }
+}
+
 export async function runProductionInit() {
+  if (await hasProductionInitRun()) {
+    console.warn(
+      "[Init] INIT_PRODUCTION_DB is set to true, but production init has already " +
+      "run for this database. Skipping destructive reset to protect existing data. " +
+      "Remove INIT_PRODUCTION_DB from the environment to silence this warning."
+    );
+    return;
+  }
+
   const client = await pool.connect();
   try {
     console.log("[Init] Starting production database reset...");
@@ -608,6 +634,8 @@ export async function runProductionInit() {
       "$2b$12$mIJiuyTERD4KrI.vF9w77ur5QSyUWXWurH502FiiBK0DdyMNCHQjG",
     ]);
     console.log("[Init] Super admin user created: radhatimsina@gmail.com");
+
+    await client.query(`INSERT INTO production_init_marker DEFAULT VALUES;`);
 
     await client.query("COMMIT");
     console.log("[Init] Production database reset complete.");

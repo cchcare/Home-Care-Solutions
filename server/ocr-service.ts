@@ -3,9 +3,13 @@ import { fromPath } from "pdf2pic";
 import fs from "fs";
 import path from "path";
 
+// Falls back to a placeholder key so a missing/misconfigured env var can't
+// crash the whole server at startup (the OpenAI SDK throws synchronously in
+// its constructor when apiKey is empty). Real calls fail gracefully instead,
+// caught by the try/catch blocks below.
 const openai = new OpenAI({
   baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
-  apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
+  apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY || "not-configured",
 });
 
 export interface ExtractedCaregiverData {

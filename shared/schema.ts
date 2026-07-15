@@ -2,6 +2,7 @@ import { sql } from 'drizzle-orm';
 import {
   index,
   uniqueIndex,
+  unique,
   foreignKey,
   jsonb,
   pgTable,
@@ -4201,7 +4202,10 @@ export const dohAuditResponses = pgTable("doh_audit_responses", {
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => [
   index("idx_doh_audit_responses_audit").on(table.auditId),
-  uniqueIndex("idx_doh_audit_responses_unique").on(table.auditId, table.itemKey),
+  // Must be a real UNIQUE CONSTRAINT (not just a unique index) — Postgres only
+  // allows composite foreign keys to reference columns backed by a unique
+  // constraint or primary key, which dohAuditCorrectiveActions' FK below relies on.
+  unique("idx_doh_audit_responses_unique").on(table.auditId, table.itemKey),
 ]);
 
 export const dohAuditAssessmentsRelations = relations(dohAuditAssessments, ({ one, many }) => ({

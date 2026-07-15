@@ -7,7 +7,6 @@ import { setupAuth, isAuthenticated, hashPassword } from "./localAuth";
 import { registerDohSavedComparisonRoutes } from "./audit-saved-comparison-routes";
 import { setupMobileApi } from "./mobileApi";
 import { setupTwilioWebhooks } from "./twilio";
-import { setupStripeRoutes } from "./stripe";
 import { requireFeature, getOrganizationFeatures } from "./feature-gate";
 import multer from "multer";
 import crypto from "crypto";
@@ -10039,7 +10038,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           derivedOfficeId = cg?.officeId ?? null;
         } else {
           const u = await storage.getUser(id);
-          derivedOfficeId = u?.officeId ?? null;
+          derivedOfficeId = u?.primaryOfficeId ?? null;
         }
       }
 
@@ -16899,6 +16898,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       let resolvedSourceId = sourceId;
       if (!resolvedSourceId && sourceType) {
+        if (sourceType !== "oig" && sourceType !== "medicheck" && sourceType !== "sam") {
+          return res.status(400).json({ message: "Invalid sourceType" });
+        }
         const src = await storage.getExclusionSourceByType(sourceType);
         resolvedSourceId = src?.id;
       }
@@ -21279,7 +21281,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const docs = await storage.getDohAuditDocuments(req.params.id);
       const doc = docs.find(d => d.id === req.params.docId);
       if (!doc) return res.status(404).json({ message: "Document not found" });
-      await serveOrRedirectS3File(res, doc.fileName, doc.originalName, doc.mimeType || undefined, "uploads");
+      const s3Key = getS3KeyForFile(doc.fileName, "uploads");
+      const localPath = path.join("uploads", doc.fileName);
+      await serveOrRedirectS3File(res, s3Key, localPath, {
+        contentDisposition: `inline; filename="${doc.originalName}"`,
+        contentType: doc.mimeType || "application/octet-stream",
+      });
     } catch (error: any) {
       res.status(500).json({ message: error.message || "Failed to serve document" });
     }
@@ -21664,9 +21671,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const thirtyDaysFromNow = new Date(now.getTime() + 30 * 24 * 3600000);
 
       const [allCaregivers, allClients, allIncidents, allVisits, allPolicies] = await Promise.all([
-        storage.getCaregivers(officeId),
-        storage.getClients(officeId),
-        storage.getIncidentReports(officeId),
+        storage.getAllCaregivers(officeId),
+        storage.getAllClients(officeId),
+        storage.getAllIncidentReports(officeId),
         storage.getSupervisoryVisits(officeId),
         storage.getPolicyDocuments(officeId),
       ]);
