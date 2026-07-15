@@ -1,0 +1,87 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  typecheck:
+    name: Typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+      - run: npm ci
+      - run: npm run check
+
+  verify:
+    name: Schema push, boot smoke test, and test suite
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: homecare_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/homecare_ci
+      SESSION_SECRET: ci-test-secret
+      NODE_ENV: development
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+      - run: npm ci
+
+      # Catches schema bugs that only surface against a brand-new database,
+      # e.g. a foreign key referencing a column with no real unique
+      # constraint behind it — drizzle-kit push is silent about this until
+      # it runs against an empty DB.
+      - name: Push schema to a fresh database
+        run: npx drizzle-kit push --force
+
+      # Catches boot-time crashes that unit tests never exercise: a broken
+      # import, or a client (like the OpenAI SDK) constructed eagerly at
+      # module load that throws when an env var is missing. A green test
+      # suite says nothing about whether the process can even start.
+      - name: Boot smoke test
+        run: |
+          npx tsx server/index.ts > server-boot.log 2>&1 &
+          SERVER_PID=$!
+          ok=""
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:5000/health > /dev/null 2>&1; then
+              ok="1"
+              break
+            fi
+            if ! kill -0 "$SERVER_PID" 2>/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          if [ -z "$ok" ]; then
+            echo "Server did not become healthy within 30s:"
+            cat server-boot.log
+            kill "$SERVER_PID" 2>/dev/null || true
+            exit 1
+          fi
+          echo "Server booted and responded healthy."
+          kill "$SERVER_PID" 2>/dev/null || true
+
+      - name: Run test suite
+        run: npm test
