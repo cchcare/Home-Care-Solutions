@@ -1225,11 +1225,11 @@ Always be careful with actions that modify data - confirm before making changes 
   ];
 
   let response = await openai.chat.completions.create({
-    model: "gpt-4o",
+    model: "gpt-5",
     messages,
     tools: AVAILABLE_TOOLS,
     tool_choice: "auto",
-    max_tokens: 1024
+    max_completion_tokens: 4096
   });
 
   let assistantMessage = response.choices[0].message;
@@ -1254,11 +1254,11 @@ Always be careful with actions that modify data - confirm before making changes 
     }
     
     response = await openai.chat.completions.create({
-      model: "gpt-4o",
+      model: "gpt-5",
       messages,
       tools: AVAILABLE_TOOLS,
       tool_choice: "auto",
-      max_tokens: 1024
+      max_completion_tokens: 4096
     });
     
     assistantMessage = response.choices[0].message;
