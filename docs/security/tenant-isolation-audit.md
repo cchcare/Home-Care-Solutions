@@ -41,7 +41,24 @@ test passes, full test suite passes 90/90 + 5 pre-skipped)
 
 That's 18 of the most severe findings — chosen because each one required either literally no
 authentication-level check at all, or wrote money/PHI/permissions data with zero ownership
-check. Everything below this line is **not yet fixed** and needs the same treatment:
+check.
+
+## Fixed in a second pass (write-path IDOR on PHI/financial data) — same verification as above
+
+- [x] `GET/PATCH /api/claims/:id`, `/submit`, `/void`, `/resubmit` — added `canAccessOffice` check
+- [x] `GET/POST /api/claims/:id/line-items`, `DELETE /api/claims/:claimId/line-items/:id` — added `canAccessOffice` check (the DELETE didn't even fetch the parent claim before)
+- [x] `GET /api/claims`, `/aging`, `/summary` — non-super-admins now locked to their own `primaryOfficeId`, matching the reference pattern (was fully client-supplied)
+- [x] `GET /api/claims/by-client/:clientId` — added a client-ownership check before returning claims
+- [x] Added `getClientInScope(req, clientId)` helper (client sub-resources key off `clientId`, not their own `officeId`)
+- [x] `GET/POST /api/clients/:id/medications`, `GET/PATCH/DELETE /api/medications/:id`, `/log`, `/adherence`, `/logs` — added `getClientInScope` check throughout (8 endpoints)
+- [x] `GET/POST /api/clients/:id/vitals`, `/history`, `/trends` — added `getClientInScope` check (4 endpoints)
+- [x] Added `getBackgroundCheckOfficeId(check)` helper (a background check belongs to an applicant or a caregiver, not an office directly)
+- [x] `GET/POST /api/applicants/:id/background-checks`, `GET/POST /api/caregivers/:id/background-checks` — added ownership check on the parent
+- [x] `PATCH /api/background-checks/:id` — added ownership check via the resolved parent
+- [x] `GET /api/background-checks/pending`, `/expiring`, `/by-status/:status` — added `scopeBackgroundChecks` in-process filter (no officeId column exists to filter by in SQL for this table)
+- [x] `POST /api/background-checks/bulk` — added ownership check on the target applicant/caregiver
+
+Everything below this line is **not yet fixed** and needs the same treatment:
 read the actual route, apply `canAccessOffice`/`resolveAllowedOfficeIds` (or a role gate, or
 both), verify against a real Postgres instance, and check off the line.
 
@@ -73,10 +90,10 @@ both), verify against a real Postgres instance, and check off the line.
 - [ ] `POST /api/permissions/seed`-adjacent — already fixed above
 - [ ] Every caregiver profile sub-resource never checks `:caregiverId` belongs to caller's office: notes, preferences, absences, availability(+exceptions), payroll-info (bank/tax data — high), expenses, paychecks (financial — high), rates, in-services, office-moves (can move a caregiver between offices with no check — high), schedules
 - [ ] `POST /api/schedules/:id/clock-in`, `/clock-out` — no ownership check on the schedule; also emails PHI in-flow
-- [ ] `GET /api/clients/:id/medications`, `GET/PATCH/DELETE /api/medications/:id`, `/log`, `/adherence`, `/logs` — PHI, no ownership check anywhere
-- [ ] `GET/POST /api/clients/:id/vitals`, `/history`, `/trends` — PHI, no ownership check
+- [x] ~~`GET /api/clients/:id/medications`, `GET/PATCH/DELETE /api/medications/:id`, `/log`, `/adherence`, `/logs`~~ — fixed, see above
+- [x] ~~`GET/POST /api/clients/:id/vitals`, `/history`, `/trends`~~ — fixed, see above
 - [ ] `GET /api/notifications/history` — `recipientId` trusted from query
-- [ ] `GET/POST /api/applicants*`, `/interviews`, `/notes`, `background-checks` family (applicant + caregiver) — no ownership check; background-check listing endpoints (`/pending`, `/expiring`, `/by-status`) return cross-org data to any authenticated user
+- [ ] `GET/POST /api/applicants*`, `/interviews`, `/notes` — no ownership check (the `background-checks` family under applicants/caregivers is fixed, see above)
 - [ ] `GET /api/mileage/pending` — returns all pending mileage system-wide; `/approve` — no org check on target log
 
 ### Payroll runs, PTO, performance reviews, shift matching (lines ~9100–13900)
@@ -93,8 +110,8 @@ both), verify against a real Postgres instance, and check off the line.
 - [ ] `GET/POST /api/caregivers/:id/mileage`, `PATCH /api/mileage/:id` — no ownership check
 
 ### Claims, surveys, analytics, referrals, letter templates, coordinator pay (lines ~13700–18500)
-- [ ] `GET/PATCH /api/claims/:id`, `DELETE /api/claims/:claimId/line-items/:id`, `/submit`, `/void`, `/resubmit`, `/line-items` — financial data, no ownership check anywhere
-- [ ] `GET /api/claims`, `/aging`, `/summary`, `/by-client/:clientId` — officeId trusted from query
+- [x] ~~`GET/PATCH /api/claims/:id`, `DELETE /api/claims/:claimId/line-items/:id`, `/submit`, `/void`, `/resubmit`, `/line-items`~~ — fixed, see above
+- [x] ~~`GET /api/claims`, `/aging`, `/summary`, `/by-client/:clientId`~~ — fixed, see above
 - [ ] `GET /api/surveys/by-client/:clientId`, `/by-caregiver/:caregiverId`, `GET /api/surveys`, `/stats`, `PATCH /api/surveys/:id`, `POST /api/surveys/send-bulk` — PHI/no ownership check
 - [ ] `GET /api/analytics/*` (kpis, operational, financial, compliance, staffing, dashboard, trends, forecast) — all trust client-supplied `officeId` (`parseOfficeId` helper), leaking org-wide financial/compliance aggregates
 - [ ] `GET /api/pto-balances[/export.csv]` — officeId trusted (see also PTO section above)

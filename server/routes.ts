@@ -297,6 +297,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
     return allowed === "ALL" || (Array.isArray(allowed) && allowed.includes(officeId));
   };
 
+  // Fetch a client only if it's in the caller's scope; otherwise undefined.
+  // Used by sub-resources (medications, vitals, ...) that key off clientId
+  // but don't carry an officeId of their own.
+  const getClientInScope = async (req: any, clientId: string) => {
+    const client = await storage.getClient(clientId);
+    if (!client || !(await canAccessOffice(req, client.officeId))) return undefined;
+    return client;
+  };
+
   // Gate for RBAC administration (custom roles, permissions, role assignment).
   // No legitimate non-admin use case reads or writes this data.
   const requireAdminRole = (req: any, res: any, next: any) => {
@@ -11394,8 +11403,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // ==================== MEDICATION TRACKING ====================
   // Get all medications for a client
-  app.get("/api/clients/:id/medications", isAuthenticated, async (req, res) => {
+  app.get("/api/clients/:id/medications", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getClientInScope(req, req.params.id))) {
+        return res.status(404).json({ message: "Client not found" });
+      }
       const medications = await storage.getMedicationsByClient(req.params.id);
       res.json(medications);
     } catch (error) {
@@ -11407,6 +11419,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Create a new medication for a client
   app.post("/api/clients/:id/medications", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getClientInScope(req, req.params.id))) {
+        return res.status(404).json({ message: "Client not found" });
+      }
       const processedBody = {
         ...req.body,
         clientId: req.params.id,
@@ -11435,10 +11450,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get a single medication
-  app.get("/api/medications/:id", isAuthenticated, async (req, res) => {
+  app.get("/api/medications/:id", isAuthenticated, async (req: any, res) => {
     try {
       const medication = await storage.getMedication(req.params.id);
-      if (!medication) {
+      if (!medication || !(await getClientInScope(req, medication.clientId))) {
         return res.status(404).json({ message: "Medication not found" });
       }
       res.json(medication);
@@ -11452,10 +11467,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.patch("/api/medications/:id", isAuthenticated, async (req: any, res) => {
     try {
       const oldMedication = await storage.getMedication(req.params.id);
-      if (!oldMedication) {
+      if (!oldMedication || !(await getClientInScope(req, oldMedication.clientId))) {
         return res.status(404).json({ message: "Medication not found" });
       }
-      
+
       const processedBody = {
         ...req.body,
         startDate: coerceDate(req.body.startDate),
@@ -11487,10 +11502,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.delete("/api/medications/:id", isAuthenticated, async (req: any, res) => {
     try {
       const medication = await storage.getMedication(req.params.id);
-      if (!medication) {
+      if (!medication || !(await getClientInScope(req, medication.clientId))) {
         return res.status(404).json({ message: "Medication not found" });
       }
-      
+
       await storage.deleteMedication(req.params.id);
       
       await storage.createAuditLog({
@@ -11514,10 +11529,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/medications/:id/log", isAuthenticated, async (req: any, res) => {
     try {
       const medication = await storage.getMedication(req.params.id);
-      if (!medication) {
+      if (!medication || !(await getClientInScope(req, medication.clientId))) {
         return res.status(404).json({ message: "Medication not found" });
       }
-      
+
       const processedBody = {
         ...req.body,
         medicationId: req.params.id,
@@ -11546,13 +11561,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get medication adherence statistics
-  app.get("/api/medications/:id/adherence", isAuthenticated, async (req, res) => {
+  app.get("/api/medications/:id/adherence", isAuthenticated, async (req: any, res) => {
     try {
       const medication = await storage.getMedication(req.params.id);
-      if (!medication) {
+      if (!medication || !(await getClientInScope(req, medication.clientId))) {
         return res.status(404).json({ message: "Medication not found" });
       }
-      
+
       const adherence = await storage.getMedicationAdherence(req.params.id);
       res.json(adherence);
     } catch (error) {
@@ -11562,13 +11577,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get medication logs
-  app.get("/api/medications/:id/logs", isAuthenticated, async (req, res) => {
+  app.get("/api/medications/:id/logs", isAuthenticated, async (req: any, res) => {
     try {
       const medication = await storage.getMedication(req.params.id);
-      if (!medication) {
+      if (!medication || !(await getClientInScope(req, medication.clientId))) {
         return res.status(404).json({ message: "Medication not found" });
       }
-      
+
       const logs = await storage.getMedicationLogs(req.params.id);
       res.json(logs);
     } catch (error) {
@@ -11578,8 +11593,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Vital Signs routes
-  app.get("/api/clients/:id/vitals", isAuthenticated, async (req, res) => {
+  app.get("/api/clients/:id/vitals", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getClientInScope(req, req.params.id))) {
+        return res.status(404).json({ message: "Client not found" });
+      }
       const limit = req.query.limit ? parseInt(req.query.limit as string) : 50;
       const vitals = await storage.getVitalSignsByClient(req.params.id, limit);
       res.json(vitals);
@@ -11591,6 +11609,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/clients/:id/vitals", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getClientInScope(req, req.params.id))) {
+        return res.status(404).json({ message: "Client not found" });
+      }
       const processedBody = {
         ...req.body,
         clientId: req.params.id,
@@ -11616,11 +11637,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/clients/:id/vitals/history", isAuthenticated, async (req, res) => {
+  app.get("/api/clients/:id/vitals/history", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getClientInScope(req, req.params.id))) {
+        return res.status(404).json({ message: "Client not found" });
+      }
       const startDate = req.query.startDate ? new Date(req.query.startDate as string) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
       const endDate = req.query.endDate ? new Date(req.query.endDate as string) : new Date();
-      
+
       const vitals = await storage.getVitalSignsHistory(req.params.id, startDate, endDate);
       res.json(vitals);
     } catch (error) {
@@ -11629,11 +11653,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/clients/:id/vitals/trends", isAuthenticated, async (req, res) => {
+  app.get("/api/clients/:id/vitals/trends", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getClientInScope(req, req.params.id))) {
+        return res.status(404).json({ message: "Client not found" });
+      }
       const startDate = req.query.startDate ? new Date(req.query.startDate as string) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
       const endDate = req.query.endDate ? new Date(req.query.endDate as string) : new Date();
-      
+
       const trends = await storage.getVitalSignTrends(req.params.id, startDate, endDate);
       res.json(trends);
     } catch (error) {
@@ -12571,8 +12598,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Background Check Routes
-  app.get("/api/applicants/:id/background-checks", isAuthenticated, async (req, res) => {
+  // A background check belongs to either an applicant or a caregiver;
+  // resolve whichever office should gate access to it.
+  const getBackgroundCheckOfficeId = async (check: { applicantId: string | null; caregiverId: string | null }): Promise<string | null> => {
+    if (check.applicantId) {
+      const applicant = await storage.getApplicant(check.applicantId);
+      return applicant?.officeId ?? null;
+    }
+    if (check.caregiverId) {
+      const caregiver = await storage.getCaregiver(check.caregiverId);
+      return caregiver?.officeId ?? null;
+    }
+    return null;
+  };
+
+  app.get("/api/applicants/:id/background-checks", isAuthenticated, async (req: any, res) => {
     try {
+      const applicant = await storage.getApplicant(req.params.id);
+      if (!applicant || !(await canAccessOffice(req, applicant.officeId))) {
+        return res.status(404).json({ message: "Applicant not found" });
+      }
       const checks = await storage.getBackgroundChecksByApplicant(req.params.id);
       res.json(checks);
     } catch (error) {
@@ -12583,6 +12628,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/applicants/:id/background-checks", isAuthenticated, async (req: any, res) => {
     try {
+      const applicant = await storage.getApplicant(req.params.id);
+      if (!applicant || !(await canAccessOffice(req, applicant.officeId))) {
+        return res.status(404).json({ message: "Applicant not found" });
+      }
       const processedBody = {
         ...req.body,
         applicantId: req.params.id,
@@ -12613,8 +12662,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/caregivers/:id/background-checks", isAuthenticated, async (req, res) => {
+  app.get("/api/caregivers/:id/background-checks", isAuthenticated, async (req: any, res) => {
     try {
+      const caregiver = await storage.getCaregiver(req.params.id);
+      if (!caregiver || !(await canAccessOffice(req, caregiver.officeId))) {
+        return res.status(404).json({ message: "Caregiver not found" });
+      }
       const checks = await storage.getBackgroundChecksByCaregiver(req.params.id);
       res.json(checks);
     } catch (error) {
@@ -12625,6 +12678,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/caregivers/:id/background-checks", isAuthenticated, async (req: any, res) => {
     try {
+      const caregiver = await storage.getCaregiver(req.params.id);
+      if (!caregiver || !(await canAccessOffice(req, caregiver.officeId))) {
+        return res.status(404).json({ message: "Caregiver not found" });
+      }
       const processedBody = {
         ...req.body,
         caregiverId: req.params.id,
@@ -12658,7 +12715,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.patch("/api/background-checks/:id", isAuthenticated, async (req: any, res) => {
     try {
       const oldCheck = await storage.getBackgroundCheck(req.params.id);
-      if (!oldCheck) {
+      if (!oldCheck || !(await canAccessOffice(req, await getBackgroundCheckOfficeId(oldCheck)))) {
         return res.status(404).json({ message: "Background check not found" });
       }
 
@@ -12690,31 +12747,45 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/background-checks/pending", isAuthenticated, async (req, res) => {
+  // These three list endpoints have no officeId column to filter by in SQL
+  // (a background check belongs to an applicant or a caregiver, not an
+  // office directly), so scope them by resolving each check's office and
+  // filtering in-process. Skipped entirely for super_admin.
+  const scopeBackgroundChecks = async (req: any, checks: any[]) => {
+    const allowed = await resolveAllowedOfficeIds(req);
+    if (allowed === "ALL") return checks;
+    if (allowed.length === 0) return [];
+    const withOffice = await Promise.all(
+      checks.map(async (c) => ({ check: c, officeId: await getBackgroundCheckOfficeId(c) }))
+    );
+    return withOffice.filter((x) => x.officeId && allowed.includes(x.officeId)).map((x) => x.check);
+  };
+
+  app.get("/api/background-checks/pending", isAuthenticated, async (req: any, res) => {
     try {
       const checks = await storage.getPendingBackgroundChecks();
-      res.json(checks);
+      res.json(await scopeBackgroundChecks(req, checks));
     } catch (error) {
       console.error("Error fetching pending background checks:", error);
       res.status(500).json({ message: "Failed to fetch pending background checks" });
     }
   });
 
-  app.get("/api/background-checks/expiring", isAuthenticated, async (req, res) => {
+  app.get("/api/background-checks/expiring", isAuthenticated, async (req: any, res) => {
     try {
       const daysAhead = parseInt(req.query.days as string) || 30;
       const checks = await storage.getExpiringBackgroundChecks(daysAhead);
-      res.json(checks);
+      res.json(await scopeBackgroundChecks(req, checks));
     } catch (error) {
       console.error("Error fetching expiring background checks:", error);
       res.status(500).json({ message: "Failed to fetch expiring background checks" });
     }
   });
 
-  app.get("/api/background-checks/by-status/:status", isAuthenticated, async (req, res) => {
+  app.get("/api/background-checks/by-status/:status", isAuthenticated, async (req: any, res) => {
     try {
       const checks = await storage.getBackgroundChecksByStatus(req.params.status);
-      res.json(checks);
+      res.json(await scopeBackgroundChecks(req, checks));
     } catch (error) {
       console.error("Error fetching background checks by status:", error);
       res.status(500).json({ message: "Failed to fetch background checks" });
@@ -12731,6 +12802,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       if (!applicantId && !caregiverId) {
         return res.status(400).json({ message: "Either applicantId or caregiverId is required" });
+      }
+
+      const targetOfficeId = await getBackgroundCheckOfficeId({
+        applicantId: applicantId || null,
+        caregiverId: caregiverId || null,
+      });
+      if (!(await canAccessOffice(req, targetOfficeId))) {
+        return res.status(404).json({ message: "Applicant or caregiver not found" });
       }
 
       const checks = await storage.bulkCreateBackgroundChecks(
@@ -14873,11 +14952,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ==================== CLAIMS MANAGEMENT ====================
 
   // Get all claims
-  app.get("/api/claims", isAuthenticated, async (req, res) => {
+  app.get("/api/claims", isAuthenticated, async (req: any, res) => {
     try {
       const { officeId, status, startDate, endDate } = req.query;
-      const officeFilter = officeId && officeId !== 'all' ? String(officeId) : undefined;
-      
+      const currentUser = req.session?.user;
+      const isSuperAdmin = currentUser?.role === "super_admin";
+      let officeFilter: string | undefined;
+      if (isSuperAdmin) {
+        officeFilter = officeId && officeId !== 'all' ? String(officeId) : undefined;
+      } else {
+        officeFilter = currentUser?.primaryOfficeId;
+        if (!officeFilter) return res.json([]);
+      }
+
       let claims;
       if (status) {
         claims = await storage.getClaimsByStatus(String(status));
@@ -14902,10 +14989,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get claims aging report
-  app.get("/api/claims/aging", isAuthenticated, async (req, res) => {
+  app.get("/api/claims/aging", isAuthenticated, async (req: any, res) => {
     try {
       const { officeId } = req.query;
-      const officeFilter = officeId && officeId !== 'all' ? String(officeId) : undefined;
+      const currentUser = req.session?.user;
+      const isSuperAdmin = currentUser?.role === "super_admin";
+      let officeFilter: string | undefined;
+      if (isSuperAdmin) {
+        officeFilter = officeId && officeId !== 'all' ? String(officeId) : undefined;
+      } else {
+        officeFilter = currentUser?.primaryOfficeId;
+        if (!officeFilter) return res.json([]);
+      }
       const report = await storage.getClaimsAgingReport(officeFilter);
       res.json(report);
     } catch (error) {
@@ -14915,10 +15010,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get claims summary
-  app.get("/api/claims/summary", isAuthenticated, async (req, res) => {
+  app.get("/api/claims/summary", isAuthenticated, async (req: any, res) => {
     try {
       const { officeId, startDate, endDate } = req.query;
-      const officeFilter = officeId && officeId !== 'all' ? String(officeId) : undefined;
+      const currentUser = req.session?.user;
+      const isSuperAdmin = currentUser?.role === "super_admin";
+      let officeFilter: string | undefined;
+      if (isSuperAdmin) {
+        officeFilter = officeId && officeId !== 'all' ? String(officeId) : undefined;
+      } else {
+        officeFilter = currentUser?.primaryOfficeId;
+        if (!officeFilter) {
+          return res.json({ totalClaims: 0, totalBilled: 0, totalApproved: 0, totalPaid: 0, totalDenied: 0, byStatus: [] });
+        }
+      }
       const start = startDate ? new Date(String(startDate)) : undefined;
       const end = endDate ? new Date(String(endDate)) : undefined;
       
@@ -14931,8 +15036,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get claims by client
-  app.get("/api/claims/by-client/:clientId", isAuthenticated, async (req, res) => {
+  app.get("/api/claims/by-client/:clientId", isAuthenticated, async (req: any, res) => {
     try {
+      const client = await storage.getClient(req.params.clientId);
+      if (!client || !(await canAccessOffice(req, client.officeId))) {
+        return res.status(404).json({ message: "Client not found" });
+      }
       const claims = await storage.getClaimsByClient(req.params.clientId);
       res.json(claims);
     } catch (error) {
@@ -14972,10 +15081,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get a specific claim
-  app.get("/api/claims/:id", isAuthenticated, async (req, res) => {
+  app.get("/api/claims/:id", isAuthenticated, async (req: any, res) => {
     try {
       const claim = await storage.getClaim(req.params.id);
-      if (!claim) {
+      if (!claim || !(await canAccessOffice(req, claim.officeId))) {
         return res.status(404).json({ message: "Claim not found" });
       }
       res.json(claim);
@@ -14989,10 +15098,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.patch("/api/claims/:id", isAuthenticated, async (req: any, res) => {
     try {
       const oldClaim = await storage.getClaim(req.params.id);
-      if (!oldClaim) {
+      if (!oldClaim || !(await canAccessOffice(req, oldClaim.officeId))) {
         return res.status(404).json({ message: "Claim not found" });
       }
-      
+
       const processedBody = {
         ...req.body,
         serviceDate: req.body.serviceDate ? new Date(req.body.serviceDate) : undefined,
@@ -15027,10 +15136,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/claims/:id/submit", isAuthenticated, async (req: any, res) => {
     try {
       const oldClaim = await storage.getClaim(req.params.id);
-      if (!oldClaim) {
+      if (!oldClaim || !(await canAccessOffice(req, oldClaim.officeId))) {
         return res.status(404).json({ message: "Claim not found" });
       }
-      
+
       if (oldClaim.status !== 'draft') {
         return res.status(400).json({ message: "Only draft claims can be submitted" });
       }
@@ -15059,10 +15168,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/claims/:id/void", isAuthenticated, async (req: any, res) => {
     try {
       const oldClaim = await storage.getClaim(req.params.id);
-      if (!oldClaim) {
+      if (!oldClaim || !(await canAccessOffice(req, oldClaim.officeId))) {
         return res.status(404).json({ message: "Claim not found" });
       }
-      
+
       const { reason } = req.body;
       if (!reason) {
         return res.status(400).json({ message: "Void reason is required" });
@@ -15092,10 +15201,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/claims/:id/resubmit", isAuthenticated, async (req: any, res) => {
     try {
       const originalClaim = await storage.getClaim(req.params.id);
-      if (!originalClaim) {
+      if (!originalClaim || !(await canAccessOffice(req, originalClaim.officeId))) {
         return res.status(404).json({ message: "Claim not found" });
       }
-      
+
       if (!['denied', 'partial'].includes(originalClaim.status || '')) {
         return res.status(400).json({ message: "Only denied or partial claims can be resubmitted" });
       }
@@ -15121,13 +15230,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get line items for a claim
-  app.get("/api/claims/:id/line-items", isAuthenticated, async (req, res) => {
+  app.get("/api/claims/:id/line-items", isAuthenticated, async (req: any, res) => {
     try {
       const claim = await storage.getClaim(req.params.id);
-      if (!claim) {
+      if (!claim || !(await canAccessOffice(req, claim.officeId))) {
         return res.status(404).json({ message: "Claim not found" });
       }
-      
+
       const lineItems = await storage.getClaimLineItems(req.params.id);
       res.json(lineItems);
     } catch (error) {
@@ -15140,10 +15249,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/claims/:id/line-items", isAuthenticated, async (req: any, res) => {
     try {
       const claim = await storage.getClaim(req.params.id);
-      if (!claim) {
+      if (!claim || !(await canAccessOffice(req, claim.officeId))) {
         return res.status(404).json({ message: "Claim not found" });
       }
-      
+
       const validatedData = insertClaimLineItemSchema.parse({
         ...req.body,
         claimId: req.params.id,
@@ -15171,8 +15280,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Delete a claim line item
   app.delete("/api/claims/:claimId/line-items/:id", isAuthenticated, async (req: any, res) => {
     try {
+      const claim = await storage.getClaim(req.params.claimId);
+      if (!claim || !(await canAccessOffice(req, claim.officeId))) {
+        return res.status(404).json({ message: "Claim not found" });
+      }
       await storage.deleteClaimLineItem(req.params.id);
-      
+
+
       await storage.createAuditLog({
         userId: req.session?.user?.id,
         action: "delete",
