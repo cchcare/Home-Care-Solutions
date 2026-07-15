@@ -1,0 +1,22 @@
+{
+  "buildCommand": "vite build",
+  "outputDirectory": "dist/public",
+  "functions": {
+    "api/index.ts": {
+      "maxDuration": 300
+    }
+  },
+  "rewrites": [
+    { "source": "/api/:path*", "destination": "/api/index" },
+    { "source": "/uploads/:path*", "destination": "/api/index" },
+    { "source": "/((?!api/|uploads/).*)", "destination": "/index.html" }
+  ],
+  "crons": [
+    { "path": "/api/cron/birthdays", "schedule": "0 8 * * *" },
+    { "path": "/api/cron/exclusion-check", "schedule": "0 2 1,15 * *" },
+    { "path": "/api/cron/expiration-alerts", "schedule": "0 7 * * *" },
+    { "path": "/api/cron/hhax-summary", "schedule": "30 7 * * *" },
+    { "path": "/api/cron/pto-accrual", "schedule": "0 1 * * *" },
+    { "path": "/api/cron/offboarding-sweep", "schedule": "15 2 * * *" }
+  ]
+}
