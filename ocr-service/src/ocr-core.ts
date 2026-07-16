@@ -245,7 +245,7 @@ async function extractDataFromImages<T>(
   }));
 
   const response = await openai.chat.completions.create({
-    model: "gpt-4o",
+    model: "gpt-5",
     messages: [
       {
         role: "user",
