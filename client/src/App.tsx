@@ -56,6 +56,8 @@ import CustomIntegrations from "@/pages/custom-integrations";
 import ApiKeys from "@/pages/api-keys";
 import LetterTemplates from "@/pages/letter-templates";
 import CoordinatorPayRecords from "@/pages/coordinator-pay-records";
+import Coordinators from "@/pages/coordinators";
+import CoordinatorCompensation from "@/pages/coordinator-compensation";
 import PayrollHub from "@/pages/payroll-hub";
 import EmailTemplates from "@/pages/email-templates";
 import ExpirationAlerts from "@/pages/expiration-alerts";
@@ -208,6 +210,8 @@ function Router() {
           <Route path="/custom-integrations" component={CustomIntegrations} />
           <Route path="/letter-templates" component={LetterTemplates} />
           <Route path="/coordinator-pay-records" component={CoordinatorPayRecords} />
+          <Route path="/coordinators" component={Coordinators} />
+          <Route path="/coordinator-compensation" component={CoordinatorCompensation} />
           <Route path="/email-templates" component={EmailTemplates} />
           <Route path="/expiration-alerts" component={ExpirationAlerts} />
           <Route path="/payroll" component={PayrollHub} />
