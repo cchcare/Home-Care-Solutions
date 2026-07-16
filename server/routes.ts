@@ -316,6 +316,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
     return caregiver;
   };
 
+  // A client referral carries no officeId of its own; it resolves through its
+  // referral source. Returns the referral only if the caller can access that
+  // source's office.
+  const getClientReferralInScope = async (req: any, referralId: string) => {
+    const referral = await storage.getClientReferral(referralId);
+    if (!referral) return undefined;
+    const source = await storage.getReferralSource(referral.referralSourceId);
+    if (!source || !(await canAccessOffice(req, source.officeId))) return undefined;
+    return referral;
+  };
+
   // Gate for RBAC administration (custom roles, permissions, role assignment).
   // No legitimate non-admin use case reads or writes this data.
   const requireAdminRole = (req: any, res: any, next: any) => {
@@ -15028,10 +15039,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Survey Response routes
-  app.get("/api/surveys", isAuthenticated, async (req, res) => {
+  app.get("/api/surveys", isAuthenticated, async (req: any, res) => {
     try {
-      const { officeId } = req.query;
-      const officeFilter = officeId && officeId !== 'all' ? String(officeId) : undefined;
+      const officeFilter = parseOfficeId(req);
       const surveys = await storage.getSurveyResponses(officeFilter);
       res.json(surveys);
     } catch (error) {
@@ -15040,13 +15050,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/surveys/stats", isAuthenticated, async (req, res) => {
+  app.get("/api/surveys/stats", isAuthenticated, async (req: any, res) => {
     try {
-      const { officeId, startDate, endDate } = req.query;
-      const officeFilter = officeId && officeId !== 'all' ? String(officeId) : undefined;
+      const { startDate, endDate } = req.query;
+      const officeFilter = parseOfficeId(req);
       const start = startDate ? new Date(String(startDate)) : undefined;
       const end = endDate ? new Date(String(endDate)) : undefined;
-      
+
       const stats = await storage.getSatisfactionStats(officeFilter, start, end);
       res.json(stats);
     } catch (error) {
@@ -15055,8 +15065,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/surveys/by-client/:clientId", isAuthenticated, async (req, res) => {
+  app.get("/api/surveys/by-client/:clientId", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getClientInScope(req, req.params.clientId))) {
+        return res.status(404).json({ message: "Client not found" });
+      }
       const surveys = await storage.getSurveyResponsesByClient(req.params.clientId);
       res.json(surveys);
     } catch (error) {
@@ -15065,8 +15078,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/surveys/by-caregiver/:caregiverId", isAuthenticated, async (req, res) => {
+  app.get("/api/surveys/by-caregiver/:caregiverId", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getCaregiverInScope(req, req.params.caregiverId))) {
+        return res.status(404).json({ message: "Caregiver not found" });
+      }
       const surveys = await storage.getSurveyResponsesByCaregiver(req.params.caregiverId);
       res.json(surveys);
     } catch (error) {
@@ -15201,12 +15217,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       for (const clientId of clientIds) {
         try {
-          const client = await storage.getClient(clientId);
+          const client = await getClientInScope(req, clientId);
           if (!client) {
             results.push({ clientId, success: false, error: "Client not found" });
             continue;
           }
-          
+
           const accessToken = crypto.randomBytes(32).toString('hex');
           
           const surveyData = {
@@ -15263,10 +15279,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.patch("/api/surveys/:id", isAuthenticated, async (req: any, res) => {
     try {
       const oldSurvey = await storage.getSurveyResponse(req.params.id);
-      if (!oldSurvey) {
+      if (!oldSurvey || !(await canAccessOffice(req, oldSurvey.officeId))) {
         return res.status(404).json({ message: "Survey not found" });
       }
-      
+
       const validatedData = insertSurveyResponseSchema.partial().parse(req.body);
       const survey = await storage.updateSurveyResponse(req.params.id, validatedData);
       
@@ -15663,9 +15679,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
     };
   }
 
+  // Scope-aware: super_admin may query any office (or all when omitted);
+  // everyone else is forced to their own primaryOfficeId regardless of the
+  // query param. A non-super-admin with no office gets a sentinel that
+  // matches no rows, so analytics return empty rather than leaking org-wide.
   function parseOfficeId(req: any): string | undefined {
-    const { officeId } = req.query;
-    return officeId && officeId !== 'all' ? String(officeId) : undefined;
+    const currentUser = req.session?.user;
+    const requested = req.query.officeId && req.query.officeId !== 'all' ? String(req.query.officeId) : undefined;
+    if (currentUser?.role === "super_admin") return requested;
+    return currentUser?.primaryOfficeId || "__no_office_scope__";
   }
 
   // Get all KPIs combined
@@ -15789,10 +15811,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ==================== REFERRAL SOURCE TRACKING ROUTES ====================
 
   // Get all referral sources
-  app.get("/api/referral-sources", isAuthenticated, async (req, res) => {
+  app.get("/api/referral-sources", isAuthenticated, async (req: any, res) => {
     try {
-      const { officeId } = req.query;
-      const officeFilter = officeId && officeId !== 'all' ? String(officeId) : undefined;
+      const officeFilter = parseOfficeId(req);
       const sources = await storage.getReferralSources(officeFilter);
       res.json(sources);
     } catch (error) {
@@ -15802,10 +15823,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get top performing referral sources
-  app.get("/api/referral-sources/top", isAuthenticated, async (req, res) => {
+  app.get("/api/referral-sources/top", isAuthenticated, async (req: any, res) => {
     try {
-      const { officeId, limit } = req.query;
-      const officeFilter = officeId && officeId !== 'all' ? String(officeId) : undefined;
+      const { limit } = req.query;
+      const officeFilter = parseOfficeId(req);
       const limitNum = limit ? parseInt(String(limit)) : 10;
       const topSources = await storage.getTopReferralSources(officeFilter, limitNum);
       res.json(topSources);
@@ -15816,10 +15837,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get single referral source
-  app.get("/api/referral-sources/:id", isAuthenticated, async (req, res) => {
+  app.get("/api/referral-sources/:id", isAuthenticated, async (req: any, res) => {
     try {
       const source = await storage.getReferralSource(req.params.id);
-      if (!source) {
+      if (!source || !(await canAccessOffice(req, source.officeId))) {
         return res.status(404).json({ message: "Referral source not found" });
       }
       res.json(source);
@@ -15830,10 +15851,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get referrals for a specific source
-  app.get("/api/referral-sources/:id/referrals", isAuthenticated, async (req, res) => {
+  app.get("/api/referral-sources/:id/referrals", isAuthenticated, async (req: any, res) => {
     try {
       const source = await storage.getReferralSource(req.params.id);
-      if (!source) {
+      if (!source || !(await canAccessOffice(req, source.officeId))) {
         return res.status(404).json({ message: "Referral source not found" });
       }
       const referrals = await storage.getReferralsBySource(req.params.id);
@@ -15871,10 +15892,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.patch("/api/referral-sources/:id", isAuthenticated, async (req: any, res) => {
     try {
       const oldSource = await storage.getReferralSource(req.params.id);
-      if (!oldSource) {
+      if (!oldSource || !(await canAccessOffice(req, oldSource.officeId))) {
         return res.status(404).json({ message: "Referral source not found" });
       }
-      
+
       const validatedData = insertReferralSourceSchema.partial().parse(req.body);
       const source = await storage.updateReferralSource(req.params.id, validatedData);
       
@@ -15900,10 +15921,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.delete("/api/referral-sources/:id", isAuthenticated, async (req: any, res) => {
     try {
       const source = await storage.getReferralSource(req.params.id);
-      if (!source) {
+      if (!source || !(await canAccessOffice(req, source.officeId))) {
         return res.status(404).json({ message: "Referral source not found" });
       }
-      
+
       await storage.deleteReferralSource(req.params.id);
       
       await storage.createAuditLog({
@@ -15924,10 +15945,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get all client referrals
-  app.get("/api/client-referrals", isAuthenticated, async (req, res) => {
+  app.get("/api/client-referrals", isAuthenticated, async (req: any, res) => {
     try {
-      const { officeId } = req.query;
-      const officeFilter = officeId && officeId !== 'all' ? String(officeId) : undefined;
+      const officeFilter = parseOfficeId(req);
       const referrals = await storage.getClientReferrals(officeFilter);
       res.json(referrals);
     } catch (error) {
@@ -15937,9 +15957,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get single client referral
-  app.get("/api/client-referrals/:id", isAuthenticated, async (req, res) => {
+  app.get("/api/client-referrals/:id", isAuthenticated, async (req: any, res) => {
     try {
-      const referral = await storage.getClientReferral(req.params.id);
+      const referral = await getClientReferralInScope(req, req.params.id);
       if (!referral) {
         return res.status(404).json({ message: "Client referral not found" });
       }
@@ -15982,17 +16002,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Update client referral
   app.patch("/api/client-referrals/:id", isAuthenticated, async (req: any, res) => {
     try {
-      const oldReferral = await storage.getClientReferral(req.params.id);
+      const oldReferral = await getClientReferralInScope(req, req.params.id);
       if (!oldReferral) {
         return res.status(404).json({ message: "Client referral not found" });
       }
-      
+
       const processedBody = {
         ...req.body,
         referralDate: req.body.referralDate ? new Date(req.body.referralDate) : undefined,
         conversionDate: req.body.conversionDate ? new Date(req.body.conversionDate) : undefined,
       };
-      
+
       const validatedData = insertClientReferralSchema.partial().parse(processedBody);
       const referral = await storage.updateClientReferral(req.params.id, validatedData);
       
@@ -16017,11 +16037,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Convert client referral
   app.post("/api/client-referrals/:id/convert", isAuthenticated, async (req: any, res) => {
     try {
-      const oldReferral = await storage.getClientReferral(req.params.id);
+      const oldReferral = await getClientReferralInScope(req, req.params.id);
       if (!oldReferral) {
         return res.status(404).json({ message: "Client referral not found" });
       }
-      
+
       if (oldReferral.status === 'converted') {
         return res.status(400).json({ message: "Referral is already converted" });
       }
@@ -16047,13 +16067,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get referral statistics
-  app.get("/api/referral-stats", isAuthenticated, async (req, res) => {
+  app.get("/api/referral-stats", isAuthenticated, async (req: any, res) => {
     try {
-      const { officeId, startDate, endDate } = req.query;
-      const officeFilter = officeId && officeId !== 'all' ? String(officeId) : undefined;
+      const { startDate, endDate } = req.query;
+      const officeFilter = parseOfficeId(req);
       const start = startDate ? new Date(String(startDate)) : undefined;
       const end = endDate ? new Date(String(endDate)) : undefined;
-      
+
       const stats = await storage.getReferralStats(officeFilter, start, end);
       res.json(stats);
     } catch (error) {
@@ -18339,10 +18359,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ============================================
 
   // Get all letter templates for the user's office
+  // A letter template is accessible if it is shared (no officeId), or the
+  // caller can access its office. Templates with a null office are org-wide
+  // library entries, not tenant data.
+  const canAccessLetterTemplate = async (req: any, template: { officeId: string | null }) => {
+    if (!template.officeId) return true;
+    return canAccessOffice(req, template.officeId);
+  };
+
   app.get("/api/letter-templates", isAuthenticated, async (req: any, res) => {
     try {
-      const user = req.user;
-      const officeId = req.query.officeId || user.primaryOfficeId || undefined;
+      const officeId = parseOfficeId(req);
       const templates = await storage.getLetterTemplates(officeId);
       res.json(templates);
     } catch (error: any) {
@@ -18375,7 +18402,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/letter-templates/:id", isAuthenticated, async (req: any, res) => {
     try {
       const template = await storage.getLetterTemplate(req.params.id);
-      if (!template) {
+      if (!template || !(await canAccessLetterTemplate(req, template))) {
         return res.status(404).json({ message: "Template not found" });
       }
       res.json(template);
@@ -18426,10 +18453,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ message: "Only administrators can update letter templates" });
       }
       const existing = await storage.getLetterTemplate(req.params.id);
-      if (!existing) {
+      if (!existing || !(await canAccessLetterTemplate(req, existing))) {
         return res.status(404).json({ message: "Template not found" });
       }
-      
+
       // Create a version before updating (for audit trail)
       if (existing.htmlContent !== req.body.htmlContent) {
         const versions = await storage.getLetterTemplateVersions(req.params.id);
@@ -18462,6 +18489,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!user || !['super_admin', 'admin', 'office_admin', 'manager'].includes(user.role)) {
         return res.status(403).json({ message: "Only administrators can delete letter templates" });
       }
+      const existing = await storage.getLetterTemplate(req.params.id);
+      if (!existing || !(await canAccessLetterTemplate(req, existing))) {
+        return res.status(404).json({ message: "Template not found" });
+      }
       await storage.deleteLetterTemplate(req.params.id);
       res.status(204).send();
     } catch (error: any) {
@@ -18472,6 +18503,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get template versions (for version history)
   app.get("/api/letter-templates/:id/versions", isAuthenticated, async (req: any, res) => {
     try {
+      const template = await storage.getLetterTemplate(req.params.id);
+      if (!template || !(await canAccessLetterTemplate(req, template))) {
+        return res.status(404).json({ message: "Template not found" });
+      }
       const versions = await storage.getLetterTemplateVersions(req.params.id);
       res.json(versions);
     } catch (error: any) {
@@ -18537,19 +18572,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Generate a document from a letter template
   app.post("/api/letter-templates/:id/generate", isAuthenticated, async (req: any, res) => {
     try {
-      const user = req.user;
+      const user = req.session?.user;
+      if (!user || !['super_admin', 'admin', 'office_admin', 'manager', 'supervisor'].includes(user.role)) {
+        return res.status(403).json({ message: "You do not have permission to generate letters" });
+      }
       const { scope, targetId, saveToDocuments = true } = req.body;
-      
+
       if (!scope || !targetId) {
         return res.status(400).json({ message: "scope and targetId are required" });
       }
-      
+
       // Get the template
       const template = await storage.getLetterTemplate(req.params.id);
-      if (!template) {
+      if (!template || !(await canAccessLetterTemplate(req, template))) {
         return res.status(404).json({ message: "Template not found" });
       }
-      
+
       if (template.status !== 'published') {
         return res.status(400).json({ message: "Only published templates can be used to generate documents" });
       }
@@ -18566,7 +18604,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       entityData.officePhone = office?.phone || '';
       
       if (scope === 'caregiver') {
-        const caregiver = await storage.getCaregiver(targetId);
+        const caregiver = await getCaregiverInScope(req, targetId);
         if (!caregiver) {
           return res.status(404).json({ message: "Caregiver not found" });
         }
@@ -18580,7 +18618,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         entityData.caregiverHireDate = caregiver.hireDate ? new Date(caregiver.hireDate).toLocaleDateString() : '';
         entityData.caregiverStatus = caregiver.isActive ? 'Active' : 'Inactive';
       } else if (scope === 'client') {
-        const client = await storage.getClient(targetId);
+        const client = await getClientInScope(req, targetId);
         if (!client) {
           return res.status(404).json({ message: "Client not found" });
         }
@@ -18594,7 +18632,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         entityData.clientDateOfBirth = client.dateOfBirth ? new Date(client.dateOfBirth).toLocaleDateString() : '';
       } else if (scope === 'staff') {
         const staffUser = await storage.getUser(targetId);
-        if (!staffUser) {
+        if (!staffUser || !(await canAccessOffice(req, staffUser.primaryOfficeId))) {
           return res.status(404).json({ message: "Staff member not found" });
         }
         entityName = `${staffUser.firstName} ${staffUser.lastName}`;
@@ -18755,11 +18793,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ===========================================
 
   // Get all coordinator pay records with optional filters
+  // Salary data — restrict the read endpoints to manager-tier roles, matching
+  // the create/update/delete siblings, and scope by office.
+  const coordinatorPayRoles = ["admin", "office_admin", "super_admin", "supervisor"];
+
   app.get("/api/coordinator-pay-records", isAuthenticated, async (req: any, res) => {
     try {
-      const { officeId, year, quarter } = req.query;
+      if (!coordinatorPayRoles.includes(req.session?.user?.role || "")) {
+        return res.status(403).json({ message: "Unauthorized" });
+      }
+      const { year, quarter } = req.query;
+      const officeFilter = parseOfficeId(req);
       const records = await storage.getCoordinatorPayRecords(
-        officeId as string,
+        officeFilter as string,
         year ? parseInt(year as string) : undefined,
         quarter ? parseInt(quarter as string) : undefined
       );
@@ -18773,9 +18819,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get coordinator pay records for a specific coordinator
   app.get("/api/coordinator-pay-records/coordinator/:coordinatorId", isAuthenticated, async (req: any, res) => {
     try {
+      if (!coordinatorPayRoles.includes(req.session?.user?.role || "")) {
+        return res.status(403).json({ message: "Unauthorized" });
+      }
       const { coordinatorId } = req.params;
       const records = await storage.getCoordinatorPayRecordsByCoordinator(coordinatorId);
-      res.json(records);
+      // Only return records for offices the caller can access.
+      const scoped = [] as typeof records;
+      for (const rec of records) {
+        if (await canAccessOffice(req, rec.officeId)) scoped.push(rec);
+      }
+      res.json(scoped);
     } catch (error: any) {
       console.error("Error fetching coordinator pay records:", error);
       res.status(500).json({ message: error.message || "Failed to fetch pay records" });
@@ -18785,8 +18839,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get a single coordinator pay record
   app.get("/api/coordinator-pay-records/:id", isAuthenticated, async (req: any, res) => {
     try {
+      if (!coordinatorPayRoles.includes(req.session?.user?.role || "")) {
+        return res.status(403).json({ message: "Unauthorized" });
+      }
       const record = await storage.getCoordinatorPayRecord(req.params.id);
-      if (!record) {
+      if (!record || !(await canAccessOffice(req, record.officeId))) {
         return res.status(404).json({ message: "Pay record not found" });
       }
       res.json(record);
@@ -18824,7 +18881,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!user || !["admin", "office_admin", "super_admin", "supervisor"].includes(user.role)) {
         return res.status(403).json({ message: "Unauthorized" });
       }
-      
+      const existing = await storage.getCoordinatorPayRecord(req.params.id);
+      if (!existing || !(await canAccessOffice(req, existing.officeId))) {
+        return res.status(404).json({ message: "Pay record not found" });
+      }
+
       const validatedData = insertCoordinatorPayRecordSchema.partial().parse(req.body);
       const record = await storage.updateCoordinatorPayRecord(req.params.id, validatedData);
       res.json(record);
@@ -18841,7 +18902,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!user || !["admin", "office_admin", "super_admin", "supervisor"].includes(user.role)) {
         return res.status(403).json({ message: "Unauthorized" });
       }
-      
+      const existing = await storage.getCoordinatorPayRecord(req.params.id);
+      if (!existing || !(await canAccessOffice(req, existing.officeId))) {
+        return res.status(404).json({ message: "Pay record not found" });
+      }
+
       await storage.deleteCoordinatorPayRecord(req.params.id);
       res.json({ success: true });
     } catch (error: any) {

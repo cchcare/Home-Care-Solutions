@@ -126,6 +126,14 @@ all, since nothing had ever needed to check ownership on them — added one for 
 - [x] `GET/PUT /api/offices/:officeId/pa-survey[/:checklistItemId]` — added path-office guard
 - [x] `GET /api/admin/financial-reports` — non-super-admins now locked to their own office (was leaking cross-org billing/AR aggregates when `officeId` was omitted)
 
+## Fixed in an eighth pass (analytics, surveys, referrals, coordinator pay, letter templates) — same verification as above
+
+- [x] Made the shared `parseOfficeId(req)` helper scope-aware: super_admin may query any office (or all when omitted), everyone else is forced to their own `primaryOfficeId`, and a non-super-admin with no office gets a sentinel matching no rows. This fixes all 8 `/api/analytics/*` endpoints (kpis, operational, financial, compliance, staffing, trends, forecast, dashboard) at once — they leaked org-wide financial/compliance/staffing aggregates before.
+- [x] `GET /api/surveys`, `/stats` — now use scope-aware `parseOfficeId`; `GET /api/surveys/by-client/:clientId`, `/by-caregiver/:caregiverId` — added `getClientInScope`/`getCaregiverInScope`; `PATCH /api/surveys/:id` — added `canAccessOffice`; `POST /api/surveys/send-bulk` — per-client lookup now uses `getClientInScope` (was blasting surveys to any org's clients by id)
+- [x] Referral sources (`GET` list/top/:id/:id-referrals, `PATCH`, `DELETE`) and referral stats — scoped by office; client referrals (`GET` list/:id, `PATCH`, `POST /:id/convert`) — added a `getClientReferralInScope` helper that resolves office through the linked referral source
+- [x] `GET /api/coordinator-pay-records`, `/coordinator/:coordinatorId`, `/:id` — added the manager-role gate the create/update/delete siblings already had (salary data was readable by any authenticated user), plus office scoping; `PATCH`/`DELETE` — added an office-ownership check on the record
+- [x] Letter templates: added a `canAccessLetterTemplate` helper (allows shared null-office library templates, else checks office). Applied to `GET /:id`, `/:id/versions`, `PATCH`, `DELETE`, and the list. `POST /:id/generate` was the worst — only `isAuthenticated`, no role gate, and it rendered any caregiver/client/staff's PHI into a PDF from an arbitrary `targetId`. Now role-gated, template-scoped, and each `targetId` is resolved through `getCaregiverInScope`/`getClientInScope`/office-checked staff lookup.
+
 Everything below this line is **not yet fixed** and needs the same treatment:
 read the actual route, apply `canAccessOffice`/`resolveAllowedOfficeIds` (or a role gate, or
 both), verify against a real Postgres instance, and check off the line.
@@ -179,13 +187,13 @@ both), verify against a real Postgres instance, and check off the line.
 ### Claims, surveys, analytics, referrals, letter templates, coordinator pay (lines ~13700–18500)
 - [x] ~~`GET/PATCH /api/claims/:id`, `DELETE /api/claims/:claimId/line-items/:id`, `/submit`, `/void`, `/resubmit`, `/line-items`~~ — fixed, see above
 - [x] ~~`GET /api/claims`, `/aging`, `/summary`, `/by-client/:clientId`~~ — fixed, see above
-- [ ] `GET /api/surveys/by-client/:clientId`, `/by-caregiver/:caregiverId`, `GET /api/surveys`, `/stats`, `PATCH /api/surveys/:id`, `POST /api/surveys/send-bulk` — PHI/no ownership check
-- [ ] `GET /api/analytics/*` (kpis, operational, financial, compliance, staffing, dashboard, trends, forecast) — all trust client-supplied `officeId` (`parseOfficeId` helper), leaking org-wide financial/compliance aggregates
+- [x] ~~`GET /api/surveys/by-client/:clientId`, `/by-caregiver/:caregiverId`, `GET /api/surveys`, `/stats`, `PATCH /api/surveys/:id`, `POST /api/surveys/send-bulk`~~ — fixed, see above
+- [x] ~~`GET /api/analytics/*`~~ — fixed, see above (made `parseOfficeId` scope-aware)
 - [ ] `GET /api/pto-balances[/export.csv]` — officeId trusted (see also PTO section above)
-- [ ] `POST /api/letter-templates/:id/generate` — no office/org check on template OR on the arbitrary `targetId` body param before rendering PHI into a PDF; only `isAuthenticated`, no role gate either
-- [ ] `GET/PUT/DELETE /api/letter-templates/:id`, `/versions` — no ownership check
-- [ ] `GET /api/coordinator-pay-records[/coordinator/:id][/:id]` — **no role check at all** on the GETs (siblings require admin/supervisor) — salary data
-- [ ] `GET/PATCH/DELETE /api/referral-sources[/:id][/top][/:id/referrals]`, `GET/PATCH/POST /api/client-referrals[/:id][/convert]`, `GET /api/referral-stats` — officeId trusted / no ownership check throughout
+- [x] ~~`POST /api/letter-templates/:id/generate`~~ — fixed, see above
+- [x] ~~`GET/PUT/DELETE /api/letter-templates/:id`, `/versions`~~ — fixed, see above
+- [x] ~~`GET /api/coordinator-pay-records[/coordinator/:id][/:id]`~~ — fixed, see above
+- [x] ~~`GET/PATCH/DELETE /api/referral-sources[...]`, `GET/PATCH/POST /api/client-referrals[...]`, `GET /api/referral-stats`~~ — fixed, see above
 - [ ] `POST /api/caregivers/:id/exclusion-check`, `GET /api/exclusions/caregiver/:caregiverId`, `GET /api/exclusions/checks`, `PATCH /api/exclusions/checks/:checkId` — admin-gated but no org/office check tying target back to caller's org
 - [ ] `POST /api/admin/visit-log/upload` — matches against org-unscoped global client/caregiver lookups instead of the uploading admin's own org
 
