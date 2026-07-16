@@ -23243,7 +23243,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/quality-management-plans", isAuthenticated, async (req: any, res) => {
     try {
       const user = req.session?.user;
-      const officeId = req.query.officeId || user?.officeId;
+      const officeId = parseOfficeId(req);
       const plans = await storage.getQualityManagementPlans(officeId);
       res.json(plans);
     } catch (e: any) { res.status(500).json({ message: e.message }); }
@@ -23253,7 +23253,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const user = req.session?.user;
       const plan = await storage.getQualityManagementPlan(req.params.id);
       if (!plan) return res.status(404).json({ message: "Plan not found" });
-      if (plan.officeId && plan.officeId !== user?.officeId) return res.status(403).json({ message: "Forbidden" });
+      if (!(await canAccessOffice(req, plan.officeId))) return res.status(404).json({ message: "Not found" });
       res.json(plan);
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
@@ -23263,7 +23263,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const parsed = insertQualityManagementPlanSchema.parse(req.body);
       const plan = await storage.createQualityManagementPlan({
         ...parsed,
-        officeId: parsed.officeId || user?.officeId,
+        officeId: user?.role === "super_admin" ? (parsed.officeId ?? null) : user?.primaryOfficeId,
         organizationId: parsed.organizationId || user?.organizationId,
       });
       res.status(201).json(plan);
@@ -23277,7 +23277,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const user = req.session?.user;
       const existing = await storage.getQualityManagementPlan(req.params.id);
       if (!existing) return res.status(404).json({ message: "Plan not found" });
-      if (existing.officeId && existing.officeId !== user?.officeId) return res.status(403).json({ message: "Forbidden" });
+      if (!(await canAccessOffice(req, existing.officeId))) return res.status(404).json({ message: "Not found" });
       const validated = insertQualityManagementPlanSchema.partial().parse(req.body);
       const plan = await storage.updateQualityManagementPlan(req.params.id, validated);
       res.json(plan);
@@ -23291,7 +23291,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const user = req.session?.user;
       const existing = await storage.getQualityManagementPlan(req.params.id);
       if (!existing) return res.status(404).json({ message: "Plan not found" });
-      if (existing.officeId && existing.officeId !== user?.officeId) return res.status(403).json({ message: "Forbidden" });
+      if (!(await canAccessOffice(req, existing.officeId))) return res.status(404).json({ message: "Not found" });
       await storage.deleteQualityManagementPlan(req.params.id);
       res.json({ success: true });
     } catch (e: any) { res.status(500).json({ message: e.message }); }
@@ -23300,7 +23300,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // QMP Measurable Outcomes
   app.get("/api/qmp-measurable-outcomes", isAuthenticated, async (req: any, res) => {
     try {
-      const outcomes = await storage.getQmpMeasurableOutcomes(req.query.planId, req.query.officeId);
+      const outcomes = await storage.getQmpMeasurableOutcomes(req.query.planId, parseOfficeId(req));
       res.json(outcomes);
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
@@ -23309,7 +23309,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const user = req.session?.user;
       const outcome = await storage.getQmpMeasurableOutcome(req.params.id);
       if (!outcome) return res.status(404).json({ message: "Outcome not found" });
-      if (outcome.officeId && outcome.officeId !== user?.officeId) return res.status(403).json({ message: "Forbidden" });
+      if (!(await canAccessOffice(req, outcome.officeId))) return res.status(404).json({ message: "Not found" });
       res.json(outcome);
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
@@ -23328,7 +23328,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const user = req.session?.user;
       const existing = await storage.getQmpMeasurableOutcome(req.params.id);
       if (!existing) return res.status(404).json({ message: "Outcome not found" });
-      if (existing.officeId && existing.officeId !== user?.officeId) return res.status(403).json({ message: "Forbidden" });
+      if (!(await canAccessOffice(req, existing.officeId))) return res.status(404).json({ message: "Not found" });
       const validated = insertQmpMeasurableOutcomeSchema.partial().parse(req.body);
       const outcome = await storage.updateQmpMeasurableOutcome(req.params.id, validated);
       res.json(outcome);
@@ -23342,7 +23342,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const user = req.session?.user;
       const existing = await storage.getQmpMeasurableOutcome(req.params.id);
       if (!existing) return res.status(404).json({ message: "Outcome not found" });
-      if (existing.officeId && existing.officeId !== user?.officeId) return res.status(403).json({ message: "Forbidden" });
+      if (!(await canAccessOffice(req, existing.officeId))) return res.status(404).json({ message: "Not found" });
       await storage.deleteQmpMeasurableOutcome(req.params.id);
       res.json({ success: true });
     } catch (e: any) { res.status(500).json({ message: e.message }); }
@@ -23351,7 +23351,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // QMP Quarterly Reviews
   app.get("/api/qmp-quarterly-reviews", isAuthenticated, async (req: any, res) => {
     try {
-      const reviews = await storage.getQmpQuarterlyReviews(req.query.planId, req.query.officeId);
+      const reviews = await storage.getQmpQuarterlyReviews(req.query.planId, parseOfficeId(req));
       res.json(reviews);
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
@@ -23360,7 +23360,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const user = req.session?.user;
       const review = await storage.getQmpQuarterlyReview(req.params.id);
       if (!review) return res.status(404).json({ message: "Review not found" });
-      if (review.officeId && review.officeId !== user?.officeId) return res.status(403).json({ message: "Forbidden" });
+      if (!(await canAccessOffice(req, review.officeId))) return res.status(404).json({ message: "Not found" });
       res.json(review);
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
@@ -23368,7 +23368,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const user = req.session?.user;
       let planId = req.body.planId;
-      const officeId = req.body.officeId || user?.officeId;
+      const officeId = user?.role === "super_admin" ? req.body.officeId : user?.primaryOfficeId;
       if (!planId && officeId) {
         const plans = await storage.getQualityManagementPlans(officeId);
         const activePlan = plans.find((p: any) => p.status === "active");
@@ -23388,7 +23388,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const user = req.session?.user;
       const existing = await storage.getQmpQuarterlyReview(req.params.id);
       if (!existing) return res.status(404).json({ message: "Review not found" });
-      if (existing.officeId && existing.officeId !== user?.officeId) return res.status(403).json({ message: "Forbidden" });
+      if (!(await canAccessOffice(req, existing.officeId))) return res.status(404).json({ message: "Not found" });
       const validated = insertQmpQuarterlyReviewSchema.partial().parse(req.body);
       const review = await storage.updateQmpQuarterlyReview(req.params.id, validated);
       res.json(review);
@@ -23402,7 +23402,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const user = req.session?.user;
       const existing = await storage.getQmpQuarterlyReview(req.params.id);
       if (!existing) return res.status(404).json({ message: "Review not found" });
-      if (existing.officeId && existing.officeId !== user?.officeId) return res.status(403).json({ message: "Forbidden" });
+      if (!(await canAccessOffice(req, existing.officeId))) return res.status(404).json({ message: "Not found" });
       await storage.deleteQmpQuarterlyReview(req.params.id);
       res.json({ success: true });
     } catch (e: any) { res.status(500).json({ message: e.message }); }
@@ -23411,7 +23411,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // QMP OADRI Cycles
   app.get("/api/qmp-oadri-cycles", isAuthenticated, async (req: any, res) => {
     try {
-      const cycles = await storage.getQmpOadriCycles(req.query.planId, req.query.officeId);
+      const cycles = await storage.getQmpOadriCycles(req.query.planId, parseOfficeId(req));
       res.json(cycles);
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
@@ -23420,7 +23420,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const user = req.session?.user;
       const cycle = await storage.getQmpOadriCycle(req.params.id);
       if (!cycle) return res.status(404).json({ message: "Cycle not found" });
-      if (cycle.officeId && cycle.officeId !== user?.officeId) return res.status(403).json({ message: "Forbidden" });
+      if (!(await canAccessOffice(req, cycle.officeId))) return res.status(404).json({ message: "Not found" });
       res.json(cycle);
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
@@ -23428,7 +23428,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const user = req.session?.user;
       let planId = req.body.planId;
-      const officeId = req.body.officeId || user?.officeId;
+      const officeId = user?.role === "super_admin" ? req.body.officeId : user?.primaryOfficeId;
       if (!planId && officeId) {
         const plans = await storage.getQualityManagementPlans(officeId);
         const activePlan = plans.find((p: any) => p.status === "active");
@@ -23448,7 +23448,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const user = req.session?.user;
       const existing = await storage.getQmpOadriCycle(req.params.id);
       if (!existing) return res.status(404).json({ message: "Cycle not found" });
-      if (existing.officeId && existing.officeId !== user?.officeId) return res.status(403).json({ message: "Forbidden" });
+      if (!(await canAccessOffice(req, existing.officeId))) return res.status(404).json({ message: "Not found" });
       const validated = insertQmpOadriCycleSchema.partial().parse(req.body);
       const cycle = await storage.updateQmpOadriCycle(req.params.id, validated);
       res.json(cycle);
@@ -23462,7 +23462,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const user = req.session?.user;
       const existing = await storage.getQmpOadriCycle(req.params.id);
       if (!existing) return res.status(404).json({ message: "Cycle not found" });
-      if (existing.officeId && existing.officeId !== user?.officeId) return res.status(403).json({ message: "Forbidden" });
+      if (!(await canAccessOffice(req, existing.officeId))) return res.status(404).json({ message: "Not found" });
       await storage.deleteQmpOadriCycle(req.params.id);
       res.json({ success: true });
     } catch (e: any) { res.status(500).json({ message: e.message }); }
@@ -23472,7 +23472,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/patient-complaints", isAuthenticated, async (req: any, res) => {
     try {
       const user = req.session?.user;
-      const officeId = req.query.officeId || user?.officeId;
+      const officeId = parseOfficeId(req);
       const complaints = await storage.getPatientComplaints(officeId);
       res.json(complaints);
     } catch (e: any) { res.status(500).json({ message: e.message }); }
@@ -23482,14 +23482,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const user = req.session?.user;
       const complaint = await storage.getPatientComplaint(req.params.id);
       if (!complaint) return res.status(404).json({ message: "Complaint not found" });
-      if (complaint.officeId !== user?.officeId) return res.status(403).json({ message: "Forbidden" });
+      if (!(await canAccessOffice(req, complaint.officeId))) return res.status(404).json({ message: "Not found" });
       res.json(complaint);
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
   app.get("/api/patient-complaints-stats", isAuthenticated, async (req: any, res) => {
     try {
       const user = req.session?.user;
-      const officeId = req.query.officeId || user?.officeId;
+      const officeId = parseOfficeId(req);
       if (!officeId) return res.status(400).json({ message: "officeId required" });
       const stats = await storage.getPatientComplaintStats(officeId);
       res.json(stats);
@@ -23501,7 +23501,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const parsed = insertPatientComplaintSchema.parse(req.body);
       const complaint = await storage.createPatientComplaint({
         ...parsed,
-        officeId: parsed.officeId || user?.officeId,
+        officeId: user?.role === "super_admin" ? (parsed.officeId ?? null) : user?.primaryOfficeId,
         receivedBy: parsed.receivedBy || user?.id,
       });
       res.status(201).json(complaint);
@@ -23515,7 +23515,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const user = req.session?.user;
       const existing = await storage.getPatientComplaint(req.params.id);
       if (!existing) return res.status(404).json({ message: "Complaint not found" });
-      if (existing.officeId !== user?.officeId) return res.status(403).json({ message: "Forbidden" });
+      if (!(await canAccessOffice(req, existing.officeId))) return res.status(404).json({ message: "Not found" });
       const validated = insertPatientComplaintSchema.partial().parse(req.body);
       const complaint = await storage.updatePatientComplaint(req.params.id, validated);
       res.json(complaint);
@@ -23529,7 +23529,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const user = req.session?.user;
       const existing = await storage.getPatientComplaint(req.params.id);
       if (!existing) return res.status(404).json({ message: "Complaint not found" });
-      if (existing.officeId !== user?.officeId) return res.status(403).json({ message: "Forbidden" });
+      if (!(await canAccessOffice(req, existing.officeId))) return res.status(404).json({ message: "Not found" });
       await storage.deletePatientComplaint(req.params.id);
       res.json({ success: true });
     } catch (e: any) { res.status(500).json({ message: e.message }); }
@@ -23539,7 +23539,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/quality-management-logs", isAuthenticated, async (req: any, res) => {
     try {
       const user = req.session?.user;
-      const officeId = req.query.officeId || user?.officeId;
+      const officeId = parseOfficeId(req);
       const logs = await storage.getQualityManagementLogs(officeId);
       res.json(logs);
     } catch (e: any) { res.status(500).json({ message: e.message }); }
@@ -23549,7 +23549,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const user = req.session?.user;
       const log = await storage.getQualityManagementLog(req.params.id);
       if (!log) return res.status(404).json({ message: "Log not found" });
-      if (log.officeId && log.officeId !== user?.officeId) return res.status(403).json({ message: "Forbidden" });
+      if (!(await canAccessOffice(req, log.officeId))) return res.status(404).json({ message: "Not found" });
       res.json(log);
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
@@ -23559,7 +23559,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const parsed = insertQualityManagementLogSchema.parse(req.body);
       const log = await storage.createQualityManagementLog({
         ...parsed,
-        officeId: parsed.officeId || user?.officeId,
+        officeId: user?.role === "super_admin" ? (parsed.officeId ?? null) : user?.primaryOfficeId,
         loggedBy: parsed.loggedBy || user?.id,
       });
       res.status(201).json(log);
@@ -23573,7 +23573,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const user = req.session?.user;
       const existing = await storage.getQualityManagementLog(req.params.id);
       if (!existing) return res.status(404).json({ message: "Log not found" });
-      if (existing.officeId && existing.officeId !== user?.officeId) return res.status(403).json({ message: "Forbidden" });
+      if (!(await canAccessOffice(req, existing.officeId))) return res.status(404).json({ message: "Not found" });
       const validated = insertQualityManagementLogSchema.partial().parse(req.body);
       const log = await storage.updateQualityManagementLog(req.params.id, validated);
       res.json(log);
@@ -23587,7 +23587,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const user = req.session?.user;
       const existing = await storage.getQualityManagementLog(req.params.id);
       if (!existing) return res.status(404).json({ message: "Log not found" });
-      if (existing.officeId && existing.officeId !== user?.officeId) return res.status(403).json({ message: "Forbidden" });
+      if (!(await canAccessOffice(req, existing.officeId))) return res.status(404).json({ message: "Not found" });
       await storage.deleteQualityManagementLog(req.params.id);
       res.json({ success: true });
     } catch (e: any) { res.status(500).json({ message: e.message }); }
@@ -23597,7 +23597,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/qmp-dashboard", isAuthenticated, async (req: any, res) => {
     try {
       const user = req.session?.user;
-      const officeId = req.query.officeId || user?.officeId;
+      const officeId = parseOfficeId(req);
       if (!officeId) return res.status(400).json({ message: "officeId required" });
 
       // Fetch real data for each measurable outcome
