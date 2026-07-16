@@ -70,6 +70,9 @@ export const coordinators = pgTable("coordinators", {
   phone: varchar("phone"),
   officeId: varchar("office_id").references(() => offices.id),
   title: varchar("title"),
+  // Hourly rate used only to compute coordinator compensation from the hours
+  // of the caregivers they manage. Coordinators are NOT paid per hour directly.
+  coordinatorRate: numeric("coordinator_rate", { precision: 10, scale: 2 }),
   isActive: boolean("is_active").default(true),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
@@ -170,6 +173,9 @@ export const clients = pgTable("clients", {
   primaryCaregiverId: varchar("primary_caregiver_id"),
   officeId: varchar("office_id").references(() => offices.id),
   mcoId: varchar("mco_id"),
+  // Hourly rate the agency bills the client for care (distinct from what the
+  // caregiver is paid). Informational for the compensation module.
+  billingRate: numeric("billing_rate", { precision: 10, scale: 2 }),
   status: varchar("status").default("active"),
   serviceStartDate: timestamp("service_start_date"),
   lastServiceDate: timestamp("last_service_date"),
@@ -5092,3 +5098,100 @@ export const qualityManagementLogs = pgTable("quality_management_logs", {
 export type QualityManagementLog = typeof qualityManagementLogs.$inferSelect;
 export type InsertQualityManagementLog = typeof qualityManagementLogs.$inferInsert;
 export const insertQualityManagementLogSchema = createInsertSchema(qualityManagementLogs).omit({ id: true, createdAt: true, updatedAt: true });
+
+// ─── Coordinator Compensation Module ─────────────────────────────────────────
+// Self-contained payroll/compensation model, separate from the EVV-oriented
+// caregiver_schedules and the quarterly coordinator_pay_records. Reuses the
+// core coordinators / caregivers / clients entities.
+//
+// Compensation model (per payroll period, per caregiver a coordinator manages):
+//   caregiver_payroll = regular_hours * caregiver_rate
+//                     + overtime_hours * caregiver_rate * 1.5
+//   coordinator_gross = coordinator_rate * caregiver_total_hours
+//   compensation      = coordinator_gross - caregiver_payroll  (may be negative)
+// Coordinator period total = sum of compensation across their caregivers.
+// Overtime is split weekly at 40 hrs/week (FLSA) within the period.
+
+export const compPayrollPeriodStatusEnum = pgEnum("comp_payroll_period_status", ["open", "closed"]);
+
+export const compPayrollPeriods = pgTable("comp_payroll_periods", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id"),
+  officeId: varchar("office_id").references(() => offices.id),
+  name: varchar("name").notNull(),
+  startDate: date("start_date").notNull(),
+  endDate: date("end_date").notNull(),
+  // Weekly overtime threshold in hours (FLSA default 40). Configurable per period.
+  otWeeklyThreshold: numeric("ot_weekly_threshold", { precision: 6, scale: 2 }).default("40"),
+  status: compPayrollPeriodStatusEnum("status").default("open").notNull(),
+  createdBy: varchar("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_comp_periods_office").on(table.officeId),
+  index("idx_comp_periods_dates").on(table.startDate, table.endDate),
+]);
+
+export const compScheduleEntries = pgTable("comp_schedule_entries", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id"),
+  officeId: varchar("office_id").references(() => offices.id),
+  caregiverId: varchar("caregiver_id").references(() => caregivers.id).notNull(),
+  clientId: varchar("client_id").references(() => clients.id),
+  workDate: date("work_date").notNull(),
+  hours: numeric("hours", { precision: 6, scale: 2 }).notNull(),
+  notes: text("notes"),
+  createdBy: varchar("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_comp_sched_caregiver").on(table.caregiverId),
+  index("idx_comp_sched_client").on(table.clientId),
+  index("idx_comp_sched_date").on(table.workDate),
+  index("idx_comp_sched_office").on(table.officeId),
+]);
+
+// Per-period per-caregiver payment tracking. Hours and payroll amounts are
+// computed from schedule entries at read time; only the manual payment is stored.
+export const compCaregiverPayments = pgTable("comp_caregiver_payments", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  periodId: varchar("period_id").references(() => compPayrollPeriods.id, { onDelete: "cascade" }).notNull(),
+  caregiverId: varchar("caregiver_id").references(() => caregivers.id).notNull(),
+  paymentMade: numeric("payment_made", { precision: 12, scale: 2 }).default("0").notNull(),
+  notes: text("notes"),
+  updatedBy: varchar("updated_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  unique("uniq_comp_cg_payment").on(table.periodId, table.caregiverId),
+]);
+
+// Per-period per-coordinator payment tracking. Compensation is computed.
+export const compCoordinatorPayments = pgTable("comp_coordinator_payments", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  periodId: varchar("period_id").references(() => compPayrollPeriods.id, { onDelete: "cascade" }).notNull(),
+  coordinatorId: varchar("coordinator_id").references(() => coordinators.id).notNull(),
+  paymentMade: numeric("payment_made", { precision: 12, scale: 2 }).default("0").notNull(),
+  notes: text("notes"),
+  updatedBy: varchar("updated_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  unique("uniq_comp_coord_payment").on(table.periodId, table.coordinatorId),
+]);
+
+export type CompPayrollPeriod = typeof compPayrollPeriods.$inferSelect;
+export type InsertCompPayrollPeriod = typeof compPayrollPeriods.$inferInsert;
+export const insertCompPayrollPeriodSchema = createInsertSchema(compPayrollPeriods).omit({ id: true, createdAt: true, updatedAt: true });
+
+export type CompScheduleEntry = typeof compScheduleEntries.$inferSelect;
+export type InsertCompScheduleEntry = typeof compScheduleEntries.$inferInsert;
+export const insertCompScheduleEntrySchema = createInsertSchema(compScheduleEntries).omit({ id: true, createdAt: true, updatedAt: true });
+
+export type CompCaregiverPayment = typeof compCaregiverPayments.$inferSelect;
+export type InsertCompCaregiverPayment = typeof compCaregiverPayments.$inferInsert;
+export const insertCompCaregiverPaymentSchema = createInsertSchema(compCaregiverPayments).omit({ id: true, createdAt: true, updatedAt: true });
+
+export type CompCoordinatorPayment = typeof compCoordinatorPayments.$inferSelect;
+export type InsertCompCoordinatorPayment = typeof compCoordinatorPayments.$inferInsert;
+export const insertCompCoordinatorPaymentSchema = createInsertSchema(compCoordinatorPayments).omit({ id: true, createdAt: true, updatedAt: true });
