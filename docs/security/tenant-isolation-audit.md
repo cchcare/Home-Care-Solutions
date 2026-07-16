@@ -134,6 +134,15 @@ all, since nothing had ever needed to check ownership on them — added one for 
 - [x] `GET /api/coordinator-pay-records`, `/coordinator/:coordinatorId`, `/:id` — added the manager-role gate the create/update/delete siblings already had (salary data was readable by any authenticated user), plus office scoping; `PATCH`/`DELETE` — added an office-ownership check on the record
 - [x] Letter templates: added a `canAccessLetterTemplate` helper (allows shared null-office library templates, else checks office). Applied to `GET /:id`, `/:id/versions`, `PATCH`, `DELETE`, and the list. `POST /:id/generate` was the worst — only `isAuthenticated`, no role gate, and it rendered any caregiver/client/staff's PHI into a PDF from an arbitrary `targetId`. Now role-gated, template-scoped, and each `targetId` is resolved through `getCaregiverInScope`/`getClientInScope`/office-checked staff lookup.
 
+## Fixed in a ninth pass (time-off, PTO, mileage, performance reviews) — same verification as above
+
+- [x] Added `allowedCaregiverIds(req)` helper (resolves the set of caregiver IDs in the caller's offices) for scoping lists that key off caregiverId but carry no officeId.
+- [x] `GET /api/time-off-requests`, `/pending` — were `getAllTimeOffRequests()`/`ByStatus` with **zero scoping**; now filtered to the caller's caregivers. Added `canAccessTimeOffRequest` (own caregiver or office staff in scope) applied to `GET /:id`, `PATCH /:id`, `POST /:id/cancel`.
+- [x] `GET /api/caregivers/:id/time-off-requests`, `/pto-balance` — added `getCaregiverInScope`
+- [x] `GET /api/pto-policies` — added the admin-role gate its mutation siblings had, plus scope-aware `parseOfficeId`; `GET /api/pto-balances`, `/export.csv` — officeId now forced via `parseOfficeId` (was admin-gated but trusted the query param)
+- [x] `GET/POST /api/caregivers/:id/mileage` — added `getCaregiverInScope`; `PATCH /api/mileage/:id`, `POST /:id/approve` — resolve the log's caregiver and check scope; `GET /api/mileage/pending` — filtered to the caller's caregivers (was all pending system-wide)
+- [x] `GET /api/performance-reviews/:id/metrics`, `/calculate-rating` — added a `canReadPerformanceReview` scope check (reviewer, in-office staff, or the caregiver themselves); `POST /:id/acknowledge` — was letting a caller acknowledge as anyone via a body `caregiverId`; now only the reviewed caregiver may acknowledge, using the review's own caregiverId
+
 Everything below this line is **not yet fixed** and needs the same treatment:
 read the actual route, apply `canAccessOffice`/`resolveAllowedOfficeIds` (or a role gate, or
 both), verify against a real Postgres instance, and check off the line.
@@ -169,27 +178,27 @@ both), verify against a real Postgres instance, and check off the line.
 - [x] ~~`GET/POST /api/clients/:id/vitals`, `/history`, `/trends`~~ — fixed, see above
 - [ ] `GET /api/notifications/history` — `recipientId` trusted from query
 - [ ] `GET/POST /api/applicants*`, `/interviews`, `/notes` — no ownership check (the `background-checks` family under applicants/caregivers is fixed, see above)
-- [ ] `GET /api/mileage/pending` — returns all pending mileage system-wide; `/approve` — no org check on target log
+- [x] ~~`GET /api/mileage/pending`, `/approve`~~ — fixed, see above
 
 ### Payroll runs, PTO, performance reviews, shift matching (lines ~9100–13900)
 - [x] ~~`GET/PUT/DELETE /api/payroll/:id`, `/api/payroll-line-items/:id`, `POST /api/payroll/:runId/import-hours`, `/calculate-overtime`, `GET .../export-hours[/pdf]`, `/time-entries`~~ — fixed, see above
 - [x] ~~`GET/POST/PUT/DELETE /api/payroll-holidays`~~ — fixed, see above
-- [ ] `GET /api/time-off-requests`, `/pending` — **zero scoping at all**, any role sees every org's requests
-- [ ] `PATCH /api/time-off-requests/:id` — no ownership/role check, any authenticated user can edit any request
-- [ ] `POST /api/time-off-requests/:id/cancel` — no role/ownership check (note: needs "owner OR admin" logic, not a flat role gate, since requesters cancel their own)
-- [ ] `GET /api/caregivers/:id/time-off-requests`, `/pto-balance` — no ownership check
-- [ ] `GET /api/pto-policies`, `/api/pto-balances[/export.csv]` — officeId trusted/no role check
-- [ ] `GET /api/performance-reviews/:id/metrics`, `/calculate-rating` — no access check (sibling POST uses `assertReviewMutationAllowed` — reuse it)
-- [ ] `POST /api/performance-reviews/:id/acknowledge` — no permission check, caller can override `caregiverId` in body
+- [x] ~~`GET /api/time-off-requests`, `/pending`~~ — fixed, see above
+- [x] ~~`PATCH /api/time-off-requests/:id`~~ — fixed, see above
+- [x] ~~`POST /api/time-off-requests/:id/cancel`~~ — fixed, see above (owner-or-office-staff logic)
+- [x] ~~`GET /api/caregivers/:id/time-off-requests`, `/pto-balance`~~ — fixed, see above
+- [x] ~~`GET /api/pto-policies`, `/api/pto-balances[/export.csv]`~~ — fixed, see above
+- [x] ~~`GET /api/performance-reviews/:id/metrics`, `/calculate-rating`~~ — fixed, see above
+- [x] ~~`POST /api/performance-reviews/:id/acknowledge`~~ — fixed, see above
 - [ ] `GET /api/shift-matching/suggest`, `calculate-score`, `check-conflict` — clientId/caregiverId unchecked
-- [ ] `GET/POST /api/caregivers/:id/mileage`, `PATCH /api/mileage/:id` — no ownership check
+- [x] ~~`GET/POST /api/caregivers/:id/mileage`, `PATCH /api/mileage/:id`~~ — fixed, see above
 
 ### Claims, surveys, analytics, referrals, letter templates, coordinator pay (lines ~13700–18500)
 - [x] ~~`GET/PATCH /api/claims/:id`, `DELETE /api/claims/:claimId/line-items/:id`, `/submit`, `/void`, `/resubmit`, `/line-items`~~ — fixed, see above
 - [x] ~~`GET /api/claims`, `/aging`, `/summary`, `/by-client/:clientId`~~ — fixed, see above
 - [x] ~~`GET /api/surveys/by-client/:clientId`, `/by-caregiver/:caregiverId`, `GET /api/surveys`, `/stats`, `PATCH /api/surveys/:id`, `POST /api/surveys/send-bulk`~~ — fixed, see above
 - [x] ~~`GET /api/analytics/*`~~ — fixed, see above (made `parseOfficeId` scope-aware)
-- [ ] `GET /api/pto-balances[/export.csv]` — officeId trusted (see also PTO section above)
+- [x] ~~`GET /api/pto-balances[/export.csv]`~~ — fixed, see above
 - [x] ~~`POST /api/letter-templates/:id/generate`~~ — fixed, see above
 - [x] ~~`GET/PUT/DELETE /api/letter-templates/:id`, `/versions`~~ — fixed, see above
 - [x] ~~`GET /api/coordinator-pay-records[/coordinator/:id][/:id]`~~ — fixed, see above

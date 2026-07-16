@@ -316,6 +316,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
     return caregiver;
   };
 
+  // Resolve the set of caregiver IDs whose office the caller can access.
+  // Returns "ALL" for super_admin. Used to scope lists that key off
+  // caregiverId but carry no officeId of their own (e.g. time-off requests).
+  const allowedCaregiverIds = async (req: any): Promise<Set<string> | "ALL"> => {
+    const allowed = await resolveAllowedOfficeIds(req);
+    if (allowed === "ALL") return "ALL";
+    if (allowed.length === 0) return new Set();
+    const ids = new Set<string>();
+    for (const officeId of allowed) {
+      const caregivers = await storage.getAllCaregivers(officeId);
+      for (const cg of caregivers) ids.add(cg.id);
+    }
+    return ids;
+  };
+
   // A client referral carries no officeId of its own; it resolves through its
   // referral source. Returns the referral only if the caller can access that
   // source's office.
@@ -12531,8 +12546,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Mileage Tracking Routes
-  app.get("/api/caregivers/:id/mileage", isAuthenticated, async (req, res) => {
+  app.get("/api/caregivers/:id/mileage", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getCaregiverInScope(req, req.params.id))) {
+        return res.status(404).json({ message: "Caregiver not found" });
+      }
       const { startDate, endDate } = req.query;
       const logs = await storage.getMileageLogsByCaregiver(
         req.params.id,
@@ -12548,6 +12566,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/caregivers/:id/mileage", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getCaregiverInScope(req, req.params.id))) {
+        return res.status(404).json({ message: "Caregiver not found" });
+      }
       const validatedData = insertMileageLogSchema.parse({
         ...req.body,
         caregiverId: req.params.id,
@@ -12575,7 +12596,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.patch("/api/mileage/:id", isAuthenticated, async (req: any, res) => {
     try {
       const oldLog = await storage.getMileageLog(req.params.id);
-      if (!oldLog) {
+      if (!oldLog || !(await getCaregiverInScope(req, oldLog.caregiverId))) {
         return res.status(404).json({ message: "Mileage log not found" });
       }
 
@@ -12611,7 +12632,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const oldLog = await storage.getMileageLog(req.params.id);
-      if (!oldLog) {
+      if (!oldLog || !(await getCaregiverInScope(req, oldLog.caregiverId))) {
         return res.status(404).json({ message: "Mileage log not found" });
       }
 
@@ -12643,7 +12664,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const logs = await storage.getMileageLogsByStatus('pending');
-      res.json(logs);
+      const allowed = await allowedCaregiverIds(req);
+      const scoped = allowed === "ALL" ? logs : logs.filter(l => allowed.has(l.caregiverId));
+      res.json(scoped);
     } catch (error) {
       console.error("Error fetching pending mileage logs:", error);
       res.status(500).json({ message: "Failed to fetch pending mileage logs" });
@@ -13645,8 +13668,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/performance-reviews/:id/metrics", isAuthenticated, async (req, res) => {
+  // Read-scope check for a performance review: the assigned reviewer,
+  // privileged staff in the caregiver's office, or the caregiver themselves.
+  const canReadPerformanceReview = async (req: any, reviewId: string) => {
+    const user = req.session?.user;
+    if (!user) return false;
+    const review = await storage.getPerformanceReview(reviewId);
+    if (!review) return false;
+    if (review.reviewerId === user.id) return true;
+    const caregiver = await storage.getCaregiver(review.caregiverId);
+    if (caregiver?.userId && caregiver.userId === user.id) return true;
+    return canAccessOffice(req, caregiver?.officeId);
+  };
+
+  app.get("/api/performance-reviews/:id/metrics", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await canReadPerformanceReview(req, req.params.id))) {
+        return res.status(404).json({ message: "Performance review not found" });
+      }
       const metrics = await storage.getPerformanceMetrics(req.params.id);
       res.json(metrics);
     } catch (error) {
@@ -13684,8 +13723,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/performance-reviews/:id/calculate-rating", isAuthenticated, async (req, res) => {
+  app.get("/api/performance-reviews/:id/calculate-rating", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await canReadPerformanceReview(req, req.params.id))) {
+        return res.status(404).json({ message: "Performance review not found" });
+      }
       const overallRating = await storage.calculateOverallRating(req.params.id);
       res.json({ overallRating });
     } catch (error) {
@@ -13700,9 +13742,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!review) {
         return res.status(404).json({ message: "Performance review not found" });
       }
-      
-      const caregiverId = req.body.caregiverId || req.session?.user?.id;
-      const updatedReview = await storage.acknowledgeReview(req.params.id, caregiverId);
+      // Only the caregiver the review is about may acknowledge it. Ignore any
+      // client-supplied caregiverId (that let a caller acknowledge as someone
+      // else); use the review's own caregiverId.
+      const reviewCaregiver = await storage.getCaregiver(review.caregiverId);
+      if (!reviewCaregiver || reviewCaregiver.userId !== req.session?.user?.id) {
+        return res.status(403).json({ message: "Only the reviewed caregiver may acknowledge this review" });
+      }
+      const updatedReview = await storage.acknowledgeReview(req.params.id, review.caregiverId);
       
       await storage.createAuditLog({
         userId: req.session?.user?.id,
@@ -13905,10 +13952,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ==================== TIME-OFF REQUESTS & PTO MANAGEMENT ====================
 
   // Get all time-off requests
-  app.get("/api/time-off-requests", isAuthenticated, async (req, res) => {
+  app.get("/api/time-off-requests", isAuthenticated, async (req: any, res) => {
     try {
       const requests = await storage.getAllTimeOffRequests();
-      res.json(requests);
+      const allowed = await allowedCaregiverIds(req);
+      const scoped = allowed === "ALL" ? requests : requests.filter(r => allowed.has(r.caregiverId));
+      res.json(scoped);
     } catch (error) {
       console.error("Error fetching time-off requests:", error);
       res.status(500).json({ message: "Failed to fetch time-off requests" });
@@ -13916,10 +13965,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get all pending time-off requests (for approval workflow)
-  app.get("/api/time-off-requests/pending", isAuthenticated, async (req, res) => {
+  app.get("/api/time-off-requests/pending", isAuthenticated, async (req: any, res) => {
     try {
       const requests = await storage.getTimeOffRequestsByStatus("pending");
-      res.json(requests);
+      const allowed = await allowedCaregiverIds(req);
+      const scoped = allowed === "ALL" ? requests : requests.filter(r => allowed.has(r.caregiverId));
+      res.json(scoped);
     } catch (error) {
       console.error("Error fetching pending time-off requests:", error);
       res.status(500).json({ message: "Failed to fetch pending time-off requests" });
@@ -13954,11 +14005,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Returns the caregiver for a time-off request if the caller can access it
+  // (either the caregiver themselves, or office staff in scope).
+  const canAccessTimeOffRequest = async (req: any, request: { caregiverId: string }) => {
+    const caregiver = await storage.getCaregiver(request.caregiverId);
+    if (!caregiver) return false;
+    const isOwn = caregiver.userId && caregiver.userId === req.session?.user?.id;
+    return isOwn || (await canAccessOffice(req, caregiver.officeId));
+  };
+
   // Get a specific time-off request
-  app.get("/api/time-off-requests/:id", isAuthenticated, async (req, res) => {
+  app.get("/api/time-off-requests/:id", isAuthenticated, async (req: any, res) => {
     try {
       const request = await storage.getTimeOffRequest(req.params.id);
-      if (!request) {
+      if (!request || !(await canAccessTimeOffRequest(req, request))) {
         return res.status(404).json({ message: "Time-off request not found" });
       }
       res.json(request);
@@ -13972,10 +14032,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.patch("/api/time-off-requests/:id", isAuthenticated, async (req: any, res) => {
     try {
       const oldRequest = await storage.getTimeOffRequest(req.params.id);
-      if (!oldRequest) {
+      if (!oldRequest || !(await canAccessTimeOffRequest(req, oldRequest))) {
         return res.status(404).json({ message: "Time-off request not found" });
       }
-      
+
       const processedBody = {
         ...req.body,
         startDate: req.body.startDate ? coerceDate(req.body.startDate) : undefined,
@@ -14137,10 +14197,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/time-off-requests/:id/cancel", isAuthenticated, async (req: any, res) => {
     try {
       const oldRequest = await storage.getTimeOffRequest(req.params.id);
-      if (!oldRequest) {
+      if (!oldRequest || !(await canAccessTimeOffRequest(req, oldRequest))) {
         return res.status(404).json({ message: "Time-off request not found" });
       }
-      
+
       const request = await storage.cancelTimeOffRequest(req.params.id);
 
       // If we previously debited the ledger on approval, post a reversing credit.
@@ -14180,8 +14240,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get time-off requests for a specific caregiver
-  app.get("/api/caregivers/:id/time-off-requests", isAuthenticated, async (req, res) => {
+  app.get("/api/caregivers/:id/time-off-requests", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getCaregiverInScope(req, req.params.id))) {
+        return res.status(404).json({ message: "Caregiver not found" });
+      }
       const requests = await storage.getTimeOffRequestsByCaregiver(req.params.id);
       res.json(requests);
     } catch (error) {
@@ -14191,8 +14254,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get PTO balance for a specific caregiver
-  app.get("/api/caregivers/:id/pto-balance", isAuthenticated, async (req, res) => {
+  app.get("/api/caregivers/:id/pto-balance", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getCaregiverInScope(req, req.params.id))) {
+        return res.status(404).json({ message: "Caregiver not found" });
+      }
       const year = parseInt(req.query.year as string) || new Date().getFullYear();
       const balances = await storage.getPtoBalance(req.params.id, year);
       
@@ -14270,7 +14336,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // List PTO policies
   app.get("/api/pto-policies", isAuthenticated, async (req: any, res) => {
     try {
-      const { officeId, role, ptoType } = req.query as any;
+      const user = req.session?.user;
+      if (!isAdminRole(user?.role)) return res.status(403).json({ message: "Admin access required" });
+      const { role, ptoType } = req.query as any;
+      const officeId = parseOfficeId(req);
       const policies = await storage.getAllPtoPolicies({ officeId, role, ptoType });
       res.json(policies);
     } catch (error: any) {
@@ -14326,7 +14395,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const user = req.session?.user;
       if (!isAdminRole(user?.role)) return res.status(403).json({ message: "Admin access required" });
-      const { officeId, lowBalanceThreshold } = req.query as any;
+      const { lowBalanceThreshold } = req.query as any;
+      const officeId = parseOfficeId(req);
       const rows = await storage.getAllPtoBalancesFromLedger({ officeId });
       const threshold = lowBalanceThreshold ? parseFloat(lowBalanceThreshold) : null;
       const filtered = threshold !== null
@@ -14344,7 +14414,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const user = req.session?.user;
       if (!isAdminRole(user?.role)) return res.status(403).json({ message: "Admin access required" });
-      const { officeId } = req.query as any;
+      const officeId = parseOfficeId(req);
       const rows = await storage.getAllPtoBalancesFromLedger({ officeId });
       const header = "Caregiver,Office ID,Vacation (h),Sick (h),Personal (h)\n";
       const body = rows.map(r =>
