@@ -101,6 +101,20 @@ all, since nothing had ever needed to check ownership on them — added one for 
 - [x] `GET/POST /api/caregivers/:caregiverId/schedules`, `PUT/DELETE /api/caregiver-schedules/:id`
 - [x] `POST /api/schedules/:id/clock-in`, `/clock-out` — these needed different logic from the rest of the cluster: clock-in is a **self-service** action a caregiver performs on their own schedule from the field (`evv-clock.tsx`), so a flat office-staff-only check would have broken it. Fixed with "requester is either the caregiver themselves (`caregiver.userId === session.user.id`) or office staff in scope."
 
+## Fixed in a sixth pass (kiosk PIN, staff time-tracking, e-signature, QuickBooks export, shift-swap) — same verification as above
+
+- [x] `POST/DELETE /api/kiosk/setup/:userId/pin` — added a target-user office check (**was cross-tenant kiosk PIN takeover**: a manager in one org could set/wipe the kiosk PIN of a user in another org, and since kiosk verify only checks username+PIN, effectively clock in as them)
+- [x] `GET /api/staff/time-records` — manager branch now scoped to the caller's allowed offices (was ALL time records system-wide: GPS, clock-in photos, IPs)
+- [x] `PATCH /api/staff/time-records/:id`, `/approve`, `/flag` — added `canAccessOffice` on the record before mutating
+- [x] `POST /api/staff/time-records/lock-payroll` — restricted the bulk update to the caller's offices
+- [x] `GET /api/staff/audit-logs` — joined through `staff_time_records` and scoped by office (plus an ownership check when a specific `timeRecordId` is requested)
+- [x] `GET /api/staff/ot-report` — manager branch scoped to the caller's offices
+- [x] `GET /api/admin/export/quickbooks/billing`, `/payroll` — added `canAccessOffice` on the client-supplied `officeId`
+- [x] `GET/PUT/DELETE /api/esignature/templates/:id` — added `canAccessOffice` (templates carry officeId; leaked document content otherwise)
+- [x] `GET /api/esignature/requests/:id` — scoped by sender-or-linked-template-office (requests carry no officeId; leaked recipientEmail/documentContent/signatureData)
+- [x] `GET /api/payroll-runs/:id` — added `canAccessOffice` (was no role check and no ownership check)
+- [x] `GET /api/shift-swap-requests` — non-super-admins now locked to their own office; `GET /api/shift-swap-requests/:id` — added `canAccessOffice` (by-id leaked linked client PHI)
+
 Everything below this line is **not yet fixed** and needs the same treatment:
 read the actual route, apply `canAccessOffice`/`resolveAllowedOfficeIds` (or a role gate, or
 both), verify against a real Postgres instance, and check off the line.
@@ -165,14 +179,14 @@ both), verify against a real Postgres instance, and check off the line.
 - [ ] `POST /api/admin/visit-log/upload` — matches against org-unscoped global client/caregiver lookups instead of the uploading admin's own org
 
 ### Payroll runs (dup group), shift-swap, e-signature, staff time tracking, DOH audits/QAPI/quality (lines ~18300–end)
-- [ ] `GET /api/payroll-runs/:id` — no role check at all, no ownership check
-- [ ] `GET /api/shift-swap-requests[/:id]` — officeId/caregiverId trusted; by-id route has zero ownership check and leaks linked client PHI
-- [ ] `GET/PUT/DELETE /api/esignature/templates/:id`, `GET /api/esignature/requests/:id` — role-gated but no org check; request object leaks `recipientEmail`/`documentContent`/`signatureData`
-- [ ] `GET /api/admin/export/quickbooks/billing`, `/payroll` — admin-gated but officeId trusted from query
-- [ ] `GET /api/staff/time-records` — any manager role sees ALL time records system-wide (GPS, clock-in photos, IPs) — no officeId scoping
-- [ ] `PATCH /api/staff/time-records/:id`, `/approve`, `/flag`, `POST /lock-payroll` — manager-gated but no officeId scoping, cross-org edit/approve/flag by guessable id
-- [ ] `GET /api/staff/audit-logs`, `/ot-report` — manager-gated, no officeId scoping
-- [ ] `POST/DELETE /api/kiosk/setup/:userId/pin` — manager-gated but never verifies `:userId` belongs to caller's org (**cross-tenant kiosk PIN takeover** — high)
+- [x] ~~`GET /api/payroll-runs/:id`~~ — fixed, see above
+- [x] ~~`GET /api/shift-swap-requests[/:id]`~~ — fixed, see above
+- [x] ~~`GET/PUT/DELETE /api/esignature/templates/:id`, `GET /api/esignature/requests/:id`~~ — fixed, see above
+- [x] ~~`GET /api/admin/export/quickbooks/billing`, `/payroll`~~ — fixed, see above
+- [x] ~~`GET /api/staff/time-records`~~ — fixed, see above
+- [x] ~~`PATCH /api/staff/time-records/:id`, `/approve`, `/flag`, `POST /lock-payroll`~~ — fixed, see above
+- [x] ~~`GET /api/staff/audit-logs`, `/ot-report`~~ — fixed, see above
+- [x] ~~`POST/DELETE /api/kiosk/setup/:userId/pin`~~ — fixed, see above (**was cross-tenant kiosk PIN takeover**)
 - [x] ~~`GET /api/doh-audits`, `GET/PATCH/DELETE /api/doh-audits/:id`, `/responses`, `/documents*`, `/custom-items*`~~ — fixed, see above
 - [x] ~~`GET /api/supervisory-visits[/:id]`, `/api/policy-documents[/:id][/acknowledgments]`, `/api/qapi-meetings[/:id]`, `/api/infection-control[/:id]`~~ — fixed, see above
 - [x] ~~`GET/PUT /api/clients/:clientId/emergency-plan`, `GET /api/emergency-plans`~~ — fixed, see above

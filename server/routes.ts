@@ -19062,7 +19062,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/payroll-runs/:id", isAuthenticated, async (req: any, res) => {
     try {
       const run = await storage.getPayrollRun(req.params.id);
-      if (!run) {
+      if (!run || !(await canAccessOffice(req, run.officeId))) {
         return res.status(404).json({ message: "Payroll run not found" });
       }
       res.json(run);
@@ -19433,11 +19433,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { status, officeId, caregiverId } = req.query;
       const filters: { status?: string; officeId?: string; caregiverId?: string } = {};
-      
+
       if (status) filters.status = status as string;
-      if (officeId) filters.officeId = officeId as string;
       if (caregiverId) filters.caregiverId = caregiverId as string;
-      
+
+      // Lock non-super-admins to their own office; ignore any client-supplied
+      // officeId that isn't theirs.
+      const currentUser = req.session?.user;
+      if (currentUser?.role === "super_admin") {
+        if (officeId) filters.officeId = officeId as string;
+      } else {
+        if (!currentUser?.primaryOfficeId) return res.json([]);
+        filters.officeId = currentUser.primaryOfficeId;
+      }
+
       const requests = await storage.getShiftSwapRequests(filters);
       
       const enrichedRequests = await Promise.all(requests.map(async (request) => {
@@ -19473,10 +19482,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/shift-swap-requests/:id", isAuthenticated, async (req: any, res) => {
     try {
       const request = await storage.getShiftSwapRequest(req.params.id);
-      if (!request) {
+      if (!request || !(await canAccessOffice(req, request.officeId))) {
         return res.status(404).json({ message: "Shift swap request not found" });
       }
-      
+
       const [schedule, requestingCaregiver, targetCaregiver, reviewer] = await Promise.all([
         storage.getCaregiverSchedule(request.scheduleId),
         storage.getCaregiver(request.requestingCaregiverId),
@@ -19724,11 +19733,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       const { officeId, startDate, endDate, format = 'csv' } = req.query;
-      
+
       if (!officeId || !startDate || !endDate) {
         return res.status(400).json({ message: "officeId, startDate, and endDate are required" });
       }
-      
+      if (!(await canAccessOffice(req, officeId as string))) {
+        return res.status(403).json({ message: "Office is outside your scope" });
+      }
+
       // Get billing records for the office and date range
       const allRecords = await storage.getBillingRecords(officeId as string);
       const start = new Date(startDate as string);
@@ -19775,11 +19787,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       const { officeId, payPeriodStart, payPeriodEnd, format = 'csv' } = req.query;
-      
+
       if (!officeId || !payPeriodStart || !payPeriodEnd) {
         return res.status(400).json({ message: "officeId, payPeriodStart, and payPeriodEnd are required" });
       }
-      
+      if (!(await canAccessOffice(req, officeId as string))) {
+        return res.status(403).json({ message: "Office is outside your scope" });
+      }
+
       // Get payroll runs for the office and date range
       const allRuns = await storage.getPayrollRuns(officeId as string);
       const start = new Date(payPeriodStart as string);
@@ -19897,7 +19912,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ message: "Access denied. Admin role required." });
       }
       const template = await storage.getESignatureTemplate(req.params.id);
-      if (!template) {
+      if (!template || !(await canAccessOffice(req, template.officeId))) {
         return res.status(404).json({ message: "Template not found" });
       }
       res.json(template);
@@ -19932,7 +19947,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ message: "Access denied. Admin role required." });
       }
       const existing = await storage.getESignatureTemplate(req.params.id);
-      if (!existing) {
+      if (!existing || !(await canAccessOffice(req, existing.officeId))) {
         return res.status(404).json({ message: "Template not found" });
       }
       const template = await storage.updateESignatureTemplate(req.params.id, req.body);
@@ -19948,6 +19963,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const user = req.user;
       if (!user || !["admin", "office_admin", "super_admin"].includes(user.role)) {
         return res.status(403).json({ message: "Access denied. Admin role required." });
+      }
+      const existing = await storage.getESignatureTemplate(req.params.id);
+      if (!existing || !(await canAccessOffice(req, existing.officeId))) {
+        return res.status(404).json({ message: "Template not found" });
       }
       await storage.deleteESignatureTemplate(req.params.id);
       res.status(204).send();
@@ -19987,6 +20006,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       const request = await storage.getESignatureRequest(req.params.id);
       if (!request) {
+        return res.status(404).json({ message: "Request not found" });
+      }
+      // Requests carry no officeId of their own; scope by the sender (the user
+      // who created it) or, failing that, the linked template's office. This
+      // leaks recipientEmail/documentContent/signatureData otherwise.
+      const isSender = request.sentBy && request.sentBy === req.session?.user?.id;
+      const template = request.templateId ? await storage.getESignatureTemplate(request.templateId) : undefined;
+      const templateInScope = template ? await canAccessOffice(req, template.officeId) : false;
+      if (!isSender && !templateInScope && req.session?.user?.role !== "super_admin") {
         return res.status(404).json({ message: "Request not found" });
       }
       res.json(request);
@@ -20422,8 +20450,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const conditions: any[] = [];
       if (!isManagerRole(sessionUser.role)) {
         conditions.push(eq(staffTimeRecords.userId, sessionUser.id));
-      } else if (req.query.userId) {
-        conditions.push(eq(staffTimeRecords.userId, req.query.userId as string));
+      } else {
+        const allowedOffices = await resolveAllowedOfficeIds(req);
+        if (Array.isArray(allowedOffices)) {
+          if (allowedOffices.length === 0) return res.json([]);
+          conditions.push(inArray(staffTimeRecords.officeId, allowedOffices));
+        }
+        if (req.query.userId) {
+          conditions.push(eq(staffTimeRecords.userId, req.query.userId as string));
+        }
       }
       if (startDate) conditions.push(gte(staffTimeRecords.clockInTime, new Date(startDate + "T00:00:00.000Z")));
       if (endDate) conditions.push(lte(staffTimeRecords.clockInTime, new Date(endDate + "T23:59:59.999Z")));
@@ -20684,7 +20719,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const [existing] = await db.select().from(staffTimeRecords)
         .where(eq(staffTimeRecords.id, req.params.id)).limit(1);
 
-      if (!existing) return res.status(404).json({ message: "Record not found" });
+      if (!existing || !(await canAccessOffice(req, existing.officeId))) {
+        return res.status(404).json({ message: "Record not found" });
+      }
       if (existing.payrollLocked) return res.status(400).json({ message: "Record is locked for payroll. Cannot edit." });
       if (!req.body.editReason) return res.status(400).json({ message: "Edit reason is required." });
 
@@ -20727,6 +20764,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!isManagerRole(sessionUser.role)) {
         return res.status(403).json({ message: "Only managers can approve records." });
       }
+      const [existing] = await db.select().from(staffTimeRecords)
+        .where(eq(staffTimeRecords.id, req.params.id)).limit(1);
+      if (!existing || !(await canAccessOffice(req, existing.officeId))) {
+        return res.status(404).json({ message: "Record not found" });
+      }
       const [updated] = await db.update(staffTimeRecords)
         .set({ approvedBy: sessionUser.id, approvedAt: new Date(), isFlagged: false, flagReason: null, updatedAt: new Date() })
         .where(eq(staffTimeRecords.id, req.params.id))
@@ -20746,6 +20788,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const sessionUser = req.session.user;
       if (!isManagerRole(sessionUser.role)) return res.status(403).json({ message: "Managers only." });
+      const [existingRecord] = await db.select().from(staffTimeRecords)
+        .where(eq(staffTimeRecords.id, req.params.id)).limit(1);
+      if (!existingRecord || !(await canAccessOffice(req, existingRecord.officeId))) {
+        return res.status(404).json({ message: "Record not found" });
+      }
       const { reason } = req.body;
       const [updated] = await db.update(staffTimeRecords)
         .set({ isFlagged: true, flagReason: reason || 'Flagged for review', updatedAt: new Date() })
@@ -20774,6 +20821,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         lte(staffTimeRecords.clockInTime, new Date(endDate + "T23:59:59.999Z")),
       ];
       if (userIds?.length) conditions.push(eq(staffTimeRecords.userId, userIds[0]));
+      const allowedOffices = await resolveAllowedOfficeIds(req);
+      if (Array.isArray(allowedOffices)) {
+        if (allowedOffices.length === 0) return res.json({ locked: 0, message: "0 records locked for payroll." });
+        conditions.push(inArray(staffTimeRecords.officeId, allowedOffices));
+      }
 
       const updated = await db.update(staffTimeRecords)
         .set({ payrollLocked: true, payrollLockedAt: new Date(), payrollLockedBy: sessionUser.id, updatedAt: new Date() })
@@ -20800,9 +20852,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const sessionUser = req.session.user;
       if (!isManagerRole(sessionUser.role)) return res.status(403).json({ message: "Managers only." });
 
+      if (req.query.timeRecordId) {
+        const [record] = await db.select().from(staffTimeRecords)
+          .where(eq(staffTimeRecords.id, req.query.timeRecordId as string)).limit(1);
+        if (!record || !(await canAccessOffice(req, record.officeId))) {
+          return res.status(404).json({ message: "Record not found" });
+        }
+      }
+
       const conditions: any[] = [];
       if (req.query.timeRecordId) conditions.push(eq(staffTimeAuditLogs.timeRecordId, req.query.timeRecordId as string));
       if (req.query.performedBy) conditions.push(eq(staffTimeAuditLogs.performedBy, req.query.performedBy as string));
+
+      const allowedOffices = await resolveAllowedOfficeIds(req);
+      if (Array.isArray(allowedOffices)) {
+        if (allowedOffices.length === 0) return res.json([]);
+        conditions.push(inArray(staffTimeRecords.officeId, allowedOffices));
+      }
 
       const logs = await db.select({
         id: staffTimeAuditLogs.id,
@@ -20818,6 +20884,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       })
       .from(staffTimeAuditLogs)
       .leftJoin(users, eq(staffTimeAuditLogs.performedBy, users.id))
+      .leftJoin(staffTimeRecords, eq(staffTimeAuditLogs.timeRecordId, staffTimeRecords.id))
       .where(conditions.length > 0 ? and(...conditions) : undefined)
       .orderBy(desc(staffTimeAuditLogs.performedAt))
       .limit(500);
@@ -20842,8 +20909,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       ];
       if (!isManagerRole(sessionUser.role)) {
         conditions.push(eq(staffTimeRecords.userId, sessionUser.id));
-      } else if (targetUserId) {
-        conditions.push(eq(staffTimeRecords.userId, targetUserId));
+      } else {
+        const allowedOffices = await resolveAllowedOfficeIds(req);
+        if (Array.isArray(allowedOffices)) {
+          if (allowedOffices.length === 0) return res.json([]);
+          conditions.push(inArray(staffTimeRecords.officeId, allowedOffices));
+        }
+        if (targetUserId) {
+          conditions.push(eq(staffTimeRecords.userId, targetUserId));
+        }
       }
 
       const records = await db.select({
@@ -21552,6 +21626,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const sessionUser = req.session.user;
       if (!isManagerRole(sessionUser.role)) return res.status(403).json({ message: "Insufficient permissions" });
+      const targetUser = await storage.getUser(req.params.userId);
+      if (!targetUser || !(await canAccessOffice(req, targetUser.primaryOfficeId))) {
+        return res.status(404).json({ message: "User not found" });
+      }
       const { pin } = req.body;
       if (!pin || !/^\d{4,8}$/.test(pin)) return res.status(400).json({ message: "PIN must be 4-8 digits" });
       const { hashPassword } = await import("./localAuth");
@@ -21572,6 +21650,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const sessionUser = req.session.user;
       if (!isManagerRole(sessionUser.role)) return res.status(403).json({ message: "Insufficient permissions" });
+      const targetUser = await storage.getUser(req.params.userId);
+      if (!targetUser || !(await canAccessOffice(req, targetUser.primaryOfficeId))) {
+        return res.status(404).json({ message: "User not found" });
+      }
       await db.update(users).set({
         kioskPin: null,
         kioskEnabled: false,
