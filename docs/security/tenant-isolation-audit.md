@@ -115,6 +115,17 @@ all, since nothing had ever needed to check ownership on them — added one for 
 - [x] `GET /api/payroll-runs/:id` — added `canAccessOffice` (was no role check and no ownership check)
 - [x] `GET /api/shift-swap-requests` — non-super-admins now locked to their own office; `GET /api/shift-swap-requests/:id` — added `canAccessOffice` (by-id leaked linked client PHI)
 
+## Fixed in a seventh pass (the office-config cluster + financial reports) — same verification as above
+
+- [x] `GET/POST/PUT/DELETE /api/offices/:officeId/mcos[/:id]` — added `canAccessOffice(req.params.officeId)` guard
+- [x] `GET/POST/PUT/DELETE /api/offices/:officeId/licenses[/:id]` — same
+- [x] `GET/POST/PUT/DELETE /api/offices/:officeId/expenses[/:id]` — same
+- [x] `GET/POST /api/offices/:officeId/dashboard-links` + `PATCH/DELETE /api/dashboard-links/:id` — path-office guard on the office routes; the by-id routes fetch the link and check its office (they take no officeId in the path)
+- [x] `GET/POST /api/offices/:officeId/payroll-config` — added path-office guard
+- [x] `GET/POST/PUT/DELETE /api/offices/:officeId/mco-rates[/:id]` — added path-office guard
+- [x] `GET/PUT /api/offices/:officeId/pa-survey[/:checklistItemId]` — added path-office guard
+- [x] `GET /api/admin/financial-reports` — non-super-admins now locked to their own office (was leaking cross-org billing/AR aggregates when `officeId` was omitted)
+
 Everything below this line is **not yet fixed** and needs the same treatment:
 read the actual route, apply `canAccessOffice`/`resolveAllowedOfficeIds` (or a role gate, or
 both), verify against a real Postgres instance, and check off the line.
@@ -136,14 +147,14 @@ both), verify against a real Postgres instance, and check off the line.
 - [ ] `GET/PUT /api/documents/:id`, `/download`, `/view` — no tenant check except a special case for one document type; any other document (medical records, IDs) fetchable/downloadable cross-org by id
 
 ### Office config, EVV, medications, vitals, applicants, background checks (lines ~4500–9300)
-- [ ] `GET/POST/PUT/DELETE /api/offices/:officeId/mcos`, `/licenses`, `/expenses`, `/dashboard-links`, `/payroll-config`, `/mco-rates` — officeId trusted from URL/query with no `canAccessOffice`-style check (contrast with `/api/offices/:officeId/staff`, which does this correctly a few dozen lines away — this is the reference to copy)
+- [x] ~~`GET/POST/PUT/DELETE /api/offices/:officeId/mcos`, `/licenses`, `/expenses`, `/dashboard-links`, `/payroll-config`, `/mco-rates`~~ — fixed, see above
 - [ ] `GET/PUT/DELETE /api/eligibility-checks/:id`, `/api/caregiver-compliance/:id`, `/api/evv-data/:id` (+ `GET /api/evv-data` officeId-trust)
 - [ ] `PUT /api/admin/family-updates/:id/review`, `GET /api/admin/family-updates` — role-gated but no org check on the target record
 - [ ] `GET/PUT/DELETE /api/authorizations/:id` — raw query, no clientId/office check; `POST /api/authorizations/bulk-import` — no role check at all
 - [x] ~~`GET/PUT/DELETE /api/billing/:id`, `/api/payroll/:id` (+ `/line-items`)~~ — fixed, see above
 - [x] ~~`GET/PUT/DELETE /api/admin/mcos[/:id]`~~ — fixed, see above
 - [x] ~~`GET/POST/PUT/DELETE /api/admin/settings[/:key]`, `/api/admin/field-configs`, `/api/admin/mco-types[/:id]`~~ — fixed, see above
-- [ ] `GET /api/admin/financial-reports` — role-gated but `officeId` not enforced for non-super-admins, leaks cross-org billing/AR data when omitted
+- [x] ~~`GET /api/admin/financial-reports`~~ — fixed, see above
 - [x] ~~Every caregiver profile sub-resource: notes, preferences, absences, availability(+exceptions), payroll-info, expenses, paychecks, rates, in-services, office-moves, schedules~~ — fixed, see above
 - [x] ~~`POST /api/schedules/:id/clock-in`, `/clock-out`~~ — fixed, see above (note: the "emails PHI in-flow" behavior on clock-out is by design — an EVV confirmation email — not a bug)
 - [x] ~~`GET /api/clients/:id/medications`, `GET/PATCH/DELETE /api/medications/:id`, `/log`, `/adherence`, `/logs`~~ — fixed, see above
@@ -194,7 +205,7 @@ both), verify against a real Postgres instance, and check off the line.
 - [ ] Quality-management family — `GET/POST /api/quality-management-plans`, `/qmp-measurable-outcomes`, `/qmp-quarterly-reviews`, `/qmp-oadri-cycles`, `/patient-complaints[-stats]`, `/quality-management-logs` — officeId trusted with zero enforcement (note: the single-record `GET/PATCH/DELETE .../:id` routes in this family compare against `user?.officeId`, which **does not exist on the session object** — it's always `undefined`, so those currently fail closed / block everyone; that's a separate functional bug worth fixing at the same time, not a leak)
 
 ### Lower priority / lower sensitivity (reference data, not PHI)
-- [ ] `GET /api/offices/:officeId/pa-survey`, `PUT .../pa-survey/:checklistItemId` — officeId unchecked
+- [x] ~~`GET /api/offices/:officeId/pa-survey`, `PUT .../pa-survey/:checklistItemId`~~ — fixed, see above
 - [ ] `GET/POST/PATCH/DELETE /api/shift-differentials*`, `/api/holidays*` — officeId/id unchecked, low-sensitivity rate/reference config
 - [ ] `GET /api/birthday-notifications*` — officeId trusted, low sensitivity
 - [ ] `GET /api/email-templates/type/:type` — no role check, but not tenant/PHI data (system templates)

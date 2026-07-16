@@ -8035,6 +8035,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Office-specific MCO routes
   app.get("/api/offices/:officeId/mcos", isAuthenticated, async (req, res) => {
     try {
+      if (!(await canAccessOffice(req, req.params.officeId))) {
+        return res.status(403).json({ message: "Office is outside your scope" });
+      }
       const mcos = await storage.getMcosByOffice(req.params.officeId);
       res.json(mcos);
     } catch (error) {
@@ -8045,6 +8048,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/offices/:officeId/mcos", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await canAccessOffice(req, req.params.officeId))) {
+        return res.status(403).json({ message: "Office is outside your scope" });
+      }
       const validatedData = insertMcoSchema.parse({
         ...req.body,
         officeId: req.params.officeId,
@@ -8070,6 +8076,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.put("/api/offices/:officeId/mcos/:id", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await canAccessOffice(req, req.params.officeId))) {
+        return res.status(403).json({ message: "Office is outside your scope" });
+      }
       const oldMco = await storage.getMco(req.params.id);
       const validatedData = insertMcoSchema.partial().parse(req.body);
       const mco = await storage.updateMco(req.params.id, validatedData);
@@ -8094,6 +8103,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/offices/:officeId/mcos/:id", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await canAccessOffice(req, req.params.officeId))) {
+        return res.status(403).json({ message: "Office is outside your scope" });
+      }
       const mco = await storage.getMco(req.params.id);
       if (!mco) {
         return res.status(404).json({ message: "MCO not found" });
@@ -8121,6 +8133,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Office Licenses routes
   app.get("/api/offices/:officeId/licenses", isAuthenticated, async (req, res) => {
     try {
+      if (!(await canAccessOffice(req, req.params.officeId))) {
+        return res.status(403).json({ message: "Office is outside your scope" });
+      }
       const licenses = await storage.getOfficeLicenses(req.params.officeId);
       res.json(licenses);
     } catch (error) {
@@ -8131,6 +8146,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/offices/:officeId/licenses/:id", isAuthenticated, async (req, res) => {
     try {
+      if (!(await canAccessOffice(req, req.params.officeId))) {
+        return res.status(403).json({ message: "Office is outside your scope" });
+      }
       const license = await storage.getOfficeLicense(req.params.id);
       if (!license) {
         return res.status(404).json({ message: "License not found" });
@@ -8144,6 +8162,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/offices/:officeId/licenses", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await canAccessOffice(req, req.params.officeId))) {
+        return res.status(403).json({ message: "Office is outside your scope" });
+      }
       const requestData = {
         ...req.body,
         officeId: req.params.officeId,
@@ -8173,6 +8194,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.put("/api/offices/:officeId/licenses/:id", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await canAccessOffice(req, req.params.officeId))) {
+        return res.status(403).json({ message: "Office is outside your scope" });
+      }
       const oldLicense = await storage.getOfficeLicense(req.params.id);
       const coercedBody = {
         ...req.body,
@@ -8202,6 +8226,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/offices/:officeId/licenses/:id", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await canAccessOffice(req, req.params.officeId))) {
+        return res.status(403).json({ message: "Office is outside your scope" });
+      }
       const license = await storage.getOfficeLicense(req.params.id);
       if (!license) {
         return res.status(404).json({ message: "License not found" });
@@ -8384,6 +8411,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Office Expenses routes
   app.get("/api/offices/:officeId/expenses", isAuthenticated, async (req, res) => {
     try {
+      if (!(await canAccessOffice(req, req.params.officeId))) {
+        return res.status(403).json({ message: "Office is outside your scope" });
+      }
       const expenses = await storage.getOfficeExpenses(req.params.officeId);
       res.json(expenses);
     } catch (error) {
@@ -8394,6 +8424,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/offices/:officeId/expenses", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await canAccessOffice(req, req.params.officeId))) {
+        return res.status(403).json({ message: "Office is outside your scope" });
+      }
       const requestData = {
         ...req.body,
         officeId: req.params.officeId,
@@ -8422,6 +8455,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.put("/api/offices/:officeId/expenses/:id", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await canAccessOffice(req, req.params.officeId))) {
+        return res.status(403).json({ message: "Office is outside your scope" });
+      }
       const oldExpense = await storage.getOfficeExpense(req.params.id);
       const requestData = {
         ...req.body,
@@ -8450,6 +8486,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/offices/:officeId/expenses/:id", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await canAccessOffice(req, req.params.officeId))) {
+        return res.status(403).json({ message: "Office is outside your scope" });
+      }
       const expense = await storage.getOfficeExpense(req.params.id);
       if (!expense) {
         return res.status(404).json({ message: "Expense not found" });
@@ -8477,6 +8516,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Office Dashboard Links routes
   app.get("/api/offices/:officeId/dashboard-links", isAuthenticated, async (req, res) => {
     try {
+      if (!(await canAccessOffice(req, req.params.officeId))) {
+        return res.status(403).json({ message: "Office is outside your scope" });
+      }
       const links = await storage.getOfficeDashboardLinks(req.params.officeId);
       res.json(links);
     } catch (error) {
@@ -8490,6 +8532,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const user = req.user as any;
       if (!user || (user.role !== "admin" && user.role !== "office_admin" && user.role !== "super_admin")) {
         return res.status(403).json({ message: "Only office managers can add dashboard links" });
+      }
+      if (!(await canAccessOffice(req, req.params.officeId))) {
+        return res.status(403).json({ message: "Office is outside your scope" });
       }
       const link = await storage.createOfficeDashboardLink({
         ...req.body,
@@ -8508,6 +8553,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!user || (user.role !== "admin" && user.role !== "office_admin" && user.role !== "super_admin")) {
         return res.status(403).json({ message: "Only office managers can edit dashboard links" });
       }
+      const existingLink = await storage.getOfficeDashboardLink(req.params.id);
+      if (!existingLink || !(await canAccessOffice(req, existingLink.officeId))) {
+        return res.status(404).json({ message: "Dashboard link not found" });
+      }
       const link = await storage.updateOfficeDashboardLink(req.params.id, req.body);
       res.json(link);
     } catch (error) {
@@ -8521,6 +8570,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const user = req.user as any;
       if (!user || (user.role !== "admin" && user.role !== "office_admin" && user.role !== "super_admin")) {
         return res.status(403).json({ message: "Only office managers can delete dashboard links" });
+      }
+      const existingLink = await storage.getOfficeDashboardLink(req.params.id);
+      if (!existingLink || !(await canAccessOffice(req, existingLink.officeId))) {
+        return res.status(404).json({ message: "Dashboard link not found" });
       }
       await storage.deleteOfficeDashboardLink(req.params.id);
       res.status(204).send();
@@ -8644,19 +8697,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!user || !["admin", "office_admin", "super_admin", "supervisor"].includes(user.role)) {
         return res.status(403).json({ message: "Access denied. Admin role required." });
       }
-      const { officeId, startDate, endDate, mcoId } = req.query;
-      
+      const { startDate, endDate, mcoId } = req.query;
+
+      // Lock non-super-admins to their own office regardless of the query param;
+      // otherwise this leaks cross-org billing/AR data when officeId is omitted.
+      let officeId: string | undefined;
+      if (user.role === "super_admin") {
+        officeId = req.query.officeId as string | undefined;
+      } else {
+        officeId = req.session?.user?.primaryOfficeId;
+        if (!officeId) return res.status(403).json({ message: "No office in scope" });
+      }
+
       const start = startDate ? new Date(startDate as string) : new Date(new Date().getFullYear(), new Date().getMonth(), 1);
       const end = endDate ? new Date(endDate as string) : new Date();
-      
+
       // Get all relevant data
-      const billingRecords = await storage.getBillingRecords(officeId as string | undefined);
-      const allClaims = await storage.getClaimsByDateRange(start, end, officeId as string | undefined);
-      const agingReport = await storage.getClaimsAgingReport(officeId as string | undefined);
-      const claimsSummary = await storage.getClaimsSummary(officeId as string | undefined, start, end);
+      const billingRecords = await storage.getBillingRecords(officeId);
+      const allClaims = await storage.getClaimsByDateRange(start, end, officeId);
+      const agingReport = await storage.getClaimsAgingReport(officeId);
+      const claimsSummary = await storage.getClaimsSummary(officeId, start, end);
       const offices = await storage.getAllOffices();
       const mcos = await storage.getAllMcos();
-      const caregivers = await storage.getAllCaregivers(officeId as string | undefined);
+      const caregivers = await storage.getAllCaregivers(officeId);
       
       // Filter by MCO if specified
       const filteredClaims = mcoId 
@@ -9167,6 +9230,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ==================== PAYROLL CONFIG ROUTES ====================
   app.get("/api/offices/:officeId/payroll-config", isAuthenticated, async (req, res) => {
     try {
+      if (!(await canAccessOffice(req, req.params.officeId))) {
+        return res.status(403).json({ message: "Office is outside your scope" });
+      }
       const config = await storage.getOfficePayrollConfig(req.params.officeId);
       res.json(config || null);
     } catch (error) {
@@ -9177,6 +9243,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/offices/:officeId/payroll-config", isAuthenticated, async (req, res) => {
     try {
+      if (!(await canAccessOffice(req, req.params.officeId))) {
+        return res.status(403).json({ message: "Office is outside your scope" });
+      }
       const config = await storage.upsertOfficePayrollConfig({
         ...req.body,
         officeId: req.params.officeId,
@@ -9191,6 +9260,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ==================== OFFICE MCO BILLING RATES ROUTES ====================
   app.get("/api/offices/:officeId/mco-rates", isAuthenticated, async (req, res) => {
     try {
+      if (!(await canAccessOffice(req, req.params.officeId))) {
+        return res.status(403).json({ message: "Office is outside your scope" });
+      }
       const mcoId = req.query.mcoId as string | undefined;
       const rates = await storage.getOfficeMcoBillingRates(req.params.officeId, mcoId);
       res.json(rates);
@@ -9202,6 +9274,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/offices/:officeId/mco-rates", isAuthenticated, async (req, res) => {
     try {
+      if (!(await canAccessOffice(req, req.params.officeId))) {
+        return res.status(403).json({ message: "Office is outside your scope" });
+      }
       const data = {
         ...req.body,
         officeId: req.params.officeId,
@@ -9218,6 +9293,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.put("/api/offices/:officeId/mco-rates/:id", isAuthenticated, async (req, res) => {
     try {
+      if (!(await canAccessOffice(req, req.params.officeId))) {
+        return res.status(403).json({ message: "Office is outside your scope" });
+      }
       const data = {
         ...req.body,
         effectiveFrom: req.body.effectiveFrom ? new Date(req.body.effectiveFrom) : undefined,
@@ -9233,6 +9311,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/offices/:officeId/mco-rates/:id", isAuthenticated, async (req, res) => {
     try {
+      if (!(await canAccessOffice(req, req.params.officeId))) {
+        return res.status(403).json({ message: "Office is outside your scope" });
+      }
       await storage.deleteOfficeMcoBillingRate(req.params.id);
       res.status(204).send();
     } catch (error) {
@@ -9996,8 +10077,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Office PA Survey Status routes
-  app.get("/api/offices/:officeId/pa-survey", isAuthenticated, async (req, res) => {
+  app.get("/api/offices/:officeId/pa-survey", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await canAccessOffice(req, req.params.officeId))) {
+        return res.status(403).json({ message: "Office is outside your scope" });
+      }
       await storage.seedDefaultPaSurveyChecklistItems();
       const statuses = await storage.initializeOfficePaSurveyStatuses(req.params.officeId);
       const items = await storage.getPaSurveyChecklistItems();
@@ -10024,6 +10108,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.put("/api/offices/:officeId/pa-survey/:checklistItemId", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await canAccessOffice(req, req.params.officeId))) {
+        return res.status(403).json({ message: "Office is outside your scope" });
+      }
       const updateData: any = {
         officeId: req.params.officeId,
         checklistItemId: req.params.checklistItemId,
