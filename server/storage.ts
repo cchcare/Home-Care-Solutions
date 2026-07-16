@@ -350,6 +350,18 @@ import {
   coordinatorPayRecords,
   type CoordinatorPayRecord,
   type InsertCoordinatorPayRecord,
+  compPayrollPeriods,
+  type CompPayrollPeriod,
+  type InsertCompPayrollPeriod,
+  compScheduleEntries,
+  type CompScheduleEntry,
+  type InsertCompScheduleEntry,
+  compCaregiverPayments,
+  type CompCaregiverPayment,
+  type InsertCompCaregiverPayment,
+  compCoordinatorPayments,
+  type CompCoordinatorPayment,
+  type InsertCompCoordinatorPayment,
   emailTemplates,
   type EmailTemplate,
   type InsertEmailTemplate,
@@ -1834,6 +1846,103 @@ export class DatabaseStorage implements IStorage {
 
   async deleteCoordinator(id: string): Promise<void> {
     await db.delete(coordinators).where(eq(coordinators.id, id));
+  }
+
+  async getCaregiversByCoordinator(coordinatorId: string): Promise<Caregiver[]> {
+    return await db.select().from(caregivers).where(eq(caregivers.coordinatorId, coordinatorId)).orderBy(asc(caregivers.lastName));
+  }
+
+  // ─── Coordinator Compensation Module ───────────────────────────────────────
+  async getCompPayrollPeriods(officeId?: string): Promise<CompPayrollPeriod[]> {
+    if (officeId) {
+      return await db.select().from(compPayrollPeriods).where(eq(compPayrollPeriods.officeId, officeId)).orderBy(desc(compPayrollPeriods.startDate));
+    }
+    return await db.select().from(compPayrollPeriods).orderBy(desc(compPayrollPeriods.startDate));
+  }
+
+  async getCompPayrollPeriod(id: string): Promise<CompPayrollPeriod | undefined> {
+    const [row] = await db.select().from(compPayrollPeriods).where(eq(compPayrollPeriods.id, id));
+    return row;
+  }
+
+  async createCompPayrollPeriod(data: InsertCompPayrollPeriod): Promise<CompPayrollPeriod> {
+    const [row] = await db.insert(compPayrollPeriods).values(data).returning();
+    return row;
+  }
+
+  async updateCompPayrollPeriod(id: string, data: Partial<InsertCompPayrollPeriod>): Promise<CompPayrollPeriod> {
+    const [row] = await db.update(compPayrollPeriods).set({ ...data, updatedAt: new Date() }).where(eq(compPayrollPeriods.id, id)).returning();
+    return row;
+  }
+
+  async deleteCompPayrollPeriod(id: string): Promise<void> {
+    await db.delete(compPayrollPeriods).where(eq(compPayrollPeriods.id, id));
+  }
+
+  // Schedule entries within a date range (inclusive), optionally by caregiver.
+  async getCompScheduleEntries(filters: { officeId?: string; caregiverId?: string; startDate?: string; endDate?: string }): Promise<CompScheduleEntry[]> {
+    const conditions: any[] = [];
+    if (filters.officeId) conditions.push(eq(compScheduleEntries.officeId, filters.officeId));
+    if (filters.caregiverId) conditions.push(eq(compScheduleEntries.caregiverId, filters.caregiverId));
+    if (filters.startDate) conditions.push(gte(compScheduleEntries.workDate, filters.startDate));
+    if (filters.endDate) conditions.push(lte(compScheduleEntries.workDate, filters.endDate));
+    const q = db.select().from(compScheduleEntries);
+    const rows = conditions.length ? await q.where(and(...conditions)).orderBy(desc(compScheduleEntries.workDate)) : await q.orderBy(desc(compScheduleEntries.workDate));
+    return rows;
+  }
+
+  async getCompScheduleEntry(id: string): Promise<CompScheduleEntry | undefined> {
+    const [row] = await db.select().from(compScheduleEntries).where(eq(compScheduleEntries.id, id));
+    return row;
+  }
+
+  async createCompScheduleEntry(data: InsertCompScheduleEntry): Promise<CompScheduleEntry> {
+    const [row] = await db.insert(compScheduleEntries).values(data).returning();
+    return row;
+  }
+
+  async createCompScheduleEntriesBulk(rows: InsertCompScheduleEntry[]): Promise<CompScheduleEntry[]> {
+    if (rows.length === 0) return [];
+    return await db.insert(compScheduleEntries).values(rows).returning();
+  }
+
+  async updateCompScheduleEntry(id: string, data: Partial<InsertCompScheduleEntry>): Promise<CompScheduleEntry> {
+    const [row] = await db.update(compScheduleEntries).set({ ...data, updatedAt: new Date() }).where(eq(compScheduleEntries.id, id)).returning();
+    return row;
+  }
+
+  async deleteCompScheduleEntry(id: string): Promise<void> {
+    await db.delete(compScheduleEntries).where(eq(compScheduleEntries.id, id));
+  }
+
+  async getCompCaregiverPayments(periodId: string): Promise<CompCaregiverPayment[]> {
+    return await db.select().from(compCaregiverPayments).where(eq(compCaregiverPayments.periodId, periodId));
+  }
+
+  async upsertCompCaregiverPayment(periodId: string, caregiverId: string, paymentMade: string, notes: string | null, updatedBy: string | null): Promise<CompCaregiverPayment> {
+    const [row] = await db.insert(compCaregiverPayments)
+      .values({ periodId, caregiverId, paymentMade, notes, updatedBy })
+      .onConflictDoUpdate({
+        target: [compCaregiverPayments.periodId, compCaregiverPayments.caregiverId],
+        set: { paymentMade, notes, updatedBy, updatedAt: new Date() },
+      })
+      .returning();
+    return row;
+  }
+
+  async getCompCoordinatorPayments(periodId: string): Promise<CompCoordinatorPayment[]> {
+    return await db.select().from(compCoordinatorPayments).where(eq(compCoordinatorPayments.periodId, periodId));
+  }
+
+  async upsertCompCoordinatorPayment(periodId: string, coordinatorId: string, paymentMade: string, notes: string | null, updatedBy: string | null): Promise<CompCoordinatorPayment> {
+    const [row] = await db.insert(compCoordinatorPayments)
+      .values({ periodId, coordinatorId, paymentMade, notes, updatedBy })
+      .onConflictDoUpdate({
+        target: [compCoordinatorPayments.periodId, compCoordinatorPayments.coordinatorId],
+        set: { paymentMade, notes, updatedBy, updatedAt: new Date() },
+      })
+      .returning();
+    return row;
   }
 
   // Client operations

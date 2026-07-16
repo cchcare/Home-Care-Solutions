@@ -8,6 +8,7 @@ import { registerDohSavedComparisonRoutes } from "./audit-saved-comparison-route
 import { setupMobileApi } from "./mobileApi";
 import { setupTwilioWebhooks } from "./twilio";
 import { requireFeature, getOrganizationFeatures } from "./feature-gate";
+import { computeCaregiverPeriod, computeCaregiverCompensation, round2, type ScheduleHours } from "./coordinator-compensation";
 import multer from "multer";
 import crypto from "crypto";
 import path from "path";
@@ -107,6 +108,8 @@ import {
   insertTicketMessageSchema,
   insertCustomIntegrationSchema,
   insertCoordinatorPayRecordSchema,
+  insertCompPayrollPeriodSchema,
+  insertCompScheduleEntrySchema,
   insertPayrollRunSchema,
   insertShiftSwapRequestSchema,
   insertESignatureTemplateSchema,
@@ -1610,10 +1613,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/coordinators/:id", isAuthenticated, async (req, res) => {
+  app.get("/api/coordinators/:id", isAuthenticated, async (req: any, res) => {
     try {
       const coordinator = await storage.getCoordinator(req.params.id);
-      if (!coordinator) {
+      if (!coordinator || !(await canAccessOffice(req, coordinator.officeId))) {
         return res.status(404).json({ message: "Coordinator not found" });
       }
       res.json(coordinator);
@@ -1623,9 +1626,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/coordinators", isAuthenticated, async (req: any, res) => {
+  // Caregivers assigned to a coordinator (assignment is caregiver.coordinatorId).
+  app.get("/api/coordinators/:id/caregivers", isAuthenticated, async (req: any, res) => {
+    try {
+      const coordinator = await storage.getCoordinator(req.params.id);
+      if (!coordinator || !(await canAccessOffice(req, coordinator.officeId))) {
+        return res.status(404).json({ message: "Coordinator not found" });
+      }
+      const caregivers = await storage.getCaregiversByCoordinator(req.params.id);
+      res.json(caregivers);
+    } catch (error) {
+      console.error("Error fetching coordinator caregivers:", error);
+      res.status(500).json({ message: "Failed to fetch coordinator caregivers" });
+    }
+  });
+
+  app.post("/api/coordinators", isAuthenticated, requireAdminRole, async (req: any, res) => {
     try {
       const validatedData = insertCoordinatorSchema.parse(req.body);
+      if (!(await canAccessOffice(req, validatedData.officeId))) {
+        return res.status(403).json({ message: "Office is outside your scope" });
+      }
       const coordinator = await storage.createCoordinator(validatedData);
       
       await storage.createAuditLog({
@@ -1645,9 +1666,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/coordinators/:id", isAuthenticated, async (req: any, res) => {
+  app.put("/api/coordinators/:id", isAuthenticated, requireAdminRole, async (req: any, res) => {
     try {
       const oldCoordinator = await storage.getCoordinator(req.params.id);
+      if (!oldCoordinator || !(await canAccessOffice(req, oldCoordinator.officeId))) {
+        return res.status(404).json({ message: "Coordinator not found" });
+      }
       const validatedData = insertCoordinatorSchema.partial().parse(req.body);
       const coordinator = await storage.updateCoordinator(req.params.id, validatedData);
       
@@ -1669,13 +1693,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/coordinators/:id", isAuthenticated, async (req: any, res) => {
+  app.delete("/api/coordinators/:id", isAuthenticated, requireAdminRole, async (req: any, res) => {
     try {
       const coordinator = await storage.getCoordinator(req.params.id);
-      if (!coordinator) {
+      if (!coordinator || !(await canAccessOffice(req, coordinator.officeId))) {
         return res.status(404).json({ message: "Coordinator not found" });
       }
-      
+
       await storage.deleteCoordinator(req.params.id);
       
       await storage.createAuditLog({
@@ -1692,6 +1716,440 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error deleting coordinator:", error);
       res.status(500).json({ message: "Failed to delete coordinator" });
+    }
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // Coordinator Compensation Module
+  // Payroll periods, schedule entries, computed caregiver payroll, and
+  // computed coordinator compensation. All office-scoped.
+  // ═══════════════════════════════════════════════════════════════════════
+  const compManagerRoles = ["super_admin", "admin", "office_admin", "supervisor", "manager"];
+  const isCompManager = (req: any) => compManagerRoles.includes(req.session?.user?.role || "");
+
+  // Resolve the effective officeId for a create, forcing non-super-admins to
+  // their own office and validating super_admin's choice.
+  const resolveWriteOffice = async (req: any, requested?: string | null): Promise<string | null | undefined> => {
+    const user = req.session?.user;
+    if (user?.role === "super_admin") return requested ?? null;
+    return user?.primaryOfficeId ?? undefined;
+  };
+
+  // ─── Payroll Periods ───────────────────────────────────────────────────
+  app.get("/api/comp/periods", isAuthenticated, async (req: any, res) => {
+    try {
+      const officeId = parseOfficeId(req);
+      const periods = await storage.getCompPayrollPeriods(officeId);
+      res.json(periods);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message || "Failed to fetch payroll periods" });
+    }
+  });
+
+  app.get("/api/comp/periods/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const period = await storage.getCompPayrollPeriod(req.params.id);
+      if (!period || !(await canAccessOffice(req, period.officeId))) {
+        return res.status(404).json({ message: "Payroll period not found" });
+      }
+      res.json(period);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message || "Failed to fetch payroll period" });
+    }
+  });
+
+  app.post("/api/comp/periods", isAuthenticated, async (req: any, res) => {
+    try {
+      if (!isCompManager(req)) return res.status(403).json({ message: "Manager access required" });
+      const officeId = await resolveWriteOffice(req, req.body.officeId);
+      if (!officeId) return res.status(403).json({ message: "Office is outside your scope" });
+      const data = insertCompPayrollPeriodSchema.parse({
+        ...req.body,
+        officeId,
+        organizationId: req.session?.user?.organizationId ?? null,
+        createdBy: req.session?.user?.id ?? null,
+      });
+      const period = await storage.createCompPayrollPeriod(data);
+      res.status(201).json(period);
+    } catch (e: any) {
+      if (e.name === "ZodError") return res.status(400).json({ message: e.errors });
+      res.status(500).json({ message: e.message || "Failed to create payroll period" });
+    }
+  });
+
+  app.patch("/api/comp/periods/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      if (!isCompManager(req)) return res.status(403).json({ message: "Manager access required" });
+      const existing = await storage.getCompPayrollPeriod(req.params.id);
+      if (!existing || !(await canAccessOffice(req, existing.officeId))) {
+        return res.status(404).json({ message: "Payroll period not found" });
+      }
+      const { officeId, organizationId, ...body } = req.body;
+      const data = insertCompPayrollPeriodSchema.partial().parse(body);
+      const period = await storage.updateCompPayrollPeriod(req.params.id, data);
+      res.json(period);
+    } catch (e: any) {
+      if (e.name === "ZodError") return res.status(400).json({ message: e.errors });
+      res.status(500).json({ message: e.message || "Failed to update payroll period" });
+    }
+  });
+
+  app.delete("/api/comp/periods/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      if (!isCompManager(req)) return res.status(403).json({ message: "Manager access required" });
+      const existing = await storage.getCompPayrollPeriod(req.params.id);
+      if (!existing || !(await canAccessOffice(req, existing.officeId))) {
+        return res.status(404).json({ message: "Payroll period not found" });
+      }
+      await storage.deleteCompPayrollPeriod(req.params.id);
+      res.status(204).send();
+    } catch (e: any) {
+      res.status(500).json({ message: e.message || "Failed to delete payroll period" });
+    }
+  });
+
+  // ─── Schedule Entries ──────────────────────────────────────────────────
+  app.get("/api/comp/schedule-entries", isAuthenticated, async (req: any, res) => {
+    try {
+      const officeId = parseOfficeId(req);
+      const { caregiverId, startDate, endDate } = req.query as Record<string, string | undefined>;
+      const entries = await storage.getCompScheduleEntries({ officeId, caregiverId, startDate, endDate });
+      res.json(entries);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message || "Failed to fetch schedule entries" });
+    }
+  });
+
+  app.post("/api/comp/schedule-entries", isAuthenticated, async (req: any, res) => {
+    try {
+      if (!isCompManager(req)) return res.status(403).json({ message: "Manager access required" });
+      // The caregiver must be in the caller's scope; derive officeId from them.
+      const caregiver = await getCaregiverInScope(req, req.body.caregiverId);
+      if (!caregiver) return res.status(404).json({ message: "Caregiver not found" });
+      const data = insertCompScheduleEntrySchema.parse({
+        ...req.body,
+        officeId: caregiver.officeId,
+        organizationId: req.session?.user?.organizationId ?? null,
+        createdBy: req.session?.user?.id ?? null,
+      });
+      const entry = await storage.createCompScheduleEntry(data);
+      res.status(201).json(entry);
+    } catch (e: any) {
+      if (e.name === "ZodError") return res.status(400).json({ message: e.errors });
+      res.status(500).json({ message: e.message || "Failed to create schedule entry" });
+    }
+  });
+
+  app.patch("/api/comp/schedule-entries/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      if (!isCompManager(req)) return res.status(403).json({ message: "Manager access required" });
+      const existing = await storage.getCompScheduleEntry(req.params.id);
+      if (!existing || !(await canAccessOffice(req, existing.officeId))) {
+        return res.status(404).json({ message: "Schedule entry not found" });
+      }
+      const { officeId, organizationId, caregiverId, ...body } = req.body;
+      const data = insertCompScheduleEntrySchema.partial().parse(body);
+      const entry = await storage.updateCompScheduleEntry(req.params.id, data);
+      res.json(entry);
+    } catch (e: any) {
+      if (e.name === "ZodError") return res.status(400).json({ message: e.errors });
+      res.status(500).json({ message: e.message || "Failed to update schedule entry" });
+    }
+  });
+
+  app.delete("/api/comp/schedule-entries/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      if (!isCompManager(req)) return res.status(403).json({ message: "Manager access required" });
+      const existing = await storage.getCompScheduleEntry(req.params.id);
+      if (!existing || !(await canAccessOffice(req, existing.officeId))) {
+        return res.status(404).json({ message: "Schedule entry not found" });
+      }
+      await storage.deleteCompScheduleEntry(req.params.id);
+      res.status(204).send();
+    } catch (e: any) {
+      res.status(500).json({ message: e.message || "Failed to delete schedule entry" });
+    }
+  });
+
+  // ─── Schedule import (Excel/CSV) ───────────────────────────────────────
+  // Expects columns (header row, case-insensitive): caregiver, client, date,
+  // hours. "caregiver" matches employeeId, assignmentId, or "First Last" name;
+  // "client" matches "First Last" (optional). Rows that don't match a caregiver
+  // in the caller's office are reported back, not imported.
+  app.post("/api/comp/schedule-entries/import", isAuthenticated, excelUpload.single("file"), async (req: any, res) => {
+    try {
+      if (!isCompManager(req)) return res.status(403).json({ message: "Manager access required" });
+      if (!req.file) return res.status(400).json({ message: "No file uploaded" });
+
+      const allowed = await resolveAllowedOfficeIds(req);
+      if (Array.isArray(allowed) && allowed.length === 0) {
+        return res.status(403).json({ message: "No office in scope" });
+      }
+      // Build lookup maps of caregivers/clients the caller can import against.
+      const scopeOfficeIds = allowed === "ALL" ? undefined : allowed;
+      const caregivers: any[] = [];
+      const clients: any[] = [];
+      if (scopeOfficeIds) {
+        for (const oid of scopeOfficeIds) {
+          caregivers.push(...await storage.getAllCaregivers(oid));
+          clients.push(...await storage.getAllClients(oid));
+        }
+      } else {
+        caregivers.push(...await storage.getAllCaregivers());
+        clients.push(...await storage.getAllClients());
+      }
+      const norm = (s: any) => String(s ?? "").trim().toLowerCase();
+      const caregiverByKey = new Map<string, any>();
+      for (const c of caregivers) {
+        if (c.employeeId) caregiverByKey.set(norm(c.employeeId), c);
+        if (c.assignmentId) caregiverByKey.set(norm(c.assignmentId), c);
+        caregiverByKey.set(norm(`${c.firstName} ${c.lastName}`), c);
+      }
+      const clientByName = new Map<string, any>();
+      for (const c of clients) clientByName.set(norm(`${c.firstName} ${c.lastName}`), c);
+
+      // Parse the uploaded workbook into rows of {caregiver, client, date, hours}.
+      const ExcelJS = await import("exceljs");
+      const workbook = new ExcelJS.default.Workbook();
+      await workbook.xlsx.load(req.file.buffer);
+      const worksheet = workbook.worksheets[0];
+      if (!worksheet) return res.status(400).json({ message: "The uploaded file has no worksheet" });
+
+      // Map header names to column indexes.
+      const headerRow = worksheet.getRow(1);
+      const colIndex: Record<string, number> = {};
+      headerRow.eachCell((cell, col) => {
+        const key = norm(cell.value);
+        if (["caregiver", "caregiver name", "employee", "employee id"].includes(key)) colIndex.caregiver = col;
+        else if (["client", "client name", "patient"].includes(key)) colIndex.client = col;
+        else if (["date", "work date", "service date"].includes(key)) colIndex.date = col;
+        else if (["hours", "hrs", "hours worked"].includes(key)) colIndex.hours = col;
+      });
+      if (!colIndex.caregiver || !colIndex.date || !colIndex.hours) {
+        return res.status(400).json({ message: "Missing required columns. Expected: caregiver, date, hours (client optional)." });
+      }
+
+      const toIsoDate = (v: any): string | null => {
+        if (v == null || v === "") return null;
+        if (v instanceof Date) return v.toISOString().slice(0, 10);
+        const s = String(v).trim();
+        const d = new Date(s);
+        if (isNaN(d.getTime())) return null;
+        return d.toISOString().slice(0, 10);
+      };
+
+      const toImport: any[] = [];
+      const errors: { row: number; reason: string }[] = [];
+      const lastRow = worksheet.rowCount;
+      for (let r = 2; r <= lastRow; r++) {
+        const row = worksheet.getRow(r);
+        const cgRaw = row.getCell(colIndex.caregiver).value;
+        if (cgRaw == null || String(cgRaw).trim() === "") continue; // skip blank rows
+        const caregiver = caregiverByKey.get(norm(cgRaw));
+        if (!caregiver) { errors.push({ row: r, reason: `Caregiver "${cgRaw}" not found in your office` }); continue; }
+        const workDate = toIsoDate(row.getCell(colIndex.date).value);
+        if (!workDate) { errors.push({ row: r, reason: "Invalid or missing date" }); continue; }
+        const hoursNum = Number(row.getCell(colIndex.hours).value);
+        if (!isFinite(hoursNum) || hoursNum < 0) { errors.push({ row: r, reason: "Invalid or missing hours" }); continue; }
+        let clientId: string | null = null;
+        if (colIndex.client) {
+          const clRaw = row.getCell(colIndex.client).value;
+          if (clRaw != null && String(clRaw).trim() !== "") {
+            const client = clientByName.get(norm(clRaw));
+            if (client) clientId = client.id;
+          }
+        }
+        toImport.push({
+          organizationId: req.session?.user?.organizationId ?? null,
+          officeId: caregiver.officeId,
+          caregiverId: caregiver.id,
+          clientId,
+          workDate,
+          hours: String(hoursNum),
+          createdBy: req.session?.user?.id ?? null,
+        });
+      }
+
+      const created = await storage.createCompScheduleEntriesBulk(toImport);
+      res.json({ imported: created.length, skipped: errors.length, errors });
+    } catch (e: any) {
+      console.error("Error importing schedule entries:", e);
+      res.status(500).json({ message: e.message || "Failed to import schedule" });
+    }
+  });
+
+  // ─── Caregiver payroll for a period (computed) ─────────────────────────
+  // Returns one row per caregiver with schedule entries in the period:
+  // total/regular/OT hours, computed payroll, manual payment, remaining.
+  app.get("/api/comp/periods/:id/caregiver-payroll", isAuthenticated, async (req: any, res) => {
+    try {
+      const period = await storage.getCompPayrollPeriod(req.params.id);
+      if (!period || !(await canAccessOffice(req, period.officeId))) {
+        return res.status(404).json({ message: "Payroll period not found" });
+      }
+      const otThreshold = Number(period.otWeeklyThreshold ?? 40);
+      const entries = await storage.getCompScheduleEntries({
+        officeId: period.officeId ?? undefined,
+        startDate: period.startDate,
+        endDate: period.endDate,
+      });
+      const payments = await storage.getCompCaregiverPayments(period.id);
+      const paymentByCaregiver = new Map(payments.map(p => [p.caregiverId, p]));
+
+      // Group entries by caregiver.
+      const byCaregiver = new Map<string, ScheduleHours[]>();
+      for (const e of entries) {
+        const list = byCaregiver.get(e.caregiverId) ?? [];
+        list.push({ workDate: e.workDate, hours: Number(e.hours) || 0 });
+        byCaregiver.set(e.caregiverId, list);
+      }
+
+      const rows = [];
+      for (const [caregiverId, hrs] of byCaregiver) {
+        const caregiver = await storage.getCaregiver(caregiverId);
+        if (!caregiver) continue;
+        const rate = Number(caregiver.hourlyWage ?? 0);
+        const result = computeCaregiverPeriod(hrs, rate, otThreshold, period.startDate, period.endDate);
+        const pay = paymentByCaregiver.get(caregiverId);
+        const paymentMade = Number(pay?.paymentMade ?? 0);
+        rows.push({
+          caregiverId,
+          caregiverName: `${caregiver.firstName ?? ""} ${caregiver.lastName ?? ""}`.trim(),
+          coordinatorId: caregiver.coordinatorId ?? null,
+          rate,
+          ...result,
+          paymentMade: round2(paymentMade),
+          paymentRemaining: round2(result.payroll - paymentMade),
+        });
+      }
+      rows.sort((a, b) => a.caregiverName.localeCompare(b.caregiverName));
+      res.json({ period, rows });
+    } catch (e: any) {
+      console.error("Error computing caregiver payroll:", e);
+      res.status(500).json({ message: e.message || "Failed to compute caregiver payroll" });
+    }
+  });
+
+  app.put("/api/comp/periods/:id/caregiver-payment/:caregiverId", isAuthenticated, async (req: any, res) => {
+    try {
+      if (!isCompManager(req)) return res.status(403).json({ message: "Manager access required" });
+      const period = await storage.getCompPayrollPeriod(req.params.id);
+      if (!period || !(await canAccessOffice(req, period.officeId))) {
+        return res.status(404).json({ message: "Payroll period not found" });
+      }
+      if (!(await getCaregiverInScope(req, req.params.caregiverId))) {
+        return res.status(404).json({ message: "Caregiver not found" });
+      }
+      const paymentMade = String(Number(req.body.paymentMade) || 0);
+      const row = await storage.upsertCompCaregiverPayment(
+        period.id, req.params.caregiverId, paymentMade, req.body.notes ?? null, req.session?.user?.id ?? null,
+      );
+      res.json(row);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message || "Failed to save payment" });
+    }
+  });
+
+  // ─── Coordinator compensation for a period (computed) ──────────────────
+  // For each coordinator: a row per managed caregiver with hours, caregiver
+  // payroll, coordinator gross, and compensation; plus the coordinator's
+  // total compensation, manual payment, and remaining.
+  app.get("/api/comp/periods/:id/coordinator-payroll", isAuthenticated, async (req: any, res) => {
+    try {
+      const period = await storage.getCompPayrollPeriod(req.params.id);
+      if (!period || !(await canAccessOffice(req, period.officeId))) {
+        return res.status(404).json({ message: "Payroll period not found" });
+      }
+      const otThreshold = Number(period.otWeeklyThreshold ?? 40);
+      const entries = await storage.getCompScheduleEntries({
+        officeId: period.officeId ?? undefined,
+        startDate: period.startDate,
+        endDate: period.endDate,
+      });
+      const coordPayments = await storage.getCompCoordinatorPayments(period.id);
+      const paymentByCoordinator = new Map(coordPayments.map(p => [p.coordinatorId, p]));
+
+      const byCaregiver = new Map<string, ScheduleHours[]>();
+      for (const e of entries) {
+        const list = byCaregiver.get(e.caregiverId) ?? [];
+        list.push({ workDate: e.workDate, hours: Number(e.hours) || 0 });
+        byCaregiver.set(e.caregiverId, list);
+      }
+
+      // Build per-coordinator caregiver rows.
+      const coordinators = await storage.getAllCoordinators(period.officeId ?? undefined);
+      const coordMap = new Map(coordinators.map(c => [c.id, c]));
+      const rowsByCoordinator = new Map<string, any[]>();
+
+      for (const [caregiverId, hrs] of byCaregiver) {
+        const caregiver = await storage.getCaregiver(caregiverId);
+        if (!caregiver || !caregiver.coordinatorId) continue;
+        const coordinator = coordMap.get(caregiver.coordinatorId);
+        if (!coordinator) continue;
+        const rate = Number(caregiver.hourlyWage ?? 0);
+        const coordRate = Number(coordinator.coordinatorRate ?? 0);
+        const result = computeCaregiverPeriod(hrs, rate, otThreshold, period.startDate, period.endDate);
+        const { coordinatorGross, compensation } = computeCaregiverCompensation(result, coordRate);
+        const list = rowsByCoordinator.get(coordinator.id) ?? [];
+        list.push({
+          caregiverId,
+          caregiverName: `${caregiver.firstName ?? ""} ${caregiver.lastName ?? ""}`.trim(),
+          totalHours: result.totalHours,
+          regularHours: result.regularHours,
+          overtimeHours: result.overtimeHours,
+          caregiverPayroll: result.payroll,
+          coordinatorGross,
+          compensation,
+        });
+        rowsByCoordinator.set(coordinator.id, list);
+      }
+
+      const coordinatorsOut = [];
+      for (const coordinator of coordinators) {
+        const rows = rowsByCoordinator.get(coordinator.id) ?? [];
+        if (rows.length === 0 && !coordinator.coordinatorRate) {
+          // Skip coordinators with no activity and no rate to keep the view clean,
+          // but still include those with a rate so they appear (with zeros).
+        }
+        const totalCompensation = round2(rows.reduce((s, r) => s + r.compensation, 0));
+        const pay = paymentByCoordinator.get(coordinator.id);
+        const paymentMade = Number(pay?.paymentMade ?? 0);
+        coordinatorsOut.push({
+          coordinatorId: coordinator.id,
+          coordinatorName: `${coordinator.firstName} ${coordinator.lastName}`.trim(),
+          coordinatorRate: Number(coordinator.coordinatorRate ?? 0),
+          rows,
+          totalCompensation,
+          paymentMade: round2(paymentMade),
+          paymentRemaining: round2(totalCompensation - paymentMade),
+        });
+      }
+      coordinatorsOut.sort((a, b) => a.coordinatorName.localeCompare(b.coordinatorName));
+      res.json({ period, coordinators: coordinatorsOut });
+    } catch (e: any) {
+      console.error("Error computing coordinator payroll:", e);
+      res.status(500).json({ message: e.message || "Failed to compute coordinator payroll" });
+    }
+  });
+
+  app.put("/api/comp/periods/:id/coordinator-payment/:coordinatorId", isAuthenticated, async (req: any, res) => {
+    try {
+      if (!isCompManager(req)) return res.status(403).json({ message: "Manager access required" });
+      const period = await storage.getCompPayrollPeriod(req.params.id);
+      if (!period || !(await canAccessOffice(req, period.officeId))) {
+        return res.status(404).json({ message: "Payroll period not found" });
+      }
+      const coordinator = await storage.getCoordinator(req.params.coordinatorId);
+      if (!coordinator || !(await canAccessOffice(req, coordinator.officeId))) {
+        return res.status(404).json({ message: "Coordinator not found" });
+      }
+      const paymentMade = String(Number(req.body.paymentMade) || 0);
+      const row = await storage.upsertCompCoordinatorPayment(
+        period.id, req.params.coordinatorId, paymentMade, req.body.notes ?? null, req.session?.user?.id ?? null,
+      );
+      res.json(row);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message || "Failed to save payment" });
     }
   });
 
