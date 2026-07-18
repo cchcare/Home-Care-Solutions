@@ -143,6 +143,33 @@ all, since nothing had ever needed to check ownership on them — added one for 
 - [x] `GET/POST /api/caregivers/:id/mileage` — added `getCaregiverInScope`; `PATCH /api/mileage/:id`, `POST /:id/approve` — resolve the log's caregiver and check scope; `GET /api/mileage/pending` — filtered to the caller's caregivers (was all pending system-wide)
 - [x] `GET /api/performance-reviews/:id/metrics`, `/calculate-rating` — added a `canReadPerformanceReview` scope check (reviewer, in-office staff, or the caregiver themselves); `POST /:id/acknowledge` — was letting a caller acknowledge as anyone via a body `caregiverId`; now only the reviewed caregiver may acknowledge, using the review's own caregiverId
 
+## Fixed in a tenth pass (documents, messages/compliance/incidents, office-config, eligibility/EVV/authorizations, applicants, shift-matching, exclusions, reference data) — same verification as above
+
+- [x] **Systemic bug found and fixed: `req.user` was never populated.** This app authenticates via `server/localAuth.ts` (session-based — `isAuthenticated` only checks `req.session.user`). A separate, unused `server/replitAuth.ts` (old Replit OIDC flow, not wired into `registerRoutes`) is the only place that ever sets `req.user` via passport. Because `@types/passport` is still an installed dependency, `req.user` type-checked fine everywhere it was used, but at runtime it was **always `undefined`** — so every `if (!user || !allowedRoles.includes(user.role))` gate built on `req.user` threw on `user.role` and 500'd, or fell through `!user` and always returned 403. Net effect: roughly **47 call sites** across email-templates (super-admin-only template management), help-articles, e-signature templates/requests, custom-integrations, and others were **completely non-functional for every user, including super_admin** — not a security leak (fail-closed via exception/403), but a total feature outage. Fixed by replacing every `req.user` reference with `(req.session as any)?.user` (verified via full-file grep that no `req.user =` assignment exists in `routes.ts`, so a blanket replace was safe).
+- [x] Documents cluster (`GET/PUT /api/documents/:id`, `/download`, `/view`, `GET /api/documents`, `/caregivers/:id/documents`, `/clients/:id/documents`) — added `getDocumentOfficeId`/`canAccessDocument` helpers (resolves office via the document's own `officeId` or, failing that, its linked client/caregiver/user). Also fixed `POST /api/documents/upload`: it trusted a client-supplied `officeId` outright and read `session.user.officeId` (a property that doesn't exist — should be `primaryOfficeId`, the same recurring bug pattern as the quality-management fix); now validates the linked client/caregiver/office are all in the uploader's scope.
+- [x] `GET/POST /api/clients/:clientId/progress-notes` — added `getClientInScope`
+- [x] `PATCH /api/messages/:id` — had **zero ownership check**, any authenticated user could rewrite any other user's message; added a sender-or-recipient check (mirrors the already-correct logic in `storage.updateMessageStatus`)
+- [x] `GET/POST/PUT /api/caregivers/:caregiverId/certifications`, `/compliance` — added `getCaregiverInScope`; `GET/PUT /api/compliance[/:id]` — scope-aware `parseOfficeId` + `canAccessOffice`; `GET/PUT /api/trainings[/:id]` — same (null `officeId` treated as a shared/global training, like the letter-templates library pattern)
+- [x] Master Week Templates/Slots (`/api/clients/:clientId/master-week`, `/api/master-week/:templateId/slots[/...]`) — added a `getMasterWeekTemplateInScope` helper (resolves office via the template's client) applied throughout, including the slot delete route
+- [x] `GET/PUT /api/incident-reports/:id`, incident follow-ups (`/api/incidents/:id/follow-ups`, `PATCH /api/follow-ups/:id`, `/complete`, `GET /overdue`) — added a `getIncidentInScope` helper; `GET /api/incident-reports` list — officeId now forced via `parseOfficeId`
+- [x] `GET /api/dashboard/metrics`, `/monthly-stats`, `/api/reports/schedule-overlaps` — officeId now forced via `parseOfficeId`; `GET /api/admin/care-quality-metrics` — was **fail-closed for everyone** (`req.user` bug) and also trusted a client-supplied officeId; fixed both
+- [x] `GET/PUT/DELETE /api/tasks[/:id]` — `?userId=` let any user read another user's tasks; added a `canAccessTask` helper (assignee/creator or office-scope) and an ownership check on PUT/DELETE (neither existed before)
+- [x] `POST/PUT/DELETE /api/offices[/:id]` — had **zero role check**, any authenticated user (including a caregiver) could create/edit/delete an office; added `requireAdminRole` + `canAccessOffice`, and non-super-admins can no longer set/move an office's `organizationId`. `GET /api/offices/:id` — added `canAccessOffice` (was fetchable cross-org by id)
+- [x] `GET/POST /api/clients/:clientId/communications`, `DELETE /api/communications/:id` — added `getClientInScope`; added a `getClientCommunication` single-record getter (didn't exist) for the delete route's ownership check
+- [x] `GET/POST /api/offices/:officeId/billing-rates`, `PUT/DELETE /api/billing-rates/:id` — added `canAccessOffice`/office-check throughout (the by-id routes didn't fetch the record before mutating)
+- [x] Care plans cluster (`/api/clients/:clientId/care-plans`, `/api/care-plans/:id/goals[/:goalId]`, `/interventions[/:interventionId]`) — added `getCarePlanInScope` (resolves office via the plan's client) and per-child ownership checks (a goal/intervention id had to belong to the care plan id in the URL, not just exist)
+- [x] `GET/PUT /api/admin/family-updates[/:id/review]` — added `getClientInScope` on the linked client (was admin-role-gated only, no check that the client belonged to the admin's own org)
+- [x] Client authorizations (`/api/clients/:clientId/authorizations`, `/api/authorizations/:id`, `/bulk-import`) — added `getClientInScope`/`getAuthorizationInScope`; bulk-import now requires admin role and validates each row's resolved client against the caller's scope (was a global `memberId` lookup with a client-supplied `officeId` — cross-org data injection)
+- [x] Eligibility checks (`/api/clients/:clientId/eligibility-checks`, `/api/eligibility-checks/:id`, `/eligibility`, `/eligibility/latest`, `/eligibility/check`, `/eligibility/schedule`, `PUT /eligibility/status`) — added `getClientInScope`/`getEligibilityCheckInScope` throughout; every one of these had no ownership check at all before
+- [x] Caregiver compliance (`/api/caregivers/:caregiverId/compliance`, `/api/caregiver-compliance/:id`) — added `getCaregiverComplianceInScope`
+- [x] EVV data (`/api/evv-data[/:id]`) — officeId now forced via `parseOfficeId`/`canAccessOffice` on list, by-id, create, update, delete (previously fully client-supplied with no check)
+- [x] `GET /api/notifications/history` — `recipientId`/`recipientType` now validated against the caller's scope (client/caregiver/user); the unscoped "all history" view (no recipient given) is now super_admin-only, since notification bodies can carry PHI and there's no officeId column to filter on
+- [x] Applicants cluster (`/api/applicants[...]`, notes, interviews, by-status, pipeline) — added a `getApplicantInScope` helper applied throughout; list/pipeline/by-status now use scope-aware `parseOfficeId`
+- [x] `GET/POST /api/shift-matching/suggest`, `/calculate-score`, `/check-conflict` — added `getClientInScope`/`getCaregiverInScope` (previously any authenticated user could probe schedule conflicts/match scores for any org's caregiver or client by id)
+- [x] Exclusion checks (`/api/caregivers/:id/exclusion-check`, `/api/exclusions/checks`, `/caregiver/:caregiverId`, `PATCH /checks/:checkId`, false-positives) — added `getCaregiverInScope` throughout (was admin-gated but had no org check tying the target caregiver back to the caller's org); added `getCaregiverExclusionCheck`/`getCaregiverFalsePositive` single-record getters (didn't exist)
+- [x] `POST /api/admin/visit-log/upload` — was matching admission/assignment IDs against **every org's** clients/caregivers; now scoped to the uploader's own office(s) via `resolveAllowedOfficeIds`
+- [x] Reference-data cluster (`/api/shift-differentials[/:id]`, `/calculate`, `/api/holidays[/:id]`, `/check`, `/api/birthday-notifications[...]`) — added `requireAdminRole`/`canAccessOffice`/`parseOfficeId` throughout, treating a null `officeId` as a shared/library row (consistent with the letter-templates and trainings pattern). `birthday-notifications/send`, `/settings`, `/preview` were also hit by the `req.user` bug above (fail-closed for everyone) — fixed as part of the same pass.
+
 Everything below this line is **not yet fixed** and needs the same treatment:
 read the actual route, apply `canAccessOffice`/`resolveAllowedOfficeIds` (or a role gate, or
 both), verify against a real Postgres instance, and check off the line.
@@ -152,22 +179,22 @@ both), verify against a real Postgres instance, and check off the line.
 ## Remaining — grouped by module, in file order
 
 ### Users, messages, compliance, incidents (lines ~1–4700)
-- [ ] `PATCH /api/messages/:id` (~4919) — update-by-id, no ownership check
-- [ ] `PUT /api/compliance/:id` — update-by-id, no ownership check
-- [ ] `PUT /api/trainings/:id` — update-by-id, no ownership check
-- [ ] `GET /api/incident-reports/:id`, `PUT /api/incident-reports/:id` — fetch/update-by-id, no ownership check
-- [ ] `PATCH /api/follow-ups/:id` — no ownership check
-- [ ] `GET /api/dashboard/metrics`, `/api/dashboard/monthly-stats`, `/api/admin/care-quality-metrics`, `/api/reports/schedule-overlaps`, `/api/incident-reports`, `/api/compliance`, `/api/trainings`, `/api/tasks` — all trust a client-supplied `officeId`/`userId` with no enforcement for non-super-admins
-- [ ] `POST/PUT/DELETE /api/offices`, `/api/coordinators/*`, `DELETE /api/communications/:id` — only `isAuthenticated`, no role check
-- [ ] Nested resources never checking the parent id's office/org: `care-plans`, `progress-notes`, `master-week`, `billing-rates`, `documents-by-client/caregiver`, `certifications`, `compliance` (client/caregiver sub-resources)
+- [x] ~~`PATCH /api/messages/:id`~~ — fixed, see above (sender-or-recipient check)
+- [x] ~~`PUT /api/compliance/:id`~~ — fixed, see above
+- [x] ~~`PUT /api/trainings/:id`~~ — fixed, see above
+- [x] ~~`GET /api/incident-reports/:id`, `PUT /api/incident-reports/:id`~~ — fixed, see above
+- [x] ~~`PATCH /api/follow-ups/:id`~~ — fixed, see above
+- [x] ~~`GET /api/dashboard/metrics`, `/api/dashboard/monthly-stats`, `/api/admin/care-quality-metrics`, `/api/reports/schedule-overlaps`, `/api/incident-reports`, `/api/compliance`, `/api/trainings`, `/api/tasks`~~ — fixed, see above
+- [x] ~~`POST/PUT/DELETE /api/offices`, `DELETE /api/communications/:id`~~ — fixed, see above (`/api/coordinators/*` was already hardened in the Coordinator Compensation build)
+- [x] ~~Nested resources never checking the parent id's office/org: `care-plans`, `progress-notes`, `master-week`, `billing-rates`, `documents-by-client/caregiver`, `certifications`, `compliance` (client/caregiver sub-resources)~~ — fixed, see above
 - [x] ~~`GET /api/users/:id`~~ — fixed, see above
-- [ ] `GET/PUT /api/documents/:id`, `/download`, `/view` — no tenant check except a special case for one document type; any other document (medical records, IDs) fetchable/downloadable cross-org by id
+- [x] ~~`GET/PUT /api/documents/:id`, `/download`, `/view`~~ — fixed, see above
 
 ### Office config, EVV, medications, vitals, applicants, background checks (lines ~4500–9300)
 - [x] ~~`GET/POST/PUT/DELETE /api/offices/:officeId/mcos`, `/licenses`, `/expenses`, `/dashboard-links`, `/payroll-config`, `/mco-rates`~~ — fixed, see above
-- [ ] `GET/PUT/DELETE /api/eligibility-checks/:id`, `/api/caregiver-compliance/:id`, `/api/evv-data/:id` (+ `GET /api/evv-data` officeId-trust)
-- [ ] `PUT /api/admin/family-updates/:id/review`, `GET /api/admin/family-updates` — role-gated but no org check on the target record
-- [ ] `GET/PUT/DELETE /api/authorizations/:id` — raw query, no clientId/office check; `POST /api/authorizations/bulk-import` — no role check at all
+- [x] ~~`GET/PUT/DELETE /api/eligibility-checks/:id`, `/api/caregiver-compliance/:id`, `/api/evv-data/:id` (+ `GET /api/evv-data` officeId-trust)~~ — fixed, see above
+- [x] ~~`PUT /api/admin/family-updates/:id/review`, `GET /api/admin/family-updates`~~ — fixed, see above
+- [x] ~~`GET/PUT/DELETE /api/authorizations/:id`, `POST /api/authorizations/bulk-import`~~ — fixed, see above
 - [x] ~~`GET/PUT/DELETE /api/billing/:id`, `/api/payroll/:id` (+ `/line-items`)~~ — fixed, see above
 - [x] ~~`GET/PUT/DELETE /api/admin/mcos[/:id]`~~ — fixed, see above
 - [x] ~~`GET/POST/PUT/DELETE /api/admin/settings[/:key]`, `/api/admin/field-configs`, `/api/admin/mco-types[/:id]`~~ — fixed, see above
@@ -176,8 +203,8 @@ both), verify against a real Postgres instance, and check off the line.
 - [x] ~~`POST /api/schedules/:id/clock-in`, `/clock-out`~~ — fixed, see above (note: the "emails PHI in-flow" behavior on clock-out is by design — an EVV confirmation email — not a bug)
 - [x] ~~`GET /api/clients/:id/medications`, `GET/PATCH/DELETE /api/medications/:id`, `/log`, `/adherence`, `/logs`~~ — fixed, see above
 - [x] ~~`GET/POST /api/clients/:id/vitals`, `/history`, `/trends`~~ — fixed, see above
-- [ ] `GET /api/notifications/history` — `recipientId` trusted from query
-- [ ] `GET/POST /api/applicants*`, `/interviews`, `/notes` — no ownership check (the `background-checks` family under applicants/caregivers is fixed, see above)
+- [x] ~~`GET /api/notifications/history`~~ — fixed, see above
+- [x] ~~`GET/POST /api/applicants*`, `/interviews`, `/notes`~~ — fixed, see above
 - [x] ~~`GET /api/mileage/pending`, `/approve`~~ — fixed, see above
 
 ### Payroll runs, PTO, performance reviews, shift matching (lines ~9100–13900)
@@ -190,7 +217,7 @@ both), verify against a real Postgres instance, and check off the line.
 - [x] ~~`GET /api/pto-policies`, `/api/pto-balances[/export.csv]`~~ — fixed, see above
 - [x] ~~`GET /api/performance-reviews/:id/metrics`, `/calculate-rating`~~ — fixed, see above
 - [x] ~~`POST /api/performance-reviews/:id/acknowledge`~~ — fixed, see above
-- [ ] `GET /api/shift-matching/suggest`, `calculate-score`, `check-conflict` — clientId/caregiverId unchecked
+- [x] ~~`GET /api/shift-matching/suggest`, `calculate-score`, `check-conflict`~~ — fixed, see above
 - [x] ~~`GET/POST /api/caregivers/:id/mileage`, `PATCH /api/mileage/:id`~~ — fixed, see above
 
 ### Claims, surveys, analytics, referrals, letter templates, coordinator pay (lines ~13700–18500)
@@ -203,8 +230,8 @@ both), verify against a real Postgres instance, and check off the line.
 - [x] ~~`GET/PUT/DELETE /api/letter-templates/:id`, `/versions`~~ — fixed, see above
 - [x] ~~`GET /api/coordinator-pay-records[/coordinator/:id][/:id]`~~ — fixed, see above
 - [x] ~~`GET/PATCH/DELETE /api/referral-sources[...]`, `GET/PATCH/POST /api/client-referrals[...]`, `GET /api/referral-stats`~~ — fixed, see above
-- [ ] `POST /api/caregivers/:id/exclusion-check`, `GET /api/exclusions/caregiver/:caregiverId`, `GET /api/exclusions/checks`, `PATCH /api/exclusions/checks/:checkId` — admin-gated but no org/office check tying target back to caller's org
-- [ ] `POST /api/admin/visit-log/upload` — matches against org-unscoped global client/caregiver lookups instead of the uploading admin's own org
+- [x] ~~`POST /api/caregivers/:id/exclusion-check`, `GET /api/exclusions/caregiver/:caregiverId`, `GET /api/exclusions/checks`, `PATCH /api/exclusions/checks/:checkId`~~ — fixed, see above
+- [x] ~~`POST /api/admin/visit-log/upload`~~ — fixed, see above
 
 ### Payroll runs (dup group), shift-swap, e-signature, staff time tracking, DOH audits/QAPI/quality (lines ~18300–end)
 - [x] ~~`GET /api/payroll-runs/:id`~~ — fixed, see above
@@ -223,9 +250,9 @@ both), verify against a real Postgres instance, and check off the line.
 
 ### Lower priority / lower sensitivity (reference data, not PHI)
 - [x] ~~`GET /api/offices/:officeId/pa-survey`, `PUT .../pa-survey/:checklistItemId`~~ — fixed, see above
-- [ ] `GET/POST/PATCH/DELETE /api/shift-differentials*`, `/api/holidays*` — officeId/id unchecked, low-sensitivity rate/reference config
-- [ ] `GET /api/birthday-notifications*` — officeId trusted, low sensitivity
-- [ ] `GET /api/email-templates/type/:type` — no role check, but not tenant/PHI data (system templates)
+- [x] ~~`GET/POST/PATCH/DELETE /api/shift-differentials*`, `/api/holidays*`~~ — fixed, see above
+- [x] ~~`GET /api/birthday-notifications*`~~ — fixed, see above
+- [x] `GET /api/email-templates/type/:type` — intentionally left as-is: system templates, not tenant/PHI data (unchanged from original audit note)
 
 ---
 

@@ -569,16 +569,19 @@ export interface IStorage {
   getAssignedCaregiversByClient(clientId: string): Promise<Caregiver[]>;
 
   // Care plan operations
+  getCarePlan(id: string): Promise<CarePlan | undefined>;
   getCarePlansByClient(clientId: string): Promise<CarePlan[]>;
   createCarePlan(carePlan: InsertCarePlan): Promise<CarePlan>;
   updateCarePlan(id: string, carePlan: Partial<InsertCarePlan>): Promise<CarePlan>;
 
   // Care plan goals operations
+  getCarePlanGoal(id: string): Promise<CarePlanGoal | undefined>;
   getCarePlanGoals(carePlanId: string): Promise<CarePlanGoal[]>;
   createCarePlanGoal(goal: InsertCarePlanGoal): Promise<CarePlanGoal>;
   updateCarePlanGoal(id: string, goal: Partial<InsertCarePlanGoal>): Promise<CarePlanGoal>;
 
   // Care plan interventions operations
+  getCarePlanIntervention(id: string): Promise<CarePlanIntervention | undefined>;
   getCarePlanInterventions(carePlanId: string): Promise<CarePlanIntervention[]>;
   createCarePlanIntervention(intervention: InsertCarePlanIntervention): Promise<CarePlanIntervention>;
   updateCarePlanIntervention(id: string, intervention: Partial<InsertCarePlanIntervention>): Promise<CarePlanIntervention>;
@@ -622,12 +625,14 @@ export interface IStorage {
 
   // Task operations
   getAllTasks(officeId?: string): Promise<Task[]>;
+  getTask(id: string): Promise<Task | undefined>;
   getTasksByUser(userId: string): Promise<Task[]>;
   createTask(task: InsertTask): Promise<Task>;
   updateTask(id: string, task: Partial<InsertTask>): Promise<Task>;
   deleteTask(id: string): Promise<void>;
 
   // Message operations
+  getMessage(id: string): Promise<Message | undefined>;
   getMessagesByUser(userId: string, officeId?: string): Promise<Message[]>;
   getSentMessagesByUser(userId: string, status?: string): Promise<Message[]>;
   getReceivedMessagesByUser(userId: string, status?: string): Promise<Message[]>;
@@ -647,6 +652,7 @@ export interface IStorage {
   updateCertification(id: string, certification: Partial<InsertCertification>): Promise<Certification>;
 
   // Compliance operations
+  getComplianceItem(id: string): Promise<ComplianceItem | undefined>;
   getComplianceItemsByCaregiver(caregiverId: string): Promise<ComplianceItem[]>;
   createComplianceItem(item: InsertComplianceItem): Promise<ComplianceItem>;
   updateComplianceItem(id: string, item: Partial<InsertComplianceItem>): Promise<ComplianceItem>;
@@ -687,6 +693,7 @@ export interface IStorage {
 
   // Training operations
   getAllTrainings(officeId?: string): Promise<Training[]>;
+  getTraining(id: string): Promise<Training | undefined>;
   createTraining(training: InsertTraining): Promise<Training>;
 
   // Training record operations
@@ -743,6 +750,7 @@ export interface IStorage {
   removeFamilyMemberFromClient(clientId: string, familyMemberId: string): Promise<void>;
 
   // Family portal update operations
+  getFamilyUpdate(id: string): Promise<FamilyUpdate | undefined>;
   getFamilyUpdates(clientId?: string, familyMemberId?: string): Promise<FamilyUpdate[]>;
   createFamilyUpdate(update: InsertFamilyUpdate): Promise<FamilyUpdate>;
   updateFamilyUpdate(id: string, update: Partial<InsertFamilyUpdate>): Promise<FamilyUpdate>;
@@ -781,6 +789,7 @@ export interface IStorage {
   
   // Master week slots
   getMasterWeekSlots(templateId: string): Promise<MasterWeekSlot[]>;
+  getMasterWeekSlot(id: string): Promise<MasterWeekSlot | undefined>;
   createMasterWeekSlot(slot: InsertMasterWeekSlot): Promise<MasterWeekSlot>;
   updateMasterWeekSlot(id: string, slot: Partial<InsertMasterWeekSlot>): Promise<MasterWeekSlot>;
   deleteMasterWeekSlot(id: string): Promise<void>;
@@ -866,6 +875,7 @@ export interface IStorage {
   deleteEntityFieldConfig(id: string): Promise<void>;
 
   // Client Communications operations
+  getClientCommunication(id: string): Promise<ClientCommunication | undefined>;
   getClientCommunications(clientId: string): Promise<ClientCommunication[]>;
   createClientCommunication(communication: InsertClientCommunication): Promise<ClientCommunication>;
   updateClientCommunication(id: string, communication: Partial<InsertClientCommunication>): Promise<ClientCommunication>;
@@ -2219,6 +2229,11 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Care plan operations
+  async getCarePlan(id: string): Promise<CarePlan | undefined> {
+    const [carePlan] = await db.select().from(carePlans).where(eq(carePlans.id, id));
+    return carePlan;
+  }
+
   async getCarePlansByClient(clientId: string): Promise<CarePlan[]> {
     return await db
       .select()
@@ -2242,6 +2257,11 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Care plan goals operations
+  async getCarePlanGoal(id: string): Promise<CarePlanGoal | undefined> {
+    const [goal] = await db.select().from(carePlanGoals).where(eq(carePlanGoals.id, id));
+    return goal;
+  }
+
   async getCarePlanGoals(carePlanId: string): Promise<CarePlanGoal[]> {
     return await db
       .select()
@@ -2265,6 +2285,11 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Care plan interventions operations
+  async getCarePlanIntervention(id: string): Promise<CarePlanIntervention | undefined> {
+    const [intervention] = await db.select().from(carePlanInterventions).where(eq(carePlanInterventions.id, id));
+    return intervention;
+  }
+
   async getCarePlanInterventions(carePlanId: string): Promise<CarePlanIntervention[]> {
     return await db
       .select()
@@ -2376,6 +2401,11 @@ export class DatabaseStorage implements IStorage {
       .from(tasks)
       .where(conditions.length > 0 ? and(...conditions) : undefined)
       .orderBy(desc(tasks.dueDate));
+  }
+
+  async getTask(id: string): Promise<Task | undefined> {
+    const [task] = await db.select().from(tasks).where(eq(tasks.id, id));
+    return task;
   }
 
   async getTasksByUser(userId: string): Promise<Task[]> {
@@ -2613,6 +2643,11 @@ export class DatabaseStorage implements IStorage {
       .orderBy(desc(complianceItems.dueDate));
   }
 
+  async getComplianceItem(id: string): Promise<ComplianceItem | undefined> {
+    const [item] = await db.select().from(complianceItems).where(eq(complianceItems.id, id));
+    return item;
+  }
+
   async getComplianceItemsByCaregiver(caregiverId: string): Promise<ComplianceItem[]> {
     return await db
       .select()
@@ -2843,6 +2878,11 @@ export class DatabaseStorage implements IStorage {
       .orderBy(desc(trainings.createdAt));
   }
 
+  async getTraining(id: string): Promise<Training | undefined> {
+    const [training] = await db.select().from(trainings).where(eq(trainings.id, id));
+    return training;
+  }
+
   async createTraining(training: InsertTraining): Promise<Training> {
     const [newTraining] = await db.insert(trainings).values(training).returning();
     return newTraining;
@@ -2874,6 +2914,11 @@ export class DatabaseStorage implements IStorage {
   // Additional user operations for communication
   async getAllUsers(): Promise<User[]> {
     return await db.select().from(users).orderBy(desc(users.createdAt));
+  }
+
+  async getMessage(id: string): Promise<Message | undefined> {
+    const [message] = await db.select().from(messages).where(eq(messages.id, id));
+    return message;
   }
 
   async updateMessage(id: string, data: Partial<InsertMessage>): Promise<Message> {
@@ -3292,6 +3337,11 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Family portal update operations
+  async getFamilyUpdate(id: string): Promise<FamilyUpdate | undefined> {
+    const [update] = await db.select().from(familyUpdates).where(eq(familyUpdates.id, id));
+    return update;
+  }
+
   async getFamilyUpdates(clientId?: string, familyMemberId?: string): Promise<FamilyUpdate[]> {
     let query = db.select().from(familyUpdates);
     
@@ -3542,6 +3592,11 @@ export class DatabaseStorage implements IStorage {
 
   async deleteMasterWeekTemplate(id: string): Promise<void> {
     await db.delete(masterWeekTemplates).where(eq(masterWeekTemplates.id, id));
+  }
+
+  async getMasterWeekSlot(id: string): Promise<MasterWeekSlot | undefined> {
+    const [slot] = await db.select().from(masterWeekSlots).where(eq(masterWeekSlots.id, id));
+    return slot;
   }
 
   async getMasterWeekSlots(templateId: string): Promise<MasterWeekSlot[]> {
@@ -4075,6 +4130,12 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Client Communications operations
+  async getClientCommunication(id: string): Promise<ClientCommunication | undefined> {
+    const [result] = await db.select().from(clientCommunications).where(eq(clientCommunications.id, id));
+    if (!result) return undefined;
+    return { ...result, message: decryptNote(result.message) || result.message };
+  }
+
   async getClientCommunications(clientId: string): Promise<ClientCommunication[]> {
     const results = await db.select().from(clientCommunications)
       .where(eq(clientCommunications.clientId, clientId))
@@ -7947,6 +8008,11 @@ export class DatabaseStorage implements IStorage {
     return check;
   }
 
+  async getCaregiverExclusionCheck(id: string): Promise<CaregiverExclusionCheck | undefined> {
+    const [check] = await db.select().from(caregiverExclusionChecks).where(eq(caregiverExclusionChecks.id, id));
+    return check;
+  }
+
   async createCaregiverExclusionCheck(check: InsertCaregiverExclusionCheck): Promise<CaregiverExclusionCheck> {
     const [created] = await db.insert(caregiverExclusionChecks).values(check).returning();
     return created;
@@ -7980,6 +8046,11 @@ export class DatabaseStorage implements IStorage {
   async createCaregiverFalsePositive(fp: InsertCaregiverExclusionFalsePositive): Promise<CaregiverExclusionFalsePositive> {
     const [created] = await db.insert(caregiverExclusionFalsePositives).values(fp).returning();
     return created;
+  }
+
+  async getCaregiverFalsePositive(id: string): Promise<CaregiverExclusionFalsePositive | undefined> {
+    const [fp] = await db.select().from(caregiverExclusionFalsePositives).where(eq(caregiverExclusionFalsePositives.id, id));
+    return fp;
   }
 
   async deleteCaregiverFalsePositive(id: string): Promise<void> {
