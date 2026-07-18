@@ -30,6 +30,7 @@ import { Button } from "@/components/ui/button";
 import { Save, X } from "lucide-react";
 import { insertCaregiverSchema, type Office, type Client } from "@shared/schema";
 import { PersonCombobox } from "@/components/ui/person-combobox";
+import { parseDateOnlyInput, toDateOnlyInputValue } from "@/lib/dateOnly";
 
 const caregiverFormSchema = insertCaregiverSchema.extend({
   employeeId: z.string().min(1, "Employee ID is required"),
@@ -290,11 +291,11 @@ export function AddCaregiverModal({ isOpen, onClose, onSubmit, isLoading, initia
                     <FormItem>
                       <FormLabel>Date of Birth</FormLabel>
                       <FormControl>
-                        <Input 
-                          type="date" 
+                        <Input
+                          type="date"
                           {...field}
-                          value={field.value ? new Date(field.value).toISOString().split('T')[0] : ''}
-                          onChange={(e) => field.onChange(e.target.value ? new Date(e.target.value) : undefined)}
+                          value={toDateOnlyInputValue(field.value)}
+                          onChange={(e) => field.onChange(parseDateOnlyInput(e.target.value) ?? undefined)}
                           data-testid="input-date-of-birth"
                         />
                       </FormControl>

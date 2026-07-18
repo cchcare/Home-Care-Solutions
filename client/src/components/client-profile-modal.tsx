@@ -17,6 +17,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { X, Edit, History, Phone, MapPin, Calendar, FileText } from "lucide-react";
 import type { Client, ClientAuthorization } from "@shared/schema";
 import { ClientScheduling } from "./client-scheduling";
+import { formatDateOnly } from "@/lib/dateOnly";
 import { useToast } from "@/hooks/use-toast";
 import {
   Table,
@@ -95,7 +96,7 @@ export function ClientProfileModal({ client, isOpen, onClose, onUpdate, isLoadin
                   {client.firstName} {client.lastName}
                 </h3>
                 <p className="text-sm text-muted-foreground">
-                  Member ID: {client.memberId || client.id.slice(0, 8)} • DOB: {client.dateOfBirth ? new Date(client.dateOfBirth).toLocaleDateString() : "Not provided"}
+                  Member ID: {client.memberId || client.id.slice(0, 8)} • DOB: {formatDateOnly(client.dateOfBirth) || "Not provided"}
                 </p>
               </div>
             </div>

@@ -9,6 +9,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import { isUnauthorizedError } from "@/lib/authUtils";
 import { FamilyUpdateForm } from "@/components/family-update-form";
+import { formatDateOnly } from "@/lib/dateOnly";
 import { 
   User, 
   Calendar, 
@@ -220,7 +221,7 @@ export default function FamilyPortal() {
                     <div className="space-y-2 text-sm">
                       <div className="flex items-center text-muted-foreground">
                         <Calendar className="w-4 h-4 mr-2" />
-                        DOB: {relationship.client.dateOfBirth ? formatDate(relationship.client.dateOfBirth) : 'Not provided'}
+                        DOB: {relationship.client.dateOfBirth ? formatDateOnly(relationship.client.dateOfBirth) : 'Not provided'}
                       </div>
                       {relationship.client.phone && (
                         <div className="flex items-center text-muted-foreground">
@@ -267,7 +268,7 @@ export default function FamilyPortal() {
                             <Calendar className="w-4 h-4 mr-2 text-muted-foreground" />
                             <span className="text-sm font-medium">Date of Birth:</span>
                             <span className="ml-2 text-sm">
-                              {selectedClient.client.dateOfBirth ? formatDate(selectedClient.client.dateOfBirth) : 'Not provided'}
+                              {selectedClient.client.dateOfBirth ? formatDateOnly(selectedClient.client.dateOfBirth) : 'Not provided'}
                             </span>
                           </div>
                           {selectedClient.client.address && (

@@ -56,6 +56,7 @@ import {
 } from "@/components/filters/active-filter-chips";
 import { ColumnsMenu, type ColumnDef } from "@/components/filters/columns-menu";
 import { SavedViewsMenu } from "@/components/filters/saved-views-menu";
+import { formatDateOnly } from "@/lib/dateOnly";
 
 const CLIENT_COLUMN_DEFS: ColumnDef[] = [
   { key: "info", label: "Client Information" },
@@ -1226,7 +1227,7 @@ export default function Clients() {
                                         {client.firstName} {client.lastName}
                                       </p>
                                       <p className="text-sm text-muted-foreground" data-testid={`text-client-dob-${client.id}`}>
-                                        DOB: {client.dateOfBirth ? new Date(client.dateOfBirth).toLocaleDateString() : "Not provided"}
+                                        DOB: {formatDateOnly(client.dateOfBirth) || "Not provided"}
                                       </p>
                                       <p className="text-xs text-muted-foreground" data-testid={`text-client-member-id-${client.id}`}>
                                         Member ID: {client.memberId || "Not provided"}

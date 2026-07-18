@@ -41,6 +41,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { apiRequest } from "@/lib/queryClient";
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameMonth, isToday, addMonths, subMonths } from "date-fns";
+import { parseDateOnlyInput, toDateOnlyInputValue, formatDateOnly } from "@/lib/dateOnly";
 import { 
   ArrowLeft, 
   User, 
@@ -1122,13 +1123,13 @@ export default function ClientProfile() {
                         {isEditing ? (
                           <Input
                             type="date"
-                            value={editFormData.dateOfBirth ? new Date(editFormData.dateOfBirth).toISOString().split('T')[0] : ""}
-                            onChange={(e) => setEditFormData({ ...editFormData, dateOfBirth: e.target.value ? new Date(e.target.value) : undefined })}
+                            value={toDateOnlyInputValue(editFormData.dateOfBirth)}
+                            onChange={(e) => setEditFormData({ ...editFormData, dateOfBirth: parseDateOnlyInput(e.target.value) ?? undefined })}
                             data-testid="input-date-of-birth"
                           />
                         ) : (
                           <p className="font-medium" data-testid="text-client-dob">
-                            {client.dateOfBirth ? format(new Date(client.dateOfBirth), "MMM d, yyyy") : "N/A"}
+                            {formatDateOnly(client.dateOfBirth, (d) => format(d, "MMM d, yyyy")) || "N/A"}
                           </p>
                         )}
                       </div>
@@ -2281,9 +2282,9 @@ export default function ClientProfile() {
                         <div className="space-y-1">
                           <Label className="text-muted-foreground text-sm">Date of Birth</Label>
                           {isEditing ? (
-                            <Input type="date" value={editFormData.dateOfBirth ? new Date(editFormData.dateOfBirth).toISOString().split('T')[0] : ""} onChange={(e) => setEditFormData({ ...editFormData, dateOfBirth: e.target.value ? new Date(e.target.value) : undefined })} />
+                            <Input type="date" value={toDateOnlyInputValue(editFormData.dateOfBirth)} onChange={(e) => setEditFormData({ ...editFormData, dateOfBirth: parseDateOnlyInput(e.target.value) ?? undefined })} />
                           ) : (
-                            <p className="font-medium">{client?.dateOfBirth ? format(new Date(client.dateOfBirth), "MMM d, yyyy") : "N/A"}</p>
+                            <p className="font-medium">{formatDateOnly(client?.dateOfBirth, (d) => format(d, "MMM d, yyyy")) || "N/A"}</p>
                           )}
                         </div>
                         <div className="space-y-1">

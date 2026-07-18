@@ -5749,10 +5749,14 @@ export class DatabaseStorage implements IStorage {
       .where(and(...caregiverConditions));
 
     // Filter by upcoming birthdays within the specified days
+    // dateOfBirth is a date-only value stored in a `timestamp` column; read
+    // its month/day with UTC getters (not local getters) so this agrees
+    // with getTodaysBirthdays's SQL EXTRACT(...) regardless of the
+    // server process's local timezone.
     const upcomingClients = allClients.filter(client => {
       if (!client.dateOfBirth) return false;
       const dob = new Date(client.dateOfBirth);
-      const thisYearBirthday = new Date(today.getFullYear(), dob.getMonth(), dob.getDate());
+      const thisYearBirthday = new Date(today.getFullYear(), dob.getUTCMonth(), dob.getUTCDate());
       if (thisYearBirthday < today) {
         thisYearBirthday.setFullYear(today.getFullYear() + 1);
       }
@@ -5763,7 +5767,7 @@ export class DatabaseStorage implements IStorage {
     const upcomingCaregivers = allCaregivers.filter(caregiver => {
       if (!caregiver.dateOfBirth) return false;
       const dob = new Date(caregiver.dateOfBirth);
-      const thisYearBirthday = new Date(today.getFullYear(), dob.getMonth(), dob.getDate());
+      const thisYearBirthday = new Date(today.getFullYear(), dob.getUTCMonth(), dob.getUTCDate());
       if (thisYearBirthday < today) {
         thisYearBirthday.setFullYear(today.getFullYear() + 1);
       }

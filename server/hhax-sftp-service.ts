@@ -286,10 +286,29 @@ const getConfig = (): HhaxSftpConfig => {
   return { host: host.replace('http://', '').replace('https://', '').replace('/', ''), port, username, password, taxId };
 };
 
+// Every caller passes a date-only value (dateOfBirth, hireDate, startDate,
+// terminationDate, serviceStartDate, scheduleDate). Bare "YYYY-MM-DD" /
+// "MM/DD/YYYY" strings are anchored to UTC noon so the calendar day survives
+// being rendered later in any local timezone — the naive `new Date(trimmed)`
+// this used to do parses "YYYY-MM-DD" as UTC midnight, which rolls back a
+// day once displayed via `.toLocaleDateString()`/date-fns `format()` in any
+// timezone behind UTC.
 function parseDateSafe(value: string | undefined | null): Date | null {
   if (!value) return null;
   const trimmed = String(value).trim();
   if (!trimmed) return null;
+
+  const isoMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(trimmed);
+  if (isoMatch) {
+    const [, y, m, d] = isoMatch;
+    return new Date(Date.UTC(Number(y), Number(m) - 1, Number(d), 12));
+  }
+  const usMatch = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(trimmed);
+  if (usMatch) {
+    const [, m, d, y] = usMatch;
+    return new Date(Date.UTC(Number(y), Number(m) - 1, Number(d), 12));
+  }
+
   const d = new Date(trimmed);
   if (isNaN(d.getTime())) return null;
   return d;

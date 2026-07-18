@@ -3688,45 +3688,61 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Invalid data format" });
       }
 
-      // Helper function to convert Excel dates to JavaScript Date objects
+      // Helper function to convert Excel dates to JavaScript Date objects.
+      // Date-only values (serial numbers, YYYY-MM-DD, MM/DD/YYYY, DD/MM/YYYY)
+      // are anchored to UTC noon so the calendar day survives being rendered
+      // later in any local timezone (see parseImportDate above for the same
+      // guard on the client bulk-import path).
       const parseExcelDate = (value: any): Date | undefined => {
         if (!value) return undefined;
-        
+
         // Already a Date object
         if (value instanceof Date) return value;
-        
+
         // Excel serial number (days since 1900-01-01, with Excel's leap year bug)
         if (typeof value === 'number') {
-          // Excel incorrectly considers 1900 a leap year, so subtract 1 for dates after Feb 28, 1900
-          const excelEpoch = new Date(1899, 11, 30); // Dec 30, 1899
-          const date = new Date(excelEpoch.getTime() + value * 24 * 60 * 60 * 1000);
-          return date;
+          const excelEpoch = new Date(Date.UTC(1899, 11, 30)); // Dec 30, 1899 UTC
+          const days = Math.floor(value);
+          const date = new Date(excelEpoch.getTime() + days * 24 * 60 * 60 * 1000);
+          return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate(), 12));
         }
-        
+
         // String date - try parsing various formats
         if (typeof value === 'string') {
           const trimmed = value.trim();
           if (!trimmed) return undefined;
-          
-          // Try ISO format first (YYYY-MM-DD)
-          let parsed = new Date(trimmed);
-          if (!isNaN(parsed.getTime())) return parsed;
-          
+
+          // Try ISO format first (bare YYYY-MM-DD only — a full timestamp
+          // with a time component falls through to native parsing below so
+          // its time-of-day isn't discarded)
+          const isoMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(trimmed);
+          if (isoMatch) {
+            const [, y, m, d] = isoMatch;
+            return new Date(Date.UTC(Number(y), Number(m) - 1, Number(d), 12));
+          }
+
           // Try MM/DD/YYYY format
           const mdyMatch = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
           if (mdyMatch) {
-            parsed = new Date(parseInt(mdyMatch[3]), parseInt(mdyMatch[1]) - 1, parseInt(mdyMatch[2]));
+            const [, m, d, y] = mdyMatch;
+            const parsed = new Date(Date.UTC(Number(y), Number(m) - 1, Number(d), 12));
             if (!isNaN(parsed.getTime())) return parsed;
           }
-          
+
           // Try DD/MM/YYYY format (if month > 12, swap)
           const dmyMatch = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
           if (dmyMatch && parseInt(dmyMatch[1]) > 12) {
-            parsed = new Date(parseInt(dmyMatch[3]), parseInt(dmyMatch[2]) - 1, parseInt(dmyMatch[1]));
+            const [, d, m, y] = dmyMatch;
+            const parsed = new Date(Date.UTC(Number(y), Number(m) - 1, Number(d), 12));
             if (!isNaN(parsed.getTime())) return parsed;
           }
+
+          // Fall back to native parsing for any other format (e.g. full
+          // timestamps that already carry an explicit offset).
+          const parsed = new Date(trimmed);
+          if (!isNaN(parsed.getTime())) return parsed;
         }
-        
+
         return undefined;
       };
 

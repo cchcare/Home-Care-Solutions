@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { Download } from "lucide-react";
 import ExcelJS from "exceljs";
+import { formatDateOnly } from "@/lib/dateOnly";
 
 interface ExcelExportProps {
   type: "clients" | "caregivers" | "users";
@@ -117,7 +118,9 @@ export function ExcelExport({ type, data, disabled = false }: ExcelExportProps) 
             value = value.join(", ");
           } else if (typeof value === "boolean") {
             value = value ? "Yes" : "No";
-          } else if (key.includes("Date") || key === "dateOfBirth" || key === "hireDate" || key === "startDate" || key === "createdAt") {
+          } else if (key === "dateOfBirth") {
+            value = formatDateOnly(value);
+          } else if (key.includes("Date") || key === "hireDate" || key === "startDate" || key === "createdAt") {
             if (value) {
               const date = new Date(value);
               if (!isNaN(date.getTime())) {

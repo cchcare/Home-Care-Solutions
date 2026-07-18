@@ -9,6 +9,7 @@ import { TopBar } from "@/components/topbar";
 import { apiRequest } from "@/lib/queryClient";
 import { OfficeSelector } from "@/components/office-selector";
 import { useOffice } from "@/context/office-context";
+import { dateOnlyParts } from "@/lib/dateOnly";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -72,8 +73,9 @@ interface BirthdaySettings {
 }
 
 const formatBirthdayDate = (dateStr: string): string => {
-  if (!dateStr) return "N/A";
-  const [year, month, day] = dateStr.split('-').map(Number);
+  const parts = dateOnlyParts(dateStr);
+  if (!parts) return "N/A";
+  const [, month, day] = parts;
   const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
   return `${months[month - 1]} ${day}`;
 };
@@ -108,7 +110,9 @@ export default function BirthdayNotifications() {
       today.setHours(0, 0, 0, 0);
       
       const parseDateOfBirth = (dateStr: string) => {
-        const [year, month, day] = dateStr.split('-').map(Number);
+        const parts = dateOnlyParts(dateStr);
+        if (!parts) return { month: 0, day: 1 };
+        const [, month, day] = parts;
         return { month: month - 1, day };
       };
       
