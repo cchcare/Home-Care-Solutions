@@ -254,6 +254,17 @@ const excelUpload = multer({
 
 // Configure multer for CSV file uploads (used by exclusion-list importers that
 // always receive plain CSV, not Excel).
+// Accepts either an Excel workbook or a CSV for the compensation schedule import.
+const compImportUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    if ([".xlsx", ".xls", ".csv", ".txt", ""].includes(ext)) return cb(null, true);
+    cb(new Error("Invalid file type. Upload an Excel (.xlsx) or CSV (.csv) file."));
+  },
+});
+
 const csvUpload = multer({
   storage: multer.memoryStorage(),
   limits: {
@@ -1876,7 +1887,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // hours. "caregiver" matches employeeId, assignmentId, or "First Last" name;
   // "client" matches "First Last" (optional). Rows that don't match a caregiver
   // in the caller's office are reported back, not imported.
-  app.post("/api/comp/schedule-entries/import", isAuthenticated, excelUpload.single("file"), async (req: any, res) => {
+  app.post("/api/comp/schedule-entries/import", isAuthenticated, compImportUpload.single("file"), async (req: any, res) => {
     try {
       if (!isCompManager(req)) return res.status(403).json({ message: "Manager access required" });
       if (!req.file) return res.status(400).json({ message: "No file uploaded" });
@@ -1908,27 +1919,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const clientByName = new Map<string, any>();
       for (const c of clients) clientByName.set(norm(`${c.firstName} ${c.lastName}`), c);
 
-      // Parse the uploaded workbook into rows of {caregiver, client, date, hours}.
-      const ExcelJS = await import("exceljs");
-      const workbook = new ExcelJS.default.Workbook();
-      await workbook.xlsx.load(req.file.buffer);
-      const worksheet = workbook.worksheets[0];
-      if (!worksheet) return res.status(400).json({ message: "The uploaded file has no worksheet" });
-
-      // Map header names to column indexes.
-      const headerRow = worksheet.getRow(1);
-      const colIndex: Record<string, number> = {};
-      headerRow.eachCell((cell, col) => {
-        const key = norm(cell.value);
-        if (["caregiver", "caregiver name", "employee", "employee id"].includes(key)) colIndex.caregiver = col;
-        else if (["client", "client name", "patient"].includes(key)) colIndex.client = col;
-        else if (["date", "work date", "service date"].includes(key)) colIndex.date = col;
-        else if (["hours", "hrs", "hours worked"].includes(key)) colIndex.hours = col;
-      });
-      if (!colIndex.caregiver || !colIndex.date || !colIndex.hours) {
-        return res.status(400).json({ message: "Missing required columns. Expected: caregiver, date, hours (client optional)." });
-      }
-
+      // Parse the upload (Excel or CSV) into a uniform list of raw string rows,
+      // then apply shared matching logic. Header names are matched flexibly.
+      const pickCol = (header: string): "caregiver" | "client" | "date" | "hours" | null => {
+        const key = norm(header);
+        if (["caregiver", "caregiver name", "employee", "employee id"].includes(key)) return "caregiver";
+        if (["client", "client name", "patient"].includes(key)) return "client";
+        if (["date", "work date", "service date"].includes(key)) return "date";
+        if (["hours", "hrs", "hours worked"].includes(key)) return "hours";
+        return null;
+      };
       const toIsoDate = (v: any): string | null => {
         if (v == null || v === "") return null;
         if (v instanceof Date) return v.toISOString().slice(0, 10);
@@ -1938,26 +1938,66 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return d.toISOString().slice(0, 10);
       };
 
+      // rawRows[i] = { caregiver, client, date, hours, rowNum } as strings.
+      const rawRows: { caregiver: any; client: any; date: any; hours: any; rowNum: number }[] = [];
+      const ext = path.extname(req.file.originalname).toLowerCase();
+      const isCsv = ext === ".csv" || ext === ".txt" ||
+        (ext === "" && req.file.mimetype && req.file.mimetype.includes("csv"));
+
+      if (isCsv) {
+        const { parse } = await import("csv-parse/sync");
+        const records: string[][] = parse(req.file.buffer, { skip_empty_lines: true, trim: true, relax_column_count: true, bom: true });
+        if (records.length < 1) return res.status(400).json({ message: "The uploaded CSV is empty" });
+        const header = records[0];
+        const map: Record<string, number> = {};
+        header.forEach((h, i) => { const c = pickCol(h); if (c) map[c] = i; });
+        if (map.caregiver == null || map.date == null || map.hours == null) {
+          return res.status(400).json({ message: "Missing required columns. Expected: caregiver, date, hours (client optional)." });
+        }
+        for (let i = 1; i < records.length; i++) {
+          const row = records[i];
+          rawRows.push({
+            caregiver: row[map.caregiver], client: map.client != null ? row[map.client] : null,
+            date: row[map.date], hours: row[map.hours], rowNum: i + 1,
+          });
+        }
+      } else {
+        const ExcelJS = await import("exceljs");
+        const workbook = new ExcelJS.default.Workbook();
+        await workbook.xlsx.load(req.file.buffer);
+        const worksheet = workbook.worksheets[0];
+        if (!worksheet) return res.status(400).json({ message: "The uploaded file has no worksheet" });
+        const colIndex: Record<string, number> = {};
+        worksheet.getRow(1).eachCell((cell, col) => { const c = pickCol(String(cell.value ?? "")); if (c) colIndex[c] = col; });
+        if (!colIndex.caregiver || !colIndex.date || !colIndex.hours) {
+          return res.status(400).json({ message: "Missing required columns. Expected: caregiver, date, hours (client optional)." });
+        }
+        for (let r = 2; r <= worksheet.rowCount; r++) {
+          const row = worksheet.getRow(r);
+          rawRows.push({
+            caregiver: row.getCell(colIndex.caregiver).value,
+            client: colIndex.client ? row.getCell(colIndex.client).value : null,
+            date: row.getCell(colIndex.date).value,
+            hours: row.getCell(colIndex.hours).value,
+            rowNum: r,
+          });
+        }
+      }
+
       const toImport: any[] = [];
       const errors: { row: number; reason: string }[] = [];
-      const lastRow = worksheet.rowCount;
-      for (let r = 2; r <= lastRow; r++) {
-        const row = worksheet.getRow(r);
-        const cgRaw = row.getCell(colIndex.caregiver).value;
-        if (cgRaw == null || String(cgRaw).trim() === "") continue; // skip blank rows
-        const caregiver = caregiverByKey.get(norm(cgRaw));
-        if (!caregiver) { errors.push({ row: r, reason: `Caregiver "${cgRaw}" not found in your office` }); continue; }
-        const workDate = toIsoDate(row.getCell(colIndex.date).value);
-        if (!workDate) { errors.push({ row: r, reason: "Invalid or missing date" }); continue; }
-        const hoursNum = Number(row.getCell(colIndex.hours).value);
-        if (!isFinite(hoursNum) || hoursNum < 0) { errors.push({ row: r, reason: "Invalid or missing hours" }); continue; }
+      for (const raw of rawRows) {
+        if (raw.caregiver == null || String(raw.caregiver).trim() === "") continue; // skip blank rows
+        const caregiver = caregiverByKey.get(norm(raw.caregiver));
+        if (!caregiver) { errors.push({ row: raw.rowNum, reason: `Caregiver "${raw.caregiver}" not found in your office` }); continue; }
+        const workDate = toIsoDate(raw.date);
+        if (!workDate) { errors.push({ row: raw.rowNum, reason: "Invalid or missing date" }); continue; }
+        const hoursNum = Number(raw.hours);
+        if (!isFinite(hoursNum) || hoursNum < 0) { errors.push({ row: raw.rowNum, reason: "Invalid or missing hours" }); continue; }
         let clientId: string | null = null;
-        if (colIndex.client) {
-          const clRaw = row.getCell(colIndex.client).value;
-          if (clRaw != null && String(clRaw).trim() !== "") {
-            const client = clientByName.get(norm(clRaw));
-            if (client) clientId = client.id;
-          }
+        if (raw.client != null && String(raw.client).trim() !== "") {
+          const client = clientByName.get(norm(raw.client));
+          if (client) clientId = client.id;
         }
         toImport.push({
           organizationId: req.session?.user?.organizationId ?? null,
@@ -1981,49 +2021,116 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ─── Caregiver payroll for a period (computed) ─────────────────────────
   // Returns one row per caregiver with schedule entries in the period:
   // total/regular/OT hours, computed payroll, manual payment, remaining.
+  // Shared computation used by the JSON views and the CSV exports.
+  const computeCaregiverPayrollRows = async (period: any) => {
+    const otThreshold = Number(period.otWeeklyThreshold ?? 40);
+    const entries = await storage.getCompScheduleEntries({
+      officeId: period.officeId ?? undefined,
+      startDate: period.startDate,
+      endDate: period.endDate,
+    });
+    const payments = await storage.getCompCaregiverPayments(period.id);
+    const paymentByCaregiver = new Map(payments.map(p => [p.caregiverId, p]));
+    const byCaregiver = new Map<string, ScheduleHours[]>();
+    for (const e of entries) {
+      const list = byCaregiver.get(e.caregiverId) ?? [];
+      list.push({ workDate: e.workDate, hours: Number(e.hours) || 0 });
+      byCaregiver.set(e.caregiverId, list);
+    }
+    const rows = [];
+    for (const [caregiverId, hrs] of byCaregiver) {
+      const caregiver = await storage.getCaregiver(caregiverId);
+      if (!caregiver) continue;
+      const rate = Number(caregiver.hourlyWage ?? 0);
+      const result = computeCaregiverPeriod(hrs, rate, otThreshold, period.startDate, period.endDate);
+      const pay = paymentByCaregiver.get(caregiverId);
+      const paymentMade = Number(pay?.paymentMade ?? 0);
+      rows.push({
+        caregiverId,
+        caregiverName: `${caregiver.firstName ?? ""} ${caregiver.lastName ?? ""}`.trim(),
+        coordinatorId: caregiver.coordinatorId ?? null,
+        rate,
+        ...result,
+        paymentMade: round2(paymentMade),
+        paymentRemaining: round2(result.payroll - paymentMade),
+      });
+    }
+    rows.sort((a, b) => a.caregiverName.localeCompare(b.caregiverName));
+    return rows;
+  };
+
+  const computeCoordinatorBlocks = async (period: any) => {
+    const otThreshold = Number(period.otWeeklyThreshold ?? 40);
+    const entries = await storage.getCompScheduleEntries({
+      officeId: period.officeId ?? undefined,
+      startDate: period.startDate,
+      endDate: period.endDate,
+    });
+    const coordPayments = await storage.getCompCoordinatorPayments(period.id);
+    const paymentByCoordinator = new Map(coordPayments.map(p => [p.coordinatorId, p]));
+    const byCaregiver = new Map<string, ScheduleHours[]>();
+    for (const e of entries) {
+      const list = byCaregiver.get(e.caregiverId) ?? [];
+      list.push({ workDate: e.workDate, hours: Number(e.hours) || 0 });
+      byCaregiver.set(e.caregiverId, list);
+    }
+    const coordinators = await storage.getAllCoordinators(period.officeId ?? undefined);
+    const coordMap = new Map(coordinators.map(c => [c.id, c]));
+    const rowsByCoordinator = new Map<string, any[]>();
+    for (const [caregiverId, hrs] of byCaregiver) {
+      const caregiver = await storage.getCaregiver(caregiverId);
+      if (!caregiver || !caregiver.coordinatorId) continue;
+      const coordinator = coordMap.get(caregiver.coordinatorId);
+      if (!coordinator) continue;
+      const rate = Number(caregiver.hourlyWage ?? 0);
+      const coordRate = Number(coordinator.coordinatorRate ?? 0);
+      const result = computeCaregiverPeriod(hrs, rate, otThreshold, period.startDate, period.endDate);
+      const { coordinatorGross, compensation } = computeCaregiverCompensation(result, coordRate);
+      const list = rowsByCoordinator.get(coordinator.id) ?? [];
+      list.push({
+        caregiverId,
+        caregiverName: `${caregiver.firstName ?? ""} ${caregiver.lastName ?? ""}`.trim(),
+        totalHours: result.totalHours,
+        regularHours: result.regularHours,
+        overtimeHours: result.overtimeHours,
+        caregiverPayroll: result.payroll,
+        coordinatorGross,
+        compensation,
+      });
+      rowsByCoordinator.set(coordinator.id, list);
+    }
+    const out = [];
+    for (const coordinator of coordinators) {
+      const rows = rowsByCoordinator.get(coordinator.id) ?? [];
+      const totalCompensation = round2(rows.reduce((s, r) => s + r.compensation, 0));
+      const pay = paymentByCoordinator.get(coordinator.id);
+      const paymentMade = Number(pay?.paymentMade ?? 0);
+      out.push({
+        coordinatorId: coordinator.id,
+        coordinatorName: `${coordinator.firstName} ${coordinator.lastName}`.trim(),
+        coordinatorRate: Number(coordinator.coordinatorRate ?? 0),
+        rows,
+        totalCompensation,
+        paymentMade: round2(paymentMade),
+        paymentRemaining: round2(totalCompensation - paymentMade),
+      });
+    }
+    out.sort((a, b) => a.coordinatorName.localeCompare(b.coordinatorName));
+    return out;
+  };
+
+  const csvCell = (v: any) => {
+    const s = String(v ?? "");
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+
   app.get("/api/comp/periods/:id/caregiver-payroll", isAuthenticated, async (req: any, res) => {
     try {
       const period = await storage.getCompPayrollPeriod(req.params.id);
       if (!period || !(await canAccessOffice(req, period.officeId))) {
         return res.status(404).json({ message: "Payroll period not found" });
       }
-      const otThreshold = Number(period.otWeeklyThreshold ?? 40);
-      const entries = await storage.getCompScheduleEntries({
-        officeId: period.officeId ?? undefined,
-        startDate: period.startDate,
-        endDate: period.endDate,
-      });
-      const payments = await storage.getCompCaregiverPayments(period.id);
-      const paymentByCaregiver = new Map(payments.map(p => [p.caregiverId, p]));
-
-      // Group entries by caregiver.
-      const byCaregiver = new Map<string, ScheduleHours[]>();
-      for (const e of entries) {
-        const list = byCaregiver.get(e.caregiverId) ?? [];
-        list.push({ workDate: e.workDate, hours: Number(e.hours) || 0 });
-        byCaregiver.set(e.caregiverId, list);
-      }
-
-      const rows = [];
-      for (const [caregiverId, hrs] of byCaregiver) {
-        const caregiver = await storage.getCaregiver(caregiverId);
-        if (!caregiver) continue;
-        const rate = Number(caregiver.hourlyWage ?? 0);
-        const result = computeCaregiverPeriod(hrs, rate, otThreshold, period.startDate, period.endDate);
-        const pay = paymentByCaregiver.get(caregiverId);
-        const paymentMade = Number(pay?.paymentMade ?? 0);
-        rows.push({
-          caregiverId,
-          caregiverName: `${caregiver.firstName ?? ""} ${caregiver.lastName ?? ""}`.trim(),
-          coordinatorId: caregiver.coordinatorId ?? null,
-          rate,
-          ...result,
-          paymentMade: round2(paymentMade),
-          paymentRemaining: round2(result.payroll - paymentMade),
-        });
-      }
-      rows.sort((a, b) => a.caregiverName.localeCompare(b.caregiverName));
-      res.json({ period, rows });
+      res.json({ period, rows: await computeCaregiverPayrollRows(period) });
     } catch (e: any) {
       console.error("Error computing caregiver payroll:", e);
       res.status(500).json({ message: e.message || "Failed to compute caregiver payroll" });
@@ -2060,76 +2167,62 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!period || !(await canAccessOffice(req, period.officeId))) {
         return res.status(404).json({ message: "Payroll period not found" });
       }
-      const otThreshold = Number(period.otWeeklyThreshold ?? 40);
-      const entries = await storage.getCompScheduleEntries({
-        officeId: period.officeId ?? undefined,
-        startDate: period.startDate,
-        endDate: period.endDate,
-      });
-      const coordPayments = await storage.getCompCoordinatorPayments(period.id);
-      const paymentByCoordinator = new Map(coordPayments.map(p => [p.coordinatorId, p]));
-
-      const byCaregiver = new Map<string, ScheduleHours[]>();
-      for (const e of entries) {
-        const list = byCaregiver.get(e.caregiverId) ?? [];
-        list.push({ workDate: e.workDate, hours: Number(e.hours) || 0 });
-        byCaregiver.set(e.caregiverId, list);
-      }
-
-      // Build per-coordinator caregiver rows.
-      const coordinators = await storage.getAllCoordinators(period.officeId ?? undefined);
-      const coordMap = new Map(coordinators.map(c => [c.id, c]));
-      const rowsByCoordinator = new Map<string, any[]>();
-
-      for (const [caregiverId, hrs] of byCaregiver) {
-        const caregiver = await storage.getCaregiver(caregiverId);
-        if (!caregiver || !caregiver.coordinatorId) continue;
-        const coordinator = coordMap.get(caregiver.coordinatorId);
-        if (!coordinator) continue;
-        const rate = Number(caregiver.hourlyWage ?? 0);
-        const coordRate = Number(coordinator.coordinatorRate ?? 0);
-        const result = computeCaregiverPeriod(hrs, rate, otThreshold, period.startDate, period.endDate);
-        const { coordinatorGross, compensation } = computeCaregiverCompensation(result, coordRate);
-        const list = rowsByCoordinator.get(coordinator.id) ?? [];
-        list.push({
-          caregiverId,
-          caregiverName: `${caregiver.firstName ?? ""} ${caregiver.lastName ?? ""}`.trim(),
-          totalHours: result.totalHours,
-          regularHours: result.regularHours,
-          overtimeHours: result.overtimeHours,
-          caregiverPayroll: result.payroll,
-          coordinatorGross,
-          compensation,
-        });
-        rowsByCoordinator.set(coordinator.id, list);
-      }
-
-      const coordinatorsOut = [];
-      for (const coordinator of coordinators) {
-        const rows = rowsByCoordinator.get(coordinator.id) ?? [];
-        if (rows.length === 0 && !coordinator.coordinatorRate) {
-          // Skip coordinators with no activity and no rate to keep the view clean,
-          // but still include those with a rate so they appear (with zeros).
-        }
-        const totalCompensation = round2(rows.reduce((s, r) => s + r.compensation, 0));
-        const pay = paymentByCoordinator.get(coordinator.id);
-        const paymentMade = Number(pay?.paymentMade ?? 0);
-        coordinatorsOut.push({
-          coordinatorId: coordinator.id,
-          coordinatorName: `${coordinator.firstName} ${coordinator.lastName}`.trim(),
-          coordinatorRate: Number(coordinator.coordinatorRate ?? 0),
-          rows,
-          totalCompensation,
-          paymentMade: round2(paymentMade),
-          paymentRemaining: round2(totalCompensation - paymentMade),
-        });
-      }
-      coordinatorsOut.sort((a, b) => a.coordinatorName.localeCompare(b.coordinatorName));
-      res.json({ period, coordinators: coordinatorsOut });
+      res.json({ period, coordinators: await computeCoordinatorBlocks(period) });
     } catch (e: any) {
       console.error("Error computing coordinator payroll:", e);
       res.status(500).json({ message: e.message || "Failed to compute coordinator payroll" });
     }
+  });
+
+  // ─── CSV exports ───────────────────────────────────────────────────────
+  app.get("/api/comp/periods/:id/export.csv", isAuthenticated, async (req: any, res) => {
+    try {
+      const period = await storage.getCompPayrollPeriod(req.params.id);
+      if (!period || !(await canAccessOffice(req, period.officeId))) {
+        return res.status(404).json({ message: "Payroll period not found" });
+      }
+      const type = String(req.query.type || "caregiver");
+      const safeName = String(period.name).replace(/[^a-z0-9]+/gi, "_");
+      let csv = "";
+      if (type === "coordinator") {
+        const blocks = await computeCoordinatorBlocks(period);
+        csv += ["Coordinator", "Coordinator Rate", "Caregiver", "Total Hours", "Caregiver Payroll", "Coordinator Gross", "Compensation"].join(",") + "\n";
+        for (const b of blocks) {
+          if (b.rows.length === 0) {
+            csv += [b.coordinatorName, b.coordinatorRate, "(no hours)", 0, 0, 0, 0].map(csvCell).join(",") + "\n";
+          }
+          for (const r of b.rows) {
+            csv += [b.coordinatorName, b.coordinatorRate, r.caregiverName, r.totalHours, r.caregiverPayroll, r.coordinatorGross, r.compensation].map(csvCell).join(",") + "\n";
+          }
+          csv += [b.coordinatorName, "", "TOTAL", "", "", "", b.totalCompensation].map(csvCell).join(",") + "\n";
+          csv += [b.coordinatorName, "", "Payment made", "", "", "", b.paymentMade].map(csvCell).join(",") + "\n";
+          csv += [b.coordinatorName, "", "Remaining", "", "", "", b.paymentRemaining].map(csvCell).join(",") + "\n";
+        }
+        res.setHeader("Content-Disposition", `attachment; filename="coordinator-comp-${safeName}.csv"`);
+      } else {
+        const rows = await computeCaregiverPayrollRows(period);
+        csv += ["Caregiver", "Rate", "Total Hours", "Regular Hours", "OT Hours", "Payroll", "Payment Made", "Remaining"].join(",") + "\n";
+        for (const r of rows) {
+          csv += [r.caregiverName, r.rate, r.totalHours, r.regularHours, r.overtimeHours, r.payroll, r.paymentMade, r.paymentRemaining].map(csvCell).join(",") + "\n";
+        }
+        res.setHeader("Content-Disposition", `attachment; filename="caregiver-payroll-${safeName}.csv"`);
+      }
+      res.setHeader("Content-Type", "text/csv");
+      res.send(csv);
+    } catch (e: any) {
+      console.error("Error exporting compensation CSV:", e);
+      res.status(500).json({ message: e.message || "Failed to export" });
+    }
+  });
+
+  // Downloadable schedule-import template (matches the importer's columns).
+  app.get("/api/comp/schedule-entries/template.csv", isAuthenticated, (_req, res) => {
+    const csv = "caregiver,client,date,hours\n" +
+      "Jane Doe,John Smith,2026-01-05,8\n" +
+      "Jane Doe,John Smith,2026-01-06,8.5\n";
+    res.setHeader("Content-Type", "text/csv");
+    res.setHeader("Content-Disposition", 'attachment; filename="schedule-import-template.csv"');
+    res.send(csv);
   });
 
   app.put("/api/comp/periods/:id/coordinator-payment/:coordinatorId", isAuthenticated, async (req: any, res) => {

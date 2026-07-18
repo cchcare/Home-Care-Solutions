@@ -13,7 +13,7 @@ import { Sidebar } from "@/components/sidebar";
 import { TopBar } from "@/components/topbar";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
-import { Plus, Upload, Trash2 } from "lucide-react";
+import { Plus, Upload, Trash2, Download } from "lucide-react";
 import type { CompPayrollPeriod, Caregiver, Client } from "@shared/schema";
 
 const money = (n: number) => `$${Number(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -136,7 +136,12 @@ function CaregiverPayrollTab({ periodId, canEdit }: { periodId: string; canEdit:
 
   return (
     <Card>
-      <CardHeader><CardTitle>Caregiver Payroll</CardTitle></CardHeader>
+      <CardHeader className="flex flex-row items-center justify-between">
+        <CardTitle>Caregiver Payroll</CardTitle>
+        <a href={`/api/comp/periods/${periodId}/export.csv?type=caregiver`} download>
+          <Button variant="outline" size="sm" data-testid="button-export-caregiver"><Download className="mr-2 h-4 w-4" /> Export CSV</Button>
+        </a>
+      </CardHeader>
       <CardContent className="p-0 overflow-x-auto">
         <Table>
           <TableHeader>
@@ -205,6 +210,11 @@ function CoordinatorPayrollTab({ periodId, canEdit }: { periodId: string; canEdi
 
   return (
     <div className="space-y-4">
+      <div className="flex justify-end">
+        <a href={`/api/comp/periods/${periodId}/export.csv?type=coordinator`} download>
+          <Button variant="outline" size="sm" data-testid="button-export-coordinator"><Download className="mr-2 h-4 w-4" /> Export CSV</Button>
+        </a>
+      </div>
       {blocks.map((b) => (
         <Card key={b.coordinatorId} data-testid={`coord-block-${b.coordinatorId}`}>
           <CardHeader className="flex flex-row items-center justify-between">
@@ -333,10 +343,13 @@ function ScheduleTab({ period, canEdit }: { period: CompPayrollPeriod; canEdit: 
       <CardHeader className="flex flex-row items-center justify-between">
         <CardTitle>Schedule Entries · {period.startDate} → {period.endDate}</CardTitle>
         {canEdit && (
-          <div>
-            <input ref={fileRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) importFile.mutate(f); e.target.value = ""; }} data-testid="input-import-file" />
+          <div className="flex items-center gap-2">
+            <a href="/api/comp/schedule-entries/template.csv" download>
+              <Button variant="ghost" size="sm" data-testid="button-template"><Download className="mr-2 h-4 w-4" /> Template</Button>
+            </a>
+            <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) importFile.mutate(f); e.target.value = ""; }} data-testid="input-import-file" />
             <Button variant="outline" onClick={() => fileRef.current?.click()} disabled={importFile.isPending} data-testid="button-import">
-              <Upload className="mr-2 h-4 w-4" /> {importFile.isPending ? "Importing…" : "Import Excel"}
+              <Upload className="mr-2 h-4 w-4" /> {importFile.isPending ? "Importing…" : "Import Excel/CSV"}
             </Button>
           </div>
         )}
