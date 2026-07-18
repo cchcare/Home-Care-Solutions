@@ -9119,6 +9119,10 @@ export class DatabaseStorage implements IStorage {
     const [row] = await db.select().from(clientSatisfactionSurveys).where(eq(clientSatisfactionSurveys.id, id));
     return row;
   }
+  async getClientSatisfactionSurveyByToken(token: string): Promise<ClientSatisfactionSurvey | undefined> {
+    const [row] = await db.select().from(clientSatisfactionSurveys).where(eq(clientSatisfactionSurveys.accessToken, token));
+    return row;
+  }
   async createClientSatisfactionSurvey(survey: InsertClientSatisfactionSurvey): Promise<ClientSatisfactionSurvey> {
     const [row] = await db.insert(clientSatisfactionSurveys).values(survey).returning();
     return row;

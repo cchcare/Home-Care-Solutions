@@ -4521,6 +4521,10 @@ export const clientSatisfactionSurveys = pgTable("client_satisfaction_surveys", 
   description: text("description"),
   questions: jsonb("questions"),
   status: clientSurveyStatusEnum("status").default("draft").notNull(),
+  // Unguessable public-submission token (family/client respondents have no
+  // account) — the response route resolves the survey through this token
+  // rather than trusting a client-supplied survey id.
+  accessToken: varchar("access_token").unique(),
   sentAt: timestamp("sent_at"),
   closedAt: timestamp("closed_at"),
   createdBy: varchar("created_by").references(() => users.id),

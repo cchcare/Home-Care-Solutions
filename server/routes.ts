@@ -145,6 +145,7 @@ import {
   sendUrgentAlert
 } from "./notification-service";
 import { insertNotificationPreferenceSchema, insertNotificationTemplateSchema } from "@shared/schema";
+import { insertClientSurveyResponseSchema } from "@shared/schema";
 import type { ExclusionSource, ExclusionRecord } from "@shared/schema";
 import { shiftMatchingService } from "./shift-matching-service";
 import {
@@ -23486,7 +23487,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!(await canAccessOffice(req, req.body.officeId))) {
         return res.status(403).json({ message: "Office is outside your scope" });
       }
-      const survey = await storage.createClientSatisfactionSurvey({ ...req.body, createdBy: req.session.user?.id });
+      const accessToken = crypto.randomBytes(32).toString('hex');
+      const survey = await storage.createClientSatisfactionSurvey({ ...req.body, accessToken, createdBy: req.session.user?.id });
       res.status(201).json(survey);
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
@@ -23513,11 +23515,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ success: true });
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
-  app.post("/api/client-surveys/:id/responses", async (req: any, res) => {
+  // Public routes — family/client respondents have no account, so these
+  // resolve the survey through an unguessable accessToken rather than
+  // trusting a client-supplied survey id (the old `/:id/responses` route
+  // let anyone who found/guessed a survey UUID post arbitrary responses).
+  app.get("/api/public/client-surveys/:token", async (req, res) => {
     try {
-      const response = await storage.createClientSurveyResponse({ ...req.body, surveyId: req.params.id });
-      res.status(201).json(response);
+      const survey = await storage.getClientSatisfactionSurveyByToken(req.params.token);
+      if (!survey || survey.status !== "active") {
+        return res.status(404).json({ message: "Survey not found" });
+      }
+      res.json({
+        id: survey.id,
+        title: survey.title,
+        description: survey.description,
+        questions: survey.questions,
+      });
     } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.post("/api/public/client-surveys/:token/responses", async (req: any, res) => {
+    try {
+      const survey = await storage.getClientSatisfactionSurveyByToken(req.params.token);
+      if (!survey || survey.status !== "active") {
+        return res.status(404).json({ message: "Survey not found" });
+      }
+      const { surveyId, ...body } = req.body;
+      const validatedData = insertClientSurveyResponseSchema
+        .omit({ surveyId: true })
+        .parse(body);
+      if (validatedData.clientId) {
+        const client = await storage.getClient(validatedData.clientId);
+        if (!client || client.officeId !== survey.officeId) {
+          return res.status(400).json({ message: "Invalid client" });
+        }
+      }
+      const response = await storage.createClientSurveyResponse({ ...validatedData, surveyId: survey.id });
+      res.status(201).json(response);
+    } catch (e: any) { res.status(400).json({ message: e.message || "Failed to submit response" }); }
   });
 
   // ─── Survey Readiness API ────────────────────────────────────────────────────
