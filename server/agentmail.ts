@@ -345,3 +345,38 @@ export async function sendEmailWithOptions(options: EmailOptions) {
     from: CUSTOM_EMAIL
   };
 }
+
+export interface EmailAttachment {
+  filename: string;
+  contentType: string;
+  /** Base64-encoded file content */
+  content: string;
+}
+
+// The drafts API used by sendEmailWithOptions doesn't support attachments;
+// the direct messages.send API does.
+export async function sendEmailWithAttachments(options: EmailOptions & { attachments: EmailAttachment[] }) {
+  const client = await getAgentMailClient();
+  const inboxId = await getCustomInboxId();
+
+  const sendResponse = await client.inboxes.messages.send(inboxId, {
+    to: [options.to],
+    subject: options.subject,
+    ...(options.html ? { html: wrapEmailWithBrand(options.html, options.subject) } : {}),
+    ...(options.text ? { text: options.text } : {}),
+    attachments: options.attachments.map((a) => ({
+      filename: a.filename,
+      contentType: a.contentType,
+      content: a.content,
+    })),
+  });
+
+  console.log(`Email with ${options.attachments.length} attachment(s) sent from ${CUSTOM_EMAIL} to ${options.to}`);
+
+  return {
+    success: true,
+    messageId: (sendResponse as any).message_id || (sendResponse as any).messageId,
+    inboxId,
+    from: CUSTOM_EMAIL,
+  };
+}

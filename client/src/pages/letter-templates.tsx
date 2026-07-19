@@ -156,6 +156,24 @@ export default function LetterTemplates() {
     },
   });
 
+  const seedDefaultsMutation = useMutation({
+    mutationFn: async () => {
+      return apiRequest("POST", "/api/letter-templates/seed-defaults", {});
+    },
+    onSuccess: async (res: Response) => {
+      const result = await res.json();
+      queryClient.invalidateQueries({ queryKey: ["/api/letter-templates"] });
+      if (result.created?.length) {
+        toast({ title: `Added ${result.created.length} default letter template(s)`, description: result.created.join(", ") });
+      } else {
+        toast({ title: "All default letter templates already exist" });
+      }
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to add default letter templates", variant: "destructive" });
+    },
+  });
+
   const onCreateSubmit = (data: TemplateFormData) => {
     createMutation.mutate(data);
   };
@@ -292,6 +310,17 @@ export default function LetterTemplates() {
                 <h1 className="text-3xl font-bold tracking-tight" data-testid="text-page-title">Letter Templates</h1>
                 <p className="text-muted-foreground">Create and manage document templates with placeholders</p>
               </div>
+              <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                onClick={() => seedDefaultsMutation.mutate()}
+                disabled={seedDefaultsMutation.isPending}
+                title="Adds Employment Verification, Employee Warning, Employment Termination, Client Service Termination, and General Letter templates (skips any that already exist)"
+                data-testid="button-seed-default-letters"
+              >
+                <FileText className="mr-2 h-4 w-4" />
+                {seedDefaultsMutation.isPending ? "Adding..." : "Add Default Letter Set"}
+              </Button>
               <Dialog open={createOpen} onOpenChange={setCreateOpen}>
                 <DialogTrigger asChild>
                   <Button data-testid="button-create-template">
@@ -444,6 +473,7 @@ export default function LetterTemplates() {
                   </Form>
                 </DialogContent>
               </Dialog>
+              </div>
             </div>
 
             <Card>

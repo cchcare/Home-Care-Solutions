@@ -19852,6 +19852,116 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Seed the standard letter set for an office. Idempotent — matched by
+  // name, so repeat calls only fill gaps and never overwrite an admin's
+  // edited copy of a letter.
+  const DEFAULT_LETTER_TEMPLATES: Array<{ name: string; description: string; scope: string; category: string; htmlContent: string }> = [
+    {
+      name: "Employment Verification Letter",
+      description: "Confirms a caregiver's employment for landlords, lenders, and agencies.",
+      scope: "caregiver",
+      category: "employment_verification",
+      htmlContent: `<p>To Whom It May Concern,</p>
+<p>This letter is to verify that <strong>{{caregiverFullName}}</strong> is employed by {{officeName}} as a Direct Care Worker.</p>
+<p>Date of hire: {{caregiverHireDate}}<br>Current employment status: {{caregiverStatus}}</p>
+<p>If you require any additional information regarding this employee, please contact our office at {{officePhone}}.</p>
+<p>Sincerely,</p>
+<p>{{officeName}}<br>{{officeAddress}}<br>{{officePhone}}</p>`,
+    },
+    {
+      name: "Employee Warning Letter",
+      description: "Formal written warning documenting a policy violation or performance issue.",
+      scope: "caregiver",
+      category: "warning",
+      htmlContent: `<p>Dear {{caregiverFullName}},</p>
+<p>This letter serves as a formal written warning regarding your employment with {{officeName}}.</p>
+<p><strong>Description of issue:</strong></p>
+<p>[Describe the specific incident, policy violation, or performance concern, including dates.]</p>
+<p><strong>Expected corrective action:</strong></p>
+<p>[Describe what must change and by when.]</p>
+<p>Please be advised that further occurrences may result in additional disciplinary action, up to and including termination of employment. A copy of this letter will be placed in your personnel file.</p>
+<p>If you have questions or wish to discuss this matter, please contact our office at {{officePhone}}.</p>
+<p>Sincerely,</p>
+<p>{{officeName}}<br>{{officePhone}}</p>`,
+    },
+    {
+      name: "Employment Termination Letter",
+      description: "Notifies a caregiver that their employment is ending.",
+      scope: "caregiver",
+      category: "termination",
+      htmlContent: `<p>Dear {{caregiverFullName}},</p>
+<p>This letter is to inform you that your employment with {{officeName}} will end effective <strong>[termination date]</strong>.</p>
+<p>[State the reason for termination if company policy requires it, and any information about final pay, benefits, and return of company property.]</p>
+<p>Your final paycheck will be issued in accordance with Pennsylvania wage payment requirements. Please return any agency property, documentation, or equipment in your possession to the office.</p>
+<p>If you have questions regarding this decision or your final pay, please contact our office at {{officePhone}}.</p>
+<p>Sincerely,</p>
+<p>{{officeName}}<br>{{officeAddress}}<br>{{officePhone}}</p>`,
+    },
+    {
+      name: "Client Service Termination Notice",
+      description: "Advance written notice ending home care services (28 Pa. Code § 611.57 requires at least 10 calendar days' notice in most cases).",
+      scope: "client",
+      category: "termination",
+      htmlContent: `<p>Dear {{clientFullName}},</p>
+<p>This letter is to provide you with formal written notice that {{officeName}} will discontinue home care services effective <strong>[end date — at least 10 calendar days from the date of this notice]</strong>.</p>
+<p>[State the reason for the termination of services.]</p>
+<p>We are committed to supporting a safe transition of your care. Upon request, we can provide information to assist you in locating another provider.</p>
+<p>If you have questions or concerns about this notice, please contact our office at {{officePhone}}. You may also contact the Pennsylvania Department of Health complaint hotline at 1-866-826-3644 or your local Area Agency on Aging Ombudsman.</p>
+<p>Sincerely,</p>
+<p>{{officeName}}<br>{{officeAddress}}<br>{{officePhone}}</p>`,
+    },
+    {
+      name: "General Letter",
+      description: "Blank general-purpose letter on office letterhead.",
+      scope: "general",
+      category: "general",
+      htmlContent: `<p>Dear [Recipient],</p>
+<p>[Letter body]</p>
+<p>Sincerely,</p>
+<p>{{officeName}}<br>{{officeAddress}}<br>{{officePhone}}</p>`,
+    },
+  ];
+
+  app.post("/api/letter-templates/seed-defaults", isAuthenticated, requireAdminRole, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      const officeId = req.body.officeId || user?.primaryOfficeId;
+      if (!officeId || !(await canAccessOffice(req, officeId))) {
+        return res.status(403).json({ message: "Office is outside your scope" });
+      }
+
+      const existing = await storage.getLetterTemplates(officeId);
+      const existingNames = new Set(existing.map((t) => t.name));
+
+      const created: string[] = [];
+      const skipped: string[] = [];
+      for (const def of DEFAULT_LETTER_TEMPLATES) {
+        if (existingNames.has(def.name)) {
+          skipped.push(def.name);
+          continue;
+        }
+        await storage.createLetterTemplate({
+          name: def.name,
+          description: def.description,
+          scope: def.scope as any,
+          category: def.category,
+          status: "published",
+          htmlContent: def.htmlContent,
+          isDefault: true,
+          officeId,
+          createdBy: user.id,
+          updatedBy: user.id,
+        });
+        created.push(def.name);
+      }
+
+      res.status(201).json({ created, skipped });
+    } catch (error: any) {
+      console.error("Error seeding default letter templates:", error);
+      res.status(500).json({ message: error.message || "Failed to seed default letter templates" });
+    }
+  });
+
   // Update a letter template (admin only)
   app.patch("/api/letter-templates/:id", isAuthenticated, async (req: any, res) => {
     try {
@@ -19983,10 +20093,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!user || !['super_admin', 'admin', 'office_admin', 'manager', 'supervisor'].includes(user.role)) {
         return res.status(403).json({ message: "You do not have permission to generate letters" });
       }
-      const { scope, targetId, saveToDocuments = true } = req.body;
+      const { scope, targetId, saveToDocuments = true, emailTo, emailSubject, emailMessage } = req.body;
 
       if (!scope || !targetId) {
         return res.status(400).json({ message: "scope and targetId are required" });
+      }
+      if (emailTo) {
+        const { isValidEmail } = await import('./communication-services');
+        if (!isValidEmail(String(emailTo))) {
+          return res.status(400).json({ message: "Invalid recipient email address" });
+        }
       }
 
       // Get the template
@@ -20036,7 +20152,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         entityData.clientEmail = client.email || '';
         entityData.clientPhone = client.phone || '';
         entityData.clientAddress = `${client.address || ''}, ${client.city || ''}, ${client.state || ''} ${client.zipCode || ''}`.replace(/^,\s*/, '').trim();
-        entityData.clientDateOfBirth = client.dateOfBirth ? new Date(client.dateOfBirth).toLocaleDateString() : '';
+        // Date-only value: read the calendar date via UTC getters so the
+        // server's timezone can't shift it back a day (same fix as the
+        // client-side dateOnly helpers).
+        if (client.dateOfBirth) {
+          const dob = new Date(client.dateOfBirth);
+          entityData.clientDateOfBirth = `${dob.getUTCMonth() + 1}/${dob.getUTCDate()}/${dob.getUTCFullYear()}`;
+        } else {
+          entityData.clientDateOfBirth = '';
+        }
       } else if (scope === 'staff') {
         const staffUser = await storage.getUser(targetId);
         if (!staffUser || !(await canAccessOffice(req, staffUser.primaryOfficeId))) {
@@ -20134,8 +20258,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         writeStream.on('error', reject);
       });
 
-      // Read file size before potentially uploading to S3
-      const stats = { size: fs.statSync(filePath).size };
+      // Read the finished PDF into memory before the local copy may be
+      // removed (needed both for the file size and for email attachment).
+      const pdfBuffer = fs.readFileSync(filePath);
+      const stats = { size: pdfBuffer.length };
 
       // Upload to S3 if configured, then remove local temp file
       if (isS3Enabled()) {
@@ -20182,16 +20308,116 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
       
+      // Optionally email the letter as a PDF attachment
+      let emailResult: { success: boolean; error?: string } | null = null;
+      if (emailTo) {
+        try {
+          const { sendEmailWithAttachments } = await import('./agentmail');
+          const subject = emailSubject || `${template.name} — ${entityName}`;
+          const bodyHtml = `<p>${emailMessage ? String(emailMessage).replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>') : `Please find the attached letter: <strong>${template.name}</strong>.`}</p>`;
+          await sendEmailWithAttachments({
+            to: String(emailTo),
+            subject,
+            html: bodyHtml,
+            attachments: [{
+              filename: `${template.name} - ${entityName}.pdf`,
+              contentType: 'application/pdf',
+              content: pdfBuffer.toString('base64'),
+            }],
+          });
+          emailResult = { success: true };
+        } catch (emailErr: any) {
+          console.error("Error emailing generated letter (letter itself was generated):", emailErr);
+          emailResult = { success: false, error: emailErr?.message || 'Failed to send email' };
+        }
+      }
+
       res.json({
         success: true,
-        message: "Document generated successfully",
+        message: emailResult?.success
+          ? "Document generated and emailed successfully"
+          : emailResult
+            ? "Document generated, but the email failed to send"
+            : "Document generated successfully",
         fileName,
         filePath: `/uploads/${fileName}`,
         document: documentRecord,
+        emailResult,
       });
     } catch (error: any) {
       console.error("Error generating document from template:", error);
       res.status(500).json({ message: error.message || "Failed to generate document" });
+    }
+  });
+
+  // Email an existing document (e.g. a previously generated letter) as an
+  // attachment. Restricted to the same roles that can generate letters, and
+  // scope-checked through the document's resolved office.
+  app.post("/api/documents/:id/email", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      if (!user || !['super_admin', 'admin', 'office_admin', 'manager', 'supervisor'].includes(user.role)) {
+        return res.status(403).json({ message: "You do not have permission to email documents" });
+      }
+      const { recipientEmail, subject, message } = req.body;
+      const { isValidEmail } = await import('./communication-services');
+      if (!recipientEmail || !isValidEmail(String(recipientEmail))) {
+        return res.status(400).json({ message: "A valid recipientEmail is required" });
+      }
+
+      const document = await storage.getDocument(req.params.id);
+      if (!document || !(await canAccessDocument(req, document))) {
+        return res.status(404).json({ message: "Document not found" });
+      }
+
+      // Load the file bytes from local uploads or S3
+      const localPath = path.join("uploads", document.fileName);
+      let fileBuffer: Buffer;
+      if (fs.existsSync(localPath)) {
+        fileBuffer = fs.readFileSync(localPath);
+      } else if (isS3Enabled()) {
+        const s3Key = getS3KeyForFile(document.fileName, "uploads");
+        const tmpPath = path.join("uploads", `tmp_email_${Date.now()}_${document.fileName}`);
+        if (!fs.existsSync("uploads")) fs.mkdirSync("uploads", { recursive: true });
+        const downloaded = await downloadFileFromS3(s3Key, tmpPath);
+        if (!downloaded) {
+          return res.status(404).json({ message: "Document file not found in storage" });
+        }
+        fileBuffer = fs.readFileSync(tmpPath);
+        fs.unlinkSync(tmpPath);
+      } else {
+        return res.status(404).json({ message: "Document file not found in storage" });
+      }
+
+      const { sendEmailWithAttachments } = await import('./agentmail');
+      const safeMessage = message
+        ? String(message).replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>')
+        : `Please find the attached document: <strong>${document.originalName || document.fileName}</strong>.`;
+      await sendEmailWithAttachments({
+        to: String(recipientEmail),
+        subject: subject || `Document: ${document.originalName || document.fileName}`,
+        html: `<p>${safeMessage}</p>`,
+        attachments: [{
+          filename: document.originalName || document.fileName,
+          contentType: document.fileType || 'application/octet-stream',
+          content: fileBuffer.toString('base64'),
+        }],
+      });
+
+      await storage.createAuditLog({
+        userId: user.id,
+        action: "email_document",
+        entityType: "document",
+        entityId: document.id,
+        newValues: { recipientEmail, subject: subject || null },
+        ipAddress: req.ip,
+        userAgent: req.get("User-Agent"),
+      });
+
+      res.json({ success: true, message: `Document emailed to ${recipientEmail}` });
+    } catch (error: any) {
+      console.error("Error emailing document:", error);
+      res.status(500).json({ message: error.message || "Failed to email document" });
     }
   });
 

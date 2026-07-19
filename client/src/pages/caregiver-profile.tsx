@@ -95,6 +95,7 @@ import {
   Play
 } from "lucide-react";
 import type { Caregiver, User as UserType, Document, Office, Client, ComplianceItem, Coordinator, CaregiverCompliance, LetterTemplate } from "@shared/schema";
+import { EmailDocumentDialog } from "@/components/email-document-dialog";
 import { AddressInput } from "@/components/address-input";
 
 type EnrichedCaregiver = Caregiver & { firstName?: string | null; lastName?: string | null; email?: string | null };
@@ -218,6 +219,9 @@ export default function CaregiverProfile() {
   });
   const [showTemplateDialog, setShowTemplateDialog] = useState(false);
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
+  const [emailAfterGenerate, setEmailAfterGenerate] = useState(false);
+  const [generateEmailRecipient, setGenerateEmailRecipient] = useState("");
+  const [emailDocTarget, setEmailDocTarget] = useState<Document | null>(null);
   const [absenceForm, setAbsenceForm] = useState({
     absenceType: "vacation",
     startDate: "",
@@ -440,19 +444,25 @@ export default function CaregiverProfile() {
   });
 
   const generateFromTemplateMutation = useMutation({
-    mutationFn: async (templateId: string) => {
+    mutationFn: async ({ templateId, emailTo }: { templateId: string; emailTo?: string }) => {
       const response = await apiRequest("POST", `/api/letter-templates/${templateId}/generate`, {
         scope: "caregiver",
         targetId: caregiverId,
         saveToDocuments: true,
+        ...(emailTo ? { emailTo } : {}),
       });
       return response.json();
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/caregivers", caregiverId, "documents"] });
-      toast({ title: "Success", description: "Document generated successfully from template" });
+      if (data.emailResult && !data.emailResult.success) {
+        toast({ title: "Letter generated, but email failed", description: data.emailResult.error, variant: "destructive" });
+      } else {
+        toast({ title: "Success", description: data.message || "Document generated successfully from template" });
+      }
       setShowTemplateDialog(false);
       setSelectedTemplateId(null);
+      setEmailAfterGenerate(false);
     },
     onError: (error: any) => {
       toast({ title: "Error", description: error.message || "Failed to generate document", variant: "destructive" });
@@ -2401,9 +2411,9 @@ export default function CaregiverProfile() {
                                         >
                                           <Eye className="w-4 h-4" />
                                         </Button>
-                                        <Button 
-                                          variant="ghost" 
-                                          size="icon" 
+                                        <Button
+                                          variant="ghost"
+                                          size="icon"
                                           onClick={() => {
                                             const link = document.createElement('a');
                                             link.href = `/api/documents/${doc.id}/download`;
@@ -2415,6 +2425,15 @@ export default function CaregiverProfile() {
                                           data-testid={`button-download-doc-${doc.id}`}
                                         >
                                           <Download className="w-4 h-4" />
+                                        </Button>
+                                        <Button
+                                          variant="ghost"
+                                          size="icon"
+                                          onClick={() => setEmailDocTarget(doc)}
+                                          title="Email this document as an attachment"
+                                          data-testid={`button-email-doc-${doc.id}`}
+                                        >
+                                          <Mail className="w-4 h-4" />
                                         </Button>
                                         <Button
                                           variant="ghost"
@@ -3178,6 +3197,31 @@ export default function CaregiverProfile() {
                 ))}
               </div>
             )}
+            <div className="border rounded-lg p-3 space-y-2">
+              <label className="flex items-center gap-2 text-sm font-medium cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={emailAfterGenerate}
+                  onChange={(e) => {
+                    setEmailAfterGenerate(e.target.checked);
+                    if (e.target.checked && !generateEmailRecipient) {
+                      setGenerateEmailRecipient(caregiver?.email || user?.email || "");
+                    }
+                  }}
+                  data-testid="checkbox-email-after-generate"
+                />
+                Email the letter as a PDF attachment
+              </label>
+              {emailAfterGenerate && (
+                <Input
+                  type="email"
+                  placeholder="Recipient email"
+                  value={generateEmailRecipient}
+                  onChange={(e) => setGenerateEmailRecipient(e.target.value)}
+                  data-testid="input-generate-email-recipient"
+                />
+              )}
+            </div>
           </div>
           <div className="flex justify-end gap-2">
             <Button
@@ -3193,17 +3237,31 @@ export default function CaregiverProfile() {
             <Button
               onClick={() => {
                 if (selectedTemplateId) {
-                  generateFromTemplateMutation.mutate(selectedTemplateId);
+                  generateFromTemplateMutation.mutate({
+                    templateId: selectedTemplateId,
+                    emailTo: emailAfterGenerate && generateEmailRecipient ? generateEmailRecipient : undefined,
+                  });
                 }
               }}
-              disabled={!selectedTemplateId || generateFromTemplateMutation.isPending}
+              disabled={!selectedTemplateId || generateFromTemplateMutation.isPending || (emailAfterGenerate && !generateEmailRecipient)}
               data-testid="button-confirm-generate"
             >
-              {generateFromTemplateMutation.isPending ? "Generating..." : "Generate Document"}
+              {generateFromTemplateMutation.isPending
+                ? "Generating..."
+                : emailAfterGenerate
+                  ? "Generate & Email"
+                  : "Generate Document"}
             </Button>
           </div>
         </DialogContent>
       </Dialog>
+
+      <EmailDocumentDialog
+        document={emailDocTarget}
+        defaultRecipient={caregiver?.email || user?.email || ""}
+        open={!!emailDocTarget}
+        onOpenChange={(open) => !open && setEmailDocTarget(null)}
+      />
 
       {/* Delete Confirmation Dialog */}
       <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>

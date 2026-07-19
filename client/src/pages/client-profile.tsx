@@ -90,6 +90,7 @@ import {
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import type { Client, Document, Office, Mco, User as UserType, ClientCommunication, OfficeMcoBillingRate, ClientSchedule, MasterWeekTemplate, MasterWeekSlot, Caregiver, ClientMco, Coordinator, EligibilityCheck, LetterTemplate } from "@shared/schema";
+import { EmailDocumentDialog } from "@/components/email-document-dialog";
 import { AddressInput } from "@/components/address-input";
 
 const DOCUMENT_CATEGORIES = [
@@ -185,6 +186,9 @@ export default function ClientProfile() {
   // Template generation state
   const [showTemplateDialog, setShowTemplateDialog] = useState(false);
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
+  const [emailAfterGenerate, setEmailAfterGenerate] = useState(false);
+  const [generateEmailRecipient, setGenerateEmailRecipient] = useState("");
+  const [emailDocTarget, setEmailDocTarget] = useState<Document | null>(null);
 
   // Master week template state
   const [showMasterWeekModal, setShowMasterWeekModal] = useState(false);
@@ -630,19 +634,25 @@ export default function ClientProfile() {
   });
 
   const generateFromTemplateMutation = useMutation({
-    mutationFn: async (templateId: string) => {
+    mutationFn: async ({ templateId, emailTo }: { templateId: string; emailTo?: string }) => {
       const response = await apiRequest("POST", `/api/letter-templates/${templateId}/generate`, {
         scope: "client",
         targetId: clientId,
         saveToDocuments: true,
+        ...(emailTo ? { emailTo } : {}),
       });
       return response.json();
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/clients", clientId, "documents"] });
-      toast({ title: "Success", description: "Document generated successfully from template" });
+      if (data.emailResult && !data.emailResult.success) {
+        toast({ title: "Letter generated, but email failed", description: data.emailResult.error, variant: "destructive" });
+      } else {
+        toast({ title: "Success", description: data.message || "Document generated successfully from template" });
+      }
       setShowTemplateDialog(false);
       setSelectedTemplateId(null);
+      setEmailAfterGenerate(false);
     },
     onError: (error: any) => {
       toast({ title: "Error", description: error.message || "Failed to generate document", variant: "destructive" });
@@ -2184,6 +2194,7 @@ export default function ClientProfile() {
                                   key={doc.id} 
                                   document={doc} 
                                   onDelete={() => deleteMutation.mutate(doc.id)} 
+                                  onEmail={() => setEmailDocTarget(doc)}
                                 />
                               ))}
                             </div>
@@ -2201,6 +2212,7 @@ export default function ClientProfile() {
                                     key={doc.id} 
                                     document={doc} 
                                     onDelete={() => deleteMutation.mutate(doc.id)} 
+                                    onEmail={() => setEmailDocTarget(doc)}
                                   />
                                 ))}
                               </div>
@@ -3584,6 +3596,31 @@ export default function ClientProfile() {
                 ))}
               </div>
             )}
+            <div className="border rounded-lg p-3 space-y-2">
+              <label className="flex items-center gap-2 text-sm font-medium cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={emailAfterGenerate}
+                  onChange={(e) => {
+                    setEmailAfterGenerate(e.target.checked);
+                    if (e.target.checked && !generateEmailRecipient) {
+                      setGenerateEmailRecipient(client?.email || "");
+                    }
+                  }}
+                  data-testid="checkbox-email-after-generate"
+                />
+                Email the letter as a PDF attachment
+              </label>
+              {emailAfterGenerate && (
+                <Input
+                  type="email"
+                  placeholder="Recipient email"
+                  value={generateEmailRecipient}
+                  onChange={(e) => setGenerateEmailRecipient(e.target.value)}
+                  data-testid="input-generate-email-recipient"
+                />
+              )}
+            </div>
           </div>
           <div className="flex justify-end gap-2">
             <Button
@@ -3599,17 +3636,31 @@ export default function ClientProfile() {
             <Button
               onClick={() => {
                 if (selectedTemplateId) {
-                  generateFromTemplateMutation.mutate(selectedTemplateId);
+                  generateFromTemplateMutation.mutate({
+                    templateId: selectedTemplateId,
+                    emailTo: emailAfterGenerate && generateEmailRecipient ? generateEmailRecipient : undefined,
+                  });
                 }
               }}
-              disabled={!selectedTemplateId || generateFromTemplateMutation.isPending}
+              disabled={!selectedTemplateId || generateFromTemplateMutation.isPending || (emailAfterGenerate && !generateEmailRecipient)}
               data-testid="button-confirm-generate"
             >
-              {generateFromTemplateMutation.isPending ? "Generating..." : "Generate Document"}
+              {generateFromTemplateMutation.isPending
+                ? "Generating..."
+                : emailAfterGenerate
+                  ? "Generate & Email"
+                  : "Generate Document"}
             </Button>
           </div>
         </DialogContent>
       </Dialog>
+
+      <EmailDocumentDialog
+        document={emailDocTarget}
+        defaultRecipient={client?.email || ""}
+        open={!!emailDocTarget}
+        onOpenChange={(open) => !open && setEmailDocTarget(null)}
+      />
 
       {/* Master Week Template Modal */}
       {client && (
@@ -3651,7 +3702,7 @@ export default function ClientProfile() {
   );
 }
 
-function DocumentCard({ document, onDelete }: { document: Document; onDelete: () => void }) {
+function DocumentCard({ document, onDelete, onEmail }: { document: Document; onDelete: () => void; onEmail?: () => void }) {
   const [showViewer, setShowViewer] = useState(false);
   const categoryLabel = DOCUMENT_CATEGORIES.find(c => c.value === document.documentType)?.label || document.documentType;
   const isPdf = document.fileName?.toLowerCase().endsWith('.pdf') || document.originalName?.toLowerCase().endsWith('.pdf');
@@ -3690,6 +3741,18 @@ function DocumentCard({ document, onDelete }: { document: Document; onDelete: ()
             >
               <Download className="w-4 h-4" />
             </Button>
+            {onEmail && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8"
+                onClick={onEmail}
+                title="Email this document as an attachment"
+                data-testid={`button-email-${document.id}`}
+              >
+                <Mail className="w-4 h-4" />
+              </Button>
+            )}
             <Button 
               variant="ghost" 
               size="icon" 
