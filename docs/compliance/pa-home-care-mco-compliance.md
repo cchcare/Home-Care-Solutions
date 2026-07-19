@@ -37,9 +37,10 @@ listed here so a developer extending any of the gaps below knows what to build o
 
 Each item: what's missing, why it matters (with citation), and where it would plug into the existing codebase.
 
-**Implementation status: all four Tier 1 items and Tier 2 items 2.5–2.6 are now built** (see the
-"Implemented"/"Built" notes under each), plus a new AI Daily Compliance Action Plan. Tier 2 item 2.7 (EVV
-reconciliation, optional) and Tier 3 remain open for a future session.
+**Implementation status: all four Tier 1 items, Tier 2 items 2.5–2.6, and Tier 3 items 2.8–2.9 are now built**
+(see the "Implemented"/"Built" notes under each), plus a new AI Daily Compliance Action Plan. Tier 2 item 2.7
+(EVV reconciliation, optional) and Tier 3 items 2.10–2.11 (OIG Seven Elements, record retention — both more
+organizational/policy decisions than software gaps) remain open for a future session.
 
 ### Tier 1 — concrete, high-value, directly tied to CHC billing
 
@@ -183,16 +184,30 @@ cross-checking process becomes a real pain point.
 
 ### Tier 3 — organizational / lower urgency
 
-**2.8 — Client rights tracking (28 Pa. Code § 611.57).**
-No tracking exists for: the required pre-service "information packet" (services offered, schedule, fees,
-worker competency requirements, DOH complaint hotline 1-866-826-3644, and the local Area Agency on Aging
-Ombudsman contact); the **10-calendar-day advance written notice** requirement before terminating services
-(shorter only for non-payment 14+ days after warning, or worker-safety risk); or the **"Consumer Notice of
-Direct Care Worker Status"** disclosure (whether the worker is an employee or independent contractor, per 40
-Pa.B. 234). These could plug into the existing e-signature engine (`esignature_templates`) and
-`client-intake.tsx` flow as required documents/checklist items at intake.
+**2.8 — Professional development: caregiver competency reviews (28 Pa. Code § 611.55).** ✅ Implemented
+PA requires direct care worker competency to be reviewed **at least annually**, established via direct
+observation, a competency test, training completion, or consumer feedback. Built a dedicated
+`caregiver_competency_reviews` table (method, outcome, topics covered, development plan, next-review-due date)
+with full CRUD, surfaced as a "Competency Reviews" section on the caregiver profile. The `nextReviewDue` date
+feeds the same expiration-alert pipeline as certifications/credentials (`server/expiration-alert-service.ts`,
+type `competency_review`) and the AI Daily Compliance Action Plan, so an overdue or upcoming review shows up
+alongside everything else that needs attention. `shared/schema.ts` (`caregiverCompetencyReviews`),
+`server/storage.ts`, `server/routes.ts` (`/api/caregivers/:id/competency-reviews`),
+`client/src/components/caregiver-competency-reviews-section.tsx`.
 
-**2.9 — No formal OIG "Seven Elements" compliance-program tracking.**
+**2.9 — Client rights tracking (28 Pa. Code § 611.57).** ✅ Implemented
+Built a `client_notices` table tracking delivery of the pre-service **information packet**, the **"Consumer
+Notice of Direct Care Worker Status"** disclosure (whether the worker is an employee or independent
+contractor, per 40 Pa.B. 234), the **10-calendar-day advance written notice** before terminating services, and
+rate-change notices — with method (in person/mail/email/e-signature), effective date, and free-text notes.
+Surfaced as a "Rights & Notices" section on the client profile, which computes and flags the actual number of
+days' notice given for a termination notice against the 10-day minimum in real time. Does not yet enforce the
+DOH complaint hotline / Ombudsman-contact content of the information packet itself, or the "shorter only for
+non-payment 14+ days after warning, or worker-safety risk" exceptions — those remain a content/process
+question for the packet template, not a schema gap. `shared/schema.ts` (`clientNotices`), `server/storage.ts`,
+`server/routes.ts` (`/api/clients/:id/notices`), `client/src/components/client-notices-section.tsx`.
+
+**2.10 — No formal OIG "Seven Elements" compliance-program tracking.**
 MCO provider agreements commonly incorporate by reference the OIG's seven elements of an effective compliance
 program (written policies, a designated compliance officer/committee, training, communication/hotline lines,
 internal monitoring/auditing, disciplinary enforcement, and prompt corrective action — refreshed in OIG's
@@ -201,7 +216,7 @@ grievance-adjacent log but isn't the same thing as a designated compliance-offic
 reporting hotline log. Lower priority — this is as much an organizational/policy decision as a software
 feature.
 
-**2.10 — Record retention.**
+**2.11 — Record retention.**
 No enforced retention policy exists in the app. The federal 7-year home-health clinical-record retention rule
 (28 Pa. Code § 601.36) **does not apply** to this agency's Chapter 611 license. Research could not find a
 definitive numeric retention period for Chapter 611 HCA employee/background-check files specifically (the
@@ -236,9 +251,14 @@ retention-period enforcement — there's currently no clear rule to encode.
 
 ## 4. Suggested next step
 
-Pick items from Tier 1 first (MCO seeding, Service-Coordinator incident tracking, claims timely-filing alerts,
-authorization–care-plan linkage) for a follow-up implementation session — they're the most concretely
-specified and carry the most direct financial/audit consequence given the agency bills CHC-MCOs today. Before
-building the Service-Coordinator incident fields or the credentialing tracker specifically, get a clean copy
-of the OLTL Critical Incident Management Bulletin and each MCO's Credentialing provider-manual chapter so the
-deadlines/cycles encoded in the software match the current, real requirement rather than a research estimate.
+What's left is genuinely lower priority: Tier 2 item 2.7 (EVV reconciliation against HHAeXchange — a
+nice-to-have QA cross-check, not a compliance gap, since EVV submission already happens outside this app), and
+Tier 3 items 2.10–2.11 (OIG Seven Elements compliance-program tracking, record retention), both of which are
+as much organizational/policy decisions as software features and don't have a clean numeric rule to build
+against yet. Before encoding anything from those into hard business logic, get a direct answer from DOH or the
+relevant MCO provider manual — see the caveats in section 3.
+
+For everything already built above (Tier 1, Tier 2 items 2.5–2.6, Tier 3 items 2.8–2.9): the deadlines/cycles
+encoded (DOH renewal lead times, MCO recredentialing cadence, CIR category timeframes) are still research
+estimates in places — re-verify against the OLTL Critical Incident Management Bulletin and each MCO's current
+Credentialing provider-manual chapter before relying on them for an actual survey or audit.

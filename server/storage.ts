@@ -365,6 +365,12 @@ import {
   officeCredentials,
   type OfficeCredential,
   type InsertOfficeCredential,
+  caregiverCompetencyReviews,
+  type CaregiverCompetencyReview,
+  type InsertCaregiverCompetencyReview,
+  clientNotices,
+  type ClientNotice,
+  type InsertClientNotice,
   emailTemplates,
   type EmailTemplate,
   type InsertEmailTemplate,
@@ -1496,6 +1502,20 @@ export interface IStorage {
   createOfficeCredential(credential: InsertOfficeCredential): Promise<OfficeCredential>;
   updateOfficeCredential(id: string, credential: Partial<InsertOfficeCredential>): Promise<OfficeCredential>;
   deleteOfficeCredential(id: string): Promise<void>;
+
+  // Caregiver Competency Reviews (28 Pa. Code § 611.55)
+  getCaregiverCompetencyReviews(caregiverId: string): Promise<CaregiverCompetencyReview[]>;
+  getCaregiverCompetencyReview(id: string): Promise<CaregiverCompetencyReview | undefined>;
+  createCaregiverCompetencyReview(review: InsertCaregiverCompetencyReview): Promise<CaregiverCompetencyReview>;
+  updateCaregiverCompetencyReview(id: string, review: Partial<InsertCaregiverCompetencyReview>): Promise<CaregiverCompetencyReview>;
+  deleteCaregiverCompetencyReview(id: string): Promise<void>;
+
+  // Client Rights & Notices (28 Pa. Code § 611.57)
+  getClientNotices(clientId: string): Promise<ClientNotice[]>;
+  getClientNotice(id: string): Promise<ClientNotice | undefined>;
+  createClientNotice(notice: InsertClientNotice): Promise<ClientNotice>;
+  updateClientNotice(id: string, notice: Partial<InsertClientNotice>): Promise<ClientNotice>;
+  deleteClientNotice(id: string): Promise<void>;
 
   getClientSatisfactionSurveys(officeId: string): Promise<ClientSatisfactionSurvey[]>;
   getClientSatisfactionSurvey(id: string): Promise<ClientSatisfactionSurvey | undefined>;
@@ -9156,6 +9176,64 @@ export class DatabaseStorage implements IStorage {
 
   async deleteOfficeCredential(id: string): Promise<void> {
     await db.delete(officeCredentials).where(eq(officeCredentials.id, id));
+  }
+
+  // ─── Caregiver Competency Reviews (28 Pa. Code § 611.55) ───────────────────
+  async getCaregiverCompetencyReviews(caregiverId: string): Promise<CaregiverCompetencyReview[]> {
+    return db.select().from(caregiverCompetencyReviews)
+      .where(eq(caregiverCompetencyReviews.caregiverId, caregiverId))
+      .orderBy(desc(caregiverCompetencyReviews.reviewDate));
+  }
+
+  async getCaregiverCompetencyReview(id: string): Promise<CaregiverCompetencyReview | undefined> {
+    const [row] = await db.select().from(caregiverCompetencyReviews).where(eq(caregiverCompetencyReviews.id, id));
+    return row;
+  }
+
+  async createCaregiverCompetencyReview(review: InsertCaregiverCompetencyReview): Promise<CaregiverCompetencyReview> {
+    const [row] = await db.insert(caregiverCompetencyReviews).values(review).returning();
+    return row;
+  }
+
+  async updateCaregiverCompetencyReview(id: string, review: Partial<InsertCaregiverCompetencyReview>): Promise<CaregiverCompetencyReview> {
+    const [row] = await db.update(caregiverCompetencyReviews)
+      .set({ ...review, updatedAt: new Date() })
+      .where(eq(caregiverCompetencyReviews.id, id))
+      .returning();
+    return row;
+  }
+
+  async deleteCaregiverCompetencyReview(id: string): Promise<void> {
+    await db.delete(caregiverCompetencyReviews).where(eq(caregiverCompetencyReviews.id, id));
+  }
+
+  // ─── Client Rights & Notices (28 Pa. Code § 611.57) ────────────────────────
+  async getClientNotices(clientId: string): Promise<ClientNotice[]> {
+    return db.select().from(clientNotices)
+      .where(eq(clientNotices.clientId, clientId))
+      .orderBy(desc(clientNotices.providedAt));
+  }
+
+  async getClientNotice(id: string): Promise<ClientNotice | undefined> {
+    const [row] = await db.select().from(clientNotices).where(eq(clientNotices.id, id));
+    return row;
+  }
+
+  async createClientNotice(notice: InsertClientNotice): Promise<ClientNotice> {
+    const [row] = await db.insert(clientNotices).values(notice).returning();
+    return row;
+  }
+
+  async updateClientNotice(id: string, notice: Partial<InsertClientNotice>): Promise<ClientNotice> {
+    const [row] = await db.update(clientNotices)
+      .set(notice)
+      .where(eq(clientNotices.id, id))
+      .returning();
+    return row;
+  }
+
+  async deleteClientNotice(id: string): Promise<void> {
+    await db.delete(clientNotices).where(eq(clientNotices.id, id));
   }
 
   async getClientSatisfactionSurveys(officeId: string): Promise<ClientSatisfactionSurvey[]> {

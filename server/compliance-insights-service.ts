@@ -136,7 +136,7 @@ export async function getComplianceInsights(officeId?: string): Promise<Complian
           role: "system",
           content:
             "You are a compliance operations assistant for a Pennsylvania home care agency (28 Pa. Code Chapter 611) that bills PA Medicaid Community HealthChoices MCOs. " +
-            "You receive a JSON list of open compliance items (expiring credentials/certifications, overdue incident reports, claims approaching the 180-day timely-filing deadline, authorization renewals, care-plan reassessments). " +
+            "You receive a JSON list of open compliance items (expiring credentials/certifications, overdue incident reports, claims approaching the 180-day timely-filing deadline, authorization renewals, care-plan reassessments, caregiver competency reviews due under § 611.55). " +
             "Produce a prioritized daily action plan. Combine related items into one action where sensible (e.g. several caregivers with expiring TB tests). Never invent items not present in the input. " +
             'Respond with JSON only: {"summary": string (2-3 sentences, plain language, what to do first and why), "actions": [{"priority": "critical"|"high"|"medium"|"low", "title": string, "detail": string (concrete next step), "dueDate": string|null (ISO), "category": string}]}. Max 15 actions.',
         },

@@ -86,12 +86,14 @@ import {
   FileSignature,
   Mail,
   AlertTriangle,
-  ShieldAlert
+  ShieldAlert,
+  ShieldCheck
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import type { Client, Document, Office, Mco, User as UserType, ClientCommunication, OfficeMcoBillingRate, ClientSchedule, MasterWeekTemplate, MasterWeekSlot, Caregiver, ClientMco, Coordinator, EligibilityCheck, LetterTemplate } from "@shared/schema";
 import { EmailDocumentDialog } from "@/components/email-document-dialog";
 import { AddressInput } from "@/components/address-input";
+import { ClientNoticesSection } from "@/components/client-notices-section";
 
 const DOCUMENT_CATEGORIES = [
   { value: "id_card", label: "ID Card" },
@@ -122,6 +124,7 @@ const CLIENT_MENU_ITEMS = [
   { id: "poc", label: "POC", icon: FileText },
   { id: "caregiver-history", label: "Caregiver History", icon: History },
   { id: "emergency-plan", label: "Emergency Plan", icon: ShieldAlert },
+  { id: "notices", label: "Rights & Notices", icon: ShieldCheck },
   { id: "others", label: "Others", icon: MoreHorizontal },
 ];
 
@@ -3089,6 +3092,12 @@ export default function ClientProfile() {
                       </div>
                     </CardContent>
                   </Card>
+                </div>
+              )}
+
+              {activeSection === "notices" && clientId && (
+                <div className="space-y-6">
+                  <ClientNoticesSection clientId={clientId} />
                 </div>
               )}
 

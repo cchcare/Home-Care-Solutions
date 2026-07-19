@@ -160,6 +160,7 @@ const COMPLIANCE_STATUS_OPTIONS = [
 ];
 
 import { EmployeeWriteUpsSection } from "@/components/employee-write-ups-section";
+import { CaregiverCompetencyReviewsSection } from "@/components/caregiver-competency-reviews-section";
 
 const CAREGIVER_MENU_ITEMS = [
   { id: "profile", label: "Profile", icon: User },
@@ -168,6 +169,7 @@ const CAREGIVER_MENU_ITEMS = [
   { id: "calendar", label: "Calendar", icon: Calendar },
   { id: "visits", label: "Visits", icon: Clock },
   { id: "in-service", label: "In Service", icon: GraduationCap },
+  { id: "competency", label: "Competency Reviews", icon: Award },
   { id: "rates", label: "Rates", icon: DollarSign },
   { id: "notes", label: "Notes", icon: MessageSquare },
   { id: "preferences", label: "Preferences", icon: Heart },
@@ -1780,6 +1782,12 @@ export default function CaregiverProfile() {
                       )}
                     </CardContent>
                   </Card>
+                </div>
+              )}
+
+              {activeSection === "competency" && caregiverId && (
+                <div className="space-y-6">
+                  <CaregiverCompetencyReviewsSection caregiverId={caregiverId} />
                 </div>
               )}
 

@@ -44,12 +44,13 @@ import {
   FileCheck,
   FileText,
   ClipboardList,
+  GraduationCap,
 } from "lucide-react";
 import { formatDateOnly } from "@/lib/dateOnly";
 
 interface ExpiringItem {
   id: string;
-  type: "caregiver_compliance" | "client_snap" | "client_medicaid" | "document_expiration" | "claim_timely_filing" | "authorization_renewal" | "care_plan_reassessment" | "office_credential";
+  type: "caregiver_compliance" | "client_snap" | "client_medicaid" | "document_expiration" | "claim_timely_filing" | "authorization_renewal" | "care_plan_reassessment" | "office_credential" | "competency_review";
   entityId: string;
   entityName: string;
   entityEmail?: string;
@@ -209,6 +210,8 @@ export default function ExpirationAlerts() {
         return <Badge className="bg-teal-100 text-teal-800 dark:bg-teal-900 dark:text-teal-300 flex items-center gap-1"><ClipboardList className="w-3 h-3" />Care Plan</Badge>;
       case "office_credential":
         return <Badge className="bg-rose-100 text-rose-800 dark:bg-rose-900 dark:text-rose-300 flex items-center gap-1"><Shield className="w-3 h-3" />Agency Credential</Badge>;
+      case "competency_review":
+        return <Badge className="bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-300 flex items-center gap-1"><GraduationCap className="w-3 h-3" />Competency Review</Badge>;
       default:
         return <Badge variant="secondary">{type}</Badge>;
     }
@@ -294,6 +297,7 @@ export default function ExpirationAlerts() {
                     <SelectItem value="authorization_renewal">Authorization Renewal</SelectItem>
                     <SelectItem value="care_plan_reassessment">Care Plan Reassessment</SelectItem>
                     <SelectItem value="office_credential">Agency Credential</SelectItem>
+                    <SelectItem value="competency_review">Competency Review</SelectItem>
                   </SelectContent>
                 </Select>
                 <Button

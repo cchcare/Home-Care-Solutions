@@ -49,6 +49,8 @@ import {
   insertMcoTypeSchema,
   insertMcoSchema,
   insertOfficeCredentialSchema,
+  insertCaregiverCompetencyReviewSchema,
+  insertClientNoticeSchema,
   insertSystemSettingSchema,
   insertEntityFieldConfigSchema,
   insertCaregiverNoteSchema,
@@ -9926,6 +9928,164 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error seeding PA default credentials:", error);
       res.status(500).json({ message: "Failed to seed PA default credentials" });
+    }
+  });
+
+  // ─── Caregiver Competency Reviews (28 Pa. Code § 611.55) ────────────────────
+  // PA requires direct care worker competency to be reviewed at least
+  // annually. Scoped through the caregiver's office like other caregiver
+  // sub-resources (compliance items, certifications, notes).
+  const getCompetencyReviewInScope = async (req: any, id: string) => {
+    const review = await storage.getCaregiverCompetencyReview(id);
+    if (!review) return undefined;
+    const caregiver = await getCaregiverInScope(req, review.caregiverId);
+    if (!caregiver) return undefined;
+    return review;
+  };
+
+  app.get("/api/caregivers/:caregiverId/competency-reviews", isAuthenticated, async (req: any, res) => {
+    try {
+      if (!(await getCaregiverInScope(req, req.params.caregiverId))) {
+        return res.status(404).json({ message: "Caregiver not found" });
+      }
+      res.json(await storage.getCaregiverCompetencyReviews(req.params.caregiverId));
+    } catch (error) {
+      console.error("Error fetching competency reviews:", error);
+      res.status(500).json({ message: "Failed to fetch competency reviews" });
+    }
+  });
+
+  app.post("/api/caregivers/:caregiverId/competency-reviews", isAuthenticated, requireAdminRole, async (req: any, res) => {
+    try {
+      const caregiver = await getCaregiverInScope(req, req.params.caregiverId);
+      if (!caregiver) {
+        return res.status(404).json({ message: "Caregiver not found" });
+      }
+      const coerced = {
+        ...req.body,
+        caregiverId: req.params.caregiverId,
+        officeId: caregiver.officeId,
+        reviewerId: req.body.reviewerId || req.session?.user?.id,
+        reviewDate: coerceDate(req.body.reviewDate),
+        nextReviewDue: coerceDate(req.body.nextReviewDue),
+      };
+      const validatedData = insertCaregiverCompetencyReviewSchema.parse(coerced);
+      const review = await storage.createCaregiverCompetencyReview(validatedData);
+      res.status(201).json(review);
+    } catch (error) {
+      console.error("Error creating competency review:", error);
+      res.status(400).json({ message: "Failed to create competency review" });
+    }
+  });
+
+  app.put("/api/competency-reviews/:id", isAuthenticated, requireAdminRole, async (req: any, res) => {
+    try {
+      if (!(await getCompetencyReviewInScope(req, req.params.id))) {
+        return res.status(404).json({ message: "Competency review not found" });
+      }
+      const coerced = {
+        ...req.body,
+        reviewDate: coerceDate(req.body.reviewDate),
+        nextReviewDue: coerceDate(req.body.nextReviewDue),
+      };
+      const validatedData = insertCaregiverCompetencyReviewSchema.partial().omit({ caregiverId: true, officeId: true }).parse(coerced);
+      const review = await storage.updateCaregiverCompetencyReview(req.params.id, validatedData);
+      res.json(review);
+    } catch (error) {
+      console.error("Error updating competency review:", error);
+      res.status(400).json({ message: "Failed to update competency review" });
+    }
+  });
+
+  app.delete("/api/competency-reviews/:id", isAuthenticated, requireAdminRole, async (req: any, res) => {
+    try {
+      if (!(await getCompetencyReviewInScope(req, req.params.id))) {
+        return res.status(404).json({ message: "Competency review not found" });
+      }
+      await storage.deleteCaregiverCompetencyReview(req.params.id);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting competency review:", error);
+      res.status(500).json({ message: "Failed to delete competency review" });
+    }
+  });
+
+  // ─── Client Rights & Notices (28 Pa. Code § 611.57) ─────────────────────────
+  // Tracks delivery of the required consumer-protection notices: pre-service
+  // information packet, Consumer Notice of Direct Care Worker Status, and the
+  // 10-calendar-day advance written service-termination notice.
+  const getClientNoticeInScope = async (req: any, id: string) => {
+    const notice = await storage.getClientNotice(id);
+    if (!notice) return undefined;
+    const client = await getClientInScope(req, notice.clientId);
+    if (!client) return undefined;
+    return notice;
+  };
+
+  app.get("/api/clients/:clientId/notices", isAuthenticated, async (req: any, res) => {
+    try {
+      if (!(await getClientInScope(req, req.params.clientId))) {
+        return res.status(404).json({ message: "Client not found" });
+      }
+      res.json(await storage.getClientNotices(req.params.clientId));
+    } catch (error) {
+      console.error("Error fetching client notices:", error);
+      res.status(500).json({ message: "Failed to fetch client notices" });
+    }
+  });
+
+  app.post("/api/clients/:clientId/notices", isAuthenticated, requireAdminRole, async (req: any, res) => {
+    try {
+      const client = await getClientInScope(req, req.params.clientId);
+      if (!client) {
+        return res.status(404).json({ message: "Client not found" });
+      }
+      const coerced = {
+        ...req.body,
+        clientId: req.params.clientId,
+        officeId: client.officeId,
+        createdBy: req.session?.user?.id,
+        providedAt: coerceDate(req.body.providedAt),
+        effectiveDate: coerceDate(req.body.effectiveDate),
+      };
+      const validatedData = insertClientNoticeSchema.parse(coerced);
+      const notice = await storage.createClientNotice(validatedData);
+      res.status(201).json(notice);
+    } catch (error) {
+      console.error("Error creating client notice:", error);
+      res.status(400).json({ message: "Failed to create client notice" });
+    }
+  });
+
+  app.put("/api/client-notices/:id", isAuthenticated, requireAdminRole, async (req: any, res) => {
+    try {
+      if (!(await getClientNoticeInScope(req, req.params.id))) {
+        return res.status(404).json({ message: "Notice not found" });
+      }
+      const coerced = {
+        ...req.body,
+        providedAt: coerceDate(req.body.providedAt),
+        effectiveDate: coerceDate(req.body.effectiveDate),
+      };
+      const validatedData = insertClientNoticeSchema.partial().omit({ clientId: true, officeId: true, createdBy: true }).parse(coerced);
+      const notice = await storage.updateClientNotice(req.params.id, validatedData);
+      res.json(notice);
+    } catch (error) {
+      console.error("Error updating client notice:", error);
+      res.status(400).json({ message: "Failed to update client notice" });
+    }
+  });
+
+  app.delete("/api/client-notices/:id", isAuthenticated, requireAdminRole, async (req: any, res) => {
+    try {
+      if (!(await getClientNoticeInScope(req, req.params.id))) {
+        return res.status(404).json({ message: "Notice not found" });
+      }
+      await storage.deleteClientNotice(req.params.id);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting client notice:", error);
+      res.status(500).json({ message: "Failed to delete client notice" });
     }
   });
 

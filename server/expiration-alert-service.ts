@@ -1,7 +1,7 @@
 import { storage } from './storage';
 import { sendEmail, sendSMS, formatPhoneNumber, isValidPhone, isValidEmail } from './communication-services';
 import { db } from './db';
-import { caregiverCompliance, caregivers, clients, users, documents, claims, clientAuthorizations, carePlans, officeCredentials } from '@shared/schema';
+import { caregiverCompliance, caregivers, clients, users, documents, claims, clientAuthorizations, carePlans, officeCredentials, caregiverCompetencyReviews } from '@shared/schema';
 import { and, gte, lte, eq, isNotNull, sql } from 'drizzle-orm';
 import { addDays, format, differenceInDays } from 'date-fns';
 
@@ -45,7 +45,7 @@ async function getAlertSettings(): Promise<ExpirationAlertSettings> {
 
 export interface ExpiringItem {
   id: string;
-  type: 'caregiver_compliance' | 'client_snap' | 'client_medicaid' | 'document_expiration' | 'claim_timely_filing' | 'authorization_renewal' | 'care_plan_reassessment' | 'office_credential';
+  type: 'caregiver_compliance' | 'client_snap' | 'client_medicaid' | 'document_expiration' | 'claim_timely_filing' | 'authorization_renewal' | 'care_plan_reassessment' | 'office_credential' | 'competency_review';
   entityId: string;
   entityName: string;
   entityEmail?: string;
@@ -352,6 +352,49 @@ export async function getUpcomingExpirations(daysAhead: number = 30): Promise<Ex
     });
   }
 
+  // Caregiver competency reviews (28 Pa. Code § 611.55) — at least annual.
+  // Alerts off each review's own nextReviewDue; a caregiver with more than
+  // one review having a due date in the window will surface once per row,
+  // same tradeoff the other per-record checks above already make.
+  const dueCompetencyReviews = await db
+    .select({
+      id: caregiverCompetencyReviews.id,
+      caregiverId: caregiverCompetencyReviews.caregiverId,
+      nextReviewDue: caregiverCompetencyReviews.nextReviewDue,
+      officeId: caregiverCompetencyReviews.officeId,
+      caregiverFirstName: caregivers.firstName,
+      caregiverLastName: caregivers.lastName,
+      caregiverEmail: caregivers.email,
+      caregiverPhone: caregivers.phone,
+    })
+    .from(caregiverCompetencyReviews)
+    .leftJoin(caregivers, eq(caregiverCompetencyReviews.caregiverId, caregivers.id))
+    .where(
+      and(
+        isNotNull(caregiverCompetencyReviews.nextReviewDue),
+        gte(caregiverCompetencyReviews.nextReviewDue, today),
+        lte(caregiverCompetencyReviews.nextReviewDue, endDate),
+      ),
+    );
+
+  for (const review of dueCompetencyReviews) {
+    if (!review.nextReviewDue) continue;
+    const caregiverName = `${review.caregiverFirstName || ''} ${review.caregiverLastName || ''}`.trim() || 'Unknown Caregiver';
+    expiringItems.push({
+      id: `competency-${review.id}`,
+      type: 'competency_review',
+      entityId: review.caregiverId,
+      entityName: caregiverName,
+      entityEmail: review.caregiverEmail || undefined,
+      entityPhone: review.caregiverPhone || undefined,
+      itemType: 'competency_review',
+      itemDescription: `${caregiverName} — annual competency review due (28 Pa. Code § 611.55)`,
+      expirationDate: review.nextReviewDue,
+      daysUntilExpiration: differenceInDays(review.nextReviewDue, today),
+      officeId: review.officeId || undefined,
+    });
+  }
+
   expiringItems.sort((a, b) => a.daysUntilExpiration - b.daysUntilExpiration);
 
   return expiringItems;
@@ -395,6 +438,7 @@ function getExpirationAlertEmailHtml(items: ExpiringItem[], recipientName: strin
     authorization_renewal: 'Authorizations Ending',
     care_plan_reassessment: 'Care Plan Reassessments Due',
     office_credential: 'Agency Credentials & Licenses',
+    competency_review: 'Caregiver Competency Reviews Due',
   };
   const groupedItems = items.reduce((acc, item) => {
     const key = groupLabels[item.type] || 'Other';
