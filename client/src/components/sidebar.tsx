@@ -75,6 +75,7 @@ import {
   UserCircle,
   HeartPulse,
   CalendarRange,
+  BadgeCheck,
 } from "lucide-react";
 
 interface NavItem {
@@ -234,6 +235,7 @@ export function Sidebar() {
             icon: ShieldCheck,
             children: [
               { name: "Survey Readiness Hub", href: "/survey-readiness", icon: ShieldAlert },
+              { name: "Agency Credentials", href: "/office-credentials", icon: BadgeCheck },
               { name: "DOH Audit Assessment", href: "/audit-assessment", icon: ClipboardCheck },
               { name: "Supervisory Visits", href: "/supervisory-visits", icon: Clipboard },
               { name: "Policy Management", href: "/policy-management", icon: FileText },

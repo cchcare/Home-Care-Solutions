@@ -37,8 +37,9 @@ listed here so a developer extending any of the gaps below knows what to build o
 
 Each item: what's missing, why it matters (with citation), and where it would plug into the existing codebase.
 
-**Implementation status: all four Tier 1 items below are now built** (see the "Implemented" note under each).
-Tier 2 and Tier 3 remain open for a future session.
+**Implementation status: all four Tier 1 items and Tier 2 items 2.5–2.6 are now built** (see the
+"Implemented"/"Built" notes under each), plus a new AI Daily Compliance Action Plan. Tier 2 item 2.7 (EVV
+reconciliation, optional) and Tier 3 remain open for a future session.
 
 ### Tier 1 — concrete, high-value, directly tied to CHC billing
 
@@ -123,7 +124,7 @@ or a future editor), so the reassessment reminder works regardless.
 
 ### Tier 2 — audit/licensing risk, less immediately financial
 
-**2.5 — No agency-level credentialing/recredentialing tracker.**
+**2.5 — No agency-level credentialing/recredentialing tracker.** ✅ Implemented
 Individual staff certifications are tracked in detail (`caregiver_compliance`), but nothing tracks the
 **agency's own** PA Medicaid PROMISe enrollment revalidation (a federal 5-year cycle, confirmed via CMS/DHS
 guidance, submitted at least 60 days before the due date) or each MCO's separate recredentialing cycle
@@ -132,8 +133,19 @@ the exact cycle length verbatim for AmeriHealth Caritas, PA Health & Wellness, o
 each MCO's provider manual, Credentialing chapter, directly).
 *Recommended action:* a simple per-office, per-payer (PROMISe + each MCO) credentialing-date tracker with the
 same expiration-alert pattern used elsewhere.
+*Built:* new `office_credentials` table + full CRUD (`/api/office-credentials`) and an **Agency Credentials**
+page (`client/src/pages/office-credentials.tsx`, sidebar → Clinical → DOH Compliance). Tracks per-office:
+PA DOH license, PROMISe/OLTL revalidation, CMS/Medicare enrollment, per-MCO recredentialing (FK to `mcos`),
+FWA training attestation, liability insurance, workers' comp, surety bond, other. Each credential carries a
+renewal cadence (months) **and a submission lead time (days)** — the daily expiration alerts fire from the
+*submission deadline* (expiration minus lead time), so e.g. the DOH license alerts when the renewal form is
+due 60 days out, not when the license is already expiring. An "Add PA Recommended Set" button idempotently
+seeds the standard set (DOH annual/60-day lead, PROMISe 5-year/60-day, FWA annual, insurance rows, and one
+~3-year recredentialing row per configured MCO — cadences carry verify-me notes where research couldn't
+confirm them). Expiration dates are deliberately left blank on seed for the admin to fill in with real dates.
+A "Renewed" action stamps `lastRenewedAt` and advances the expiration by the cadence.
 
-**2.6 — No FWA (Fraud, Waste & Abuse) training + attestation tracking as its own record type.**
+**2.6 — No FWA (Fraud, Waste & Abuse) training + attestation tracking as its own record type.** ✅ Implemented
 CHC-MCOs require network-provider staff to complete FWA training with a follow-up attestation (confirmed for
 AmeriHealth Caritas via an online attestation form; PA Health & Wellness's "2026 HCBS Annual Training
 Presentation" naming strongly implies an annual cycle, though the exact cadence wasn't independently
@@ -141,6 +153,21 @@ confirmed in readable text for every MCO). The generic `trainings`/`training_rec
 but there's no seeded FWA training type or attestation-specific tracking distinct from general in-services.
 *Recommended action:* seed an FWA training type with an annual due-date cadence and route it through the
 existing expiration-alert / policy-acknowledgment infrastructure rather than building something new.
+*Built:* covered by the Agency Credentials tracker above — `fwa_training` is a first-class credential type
+(seeded annually with a 30-day lead time by "Add PA Recommended Set", optionally linkable to a specific MCO),
+flowing through the same renewal reminders. Individual-staff-level FWA course completion can additionally be
+tracked through the existing `trainings`/`training_records` tables if per-person records are needed later.
+
+**Also built (new, beyond the original gap list): AI Daily Compliance Action Plan.**
+`GET /api/compliance/ai-insights` (`server/compliance-insights-service.ts`) aggregates everything the trackers
+know — expiring agency credentials and staff certifications, overdue DOH/SC incident reports, claims nearing
+the 180-day filing deadline, authorization renewals, care-plan reassessments, and credentials missing an
+expiration date — and asks the existing OpenAI integration (same `gpt-4o` pattern as `aiAssistant.ts`) to
+produce a prioritized, de-duplicated daily action plan. When no AI key is configured (or the call fails), it
+degrades to a deterministic rule-based priority list — the response's `source` field says which you got. The
+plan renders as the top card on the Agency Credentials page. This is the first step toward the goal of AI
+handling more recurring compliance work; natural next steps are a scheduled morning digest email of the plan
+and AI-drafted renewal checklists per credential type.
 
 **2.7 — EVV reconciliation (optional enhancement, not an urgent gap).**
 Confirmed in code: `evvStatus` on `caregiver_schedules` (`server/storage.ts:5299-5315`) is computed purely

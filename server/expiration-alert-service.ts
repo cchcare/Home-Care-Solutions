@@ -1,7 +1,7 @@
 import { storage } from './storage';
 import { sendEmail, sendSMS, formatPhoneNumber, isValidPhone, isValidEmail } from './communication-services';
 import { db } from './db';
-import { caregiverCompliance, caregivers, clients, users, documents, claims, clientAuthorizations, carePlans } from '@shared/schema';
+import { caregiverCompliance, caregivers, clients, users, documents, claims, clientAuthorizations, carePlans, officeCredentials } from '@shared/schema';
 import { and, gte, lte, eq, isNotNull, sql } from 'drizzle-orm';
 import { addDays, format, differenceInDays } from 'date-fns';
 
@@ -45,7 +45,7 @@ async function getAlertSettings(): Promise<ExpirationAlertSettings> {
 
 export interface ExpiringItem {
   id: string;
-  type: 'caregiver_compliance' | 'client_snap' | 'client_medicaid' | 'document_expiration' | 'claim_timely_filing' | 'authorization_renewal' | 'care_plan_reassessment';
+  type: 'caregiver_compliance' | 'client_snap' | 'client_medicaid' | 'document_expiration' | 'claim_timely_filing' | 'authorization_renewal' | 'care_plan_reassessment' | 'office_credential';
   entityId: string;
   entityName: string;
   entityEmail?: string;
@@ -316,6 +316,42 @@ export async function getUpcomingExpirations(daysAhead: number = 30): Promise<Ex
     });
   }
 
+  // Agency-level office credentials (PA DOH license, PROMISe revalidation,
+  // MCO recredentialing, FWA training, insurance). These alert off the
+  // renewal SUBMISSION deadline (expiration minus the credential's lead
+  // time — e.g. the DOH renewal form is due 60 days before the license
+  // expires), not the expiration itself, so the alert fires while there's
+  // still time to act.
+  const activeCredentials = await db
+    .select()
+    .from(officeCredentials)
+    .where(
+      and(
+        isNotNull(officeCredentials.expirationDate),
+        eq(officeCredentials.status, 'active'),
+      ),
+    );
+
+  for (const credential of activeCredentials) {
+    if (!credential.expirationDate) continue;
+    const submissionDeadline = addDays(credential.expirationDate, -(credential.renewalLeadTimeDays ?? 0));
+    if (submissionDeadline < today || submissionDeadline > endDate) continue;
+    const leadNote = credential.renewalLeadTimeDays
+      ? ` — renewal paperwork due (license expires ${format(credential.expirationDate, 'MMM d, yyyy')})`
+      : ' — renewal due';
+    expiringItems.push({
+      id: `credential-${credential.id}`,
+      type: 'office_credential',
+      entityId: credential.officeId,
+      entityName: credential.name,
+      itemType: credential.credentialType,
+      itemDescription: `${credential.name}${leadNote}`,
+      expirationDate: submissionDeadline,
+      daysUntilExpiration: differenceInDays(submissionDeadline, today),
+      officeId: credential.officeId,
+    });
+  }
+
   expiringItems.sort((a, b) => a.daysUntilExpiration - b.daysUntilExpiration);
 
   return expiringItems;
@@ -358,6 +394,7 @@ function getExpirationAlertEmailHtml(items: ExpiringItem[], recipientName: strin
     claim_timely_filing: 'Claims — Timely Filing',
     authorization_renewal: 'Authorizations Ending',
     care_plan_reassessment: 'Care Plan Reassessments Due',
+    office_credential: 'Agency Credentials & Licenses',
   };
   const groupedItems = items.reduce((acc, item) => {
     const key = groupLabels[item.type] || 'Other';

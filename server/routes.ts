@@ -48,6 +48,7 @@ import {
   insertEvvDataSchema,
   insertMcoTypeSchema,
   insertMcoSchema,
+  insertOfficeCredentialSchema,
   insertSystemSettingSchema,
   insertEntityFieldConfigSchema,
   insertCaregiverNoteSchema,
@@ -9716,6 +9717,234 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error seeding PA CHC MCOs:", error);
       res.status(500).json({ message: "Failed to seed PA CHC MCOs" });
+    }
+  });
+
+  // ─── Office Credentials (agency-level licensure/enrollment tracking) ────────
+  // Tracks each office's OWN credentials — PA DOH home care license renewal,
+  // PA Medicaid PROMISe (OLTL) revalidation, CMS/Medicare enrollment,
+  // per-MCO recredentialing, annual FWA training attestation, insurance.
+
+  const getOfficeCredentialInScope = async (req: any, id: string) => {
+    const credential = await storage.getOfficeCredential(id);
+    if (!credential || !(await canAccessOffice(req, credential.officeId))) return undefined;
+    return credential;
+  };
+
+  app.get("/api/office-credentials", isAuthenticated, requireAdminRole, async (req: any, res) => {
+    try {
+      const officeId = parseOfficeId(req);
+      if (officeId === "__no_office_scope__") return res.json([]);
+      res.json(await storage.getOfficeCredentials(officeId));
+    } catch (error) {
+      console.error("Error fetching office credentials:", error);
+      res.status(500).json({ message: "Failed to fetch office credentials" });
+    }
+  });
+
+  app.post("/api/office-credentials", isAuthenticated, requireAdminRole, async (req: any, res) => {
+    try {
+      const coerced = {
+        ...req.body,
+        effectiveDate: coerceDate(req.body.effectiveDate),
+        expirationDate: coerceDate(req.body.expirationDate),
+        lastRenewedAt: coerceDate(req.body.lastRenewedAt),
+        createdBy: req.session?.user?.id,
+      };
+      const validatedData = insertOfficeCredentialSchema.parse(coerced);
+      if (!(await canAccessOffice(req, validatedData.officeId))) {
+        return res.status(403).json({ message: "Office is outside your scope" });
+      }
+      const credential = await storage.createOfficeCredential(validatedData);
+      res.status(201).json(credential);
+    } catch (error) {
+      console.error("Error creating office credential:", error);
+      res.status(400).json({ message: "Failed to create office credential" });
+    }
+  });
+
+  app.put("/api/office-credentials/:id", isAuthenticated, requireAdminRole, async (req: any, res) => {
+    try {
+      if (!(await getOfficeCredentialInScope(req, req.params.id))) {
+        return res.status(404).json({ message: "Credential not found" });
+      }
+      const coerced = {
+        ...req.body,
+        effectiveDate: coerceDate(req.body.effectiveDate),
+        expirationDate: coerceDate(req.body.expirationDate),
+        lastRenewedAt: coerceDate(req.body.lastRenewedAt),
+      };
+      const validatedData = insertOfficeCredentialSchema.partial().omit({ officeId: true, createdBy: true }).parse(coerced);
+      const credential = await storage.updateOfficeCredential(req.params.id, validatedData);
+      res.json(credential);
+    } catch (error) {
+      console.error("Error updating office credential:", error);
+      res.status(400).json({ message: "Failed to update office credential" });
+    }
+  });
+
+  app.delete("/api/office-credentials/:id", isAuthenticated, requireAdminRole, async (req: any, res) => {
+    try {
+      if (!(await getOfficeCredentialInScope(req, req.params.id))) {
+        return res.status(404).json({ message: "Credential not found" });
+      }
+      await storage.deleteOfficeCredential(req.params.id);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting office credential:", error);
+      res.status(500).json({ message: "Failed to delete office credential" });
+    }
+  });
+
+  // Mark a credential renewed: stamps lastRenewedAt and advances the
+  // expiration by the credential's renewal cadence.
+  app.post("/api/office-credentials/:id/renew", isAuthenticated, requireAdminRole, async (req: any, res) => {
+    try {
+      const credential = await getOfficeCredentialInScope(req, req.params.id);
+      if (!credential) {
+        return res.status(404).json({ message: "Credential not found" });
+      }
+      const now = new Date();
+      // Advance from the current expiration when it's still in the future
+      // (renewing early shouldn't shorten the cycle); otherwise from today.
+      const base = credential.expirationDate && credential.expirationDate > now
+        ? new Date(credential.expirationDate)
+        : now;
+      const months = credential.renewalCadenceMonths ?? 12;
+      const nextExpiration = new Date(base);
+      nextExpiration.setMonth(nextExpiration.getMonth() + months);
+      const updated = await storage.updateOfficeCredential(req.params.id, {
+        lastRenewedAt: now,
+        expirationDate: nextExpiration,
+        status: "active",
+      });
+      res.json(updated);
+    } catch (error) {
+      console.error("Error renewing office credential:", error);
+      res.status(400).json({ message: "Failed to renew office credential" });
+    }
+  });
+
+  // Seed the recommended PA credential set for an office. Idempotent —
+  // matched by (credentialType, mcoId), so repeat calls only fill gaps.
+  // Cadences reflect the compliance research; expiration dates are left
+  // null for the admin to fill in with the real dates (a wrong seeded date
+  // would be worse than a visible blank).
+  app.post("/api/office-credentials/seed-pa-defaults", isAuthenticated, requireAdminRole, async (req: any, res) => {
+    try {
+      const officeId = req.body.officeId;
+      if (!officeId || !(await canAccessOffice(req, officeId))) {
+        return res.status(403).json({ message: "Office is outside your scope" });
+      }
+
+      const existing = await storage.getOfficeCredentials(officeId);
+      const existingKeys = new Set(existing.map((c) => `${c.credentialType}::${c.mcoId ?? ""}`));
+
+      const defaults: Array<{ credentialType: any; mcoId?: string; name: string; issuedBy: string; renewalCadenceMonths: number; renewalLeadTimeDays: number; notes: string }> = [
+        {
+          credentialType: "pa_doh_license",
+          name: "PA DOH Home Care Agency License",
+          issuedBy: "PA Department of Health",
+          renewalCadenceMonths: 12,
+          renewalLeadTimeDays: 60,
+          notes: "28 Pa. Code Ch. 611 — renewal form due at least 60 days before license expiration. Verify the license term on your actual license certificate.",
+        },
+        {
+          credentialType: "promise_revalidation",
+          name: "PA Medicaid PROMISe Enrollment Revalidation",
+          issuedBy: "PA DHS / OLTL",
+          renewalCadenceMonths: 60,
+          renewalLeadTimeDays: 60,
+          notes: "Federal 5-year Medicaid revalidation cycle; submit at least 60 days before the due date. Failure to revalidate risks program exclusion and claim recoupment.",
+        },
+        {
+          credentialType: "fwa_training",
+          name: "FWA Training & Attestation (all staff, annual)",
+          issuedBy: "CHC-MCO requirement",
+          renewalCadenceMonths: 12,
+          renewalLeadTimeDays: 30,
+          notes: "Fraud/Waste/Abuse training with attestation, required by CHC-MCO provider agreements. Confirm exact cadence per MCO provider manual.",
+        },
+        {
+          credentialType: "liability_insurance",
+          name: "General/Professional Liability Insurance",
+          issuedBy: "Insurance carrier",
+          renewalCadenceMonths: 12,
+          renewalLeadTimeDays: 30,
+          notes: "Recommended tracking — most MCO provider agreements require proof of coverage.",
+        },
+        {
+          credentialType: "workers_comp",
+          name: "Workers' Compensation Policy",
+          issuedBy: "Insurance carrier",
+          renewalCadenceMonths: 12,
+          renewalLeadTimeDays: 30,
+          notes: "Required for PA employers; MCO credentialing typically requests the certificate.",
+        },
+      ];
+
+      // One recredentialing row per MCO configured for this office. ~3-year
+      // NCQA-aligned default; the audit doc flags this cadence as unverified
+      // for the specific PA CHC MCOs — confirm in each provider manual.
+      const officeMcos = await storage.getMcosByOffice(officeId);
+      for (const mco of officeMcos.filter((m) => m.isActive)) {
+        defaults.push({
+          credentialType: "mco_credentialing",
+          mcoId: mco.id,
+          name: `MCO Recredentialing — ${mco.name}`,
+          issuedBy: mco.name,
+          renewalCadenceMonths: 36,
+          renewalLeadTimeDays: 120,
+          notes: "NCQA-aligned ~3-year default (42 CFR § 438.214). Verify the exact cycle in this MCO's provider manual, Credentialing chapter.",
+        });
+      }
+
+      const created: string[] = [];
+      const skipped: string[] = [];
+      for (const def of defaults) {
+        const key = `${def.credentialType}::${def.mcoId ?? ""}`;
+        if (existingKeys.has(key)) {
+          skipped.push(def.name);
+          continue;
+        }
+        await storage.createOfficeCredential({
+          officeId,
+          credentialType: def.credentialType,
+          mcoId: def.mcoId,
+          name: def.name,
+          issuedBy: def.issuedBy,
+          renewalCadenceMonths: def.renewalCadenceMonths,
+          renewalLeadTimeDays: def.renewalLeadTimeDays,
+          status: "active",
+          notes: def.notes,
+          createdBy: req.session?.user?.id,
+        });
+        created.push(def.name);
+      }
+
+      res.status(201).json({ created, skipped });
+    } catch (error) {
+      console.error("Error seeding PA default credentials:", error);
+      res.status(500).json({ message: "Failed to seed PA default credentials" });
+    }
+  });
+
+  // AI-prioritized daily compliance action plan. Aggregates everything the
+  // expiration/incident trackers know about and asks the AI to turn it into
+  // a worked plan; degrades to a deterministic rule-based list when no AI
+  // key is configured (response carries source: "ai" | "rules").
+  app.get("/api/compliance/ai-insights", isAuthenticated, requireAdminRole, async (req: any, res) => {
+    try {
+      const officeId = parseOfficeId(req);
+      if (officeId === "__no_office_scope__") {
+        return res.json({ source: "rules", generatedAt: new Date().toISOString(), summary: "No office scope.", actions: [] });
+      }
+      const { getComplianceInsights } = await import("./compliance-insights-service");
+      const insights = await getComplianceInsights(officeId);
+      res.json(insights);
+    } catch (error) {
+      console.error("Error generating compliance insights:", error);
+      res.status(500).json({ message: "Failed to generate compliance insights" });
     }
   });
 

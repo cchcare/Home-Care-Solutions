@@ -362,6 +362,9 @@ import {
   compCoordinatorPayments,
   type CompCoordinatorPayment,
   type InsertCompCoordinatorPayment,
+  officeCredentials,
+  type OfficeCredential,
+  type InsertOfficeCredential,
   emailTemplates,
   type EmailTemplate,
   type InsertEmailTemplate,
@@ -1487,6 +1490,13 @@ export interface IStorage {
   upsertClientEmergencyPlan(plan: InsertClientEmergencyPlan): Promise<ClientEmergencyPlan>;
 
   // Client Satisfaction Surveys
+  // Office credential operations (agency-level licensure/enrollment tracking)
+  getOfficeCredentials(officeId?: string): Promise<OfficeCredential[]>;
+  getOfficeCredential(id: string): Promise<OfficeCredential | undefined>;
+  createOfficeCredential(credential: InsertOfficeCredential): Promise<OfficeCredential>;
+  updateOfficeCredential(id: string, credential: Partial<InsertOfficeCredential>): Promise<OfficeCredential>;
+  deleteOfficeCredential(id: string): Promise<void>;
+
   getClientSatisfactionSurveys(officeId: string): Promise<ClientSatisfactionSurvey[]>;
   getClientSatisfactionSurvey(id: string): Promise<ClientSatisfactionSurvey | undefined>;
   createClientSatisfactionSurvey(survey: InsertClientSatisfactionSurvey): Promise<ClientSatisfactionSurvey>;
@@ -9116,6 +9126,38 @@ export class DatabaseStorage implements IStorage {
   }
 
   // ─── Client Satisfaction Surveys ────────────────────────────────────────────
+  // ─── Office Credentials (agency-level licensure/enrollment) ────────────────
+  async getOfficeCredentials(officeId?: string): Promise<OfficeCredential[]> {
+    if (officeId) {
+      return db.select().from(officeCredentials)
+        .where(eq(officeCredentials.officeId, officeId))
+        .orderBy(asc(officeCredentials.expirationDate));
+    }
+    return db.select().from(officeCredentials).orderBy(asc(officeCredentials.expirationDate));
+  }
+
+  async getOfficeCredential(id: string): Promise<OfficeCredential | undefined> {
+    const [credential] = await db.select().from(officeCredentials).where(eq(officeCredentials.id, id));
+    return credential;
+  }
+
+  async createOfficeCredential(credential: InsertOfficeCredential): Promise<OfficeCredential> {
+    const [created] = await db.insert(officeCredentials).values(credential).returning();
+    return created;
+  }
+
+  async updateOfficeCredential(id: string, credential: Partial<InsertOfficeCredential>): Promise<OfficeCredential> {
+    const [updated] = await db.update(officeCredentials)
+      .set({ ...credential, updatedAt: new Date() })
+      .where(eq(officeCredentials.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteOfficeCredential(id: string): Promise<void> {
+    await db.delete(officeCredentials).where(eq(officeCredentials.id, id));
+  }
+
   async getClientSatisfactionSurveys(officeId: string): Promise<ClientSatisfactionSurvey[]> {
     return db.select().from(clientSatisfactionSurveys).where(eq(clientSatisfactionSurveys.officeId, officeId)).orderBy(desc(clientSatisfactionSurveys.createdAt));
   }

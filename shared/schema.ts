@@ -5213,3 +5213,61 @@ export const insertCompCaregiverPaymentSchema = createInsertSchema(compCaregiver
 export type CompCoordinatorPayment = typeof compCoordinatorPayments.$inferSelect;
 export type InsertCompCoordinatorPayment = typeof compCoordinatorPayments.$inferInsert;
 export const insertCompCoordinatorPaymentSchema = createInsertSchema(compCoordinatorPayments).omit({ id: true, createdAt: true, updatedAt: true });
+
+// ─── Agency / Office Credentials (PA licensure, payer enrollment, MCO credentialing) ───
+// Tracks the AGENCY's own credentials per office — distinct from per-caregiver
+// compliance items. Covers PA DOH home care license renewals, PA Medicaid
+// PROMISe (OLTL) revalidation, CMS/Medicare enrollment where applicable,
+// per-MCO recredentialing cycles, FWA training attestations, and insurance.
+export const officeCredentialTypeEnum = pgEnum("office_credential_type", [
+  "pa_doh_license",       // 28 Pa. Code Ch. 611 home care agency license
+  "promise_revalidation", // PA Medicaid PROMISe enrollment revalidation (OLTL)
+  "medicare_enrollment",  // CMS/Medicare enrollment revalidation (if applicable)
+  "mco_credentialing",    // per-MCO recredentialing (links to mcos via mcoId)
+  "fwa_training",         // annual Fraud/Waste/Abuse training + attestation
+  "liability_insurance",  // general/professional liability policy
+  "workers_comp",         // workers' compensation policy
+  "surety_bond",
+  "other",
+]);
+
+export const officeCredentialStatusEnum = pgEnum("office_credential_status", [
+  "active", "renewal_in_progress", "expired", "not_applicable",
+]);
+
+export const officeCredentials = pgTable("office_credentials", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  officeId: varchar("office_id").references(() => offices.id).notNull(),
+  credentialType: officeCredentialTypeEnum("credential_type").notNull(),
+  mcoId: varchar("mco_id").references(() => mcos.id), // only for mco_credentialing / fwa_training rows tied to a specific MCO
+  name: varchar("name").notNull(), // display label, e.g. "PA DOH Home Care Agency License"
+  identifier: varchar("identifier"), // license #, PROMISe provider ID, PTAN, policy #, ...
+  issuedBy: varchar("issued_by"), // DOH, DHS/OLTL, CMS, MCO name, carrier
+  effectiveDate: timestamp("effective_date"),
+  expirationDate: timestamp("expiration_date"), // next renewal/revalidation due date
+  renewalCadenceMonths: integer("renewal_cadence_months"), // 12 = annual, 36 = MCO recredential, 60 = PROMISe
+  // How many days before expiration the renewal paperwork must be submitted
+  // (e.g. PA DOH renewal form due 60 days before license expiration).
+  renewalLeadTimeDays: integer("renewal_lead_time_days"),
+  status: officeCredentialStatusEnum("status").default("active"),
+  lastRenewedAt: timestamp("last_renewed_at"),
+  documentId: varchar("document_id").references(() => documents.id), // uploaded certificate/letter
+  notes: text("notes"),
+  createdBy: varchar("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_office_credentials_office").on(table.officeId),
+  index("idx_office_credentials_expiration").on(table.expirationDate),
+]);
+
+export const officeCredentialsRelations = relations(officeCredentials, ({ one }) => ({
+  office: one(offices, { fields: [officeCredentials.officeId], references: [offices.id] }),
+  mco: one(mcos, { fields: [officeCredentials.mcoId], references: [mcos.id] }),
+  document: one(documents, { fields: [officeCredentials.documentId], references: [documents.id] }),
+  createdByUser: one(users, { fields: [officeCredentials.createdBy], references: [users.id] }),
+}));
+
+export type OfficeCredential = typeof officeCredentials.$inferSelect;
+export type InsertOfficeCredential = typeof officeCredentials.$inferInsert;
+export const insertOfficeCredentialSchema = createInsertSchema(officeCredentials).omit({ id: true, createdAt: true, updatedAt: true });
