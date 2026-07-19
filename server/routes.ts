@@ -4349,6 +4349,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!validatedData.clientId || !(await getClientInScope(req, validatedData.clientId))) {
         return res.status(403).json({ message: "Forbidden" });
       }
+      // CHC participants get a full reassessment at least every 12 months;
+      // default the reminder date off the plan's start date (or today) if
+      // the caller didn't set one explicitly.
+      if (!validatedData.nextAssessmentDate) {
+        const base = validatedData.startDate ? new Date(validatedData.startDate) : new Date();
+        validatedData.nextAssessmentDate = new Date(base.getFullYear() + 1, base.getMonth(), base.getDate());
+      }
       const carePlan = await storage.createCarePlan(validatedData);
       res.status(201).json(carePlan);
     } catch (error) {
@@ -7723,6 +7730,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         renewalDate: coerceDate(userBody.renewalDate),
       };
       const validatedBody = insertClientAuthorizationSchema.omit({ clientId: true }).parse(coercedData);
+      if (validatedBody.carePlanId) {
+        const linkedPlan = await storage.getCarePlan(validatedBody.carePlanId);
+        if (!linkedPlan || linkedPlan.clientId !== req.params.clientId) {
+          return res.status(400).json({ message: "Care plan does not belong to this client" });
+        }
+      }
       const [authorization] = await db.insert(clientAuthorizations)
         .values({
           ...validatedBody,
@@ -7746,7 +7759,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Update an authorization
   app.put("/api/authorizations/:id", isAuthenticated, async (req: any, res) => {
     try {
-      if (!(await getAuthorizationInScope(req, req.params.id))) {
+      const existing = await getAuthorizationInScope(req, req.params.id);
+      if (!existing) {
         return res.status(404).json({ message: "Authorization not found" });
       }
       const { clientId, ...updateData } = req.body;
@@ -7757,6 +7771,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         renewalDate: coerceDate(updateData.renewalDate),
       };
       const validatedData = insertClientAuthorizationSchema.partial().parse(coercedData);
+      if (validatedData.carePlanId) {
+        const linkedPlan = await storage.getCarePlan(validatedData.carePlanId);
+        if (!linkedPlan || linkedPlan.clientId !== existing.clientId) {
+          return res.status(400).json({ message: "Care plan does not belong to this client" });
+        }
+      }
       const [authorization] = await db.update(clientAuthorizations)
         .set({ ...validatedData, updatedAt: new Date() })
         .where(eq(clientAuthorizations.id, req.params.id))
@@ -9533,13 +9553,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // MCOs routes - admin endpoint
   app.get("/api/admin/mcos", isAuthenticated, requireAdminRole, async (req: any, res) => {
     try {
-      const currentUser = req.session?.user;
-      if (currentUser?.role === "super_admin") {
+      const officeId = parseOfficeId(req);
+      if (!officeId) {
         return res.json(await storage.getAllMcos());
       }
-      const scope = currentUser?.primaryOfficeId;
-      if (!scope) return res.json([]);
-      res.json(await storage.getMcosByOffice(scope));
+      if (officeId === "__no_office_scope__") return res.json([]);
+      res.json(await storage.getMcosByOffice(officeId));
     } catch (error) {
       console.error("Error fetching MCOs:", error);
       res.status(500).json({ message: "Failed to fetch MCOs" });
@@ -9634,6 +9653,69 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error deleting MCO:", error);
       res.status(500).json({ message: "Failed to delete MCO" });
+    }
+  });
+
+  // Seed the real PA Community HealthChoices MCOs for an office. Idempotent —
+  // matches by name so repeat calls (or calls after an admin has already
+  // added one of these manually) don't create duplicates. Contact/payer
+  // fields are left blank for the admin to fill in; this only solves the
+  // "no MCO is configured at all" gap, not per-office billing details.
+  const PA_CHC_MCO_TYPE_NAME = "PA Community HealthChoices (CHC)";
+  const PA_CHC_MCOS = [
+    "AmeriHealth Caritas / Keystone First CHC",
+    "PA Health & Wellness",
+    "UPMC Community HealthChoices",
+  ];
+  app.post("/api/admin/mcos/seed-pa-chc", isAuthenticated, requireAdminRole, async (req: any, res) => {
+    try {
+      const officeId = req.body.officeId;
+      if (!officeId || !(await canAccessOffice(req, officeId))) {
+        return res.status(403).json({ message: "Office is outside your scope" });
+      }
+
+      let chcType = (await storage.getAllMcoTypes()).find((t) => t.name === PA_CHC_MCO_TYPE_NAME);
+      if (!chcType) {
+        chcType = await storage.createMcoType({
+          name: PA_CHC_MCO_TYPE_NAME,
+          description: "PA Medicaid managed-care organizations administering the Community HealthChoices (CHC) LTSS waiver.",
+          isActive: true,
+        });
+      }
+
+      const existing = await storage.getMcosByOffice(officeId);
+      const existingNames = new Set(existing.map((m) => m.name));
+
+      const created: string[] = [];
+      const skipped: string[] = [];
+      for (const name of PA_CHC_MCOS) {
+        if (existingNames.has(name)) {
+          skipped.push(name);
+          continue;
+        }
+        const mco = await storage.createMco({
+          name,
+          officeId,
+          typeId: chcType.id,
+          isActive: true,
+          notes: "Seeded default PA CHC MCO — update payer ID and contact info before billing.",
+        });
+        await storage.createAuditLog({
+          userId: req.session?.user?.id,
+          action: "create",
+          entityType: "mco",
+          entityId: mco.id,
+          newValues: mco,
+          ipAddress: req.ip,
+          userAgent: req.get("User-Agent"),
+        });
+        created.push(name);
+      }
+
+      res.status(201).json({ created, skipped });
+    } catch (error) {
+      console.error("Error seeding PA CHC MCOs:", error);
+      res.status(500).json({ message: "Failed to seed PA CHC MCOs" });
     }
   });
 
@@ -23651,6 +23733,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const dueDate = incAny.dohReportDue ? new Date(incAny.dohReportDue) : null;
           if (dueDate && dueDate < now) {
             cirGaps.push({ type: "cir_class2_overdue", incidentId: inc.id, name: incName, incidentType, incidentDate: incDate, severity: "high", dueDate });
+          }
+        }
+        if (incAny.scNotificationRequired && incAny.scNotificationStatus === "pending") {
+          const scDueDate = incAny.scNotificationDue ? new Date(incAny.scNotificationDue) : null;
+          if (scDueDate && scDueDate < now) {
+            cirGaps.push({ type: "sc_notification_overdue", incidentId: inc.id, name: incName, incidentType, incidentDate: incDate, severity: "critical", dueDate: scDueDate });
           }
         }
       }

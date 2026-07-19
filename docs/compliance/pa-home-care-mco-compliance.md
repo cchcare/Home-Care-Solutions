@@ -37,9 +37,12 @@ listed here so a developer extending any of the gaps below knows what to build o
 
 Each item: what's missing, why it matters (with citation), and where it would plug into the existing codebase.
 
+**Implementation status: all four Tier 1 items below are now built** (see the "Implemented" note under each).
+Tier 2 and Tier 3 remain open for a future session.
+
 ### Tier 1 — concrete, high-value, directly tied to CHC billing
 
-**2.1 — MCO records are unconfigured.**
+**2.1 — MCO records are unconfigured.** ✅ Implemented
 `mcos` and `mco_types` tables exist (`shared/schema.ts:1271,1285`) with full support for per-office,
 per-service-code billing rates, but **no MCO is actually seeded anywhere in the codebase** — the only place
 the names AmeriHealth Caritas, Keystone First, or UPMC Community HealthChoices appear at all is inside a
@@ -48,8 +51,14 @@ configuration. Seeding the three real CHC-MCOs would let `office_mco_billing_rat
 and `claims` reference real payers instead of ad hoc admin-entered free text.
 *Recommended action:* seed AmeriHealth Caritas / Keystone First CHC, PA Health & Wellness, and UPMC Community
 HealthChoices as `mcos` records for each office that bills them.
+*Built:* a one-click "Add PA CHC MCOs" button on the MCO admin tab (`POST /api/admin/mcos/seed-pa-chc`,
+`client/src/pages/admin-settings.tsx`) idempotently creates the 3 real MCOs (matched by name, so it's safe to
+click more than once) under a new "PA Community HealthChoices (CHC)" MCO type, with contact/payer fields left
+blank for the admin to fill in. Also fixed a bug found along the way: the MCO admin tab had no office selector
+at all, so `POST /api/admin/mcos` (which requires an `officeId` after an earlier security-hardening pass) was
+silently 403'ing on every attempt to create an MCO — added an office selector and wired `officeId` through.
 
-**2.2 — No Service-Coordinator incident-notification tracking for CHC clients.**
+**2.2 — No Service-Coordinator incident-notification tracking for CHC clients.** ✅ Implemented
 The existing incident model (`incident_reports.cirClass`: `class_1`/`class_2`, with `dohReportDue` /
 `dohSubmissionStatus`, `client/src/pages/incidents.tsx:961`) computes a **24-hour (Class I) / 5-calendar-day
 (Class II) DOH submission deadline**. Research could not confirm this exact Class I/II, 24hr/5-day framework
@@ -68,8 +77,16 @@ category-specific timeframes (e.g., whether death or elopement carry a stricter 
 24-hour rule), get a clean copy of the OLTL Critical Incident Management Bulletin directly — the source PDF
 returned as unparseable binary during this research and could not be independently verified
 (`https://www.pa.gov/content/dam/copapwp-pagov/en/dhs/documents/docs/publications/documents/forms-and-pubs-oltl/Critical-Incident-Management-Bulletin.pdf`).
+*Built:* added `scNotificationRequired`, `serviceCoordinatorName`, `serviceCoordinatorContact`,
+`scNotificationDue`, `scNotifiedAt`, `scNotificationStatus` to `incident_reports`, alongside the DOH fields
+(`shared/schema.ts`). The incident form (`client/src/pages/incidents.tsx`) has a "CHC Service Coordinator
+Notification" section that computes the 24-hour deadline from the incident date/time, shows a countdown badge
+next to the existing CIR badges, and a "Mark SC Notified" action mirroring "Mark DOH Submitted". Overdue SC
+notifications also surface as a `sc_notification_overdue` gap on the Survey Readiness dashboard. The
+category-specific-timeframe and Chapter-611-vs-personal-care-home ambiguity noted above is still unresolved —
+get the Bulletin directly before assuming the 24-hour figure covers every incident category.
 
-**2.3 — No claims timely-filing alerting.**
+**2.3 — No claims timely-filing alerting.** ✅ Implemented
 CHC-MCO provider manuals (Keystone First CHC, AmeriHealth Caritas PA CHC, and the general PA Health & Wellness
 pattern) confirm a **180-calendar-day timely filing deadline** from date of service. The existing `claims`
 aging report (`GET /api/claims/aging`) surfaces how old unpaid claims are, but nothing proactively flags a
@@ -77,8 +94,12 @@ claim that's approaching the 180-day cutoff the way `expiration-alert-service.ts
 certifications and background checks.
 *Recommended action:* extend the same expiration-alert pattern to claims with `status` still in a
 pre-submission state as they approach 180 days from `serviceDate`.
+*Built:* `expiration-alert-service.ts` now scans draft claims and flags them at the same 30/14/7/1-day
+thresholds as everything else, computing the deadline as `serviceDate + 180 days`. Surfaces in the existing
+admin alert emails/SMS and on the Expiration Alerts dashboard (`client/src/pages/expiration-alerts.tsx`) under
+a new "Claim Filing" badge/filter.
 
-**2.4 — Authorizations aren't linked to care plans.**
+**2.4 — Authorizations aren't linked to care plans.** ✅ Implemented
 `client_authorizations` (authorization #, approved vs. used hours, start/end/renewal dates, linked to `mcos`
 and `clients`) and `care_plans` / `care_plan_goals` / `care_plan_interventions`
 (`shared/schema.ts:252-300`) are two entirely separate features with no foreign-key relationship. Under CHC,
@@ -89,6 +110,16 @@ months**. None of that SLA/cadence is currently tracked.
 *Recommended action:* add a FK linking `client_authorizations` to a `care_plans` record, and add reminders for
 (a) the 12-month reassessment cycle and (b) authorizations nearing their end date, following the existing
 `expiration-alert-service.ts` pattern.
+*Built:* added `carePlanId` to `client_authorizations` (validated server-side to belong to the same client),
+plus two new expiration-alert item types — `authorization_renewal` (active authorizations approaching
+`endDate`) and `care_plan_reassessment` (care plans approaching `nextAssessmentDate`, which now auto-defaults
+to 12 months from the plan's start date if not set explicitly on creation). Along the way, discovered that
+neither client authorizations nor care plans had any create/edit UI at all — both were literal "Coming Soon"
+stubs in `client-profile-modal.tsx`. Built a real "Add Authorization" dialog (with an MCO and Care Plan picker)
+to replace the authorization stub, since the FK linkage isn't usable without a way to set it. The care-plan
+"Coming Soon" stub itself (goals/interventions authoring) is a separate, larger feature and remains a stub —
+`nextAssessmentDate` still gets defaulted correctly for any plan created through other paths (e.g. bulk import
+or a future editor), so the reassessment reminder works regardless.
 
 ### Tier 2 — audit/licensing risk, less immediately financial
 

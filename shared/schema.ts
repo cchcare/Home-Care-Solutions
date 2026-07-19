@@ -372,6 +372,16 @@ export const incidentReports = pgTable("incident_reports", {
   dohSubmittedAt: timestamp("doh_submitted_at"),
   dohSubmissionRef: varchar("doh_submission_ref"),
   dohSubmissionStatus: varchar("doh_submission_status").default("not_required"), // not_required, pending, submitted, acknowledged
+  // CHC (Community HealthChoices) waiver participants need a separate report
+  // to their Service Coordinator within 24 hours — the SC/MCO, not the
+  // provider, then logs it in the state's EIM system. This is distinct from
+  // (and may apply alongside) the DOH fields above.
+  scNotificationRequired: boolean("sc_notification_required").default(false),
+  serviceCoordinatorName: varchar("service_coordinator_name"),
+  serviceCoordinatorContact: varchar("service_coordinator_contact"),
+  scNotificationDue: timestamp("sc_notification_due"),
+  scNotifiedAt: timestamp("sc_notified_at"),
+  scNotificationStatus: varchar("sc_notification_status").default("not_required"), // not_required, pending, notified
   internalInvestigationNotes: text("internal_investigation_notes"),
   correctiveActionRequired: boolean("corrective_action_required").default(false),
   createdAt: timestamp("created_at").defaultNow(),
@@ -2235,6 +2245,9 @@ export const clientAuthorizations = pgTable("client_authorizations", {
   clientId: varchar("client_id").references(() => clients.id).notNull(),
   mcoId: varchar("mco_id").references(() => mcos.id),
   officeId: varchar("office_id").references(() => offices.id),
+  // Links the authorized hours to the client's Person-Centered Service Plan
+  // (care plan). Nullable — not every authorization has a plan on file yet.
+  carePlanId: varchar("care_plan_id").references(() => carePlans.id),
   authorizationNumber: varchar("authorization_number").notNull(),
   serviceType: varchar("service_type").notNull(),
   approvedHours: numeric("approved_hours", { precision: 10, scale: 2 }),
@@ -2256,6 +2269,7 @@ export const clientAuthorizationsRelations = relations(clientAuthorizations, ({ 
   client: one(clients, { fields: [clientAuthorizations.clientId], references: [clients.id] }),
   mco: one(mcos, { fields: [clientAuthorizations.mcoId], references: [mcos.id] }),
   office: one(offices, { fields: [clientAuthorizations.officeId], references: [offices.id] }),
+  carePlan: one(carePlans, { fields: [clientAuthorizations.carePlanId], references: [carePlans.id] }),
 }));
 
 export type ClientAuthorization = typeof clientAuthorizations.$inferSelect;

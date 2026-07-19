@@ -1,9 +1,14 @@
 import { storage } from './storage';
 import { sendEmail, sendSMS, formatPhoneNumber, isValidPhone, isValidEmail } from './communication-services';
 import { db } from './db';
-import { caregiverCompliance, caregivers, clients, users, documents } from '@shared/schema';
+import { caregiverCompliance, caregivers, clients, users, documents, claims, clientAuthorizations, carePlans } from '@shared/schema';
 import { and, gte, lte, eq, isNotNull, sql } from 'drizzle-orm';
 import { addDays, format, differenceInDays } from 'date-fns';
+
+// PA Medicaid MCO timely-filing deadline: 180 calendar days from date of
+// service (confirmed across multiple CHC-MCO provider manuals). A claim
+// left in "draft" past this window can no longer be paid.
+const CLAIM_TIMELY_FILING_DAYS = 180;
 
 interface ExpirationAlertSettings {
   enabled: boolean;
@@ -40,7 +45,7 @@ async function getAlertSettings(): Promise<ExpirationAlertSettings> {
 
 export interface ExpiringItem {
   id: string;
-  type: 'caregiver_compliance' | 'client_snap' | 'client_medicaid' | 'document_expiration';
+  type: 'caregiver_compliance' | 'client_snap' | 'client_medicaid' | 'document_expiration' | 'claim_timely_filing' | 'authorization_renewal' | 'care_plan_reassessment';
   entityId: string;
   entityName: string;
   entityEmail?: string;
@@ -200,6 +205,117 @@ export async function getUpcomingExpirations(daysAhead: number = 30): Promise<Ex
     });
   }
 
+  // Claims still in draft (never submitted) approaching the 180-day PA
+  // Medicaid MCO timely-filing deadline, measured from date of service.
+  const draftClaims = await db
+    .select({
+      id: claims.id,
+      claimNumber: claims.claimNumber,
+      serviceDate: claims.serviceDate,
+      officeId: claims.officeId,
+      clientId: claims.clientId,
+      clientFirstName: clients.firstName,
+      clientLastName: clients.lastName,
+    })
+    .from(claims)
+    .leftJoin(clients, eq(claims.clientId, clients.id))
+    .where(eq(claims.status, 'draft'));
+
+  for (const claim of draftClaims) {
+    const filingDeadline = addDays(claim.serviceDate, CLAIM_TIMELY_FILING_DAYS);
+    if (filingDeadline < today || filingDeadline > endDate) continue;
+    const clientName = `${claim.clientFirstName || ''} ${claim.clientLastName || ''}`.trim() || 'Unknown Client';
+    expiringItems.push({
+      id: `claim-${claim.id}`,
+      type: 'claim_timely_filing',
+      entityId: claim.clientId || claim.id,
+      entityName: clientName,
+      itemType: 'claim_timely_filing',
+      itemDescription: `Claim ${claim.claimNumber} (${clientName}) — 180-day timely filing deadline`,
+      expirationDate: filingDeadline,
+      daysUntilExpiration: differenceInDays(filingDeadline, today),
+      officeId: claim.officeId || undefined,
+    });
+  }
+
+  // Active authorizations approaching their end date — the MCO's approved
+  // hours run out and a new PCSP/authorization request is needed.
+  const endingAuthorizations = await db
+    .select({
+      id: clientAuthorizations.id,
+      authorizationNumber: clientAuthorizations.authorizationNumber,
+      endDate: clientAuthorizations.endDate,
+      officeId: clientAuthorizations.officeId,
+      clientId: clientAuthorizations.clientId,
+      clientFirstName: clients.firstName,
+      clientLastName: clients.lastName,
+    })
+    .from(clientAuthorizations)
+    .leftJoin(clients, eq(clientAuthorizations.clientId, clients.id))
+    .where(
+      and(
+        eq(clientAuthorizations.status, 'active'),
+        isNotNull(clientAuthorizations.endDate),
+        gte(clientAuthorizations.endDate, today),
+        lte(clientAuthorizations.endDate, endDate),
+      ),
+    );
+
+  for (const auth of endingAuthorizations) {
+    if (!auth.endDate) continue;
+    const clientName = `${auth.clientFirstName || ''} ${auth.clientLastName || ''}`.trim() || 'Unknown Client';
+    expiringItems.push({
+      id: `auth-${auth.id}`,
+      type: 'authorization_renewal',
+      entityId: auth.clientId || auth.id,
+      entityName: clientName,
+      itemType: 'authorization_renewal',
+      itemDescription: `Authorization ${auth.authorizationNumber} (${clientName}) — approved hours ending`,
+      expirationDate: auth.endDate,
+      daysUntilExpiration: differenceInDays(auth.endDate, today),
+      officeId: auth.officeId || undefined,
+    });
+  }
+
+  // Care plans approaching their next reassessment date (CHC requires a
+  // full reassessment at least every 12 months).
+  const dueReassessments = await db
+    .select({
+      id: carePlans.id,
+      title: carePlans.title,
+      nextAssessmentDate: carePlans.nextAssessmentDate,
+      clientId: carePlans.clientId,
+      clientFirstName: clients.firstName,
+      clientLastName: clients.lastName,
+      clientOfficeId: clients.officeId,
+    })
+    .from(carePlans)
+    .leftJoin(clients, eq(carePlans.clientId, clients.id))
+    .where(
+      and(
+        eq(carePlans.status, 'active'),
+        isNotNull(carePlans.nextAssessmentDate),
+        gte(carePlans.nextAssessmentDate, today),
+        lte(carePlans.nextAssessmentDate, endDate),
+      ),
+    );
+
+  for (const plan of dueReassessments) {
+    if (!plan.nextAssessmentDate) continue;
+    const clientName = `${plan.clientFirstName || ''} ${plan.clientLastName || ''}`.trim() || 'Unknown Client';
+    expiringItems.push({
+      id: `careplan-${plan.id}`,
+      type: 'care_plan_reassessment',
+      entityId: plan.clientId || plan.id,
+      entityName: clientName,
+      itemType: 'care_plan_reassessment',
+      itemDescription: `Care plan "${plan.title}" (${clientName}) — reassessment due`,
+      expirationDate: plan.nextAssessmentDate,
+      daysUntilExpiration: differenceInDays(plan.nextAssessmentDate, today),
+      officeId: plan.clientOfficeId || undefined,
+    });
+  }
+
   expiringItems.sort((a, b) => a.daysUntilExpiration - b.daysUntilExpiration);
 
   return expiringItems;
@@ -234,8 +350,17 @@ function formatComplianceItemDescription(category: string, itemType: string): st
 }
 
 function getExpirationAlertEmailHtml(items: ExpiringItem[], recipientName: string): string {
+  const groupLabels: Record<string, string> = {
+    caregiver_compliance: 'Caregiver Compliance',
+    client_snap: 'Client Benefits',
+    client_medicaid: 'Client Benefits',
+    document_expiration: 'Client Benefits',
+    claim_timely_filing: 'Claims — Timely Filing',
+    authorization_renewal: 'Authorizations Ending',
+    care_plan_reassessment: 'Care Plan Reassessments Due',
+  };
   const groupedItems = items.reduce((acc, item) => {
-    const key = item.type === 'caregiver_compliance' ? 'Caregiver Compliance' : 'Client Benefits';
+    const key = groupLabels[item.type] || 'Other';
     if (!acc[key]) acc[key] = [];
     acc[key].push(item);
     return acc;

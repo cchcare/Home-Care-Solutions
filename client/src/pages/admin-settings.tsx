@@ -16,9 +16,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Pencil, Trash2, Settings, Building2, FileText, Users, Loader2 } from "lucide-react";
+import { Plus, Pencil, Trash2, Settings, Building2, FileText, Users, Loader2, Sparkles } from "lucide-react";
 import { Sidebar } from "@/components/sidebar";
 import PtoPoliciesTab from "@/components/admin/pto-policies-tab";
+import { OfficeSelector } from "@/components/office-selector";
+import { useOfficeScope } from "@/context/office-context";
 import type { McoType, Mco, SystemSetting, EntityFieldConfig } from "@shared/schema";
 
 const mcoTypeSchema = z.object({
@@ -211,8 +213,17 @@ function McosTab() {
   const { toast } = useToast();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<Mco | null>(null);
+  const { selectedOfficeId, setSelectedOfficeId, isAllOffices, canMutate } = useOfficeScope();
 
-  const { data: mcos = [], isLoading } = useQuery<Mco[]>({ queryKey: ["/api/admin/mcos"] });
+  const { data: mcos = [], isLoading } = useQuery<Mco[]>({
+    queryKey: ["/api/admin/mcos", selectedOfficeId],
+    queryFn: async () => {
+      const url = isAllOffices ? "/api/admin/mcos" : `/api/admin/mcos?officeId=${selectedOfficeId}`;
+      const r = await fetch(url, { credentials: "include" });
+      if (!r.ok) throw new Error("Failed to fetch MCOs");
+      return r.json();
+    },
+  });
   const { data: mcoTypes = [] } = useQuery<McoType[]>({ queryKey: ["/api/admin/mco-types"] });
 
   const form = useForm<z.infer<typeof mcoSchema>>({
@@ -221,7 +232,7 @@ function McosTab() {
   });
 
   const createMutation = useMutation({
-    mutationFn: (data: z.infer<typeof mcoSchema>) => apiRequest("POST", "/api/admin/mcos", data),
+    mutationFn: (data: z.infer<typeof mcoSchema>) => apiRequest("POST", "/api/admin/mcos", { ...data, officeId: selectedOfficeId }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/mcos"] });
       setIsDialogOpen(false);
@@ -229,6 +240,20 @@ function McosTab() {
       toast({ title: "MCO created successfully" });
     },
     onError: () => toast({ title: "Failed to create MCO", variant: "destructive" }),
+  });
+
+  const seedChcMutation = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/admin/mcos/seed-pa-chc", { officeId: selectedOfficeId }),
+    onSuccess: async (res: Response) => {
+      const result = await res.json();
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/mcos"] });
+      if (result.created?.length) {
+        toast({ title: `Added ${result.created.length} PA CHC MCO(s)`, description: result.skipped?.length ? `${result.skipped.length} already existed and were skipped.` : undefined });
+      } else {
+        toast({ title: "All 3 PA CHC MCOs already exist for this office" });
+      }
+    },
+    onError: () => toast({ title: "Failed to seed PA CHC MCOs", variant: "destructive" }),
   });
 
   const updateMutation = useMutation({
@@ -282,15 +307,27 @@ function McosTab() {
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-between items-center">
+      <div className="flex justify-between items-center flex-wrap gap-2">
         <div>
           <h3 className="text-lg font-medium">MCO List</h3>
           <p className="text-sm text-muted-foreground">Manage Managed Care Organizations for billing</p>
         </div>
-        <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-          <DialogTrigger asChild>
-            <Button onClick={openCreateDialog} data-testid="button-add-mco"><Plus className="h-4 w-4 mr-2" />Add MCO</Button>
-          </DialogTrigger>
+        <div className="flex items-center gap-2 flex-wrap">
+          <OfficeSelector selectedOfficeId={isAllOffices ? undefined : selectedOfficeId} onOfficeChange={setSelectedOfficeId} />
+          <Button
+            variant="outline"
+            disabled={!canMutate || seedChcMutation.isPending}
+            onClick={() => seedChcMutation.mutate()}
+            data-testid="button-seed-pa-chc-mcos"
+            title={!canMutate ? "Select a specific office first" : "Add AmeriHealth Caritas/Keystone First CHC, PA Health & Wellness, and UPMC Community HealthChoices"}
+          >
+            {seedChcMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Sparkles className="h-4 w-4 mr-2" />}
+            Add PA CHC MCOs
+          </Button>
+          <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+            <DialogTrigger asChild>
+              <Button onClick={openCreateDialog} disabled={!canMutate} data-testid="button-add-mco"><Plus className="h-4 w-4 mr-2" />Add MCO</Button>
+            </DialogTrigger>
           <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>{editingItem ? "Edit MCO" : "Add MCO"}</DialogTitle>
@@ -386,6 +423,7 @@ function McosTab() {
             </Form>
           </DialogContent>
         </Dialog>
+        </div>
       </div>
 
       <Table>

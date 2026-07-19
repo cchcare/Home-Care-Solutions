@@ -81,6 +81,7 @@ const gapTypeLabel: Record<string, string> = {
   supervisory_visit_overdue: "Supervisory Visit Overdue",
   cir_class1_overdue: "CIR Class I Report Overdue",
   cir_class2_overdue: "CIR Class II Report Overdue",
+  sc_notification_overdue: "CHC Service Coordinator Notification Overdue",
   policy_unacknowledged: "Policy Acknowledgment Missing",
 };
 
