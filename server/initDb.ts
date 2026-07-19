@@ -561,6 +561,198 @@ export async function ensureSelfServiceSchema() {
   }
 }
 
+// Schema drift fix for the compliance-features branch (Tier 1/2/3 PA home
+// care & MCO compliance work + coordinator compensation). None of this was
+// ever pushed to the production database via drizzle-kit — this raw-DDL
+// ensure routine self-heals production on next boot the same way the other
+// ensure*Schema() functions do. Safe to run on every boot without drizzle-kit.
+let complianceBranchSchemaReady = false;
+export async function ensureComplianceBranchSchema() {
+  if (complianceBranchSchemaReady) return;
+  const client = await pool.connect();
+  try {
+    const ready = await client.query(`
+      SELECT EXISTS (
+        SELECT 1 FROM information_schema.tables WHERE table_name = 'compliance_branch_init_marker'
+      ) AS marker_exists;
+    `);
+    if (ready.rows[0]?.marker_exists) {
+      complianceBranchSchemaReady = true;
+      return;
+    }
+
+    // ── Columns added to pre-existing tables ──
+    await client.query(`ALTER TABLE IF EXISTS coordinators ADD COLUMN IF NOT EXISTS coordinator_rate numeric(10,2);`);
+    await client.query(`ALTER TABLE IF EXISTS clients ADD COLUMN IF NOT EXISTS billing_rate numeric(10,2);`);
+    await client.query(`
+      ALTER TABLE IF EXISTS incident_reports
+        ADD COLUMN IF NOT EXISTS sc_notification_required boolean DEFAULT false,
+        ADD COLUMN IF NOT EXISTS service_coordinator_name varchar,
+        ADD COLUMN IF NOT EXISTS service_coordinator_contact varchar,
+        ADD COLUMN IF NOT EXISTS sc_notification_due timestamp,
+        ADD COLUMN IF NOT EXISTS sc_notified_at timestamp,
+        ADD COLUMN IF NOT EXISTS sc_notification_status varchar DEFAULT 'not_required';
+    `);
+    await client.query(`ALTER TABLE IF EXISTS client_authorizations ADD COLUMN IF NOT EXISTS care_plan_id varchar REFERENCES care_plans(id);`);
+    await client.query(`ALTER TABLE IF EXISTS client_satisfaction_surveys ADD COLUMN IF NOT EXISTS access_token varchar UNIQUE;`);
+
+    // ── Coordinator Compensation feature (comp_*) ──
+    await client.query(`DO $$ BEGIN
+      CREATE TYPE comp_payroll_period_status AS ENUM ('open','closed');
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$;`);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS comp_payroll_periods (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        organization_id varchar,
+        office_id varchar REFERENCES offices(id),
+        name varchar NOT NULL,
+        start_date date NOT NULL,
+        end_date date NOT NULL,
+        ot_weekly_threshold numeric(6,2) DEFAULT 40,
+        status comp_payroll_period_status NOT NULL DEFAULT 'open',
+        created_by varchar REFERENCES users(id),
+        created_at timestamp DEFAULT NOW(),
+        updated_at timestamp DEFAULT NOW()
+      );
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_comp_periods_office ON comp_payroll_periods (office_id);`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_comp_periods_dates ON comp_payroll_periods (start_date, end_date);`);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS comp_schedule_entries (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        organization_id varchar,
+        office_id varchar REFERENCES offices(id),
+        caregiver_id varchar NOT NULL REFERENCES caregivers(id),
+        client_id varchar REFERENCES clients(id),
+        work_date date NOT NULL,
+        hours numeric(6,2) NOT NULL,
+        notes text,
+        created_by varchar REFERENCES users(id),
+        created_at timestamp DEFAULT NOW(),
+        updated_at timestamp DEFAULT NOW()
+      );
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_comp_sched_caregiver ON comp_schedule_entries (caregiver_id);`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_comp_sched_client ON comp_schedule_entries (client_id);`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_comp_sched_date ON comp_schedule_entries (work_date);`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_comp_sched_office ON comp_schedule_entries (office_id);`);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS comp_caregiver_payments (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        period_id varchar NOT NULL REFERENCES comp_payroll_periods(id) ON DELETE CASCADE,
+        caregiver_id varchar NOT NULL REFERENCES caregivers(id),
+        payment_made numeric(12,2) NOT NULL DEFAULT 0,
+        notes text,
+        updated_by varchar REFERENCES users(id),
+        created_at timestamp DEFAULT NOW(),
+        updated_at timestamp DEFAULT NOW(),
+        CONSTRAINT uniq_comp_cg_payment UNIQUE (period_id, caregiver_id)
+      );
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS comp_coordinator_payments (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        period_id varchar NOT NULL REFERENCES comp_payroll_periods(id) ON DELETE CASCADE,
+        coordinator_id varchar NOT NULL REFERENCES coordinators(id),
+        payment_made numeric(12,2) NOT NULL DEFAULT 0,
+        notes text,
+        updated_by varchar REFERENCES users(id),
+        created_at timestamp DEFAULT NOW(),
+        updated_at timestamp DEFAULT NOW(),
+        CONSTRAINT uniq_comp_coord_payment UNIQUE (period_id, coordinator_id)
+      );
+    `);
+
+    // ── Agency / Office Credentials (Tier 2) ──
+    await client.query(`DO $$ BEGIN
+      CREATE TYPE office_credential_type AS ENUM (
+        'pa_doh_license','promise_revalidation','medicare_enrollment','mco_credentialing',
+        'fwa_training','liability_insurance','workers_comp','surety_bond','other'
+      );
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$;`);
+    await client.query(`DO $$ BEGIN
+      CREATE TYPE office_credential_status AS ENUM ('active','renewal_in_progress','expired','not_applicable');
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$;`);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS office_credentials (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        office_id varchar NOT NULL REFERENCES offices(id),
+        credential_type office_credential_type NOT NULL,
+        mco_id varchar REFERENCES mcos(id),
+        name varchar NOT NULL,
+        identifier varchar,
+        issued_by varchar,
+        effective_date timestamp,
+        expiration_date timestamp,
+        renewal_cadence_months integer,
+        renewal_lead_time_days integer,
+        status office_credential_status DEFAULT 'active',
+        last_renewed_at timestamp,
+        document_id varchar REFERENCES documents(id),
+        notes text,
+        created_by varchar REFERENCES users(id),
+        created_at timestamp DEFAULT NOW(),
+        updated_at timestamp DEFAULT NOW()
+      );
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_office_credentials_office ON office_credentials (office_id);`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_office_credentials_expiration ON office_credentials (expiration_date);`);
+
+    // ── Tier 3: Professional Development (competency reviews, § 611.55) ──
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS caregiver_competency_reviews (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        caregiver_id varchar NOT NULL REFERENCES caregivers(id),
+        office_id varchar REFERENCES offices(id),
+        review_date timestamp NOT NULL,
+        reviewer_id varchar REFERENCES users(id),
+        method varchar NOT NULL,
+        topics_covered text,
+        outcome varchar NOT NULL DEFAULT 'satisfactory',
+        development_plan text,
+        next_review_due timestamp,
+        notes text,
+        created_at timestamp DEFAULT NOW(),
+        updated_at timestamp DEFAULT NOW()
+      );
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_competency_reviews_caregiver ON caregiver_competency_reviews (caregiver_id);`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_competency_reviews_next_due ON caregiver_competency_reviews (next_review_due);`);
+
+    // ── Tier 3: Client Rights & Notices (§ 611.57) ──
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS client_notices (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        client_id varchar NOT NULL REFERENCES clients(id),
+        office_id varchar REFERENCES offices(id),
+        notice_type varchar NOT NULL,
+        provided_at timestamp NOT NULL,
+        method varchar DEFAULT 'in_person',
+        effective_date timestamp,
+        document_id varchar REFERENCES documents(id),
+        notes text,
+        created_by varchar REFERENCES users(id),
+        created_at timestamp DEFAULT NOW()
+      );
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_client_notices_client ON client_notices (client_id);`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_client_notices_type ON client_notices (notice_type);`);
+
+    await client.query(`CREATE TABLE IF NOT EXISTS compliance_branch_init_marker (initialized_at timestamp DEFAULT NOW());`);
+    complianceBranchSchemaReady = true;
+    console.log("[Init] compliance branch schema (comp_*, office_credentials, competency reviews, client notices, coordinator/client/incident columns) ensured.");
+  } catch (err) {
+    console.error("[Init] ensureComplianceBranchSchema failed (non-fatal):", err);
+  } finally {
+    client.release();
+  }
+}
+
 // Guards runProductionInit() so it can only ever execute once per database,
 // no matter how many times the app restarts with INIT_PRODUCTION_DB=true left
 // set. Without this marker, every reboot/redeploy that inherited the env var

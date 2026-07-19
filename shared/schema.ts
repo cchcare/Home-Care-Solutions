@@ -5271,3 +5271,75 @@ export const officeCredentialsRelations = relations(officeCredentials, ({ one })
 export type OfficeCredential = typeof officeCredentials.$inferSelect;
 export type InsertOfficeCredential = typeof officeCredentials.$inferInsert;
 export const insertOfficeCredentialSchema = createInsertSchema(officeCredentials).omit({ id: true, createdAt: true, updatedAt: true });
+
+// ─── Professional Development: Caregiver Competency Reviews (28 Pa. Code § 611.55) ───
+// PA requires competency to be reviewed at least annually for direct care
+// workers (and more frequently after disciplinary action). Each review
+// records how competency was established and an optional development plan.
+export const caregiverCompetencyReviews = pgTable("caregiver_competency_reviews", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  caregiverId: varchar("caregiver_id").references(() => caregivers.id).notNull(),
+  officeId: varchar("office_id").references(() => offices.id),
+  reviewDate: timestamp("review_date").notNull(),
+  reviewerId: varchar("reviewer_id").references(() => users.id),
+  // direct_observation | competency_test | training_completion | consumer_feedback
+  method: varchar("method").notNull(),
+  topicsCovered: text("topics_covered"),
+  // satisfactory | needs_improvement | unsatisfactory
+  outcome: varchar("outcome").default("satisfactory").notNull(),
+  developmentPlan: text("development_plan"),
+  nextReviewDue: timestamp("next_review_due"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_competency_reviews_caregiver").on(table.caregiverId),
+  index("idx_competency_reviews_next_due").on(table.nextReviewDue),
+]);
+
+export const caregiverCompetencyReviewsRelations = relations(caregiverCompetencyReviews, ({ one }) => ({
+  caregiver: one(caregivers, { fields: [caregiverCompetencyReviews.caregiverId], references: [caregivers.id] }),
+  office: one(offices, { fields: [caregiverCompetencyReviews.officeId], references: [offices.id] }),
+  reviewer: one(users, { fields: [caregiverCompetencyReviews.reviewerId], references: [users.id] }),
+}));
+
+export type CaregiverCompetencyReview = typeof caregiverCompetencyReviews.$inferSelect;
+export type InsertCaregiverCompetencyReview = typeof caregiverCompetencyReviews.$inferInsert;
+export const insertCaregiverCompetencyReviewSchema = createInsertSchema(caregiverCompetencyReviews).omit({ id: true, createdAt: true, updatedAt: true });
+
+// ─── Client Rights & Notices (28 Pa. Code § 611.57) ───
+// Tracks delivery of the consumer protections notices: the pre-service
+// information packet, the Consumer Notice of Direct Care Worker Status
+// (40 Pa.B. 234), and the 10-calendar-day advance written service
+// termination notice.
+export const clientNotices = pgTable("client_notices", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  clientId: varchar("client_id").references(() => clients.id).notNull(),
+  officeId: varchar("office_id").references(() => offices.id),
+  // information_packet | dcw_status_notice | service_termination_notice | rate_change_notice | other
+  noticeType: varchar("notice_type").notNull(),
+  providedAt: timestamp("provided_at").notNull(),
+  // in_person | mail | email | esignature
+  method: varchar("method").default("in_person"),
+  // For service_termination_notice: the date services end. Must be at least
+  // 10 calendar days after providedAt in most cases (§ 611.57).
+  effectiveDate: timestamp("effective_date"),
+  documentId: varchar("document_id").references(() => documents.id),
+  notes: text("notes"),
+  createdBy: varchar("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_client_notices_client").on(table.clientId),
+  index("idx_client_notices_type").on(table.noticeType),
+]);
+
+export const clientNoticesRelations = relations(clientNotices, ({ one }) => ({
+  client: one(clients, { fields: [clientNotices.clientId], references: [clients.id] }),
+  office: one(offices, { fields: [clientNotices.officeId], references: [offices.id] }),
+  document: one(documents, { fields: [clientNotices.documentId], references: [documents.id] }),
+  createdByUser: one(users, { fields: [clientNotices.createdBy], references: [users.id] }),
+}));
+
+export type ClientNotice = typeof clientNotices.$inferSelect;
+export type InsertClientNotice = typeof clientNotices.$inferInsert;
+export const insertClientNoticeSchema = createInsertSchema(clientNotices).omit({ id: true, createdAt: true });
