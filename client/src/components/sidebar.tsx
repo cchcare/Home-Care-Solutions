@@ -76,6 +76,7 @@ import {
   HeartPulse,
   CalendarRange,
   BadgeCheck,
+  ShieldQuestion,
 } from "lucide-react";
 
 interface NavItem {
@@ -242,6 +243,7 @@ export function Sidebar() {
               { name: "QAPI", href: "/qapi", icon: BarChart3 },
               { name: "Quality Management", href: "/quality-management", icon: ShieldCheck },
               { name: "Patient Complaints", href: "/patient-complaints", icon: AlertTriangle },
+              { name: "Compliance Program", href: "/compliance-program", icon: ShieldQuestion },
               { name: "QM Logs", href: "/quality-management-logs", icon: ClipboardList },
               { name: "OADRI Cycle", href: "/oadri-cycle", icon: Activity },
               { name: "Infection Control", href: "/infection-control", icon: Biohazard },

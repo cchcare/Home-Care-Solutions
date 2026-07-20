@@ -51,6 +51,8 @@ import {
   insertOfficeCredentialSchema,
   insertCaregiverCompetencyReviewSchema,
   insertClientNoticeSchema,
+  insertComplianceOfficerDesignationSchema,
+  insertComplianceHotlineReportSchema,
   insertSystemSettingSchema,
   insertEntityFieldConfigSchema,
   insertCaregiverNoteSchema,
@@ -10086,6 +10088,257 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error deleting client notice:", error);
       res.status(500).json({ message: "Failed to delete client notice" });
+    }
+  });
+
+  // ─── OIG "Seven Elements" Compliance Program: Officer/Committee ─────────────
+  const getComplianceOfficerInScope = async (req: any, id: string) => {
+    const designation = await storage.getComplianceOfficerDesignation(id);
+    if (!designation || !(await canAccessOffice(req, designation.officeId))) return undefined;
+    return designation;
+  };
+
+  app.get("/api/compliance-officers", isAuthenticated, requireAdminRole, async (req: any, res) => {
+    try {
+      const officeId = parseOfficeId(req);
+      if (!officeId || officeId === "__no_office_scope__") return res.json([]);
+      res.json(await storage.getComplianceOfficerDesignations(officeId));
+    } catch (error) {
+      console.error("Error fetching compliance officer designations:", error);
+      res.status(500).json({ message: "Failed to fetch compliance officer designations" });
+    }
+  });
+
+  app.post("/api/compliance-officers", isAuthenticated, requireAdminRole, async (req: any, res) => {
+    try {
+      const coerced = {
+        ...req.body,
+        effectiveDate: coerceDate(req.body.effectiveDate),
+        endDate: coerceDate(req.body.endDate),
+        createdBy: req.session?.user?.id,
+      };
+      const validatedData = insertComplianceOfficerDesignationSchema.parse(coerced);
+      if (!(await canAccessOffice(req, validatedData.officeId))) {
+        return res.status(403).json({ message: "Office is outside your scope" });
+      }
+      const designation = await storage.createComplianceOfficerDesignation(validatedData);
+      res.status(201).json(designation);
+    } catch (error) {
+      console.error("Error creating compliance officer designation:", error);
+      res.status(400).json({ message: "Failed to create compliance officer designation" });
+    }
+  });
+
+  app.put("/api/compliance-officers/:id", isAuthenticated, requireAdminRole, async (req: any, res) => {
+    try {
+      if (!(await getComplianceOfficerInScope(req, req.params.id))) {
+        return res.status(404).json({ message: "Designation not found" });
+      }
+      const coerced = {
+        ...req.body,
+        effectiveDate: coerceDate(req.body.effectiveDate),
+        endDate: coerceDate(req.body.endDate),
+      };
+      const validatedData = insertComplianceOfficerDesignationSchema.partial().omit({ officeId: true, createdBy: true }).parse(coerced);
+      const designation = await storage.updateComplianceOfficerDesignation(req.params.id, validatedData);
+      res.json(designation);
+    } catch (error) {
+      console.error("Error updating compliance officer designation:", error);
+      res.status(400).json({ message: "Failed to update compliance officer designation" });
+    }
+  });
+
+  app.delete("/api/compliance-officers/:id", isAuthenticated, requireAdminRole, async (req: any, res) => {
+    try {
+      if (!(await getComplianceOfficerInScope(req, req.params.id))) {
+        return res.status(404).json({ message: "Designation not found" });
+      }
+      await storage.deleteComplianceOfficerDesignation(req.params.id);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting compliance officer designation:", error);
+      res.status(500).json({ message: "Failed to delete compliance officer designation" });
+    }
+  });
+
+  // ─── OIG "Seven Elements" Compliance Program: Hotline Reports ───────────────
+  // Submission requires only isAuthenticated (any logged-in staff member can
+  // file a report) — reporterName/reporterContact are optional so leaving
+  // them blank keeps the record anonymous; no createdBy is stored on this
+  // table at all, so there's no server-side identity trail for an anonymous
+  // report to protect or leak. Managing/resolving a report is admin-only.
+  const getComplianceHotlineReportInScope = async (req: any, id: string) => {
+    const report = await storage.getComplianceHotlineReport(id);
+    if (!report || !(await canAccessOffice(req, report.officeId))) return undefined;
+    return report;
+  };
+
+  app.get("/api/compliance-hotline-reports", isAuthenticated, requireAdminRole, async (req: any, res) => {
+    try {
+      const officeId = parseOfficeId(req);
+      if (!officeId || officeId === "__no_office_scope__") return res.json([]);
+      res.json(await storage.getComplianceHotlineReports(officeId));
+    } catch (error) {
+      console.error("Error fetching compliance hotline reports:", error);
+      res.status(500).json({ message: "Failed to fetch compliance hotline reports" });
+    }
+  });
+
+  app.post("/api/compliance-hotline-reports", isAuthenticated, async (req: any, res) => {
+    try {
+      const officeId = req.body.officeId || req.session?.user?.primaryOfficeId;
+      if (!officeId || !(await canAccessOffice(req, officeId))) {
+        return res.status(403).json({ message: "Office is outside your scope" });
+      }
+      const existing = await storage.getComplianceHotlineReports(officeId);
+      const year = new Date().getFullYear();
+      const seq = existing.filter((r) => r.reportNumber?.includes(`-${year}-`)).length + 1;
+      const reportNumber = `CHR-${year}-${String(seq).padStart(3, "0")}`;
+      const coerced = {
+        ...req.body,
+        officeId,
+        reportNumber,
+        receivedAt: coerceDate(req.body.receivedAt) || new Date(),
+        reporterName: req.body.isAnonymous ? undefined : req.body.reporterName,
+        reporterContact: req.body.isAnonymous ? undefined : req.body.reporterContact,
+      };
+      const validatedData = insertComplianceHotlineReportSchema.parse(coerced);
+      const report = await storage.createComplianceHotlineReport(validatedData);
+      res.status(201).json(report);
+    } catch (error) {
+      console.error("Error creating compliance hotline report:", error);
+      res.status(400).json({ message: "Failed to create compliance hotline report" });
+    }
+  });
+
+  app.put("/api/compliance-hotline-reports/:id", isAuthenticated, requireAdminRole, async (req: any, res) => {
+    try {
+      if (!(await getComplianceHotlineReportInScope(req, req.params.id))) {
+        return res.status(404).json({ message: "Report not found" });
+      }
+      const coerced = {
+        ...req.body,
+        receivedAt: coerceDate(req.body.receivedAt),
+        resolvedAt: coerceDate(req.body.resolvedAt),
+        resolvedBy: req.body.status === "resolved" || req.body.status === "closed" ? (req.body.resolvedBy || req.session?.user?.id) : req.body.resolvedBy,
+      };
+      const validatedData = insertComplianceHotlineReportSchema.partial().omit({ officeId: true, reportNumber: true }).parse(coerced);
+      const report = await storage.updateComplianceHotlineReport(req.params.id, validatedData);
+      res.json(report);
+    } catch (error) {
+      console.error("Error updating compliance hotline report:", error);
+      res.status(400).json({ message: "Failed to update compliance hotline report" });
+    }
+  });
+
+  app.delete("/api/compliance-hotline-reports/:id", isAuthenticated, requireAdminRole, async (req: any, res) => {
+    try {
+      if (!(await getComplianceHotlineReportInScope(req, req.params.id))) {
+        return res.status(404).json({ message: "Report not found" });
+      }
+      await storage.deleteComplianceHotlineReport(req.params.id);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting compliance hotline report:", error);
+      res.status(500).json({ message: "Failed to delete compliance hotline report" });
+    }
+  });
+
+  // OIG "Seven Elements" program-overview aggregator: maps each element to a
+  // status computed from the trackers that already exist, plus the two new
+  // ones above. Read-only, no new abstraction — just count/exists queries.
+  app.get("/api/compliance/program-overview", isAuthenticated, requireAdminRole, async (req: any, res) => {
+    try {
+      const officeId = parseOfficeId(req);
+      if (!officeId || officeId === "__no_office_scope__") {
+        return res.json({ officeId: null, elements: [] });
+      }
+      const { policyAcknowledgments, dohAuditAssessments, employeeNotes: employeeNotesTable } = await import("@shared/schema");
+
+      const oneYearAgo = new Date();
+      oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
+
+      const [officeUserIds, credentials, hotlineReports, officers, qmLogs, audits, notes] = await Promise.all([
+        db.select({ id: users.id }).from(users).where(eq(users.primaryOfficeId, officeId)),
+        storage.getOfficeCredentials(officeId),
+        storage.getComplianceHotlineReports(officeId),
+        storage.getComplianceOfficerDesignations(officeId),
+        db.select().from(qualityManagementLogs).where(eq(qualityManagementLogs.officeId, officeId)),
+        db.select().from(dohAuditAssessments).where(eq(dohAuditAssessments.officeId, officeId)),
+        db.select().from(employeeNotesTable).where(eq(employeeNotesTable.officeId, officeId)),
+      ]);
+
+      const userIds = new Set(officeUserIds.map((u) => u.id));
+      const policyAcks = userIds.size
+        ? await db.select().from(policyAcknowledgments)
+        : [];
+      const officeAckCount = policyAcks.filter((a: any) => userIds.has(a.userId)).length;
+
+      const activeOfficer = officers.find((o) => !o.endDate);
+      const activeFwaTraining = credentials.some((c) => c.credentialType === "fwa_training" && c.status === "active");
+      const recentMonitoring = [...qmLogs, ...audits].some((r: any) => r.createdAt && new Date(r.createdAt) >= oneYearAgo);
+      const overdueHotline = hotlineReports.filter((r) => {
+        if (r.status !== "received" && r.status !== "under_investigation") return false;
+        const ageMs = Date.now() - new Date(r.receivedAt).getTime();
+        return ageMs > 30 * 24 * 60 * 60 * 1000;
+      });
+
+      const elements = [
+        {
+          element: 1,
+          title: "Written policies & standards of conduct",
+          status: officeAckCount > 0 ? "built_in" : "needs_attention",
+          detail: officeAckCount > 0 ? `${officeAckCount} policy acknowledgment(s) on file.` : "No policy acknowledgments on file yet.",
+          linkHref: "/policy-management",
+        },
+        {
+          element: 2,
+          title: "Designated compliance officer/committee",
+          status: activeOfficer ? "built_in" : "gap",
+          detail: activeOfficer ? `${activeOfficer.personName} (${activeOfficer.role === "compliance_officer" ? "Compliance Officer" : "Committee Member"})` : "No active compliance officer or committee member designated.",
+          linkHref: "/compliance-program",
+        },
+        {
+          element: 3,
+          title: "Training and education",
+          status: activeFwaTraining ? "built_in" : "needs_attention",
+          detail: activeFwaTraining ? "FWA training tracked as an active agency credential." : "No active FWA training credential on file.",
+          linkHref: "/office-credentials",
+        },
+        {
+          element: 4,
+          title: "Effective communication (anonymous hotline)",
+          status: "built_in",
+          detail: `${hotlineReports.length} report(s) logged to date.`,
+          linkHref: "/compliance-program",
+        },
+        {
+          element: 5,
+          title: "Internal monitoring and auditing",
+          status: recentMonitoring ? "built_in" : "needs_attention",
+          detail: recentMonitoring ? "QAPI logs or a DOH audit assessment on file within the last 12 months." : "No QAPI log or DOH audit assessment within the last 12 months.",
+          linkHref: "/quality-management",
+        },
+        {
+          element: 6,
+          title: "Enforcing standards via discipline",
+          status: notes.length > 0 ? "built_in" : "needs_attention",
+          detail: notes.length > 0 ? `${notes.length} write-up(s)/coaching note(s) on file.` : "No write-ups or coaching notes on file.",
+          linkHref: "/write-ups",
+        },
+        {
+          element: 7,
+          title: "Prompt response & corrective action",
+          status: overdueHotline.length > 0 ? "needs_attention" : "built_in",
+          detail: overdueHotline.length > 0 ? `${overdueHotline.length} hotline report(s) open past 30 days.` : "No hotline reports open past 30 days.",
+          linkHref: "/compliance-program",
+        },
+      ];
+
+      res.json({ officeId, elements });
+    } catch (error) {
+      console.error("Error generating compliance program overview:", error);
+      res.status(500).json({ message: "Failed to generate compliance program overview" });
     }
   });
 

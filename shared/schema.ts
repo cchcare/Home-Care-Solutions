@@ -5343,3 +5343,94 @@ export const clientNoticesRelations = relations(clientNotices, ({ one }) => ({
 export type ClientNotice = typeof clientNotices.$inferSelect;
 export type InsertClientNotice = typeof clientNotices.$inferInsert;
 export const insertClientNoticeSchema = createInsertSchema(clientNotices).omit({ id: true, createdAt: true });
+
+// ─── OIG "Seven Elements" Compliance Program: Officer/Committee Designations ───
+// Element 2 (designated compliance officer/committee) of the OIG's seven
+// elements of an effective compliance program. Tracks who holds the role over
+// time — endDate null means currently serving.
+export const complianceOfficerRoleEnum = pgEnum("compliance_officer_role", [
+  "compliance_officer", "committee_member",
+]);
+
+export const complianceOfficerDesignations = pgTable("compliance_officer_designations", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  officeId: varchar("office_id").references(() => offices.id).notNull(),
+  role: complianceOfficerRoleEnum("role").default("compliance_officer").notNull(),
+  personName: varchar("person_name").notNull(),
+  userId: varchar("user_id").references(() => users.id), // optional link if they have a system account
+  title: varchar("title"),
+  email: varchar("email"),
+  phone: varchar("phone"),
+  effectiveDate: timestamp("effective_date").notNull(),
+  endDate: timestamp("end_date"), // null = currently serving
+  notes: text("notes"),
+  createdBy: varchar("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_compliance_officer_office").on(table.officeId),
+]);
+
+export const complianceOfficerDesignationsRelations = relations(complianceOfficerDesignations, ({ one }) => ({
+  office: one(offices, { fields: [complianceOfficerDesignations.officeId], references: [offices.id] }),
+  user: one(users, { fields: [complianceOfficerDesignations.userId], references: [users.id] }),
+  createdByUser: one(users, { fields: [complianceOfficerDesignations.createdBy], references: [users.id] }),
+}));
+
+export type ComplianceOfficerDesignation = typeof complianceOfficerDesignations.$inferSelect;
+export type InsertComplianceOfficerDesignation = typeof complianceOfficerDesignations.$inferInsert;
+export const insertComplianceOfficerDesignationSchema = createInsertSchema(complianceOfficerDesignations).omit({ id: true, createdAt: true, updatedAt: true });
+
+// ─── OIG "Seven Elements" Compliance Program: Hotline Reports ───────────────
+// Element 4 (effective communication channels, including an anonymous
+// reporting mechanism). Submitted in-app by an authenticated staff member —
+// reporterName/reporterContact are optional, so leaving them blank keeps the
+// record itself anonymous. No createdBy/session-user field is stored, so
+// there is no server-side identity trail to protect or leak for anonymous
+// reports. Resolution/corrective-action fields live inline on the report
+// (mirroring patientComplaints' pattern) rather than a separate CAP entity.
+export const complianceHotlineCategoryEnum = pgEnum("compliance_hotline_category", [
+  "fraud_waste_abuse", "hipaa_privacy", "billing_compliance", "patient_safety", "hr_conduct", "other",
+]);
+
+export const complianceHotlineSeverityEnum = pgEnum("compliance_hotline_severity", [
+  "low", "medium", "high", "critical",
+]);
+
+export const complianceHotlineStatusEnum = pgEnum("compliance_hotline_status", [
+  "received", "under_investigation", "resolved", "closed",
+]);
+
+export const complianceHotlineReports = pgTable("compliance_hotline_reports", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  officeId: varchar("office_id").references(() => offices.id).notNull(),
+  reportNumber: varchar("report_number").notNull(),
+  receivedAt: timestamp("received_at").notNull(),
+  isAnonymous: boolean("is_anonymous").default(false),
+  reporterName: varchar("reporter_name"),
+  reporterContact: varchar("reporter_contact"),
+  category: complianceHotlineCategoryEnum("category").notNull(),
+  severity: complianceHotlineSeverityEnum("severity").default("medium"),
+  description: text("description").notNull(),
+  assignedInvestigatorId: varchar("assigned_investigator_id").references(() => users.id),
+  status: complianceHotlineStatusEnum("status").default("received").notNull(),
+  correctiveAction: text("corrective_action"),
+  resolutionNotes: text("resolution_notes"),
+  resolvedAt: timestamp("resolved_at"),
+  resolvedBy: varchar("resolved_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_compliance_hotline_office").on(table.officeId),
+  index("idx_compliance_hotline_status").on(table.status),
+]);
+
+export const complianceHotlineReportsRelations = relations(complianceHotlineReports, ({ one }) => ({
+  office: one(offices, { fields: [complianceHotlineReports.officeId], references: [offices.id] }),
+  assignedInvestigator: one(users, { fields: [complianceHotlineReports.assignedInvestigatorId], references: [users.id] }),
+  resolvedByUser: one(users, { fields: [complianceHotlineReports.resolvedBy], references: [users.id] }),
+}));
+
+export type ComplianceHotlineReport = typeof complianceHotlineReports.$inferSelect;
+export type InsertComplianceHotlineReport = typeof complianceHotlineReports.$inferInsert;
+export const insertComplianceHotlineReportSchema = createInsertSchema(complianceHotlineReports).omit({ id: true, createdAt: true, updatedAt: true });

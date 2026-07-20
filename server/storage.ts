@@ -371,6 +371,12 @@ import {
   clientNotices,
   type ClientNotice,
   type InsertClientNotice,
+  complianceOfficerDesignations,
+  type ComplianceOfficerDesignation,
+  type InsertComplianceOfficerDesignation,
+  complianceHotlineReports,
+  type ComplianceHotlineReport,
+  type InsertComplianceHotlineReport,
   emailTemplates,
   type EmailTemplate,
   type InsertEmailTemplate,
@@ -1516,6 +1522,20 @@ export interface IStorage {
   createClientNotice(notice: InsertClientNotice): Promise<ClientNotice>;
   updateClientNotice(id: string, notice: Partial<InsertClientNotice>): Promise<ClientNotice>;
   deleteClientNotice(id: string): Promise<void>;
+
+  // OIG Seven Elements: Compliance Officer/Committee Designations
+  getComplianceOfficerDesignations(officeId: string): Promise<ComplianceOfficerDesignation[]>;
+  getComplianceOfficerDesignation(id: string): Promise<ComplianceOfficerDesignation | undefined>;
+  createComplianceOfficerDesignation(designation: InsertComplianceOfficerDesignation): Promise<ComplianceOfficerDesignation>;
+  updateComplianceOfficerDesignation(id: string, designation: Partial<InsertComplianceOfficerDesignation>): Promise<ComplianceOfficerDesignation>;
+  deleteComplianceOfficerDesignation(id: string): Promise<void>;
+
+  // OIG Seven Elements: Compliance Hotline Reports
+  getComplianceHotlineReports(officeId: string): Promise<ComplianceHotlineReport[]>;
+  getComplianceHotlineReport(id: string): Promise<ComplianceHotlineReport | undefined>;
+  createComplianceHotlineReport(report: InsertComplianceHotlineReport): Promise<ComplianceHotlineReport>;
+  updateComplianceHotlineReport(id: string, report: Partial<InsertComplianceHotlineReport>): Promise<ComplianceHotlineReport>;
+  deleteComplianceHotlineReport(id: string): Promise<void>;
 
   getClientSatisfactionSurveys(officeId: string): Promise<ClientSatisfactionSurvey[]>;
   getClientSatisfactionSurvey(id: string): Promise<ClientSatisfactionSurvey | undefined>;
@@ -9234,6 +9254,64 @@ export class DatabaseStorage implements IStorage {
 
   async deleteClientNotice(id: string): Promise<void> {
     await db.delete(clientNotices).where(eq(clientNotices.id, id));
+  }
+
+  // ─── OIG Seven Elements: Compliance Officer/Committee Designations ─────────
+  async getComplianceOfficerDesignations(officeId: string): Promise<ComplianceOfficerDesignation[]> {
+    return db.select().from(complianceOfficerDesignations)
+      .where(eq(complianceOfficerDesignations.officeId, officeId))
+      .orderBy(desc(complianceOfficerDesignations.effectiveDate));
+  }
+
+  async getComplianceOfficerDesignation(id: string): Promise<ComplianceOfficerDesignation | undefined> {
+    const [row] = await db.select().from(complianceOfficerDesignations).where(eq(complianceOfficerDesignations.id, id));
+    return row;
+  }
+
+  async createComplianceOfficerDesignation(designation: InsertComplianceOfficerDesignation): Promise<ComplianceOfficerDesignation> {
+    const [row] = await db.insert(complianceOfficerDesignations).values(designation).returning();
+    return row;
+  }
+
+  async updateComplianceOfficerDesignation(id: string, designation: Partial<InsertComplianceOfficerDesignation>): Promise<ComplianceOfficerDesignation> {
+    const [row] = await db.update(complianceOfficerDesignations)
+      .set({ ...designation, updatedAt: new Date() })
+      .where(eq(complianceOfficerDesignations.id, id))
+      .returning();
+    return row;
+  }
+
+  async deleteComplianceOfficerDesignation(id: string): Promise<void> {
+    await db.delete(complianceOfficerDesignations).where(eq(complianceOfficerDesignations.id, id));
+  }
+
+  // ─── OIG Seven Elements: Compliance Hotline Reports ─────────────────────────
+  async getComplianceHotlineReports(officeId: string): Promise<ComplianceHotlineReport[]> {
+    return db.select().from(complianceHotlineReports)
+      .where(eq(complianceHotlineReports.officeId, officeId))
+      .orderBy(desc(complianceHotlineReports.receivedAt));
+  }
+
+  async getComplianceHotlineReport(id: string): Promise<ComplianceHotlineReport | undefined> {
+    const [row] = await db.select().from(complianceHotlineReports).where(eq(complianceHotlineReports.id, id));
+    return row;
+  }
+
+  async createComplianceHotlineReport(report: InsertComplianceHotlineReport): Promise<ComplianceHotlineReport> {
+    const [row] = await db.insert(complianceHotlineReports).values(report).returning();
+    return row;
+  }
+
+  async updateComplianceHotlineReport(id: string, report: Partial<InsertComplianceHotlineReport>): Promise<ComplianceHotlineReport> {
+    const [row] = await db.update(complianceHotlineReports)
+      .set({ ...report, updatedAt: new Date() })
+      .where(eq(complianceHotlineReports.id, id))
+      .returning();
+    return row;
+  }
+
+  async deleteComplianceHotlineReport(id: string): Promise<void> {
+    await db.delete(complianceHotlineReports).where(eq(complianceHotlineReports.id, id));
   }
 
   async getClientSatisfactionSurveys(officeId: string): Promise<ClientSatisfactionSurvey[]> {

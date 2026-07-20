@@ -2,9 +2,14 @@ import OpenAI from "openai";
 import { storage } from "./storage";
 import { getUpcomingExpirations, type ExpiringItem } from "./expiration-alert-service";
 import { db } from "./db";
-import { incidentReports } from "@shared/schema";
-import { and, eq, isNotNull, lt } from "drizzle-orm";
-import { format } from "date-fns";
+import { incidentReports, complianceHotlineReports } from "@shared/schema";
+import { and, eq, isNotNull, lt, inArray } from "drizzle-orm";
+import { format, differenceInDays } from "date-fns";
+
+// OIG Seven Elements, element 7 ("respond promptly / corrective action"): a
+// hotline report still open (received/under_investigation) past this many
+// days from receivedAt is flagged as overdue for a response.
+const HOTLINE_REPORT_SLA_DAYS = 30;
 
 // Same guard pattern as aiService.ts — a missing key must not crash startup,
 // and the service degrades to a rule-based summary instead of failing.
@@ -34,6 +39,7 @@ interface ComplianceSnapshot {
   expiringItems: ExpiringItem[];
   overdueIncidents: Array<{ kind: "doh" | "sc"; incidentType: string; dueDate: Date }>;
   credentialsMissingDates: Array<{ name: string; credentialType: string }>;
+  overdueHotlineReports: Array<{ reportNumber: string; category: string; severity: string; receivedAt: Date }>;
 }
 
 async function gatherSnapshot(officeId?: string): Promise<ComplianceSnapshot> {
@@ -63,7 +69,22 @@ async function gatherSnapshot(officeId?: string): Promise<ComplianceSnapshot> {
     .filter((c) => c.status === "active" && !c.expirationDate)
     .map((c) => ({ name: c.name, credentialType: c.credentialType }));
 
-  return { expiringItems, overdueIncidents, credentialsMissingDates };
+  const slaDeadline = new Date();
+  slaDeadline.setDate(slaDeadline.getDate() - HOTLINE_REPORT_SLA_DAYS);
+  const hotlineConditions = [
+    inArray(complianceHotlineReports.status, ["received", "under_investigation"]),
+    lt(complianceHotlineReports.receivedAt, slaDeadline),
+  ];
+  if (officeId) hotlineConditions.push(eq(complianceHotlineReports.officeId, officeId));
+  const overdueHotlineRows = await db.select().from(complianceHotlineReports).where(and(...hotlineConditions));
+  const overdueHotlineReports = overdueHotlineRows.map((r) => ({
+    reportNumber: r.reportNumber,
+    category: r.category,
+    severity: r.severity || "medium",
+    receivedAt: r.receivedAt,
+  }));
+
+  return { expiringItems, overdueIncidents, credentialsMissingDates, overdueHotlineReports };
 }
 
 // Deterministic fallback (and the baseline the AI reorders/annotates):
@@ -93,6 +114,17 @@ function buildRuleBasedInsights(snapshot: ComplianceSnapshot): ComplianceInsight
       detail: `${item.entityName} — due ${format(item.expirationDate, "MMM d, yyyy")} (${days === 0 ? "today" : `in ${days} days`}).`,
       dueDate: item.expirationDate.toISOString(),
       category: item.type,
+    });
+  }
+
+  for (const report of snapshot.overdueHotlineReports) {
+    const daysOpen = differenceInDays(new Date(), report.receivedAt);
+    actions.push({
+      priority: report.severity === "critical" || report.severity === "high" ? "critical" : "high",
+      title: `Compliance hotline report ${report.reportNumber} open ${daysOpen} days`,
+      detail: `A ${report.severity} severity ${report.category.replace(/_/g, " ")} report has had no resolution in ${daysOpen} days. Investigate and record a corrective action.`,
+      dueDate: null,
+      category: "compliance_hotline",
     });
   }
 
@@ -136,7 +168,7 @@ export async function getComplianceInsights(officeId?: string): Promise<Complian
           role: "system",
           content:
             "You are a compliance operations assistant for a Pennsylvania home care agency (28 Pa. Code Chapter 611) that bills PA Medicaid Community HealthChoices MCOs. " +
-            "You receive a JSON list of open compliance items (expiring credentials/certifications, overdue incident reports, claims approaching the 180-day timely-filing deadline, authorization renewals, care-plan reassessments, caregiver competency reviews due under § 611.55). " +
+            "You receive a JSON list of open compliance items (expiring credentials/certifications, overdue incident reports, claims approaching the 180-day timely-filing deadline, authorization renewals, care-plan reassessments, caregiver competency reviews due under § 611.55, overdue compliance hotline reports). " +
             "Produce a prioritized daily action plan. Combine related items into one action where sensible (e.g. several caregivers with expiring TB tests). Never invent items not present in the input. " +
             'Respond with JSON only: {"summary": string (2-3 sentences, plain language, what to do first and why), "actions": [{"priority": "critical"|"high"|"medium"|"low", "title": string, "detail": string (concrete next step), "dueDate": string|null (ISO), "category": string}]}. Max 15 actions.',
         },

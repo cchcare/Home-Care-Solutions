@@ -92,6 +92,7 @@ import CaregiverLogin from "@/pages/caregiver-login";
 import SurveyReadiness from "@/pages/survey-readiness";
 import SurveyReadinessPrint from "@/pages/survey-readiness-print";
 import OfficeCredentials from "@/pages/office-credentials";
+import ComplianceProgram from "@/pages/compliance-program";
 import SupervisoryVisits from "@/pages/supervisory-visits";
 import PolicyManagement from "@/pages/policy-management";
 import Qapi from "@/pages/qapi";
@@ -255,6 +256,7 @@ function Router() {
           <Route path="/qapi" component={Qapi} />
           <Route path="/quality-management" component={QualityManagement} />
           <Route path="/patient-complaints" component={PatientComplaints} />
+          <Route path="/compliance-program" component={ComplianceProgram} />
           <Route path="/quality-management-logs" component={QualityManagementLogs} />
           <Route path="/oadri-cycle" component={OadriCycle} />
           <Route path="/infection-control" component={InfectionControl} />

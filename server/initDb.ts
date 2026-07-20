@@ -753,6 +753,96 @@ export async function ensureComplianceBranchSchema() {
   }
 }
 
+// OIG "Seven Elements" Compliance Program schema (compliance officer/
+// committee designations + anonymous hotline reports). Same self-heal
+// pattern as ensureComplianceBranchSchema — every new table gets its own
+// ensure-function so production never drifts from the code again.
+let complianceProgramSchemaReady = false;
+export async function ensureComplianceProgramSchema() {
+  if (complianceProgramSchemaReady) return;
+  const client = await pool.connect();
+  try {
+    const ready = await client.query(`
+      SELECT EXISTS (
+        SELECT 1 FROM information_schema.tables WHERE table_name = 'compliance_program_init_marker'
+      ) AS marker_exists;
+    `);
+    if (ready.rows[0]?.marker_exists) {
+      complianceProgramSchemaReady = true;
+      return;
+    }
+
+    await client.query(`DO $$ BEGIN
+      CREATE TYPE compliance_officer_role AS ENUM ('compliance_officer', 'committee_member');
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$;`);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS compliance_officer_designations (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        office_id varchar NOT NULL REFERENCES offices(id),
+        role compliance_officer_role NOT NULL DEFAULT 'compliance_officer',
+        person_name varchar NOT NULL,
+        user_id varchar REFERENCES users(id),
+        title varchar,
+        email varchar,
+        phone varchar,
+        effective_date timestamp NOT NULL,
+        end_date timestamp,
+        notes text,
+        created_by varchar REFERENCES users(id),
+        created_at timestamp DEFAULT NOW(),
+        updated_at timestamp DEFAULT NOW()
+      );
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_compliance_officer_office ON compliance_officer_designations (office_id);`);
+
+    await client.query(`DO $$ BEGIN
+      CREATE TYPE compliance_hotline_category AS ENUM (
+        'fraud_waste_abuse', 'hipaa_privacy', 'billing_compliance', 'patient_safety', 'hr_conduct', 'other'
+      );
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$;`);
+    await client.query(`DO $$ BEGIN
+      CREATE TYPE compliance_hotline_severity AS ENUM ('low', 'medium', 'high', 'critical');
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$;`);
+    await client.query(`DO $$ BEGIN
+      CREATE TYPE compliance_hotline_status AS ENUM ('received', 'under_investigation', 'resolved', 'closed');
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$;`);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS compliance_hotline_reports (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        office_id varchar NOT NULL REFERENCES offices(id),
+        report_number varchar NOT NULL,
+        received_at timestamp NOT NULL,
+        is_anonymous boolean DEFAULT false,
+        reporter_name varchar,
+        reporter_contact varchar,
+        category compliance_hotline_category NOT NULL,
+        severity compliance_hotline_severity DEFAULT 'medium',
+        description text NOT NULL,
+        assigned_investigator_id varchar REFERENCES users(id),
+        status compliance_hotline_status NOT NULL DEFAULT 'received',
+        corrective_action text,
+        resolution_notes text,
+        resolved_at timestamp,
+        resolved_by varchar REFERENCES users(id),
+        created_at timestamp DEFAULT NOW(),
+        updated_at timestamp DEFAULT NOW()
+      );
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_compliance_hotline_office ON compliance_hotline_reports (office_id);`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_compliance_hotline_status ON compliance_hotline_reports (status);`);
+
+    await client.query(`CREATE TABLE IF NOT EXISTS compliance_program_init_marker (initialized_at timestamp DEFAULT NOW());`);
+    complianceProgramSchemaReady = true;
+    console.log("[Init] compliance program schema (officer designations, hotline reports) ensured.");
+  } catch (err) {
+    console.error("[Init] ensureComplianceProgramSchema failed (non-fatal):", err);
+  } finally {
+    client.release();
+  }
+}
+
 // Guards runProductionInit() so it can only ever execute once per database,
 // no matter how many times the app restarts with INIT_PRODUCTION_DB=true left
 // set. Without this marker, every reboot/redeploy that inherited the env var

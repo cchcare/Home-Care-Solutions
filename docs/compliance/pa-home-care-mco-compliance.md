@@ -37,10 +37,10 @@ listed here so a developer extending any of the gaps below knows what to build o
 
 Each item: what's missing, why it matters (with citation), and where it would plug into the existing codebase.
 
-**Implementation status: all four Tier 1 items, Tier 2 items 2.5–2.6, and Tier 3 items 2.8–2.9 are now built**
+**Implementation status: all four Tier 1 items, Tier 2 items 2.5–2.6, and Tier 3 items 2.8–2.10 are now built**
 (see the "Implemented"/"Built" notes under each), plus a new AI Daily Compliance Action Plan. Tier 2 item 2.7
-(EVV reconciliation, optional) and Tier 3 items 2.10–2.11 (OIG Seven Elements, record retention — both more
-organizational/policy decisions than software gaps) remain open for a future session.
+(EVV reconciliation, optional) and Tier 3 item 2.11 (record retention — blocked on a direct DOH answer, not a
+software gap yet) remain open for a future session.
 
 ### Tier 1 — concrete, high-value, directly tied to CHC billing
 
@@ -207,14 +207,28 @@ non-payment 14+ days after warning, or worker-safety risk" exceptions — those 
 question for the packet template, not a schema gap. `shared/schema.ts` (`clientNotices`), `server/storage.ts`,
 `server/routes.ts` (`/api/clients/:id/notices`), `client/src/components/client-notices-section.tsx`.
 
-**2.10 — No formal OIG "Seven Elements" compliance-program tracking.**
+**2.10 — OIG "Seven Elements" compliance-program tracking.** ✅ Implemented
 MCO provider agreements commonly incorporate by reference the OIG's seven elements of an effective compliance
 program (written policies, a designated compliance officer/committee, training, communication/hotline lines,
 internal monitoring/auditing, disciplinary enforcement, and prompt corrective action — refreshed in OIG's
-General Compliance Program Guidance, Nov. 2023). `patient_complaints` partially overlaps as a
-grievance-adjacent log but isn't the same thing as a designated compliance-officer record or an anonymous
-reporting hotline log. Lower priority — this is as much an organizational/policy decision as a software
-feature.
+General Compliance Program Guidance, Nov. 2023). An audit of the codebase found elements 1 (policies —
+`policyDocuments`/`policyAcknowledgments`), 3 (training — `trainings`/FWA training credential), 5 (monitoring —
+DOH audits/QAPI/Quality Management), and 6 (discipline — `employeeNotes`/write-ups) already substantially
+covered; `patient_complaints` was considered as a base for element 4 but rejected as purpose-built for
+patient/family grievances rather than staff/compliance reports. Elements 2 and 4 had zero existing tracking.
+*Built:* two new tables — `compliance_officer_designations` (who serves as compliance officer/committee member,
+with an end-dated history rather than deletion) and `compliance_hotline_reports` (category, severity,
+investigation status, corrective action/resolution notes, an auto-numbered `CHR-YYYY-NNN` report number).
+Hotline reports are submitted in-app by any authenticated staff member — `reporterName`/`reporterContact` are
+optional, so leaving them blank keeps the record anonymous, and the table stores no `createdBy` at all, so
+there's no server-side identity trail for an anonymous report to protect or leak. A new **Compliance Program**
+page (sidebar → Clinical → DOH Compliance) ties all seven elements together into one overview
+(`GET /api/compliance/program-overview`) showing each element's status and linking to whichever existing or
+new feature covers it. Hotline reports open past 30 days without resolution surface in the AI Daily Compliance
+Action Plan (`server/compliance-insights-service.ts`) the same way overdue DOH/SC incident notifications do.
+`shared/schema.ts` (`complianceOfficerDesignations`, `complianceHotlineReports`), `server/storage.ts`,
+`server/routes.ts` (`/api/compliance-officers`, `/api/compliance-hotline-reports`,
+`/api/compliance/program-overview`), `client/src/pages/compliance-program.tsx`.
 
 **2.11 — Record retention.**
 No enforced retention policy exists in the app. The federal 7-year home-health clinical-record retention rule
@@ -251,14 +265,15 @@ retention-period enforcement — there's currently no clear rule to encode.
 
 ## 4. Suggested next step
 
-What's left is genuinely lower priority: Tier 2 item 2.7 (EVV reconciliation against HHAeXchange — a
-nice-to-have QA cross-check, not a compliance gap, since EVV submission already happens outside this app), and
-Tier 3 items 2.10–2.11 (OIG Seven Elements compliance-program tracking, record retention), both of which are
-as much organizational/policy decisions as software features and don't have a clean numeric rule to build
-against yet. Before encoding anything from those into hard business logic, get a direct answer from DOH or the
-relevant MCO provider manual — see the caveats in section 3.
+Only two items remain, both genuinely lower priority: Tier 2 item 2.7 (EVV reconciliation against
+HHAeXchange — a nice-to-have QA cross-check, not a compliance gap, since EVV submission already happens
+outside this app), and Tier 3 item 2.11 (record retention — blocked on a direct DOH answer, since research
+found no citable numeric retention period for this Chapter 611 license type to build against). Neither is
+urgent; get a direct answer from DOH or the relevant MCO provider manual before encoding either into hard
+business logic — see the caveats in section 3.
 
-For everything already built above (Tier 1, Tier 2 items 2.5–2.6, Tier 3 items 2.8–2.9): the deadlines/cycles
-encoded (DOH renewal lead times, MCO recredentialing cadence, CIR category timeframes) are still research
-estimates in places — re-verify against the OLTL Critical Incident Management Bulletin and each MCO's current
-Credentialing provider-manual chapter before relying on them for an actual survey or audit.
+For everything already built above (Tier 1, Tier 2 items 2.5–2.6, Tier 3 items 2.8–2.10): the deadlines/cycles
+encoded (DOH renewal lead times, MCO recredentialing cadence, CIR category timeframes, the 30-day hotline
+response SLA) are still research estimates or internal-policy choices in places — re-verify against the OLTL
+Critical Incident Management Bulletin and each MCO's current Credentialing provider-manual chapter before
+relying on them for an actual survey or audit.
