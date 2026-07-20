@@ -16,6 +16,7 @@ import Clients from "@/pages/clients";
 import ClientProfile from "@/pages/client-profile";
 import Caregivers from "@/pages/caregivers";
 import CaregiverProfile from "@/pages/caregiver-profile";
+import StaffProfile from "@/pages/staff-profile";
 import Offices from "@/pages/offices";
 import OfficeProfile from "@/pages/office-profile";
 import Compliance from "@/pages/compliance";
@@ -228,6 +229,7 @@ function Router() {
           <Route path="/write-ups" component={WriteUps} />
           <Route path="/staff" component={Staff} />
           <Route path="/employees" component={Employees} />
+          <Route path="/staff/:id" component={StaffProfile} />
           <Route path="/performance-reviews" component={PerformanceReviews} />
           <Route path="/org-chart" component={OrgChart} />
           <Route path="/kiosk-setup" component={KioskSetup} />

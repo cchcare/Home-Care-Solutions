@@ -6309,7 +6309,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .orderBy(desc(docsTable.createdAt));
 
       // 2) Letters generated for the employee
-      const scope = kind === "caregiver" ? "caregiver" : "user";
+      const scope = kind === "caregiver" ? "caregiver" : "staff";
       const letters = await db.select().from(generatedLetters).where(and(
         eq(generatedLetters.scope, scope as any),
         eq(generatedLetters.targetId, id),

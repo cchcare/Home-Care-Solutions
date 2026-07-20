@@ -30,11 +30,9 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { PersonCombobox } from "@/components/ui/person-combobox";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { EmployeeDocumentsTab } from "@/components/employee-documents-tab";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { Search, Users, Network, UserCog, ArrowUpDown, ArrowUp, ArrowDown, Mail, Phone, MapPin, Calendar } from "lucide-react";
+import { Search, Users, Network, UserCog, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
 import { Link } from "wouter";
 import { format } from "date-fns";
 
@@ -77,7 +75,6 @@ export default function EmployeesPage() {
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [editing, setEditing] = useState<EmployeeRow | null>(null);
   const [pendingManagerId, setPendingManagerId] = useState<string>("__none__");
-  const [profileTarget, setProfileTarget] = useState<EmployeeRow | null>(null);
 
   const officeParam =
     officeFilter !== "all" ? `?officeId=${encodeURIComponent(officeFilter)}` : "";
@@ -347,14 +344,13 @@ export default function EmployeesPage() {
                             {formatName(e.firstName, e.lastName)}
                           </Link>
                         ) : (
-                          <button
-                            type="button"
-                            onClick={() => setProfileTarget(e)}
-                            className="hover:underline text-primary text-left"
+                          <Link
+                            href={`/staff/${e.id}`}
+                            className="hover:underline text-primary"
                             data-testid={`link-employee-${e.id}`}
                           >
                             {formatName(e.firstName, e.lastName)}
-                          </button>
+                          </Link>
                         )}
                       </TableCell>
                       <TableCell>
@@ -438,94 +434,6 @@ export default function EmployeesPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Lightweight unified profile dialog for office staff (caregivers
-          have their own dedicated page). */}
-      <Dialog
-        open={!!profileTarget}
-        onOpenChange={(o) => {
-          if (!o) setProfileTarget(null);
-        }}
-      >
-        <DialogContent data-testid="dialog-employee-profile" className="max-w-3xl max-h-[85vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>
-              {profileTarget && formatName(profileTarget.firstName, profileTarget.lastName)}
-            </DialogTitle>
-            <DialogDescription>
-              {profileTarget?.title || profileTarget?.role || "Office staff"}
-            </DialogDescription>
-          </DialogHeader>
-          {profileTarget && (
-            <Tabs defaultValue="overview" className="w-full">
-              <TabsList>
-                <TabsTrigger value="overview" data-testid="tab-employee-overview">Overview</TabsTrigger>
-                <TabsTrigger value="documents" data-testid="tab-employee-documents">Documents</TabsTrigger>
-              </TabsList>
-              <TabsContent value="overview">
-                <div className="space-y-3 text-sm">
-                  <div className="flex items-center gap-2">
-                    <Badge variant={profileTarget.isActive === false ? "secondary" : "default"}>
-                      {profileTarget.isActive === false ? "Inactive" : "Active"}
-                    </Badge>
-                    <Badge variant="outline">{profileTarget.role || "staff"}</Badge>
-                  </div>
-                  {profileTarget.email && (
-                    <div className="flex items-center gap-2">
-                      <Mail className="h-4 w-4 text-muted-foreground" />
-                      <a href={`mailto:${profileTarget.email}`} className="hover:underline">
-                        {profileTarget.email}
-                      </a>
-                    </div>
-                  )}
-                  {profileTarget.phone && (
-                    <div className="flex items-center gap-2">
-                      <Phone className="h-4 w-4 text-muted-foreground" />
-                      {profileTarget.phone}
-                    </div>
-                  )}
-                  {profileTarget.officeName && (
-                    <div className="flex items-center gap-2">
-                      <MapPin className="h-4 w-4 text-muted-foreground" />
-                      {profileTarget.officeName}
-                    </div>
-                  )}
-                  {profileTarget.hireDate && (
-                    <div className="flex items-center gap-2">
-                      <Calendar className="h-4 w-4 text-muted-foreground" />
-                      Hired {format(new Date(profileTarget.hireDate), "MMM d, yyyy")}
-                    </div>
-                  )}
-                  <div className="pt-2">
-                    <span className="text-muted-foreground">Reports to: </span>
-                    {profileTarget.managerName || (
-                      <span className="text-muted-foreground">Unassigned</span>
-                    )}
-                  </div>
-                </div>
-              </TabsContent>
-              <TabsContent value="documents">
-                <EmployeeDocumentsTab kind="user" employeeId={profileTarget.id} />
-              </TabsContent>
-            </Tabs>
-          )}
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => {
-                if (profileTarget) openEditor(profileTarget);
-                setProfileTarget(null);
-              }}
-              data-testid="button-edit-manager-from-profile"
-            >
-              <UserCog className="h-4 w-4 mr-2" />
-              Change manager
-            </Button>
-            <Link href="/user-management">
-              <Button data-testid="button-manage-user">Manage account</Button>
-            </Link>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }
