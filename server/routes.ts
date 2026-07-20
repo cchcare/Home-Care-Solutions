@@ -12987,6 +12987,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.delete("/api/caregiver-office-moves/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const existing = await storage.getCaregiverOfficeMove(req.params.id);
+      if (!existing || !(await getCaregiverInScope(req, existing.caregiverId))) {
+        return res.status(404).json({ message: "Office move not found" });
+      }
+      await storage.deleteCaregiverOfficeMove(req.params.id);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting caregiver office move:", error);
+      res.status(500).json({ message: "Failed to delete caregiver office move" });
+    }
+  });
+
   // Caregiver Schedules
   app.get("/api/caregivers/:caregiverId/schedules", isAuthenticated, async (req: any, res) => {
     try {

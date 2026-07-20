@@ -161,6 +161,15 @@ const COMPLIANCE_STATUS_OPTIONS = [
 
 import { EmployeeWriteUpsSection } from "@/components/employee-write-ups-section";
 import { CaregiverCompetencyReviewsSection } from "@/components/caregiver-competency-reviews-section";
+import { CaregiverNotesSection } from "@/components/caregiver-notes-section";
+import { CaregiverPreferencesSection } from "@/components/caregiver-preferences-section";
+import { CaregiverAbsencesSection } from "@/components/caregiver-absences-section";
+import { CaregiverAvailabilitySection } from "@/components/caregiver-availability-section";
+import { CaregiverRatesSection } from "@/components/caregiver-rates-section";
+import { CaregiverExpensesSection } from "@/components/caregiver-expenses-section";
+import { CaregiverInServicesSection } from "@/components/caregiver-in-services-section";
+import { CaregiverOfficeMovesSection } from "@/components/caregiver-office-moves-section";
+import { CaregiverPayrollInfoSection } from "@/components/caregiver-payroll-info-section";
 
 const CAREGIVER_MENU_ITEMS = [
   { id: "profile", label: "Profile", icon: User },
@@ -200,8 +209,6 @@ export default function CaregiverProfile() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [activeSection, setActiveSection] = useState("profile");
   const [currentMonth, setCurrentMonth] = useState(new Date());
-  const [showAddDialog, setShowAddDialog] = useState(false);
-  const [dialogType, setDialogType] = useState<string>("");
   const [showSearchDialog, setShowSearchDialog] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [showAssignClientDialog, setShowAssignClientDialog] = useState(false);
@@ -224,16 +231,6 @@ export default function CaregiverProfile() {
   const [emailAfterGenerate, setEmailAfterGenerate] = useState(false);
   const [generateEmailRecipient, setGenerateEmailRecipient] = useState("");
   const [emailDocTarget, setEmailDocTarget] = useState<Document | null>(null);
-  const [absenceForm, setAbsenceForm] = useState({
-    absenceType: "vacation",
-    startDate: "",
-    endDate: "",
-    isAllDay: true,
-    startTime: "",
-    endTime: "",
-    reason: "",
-    status: "approved",
-  });
 
   const { data: caregiver, isLoading: caregiverLoading } = useQuery<EnrichedCaregiver>({
     queryKey: ["/api/caregivers", caregiverId],
@@ -331,63 +328,9 @@ export default function CaregiverProfile() {
     queryFn: () => fetch(`/api/caregivers`).then(r => r.json()),
   });
 
-  const { data: notes = [] } = useQuery<any[]>({
-    queryKey: ["/api/caregivers", caregiverId, "notes"],
-    queryFn: () => fetch(`/api/caregivers/${caregiverId}/notes`).then(r => r.json()),
-    enabled: !!caregiverId,
-  });
-
-  const { data: preferences = [] } = useQuery<any[]>({
-    queryKey: ["/api/caregivers", caregiverId, "preferences"],
-    queryFn: () => fetch(`/api/caregivers/${caregiverId}/preferences`).then(r => r.json()),
-    enabled: !!caregiverId,
-  });
-
-  const { data: absences = [] } = useQuery<any[]>({
-    queryKey: ["/api/caregivers", caregiverId, "absences"],
-    queryFn: () => fetch(`/api/caregivers/${caregiverId}/absences`).then(r => r.json()),
-    enabled: !!caregiverId,
-  });
-
-  const { data: availability = [] } = useQuery<any[]>({
-    queryKey: ["/api/caregivers", caregiverId, "availability"],
-    queryFn: () => fetch(`/api/caregivers/${caregiverId}/availability`).then(r => r.json()),
-    enabled: !!caregiverId,
-  });
-
-  const { data: payrollInfo } = useQuery<any>({
-    queryKey: ["/api/caregivers", caregiverId, "payroll-info"],
-    queryFn: () => fetch(`/api/caregivers/${caregiverId}/payroll-info`).then(r => r.json()),
-    enabled: !!caregiverId,
-  });
-
-  const { data: expenses = [] } = useQuery<any[]>({
-    queryKey: ["/api/caregivers", caregiverId, "expenses"],
-    queryFn: () => fetch(`/api/caregivers/${caregiverId}/expenses`).then(r => r.json()),
-    enabled: !!caregiverId,
-  });
-
   const { data: paychecks = [] } = useQuery<any[]>({
     queryKey: ["/api/caregivers", caregiverId, "paychecks"],
     queryFn: () => fetch(`/api/caregivers/${caregiverId}/paychecks`).then(r => r.json()),
-    enabled: !!caregiverId,
-  });
-
-  const { data: rates = [] } = useQuery<any[]>({
-    queryKey: ["/api/caregivers", caregiverId, "rates"],
-    queryFn: () => fetch(`/api/caregivers/${caregiverId}/rates`).then(r => r.json()),
-    enabled: !!caregiverId,
-  });
-
-  const { data: inServices = [] } = useQuery<any[]>({
-    queryKey: ["/api/caregivers", caregiverId, "in-services"],
-    queryFn: () => fetch(`/api/caregivers/${caregiverId}/in-services`).then(r => r.json()),
-    enabled: !!caregiverId,
-  });
-
-  const { data: officeMoves = [] } = useQuery<any[]>({
-    queryKey: ["/api/caregivers", caregiverId, "office-moves"],
-    queryFn: () => fetch(`/api/caregivers/${caregiverId}/office-moves`).then(r => r.json()),
     enabled: !!caregiverId,
   });
 
@@ -678,52 +621,6 @@ export default function CaregiverProfile() {
       toast({ title: "Error", description: "Failed to delete compliance item", variant: "destructive" });
     },
   });
-
-  const createAbsenceMutation = useMutation({
-    mutationFn: async (data: any) => {
-      return await apiRequest("POST", `/api/caregivers/${caregiverId}/absences`, data);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/caregivers", caregiverId, "absences"] });
-      setShowAddDialog(false);
-      resetAbsenceForm();
-      toast({ title: "Success", description: "Absence added successfully" });
-    },
-    onError: () => {
-      toast({ title: "Error", description: "Failed to add absence", variant: "destructive" });
-    },
-  });
-
-  const resetAbsenceForm = () => {
-    setAbsenceForm({
-      absenceType: "vacation",
-      startDate: "",
-      endDate: "",
-      isAllDay: true,
-      startTime: "",
-      endTime: "",
-      reason: "",
-      status: "approved",
-    });
-  };
-
-  const handleSaveAbsence = () => {
-    if (!absenceForm.startDate) {
-      toast({ title: "Error", description: "Start date is required", variant: "destructive" });
-      return;
-    }
-    const data = {
-      absenceType: absenceForm.absenceType,
-      startDate: new Date(absenceForm.startDate),
-      endDate: absenceForm.endDate ? new Date(absenceForm.endDate) : null,
-      isAllDay: absenceForm.isAllDay,
-      startTime: absenceForm.isAllDay ? null : (absenceForm.startTime || null),
-      endTime: absenceForm.isAllDay ? null : (absenceForm.endTime || null),
-      reason: absenceForm.reason || null,
-      status: absenceForm.status,
-    };
-    createAbsenceMutation.mutate(data);
-  };
 
   const resetComplianceForm = () => {
     setComplianceForm({
@@ -1736,52 +1633,9 @@ export default function CaregiverProfile() {
                 </div>
               )}
 
-              {activeSection === "in-service" && (
+              {activeSection === "in-service" && caregiverId && (
                 <div className="space-y-6">
-                  <Card>
-                    <CardHeader>
-                      <div className="flex items-center justify-between">
-                        <CardTitle className="flex items-center gap-2">
-                          <GraduationCap className="w-5 h-5" />
-                          In-Service Training Records
-                        </CardTitle>
-                        <Button size="sm" onClick={() => { setDialogType("in-service"); setShowAddDialog(true); }} data-testid="button-add-in-service">
-                          <Plus className="w-4 h-4 mr-2" />
-                          Add Training
-                        </Button>
-                      </div>
-                    </CardHeader>
-                    <CardContent>
-                      {inServices.length === 0 ? (
-                        <p className="text-muted-foreground text-sm">No in-service training records found</p>
-                      ) : (
-                        <Table>
-                          <TableHeader>
-                            <TableRow>
-                              <TableHead>Training</TableHead>
-                              <TableHead>Date</TableHead>
-                              <TableHead>Hours</TableHead>
-                              <TableHead>Status</TableHead>
-                            </TableRow>
-                          </TableHeader>
-                          <TableBody>
-                            {inServices.map((service) => (
-                              <TableRow key={service.id} data-testid={`row-in-service-${service.id}`}>
-                                <TableCell className="font-medium">{service.title}</TableCell>
-                                <TableCell>{format(new Date(service.trainingDate), "MMM d, yyyy")}</TableCell>
-                                <TableCell>{service.hours || "N/A"}</TableCell>
-                                <TableCell>
-                                  <Badge variant={service.status === "completed" ? "default" : "secondary"}>
-                                    {service.status}
-                                  </Badge>
-                                </TableCell>
-                              </TableRow>
-                            ))}
-                          </TableBody>
-                        </Table>
-                      )}
-                    </CardContent>
-                  </Card>
+                  <CaregiverInServicesSection caregiverId={caregiverId} />
                 </div>
               )}
 
@@ -1791,380 +1645,46 @@ export default function CaregiverProfile() {
                 </div>
               )}
 
-              {activeSection === "rates" && (
+              {activeSection === "rates" && caregiverId && (
                 <div className="space-y-6">
-                  <Card>
-                    <CardHeader>
-                      <div className="flex items-center justify-between">
-                        <CardTitle className="flex items-center gap-2">
-                          <DollarSign className="w-5 h-5" />
-                          Pay Rates
-                        </CardTitle>
-                        <Button size="sm" onClick={() => { setDialogType("rate"); setShowAddDialog(true); }} data-testid="button-add-rate">
-                          <Plus className="w-4 h-4 mr-2" />
-                          Add Rate
-                        </Button>
-                      </div>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="mb-4 p-4 bg-muted/50 rounded-lg">
-                        <p className="text-sm text-muted-foreground">Base Hourly Wage</p>
-                        <p className="text-2xl font-bold" data-testid="text-base-wage">
-                          {caregiver.hourlyWage ? `$${parseFloat(caregiver.hourlyWage).toFixed(2)}/hr` : "Not set"}
-                        </p>
-                      </div>
-                      {rates.length === 0 ? (
-                        <p className="text-muted-foreground text-sm">No additional rates configured</p>
-                      ) : (
-                        <Table>
-                          <TableHeader>
-                            <TableRow>
-                              <TableHead>Service Type</TableHead>
-                              <TableHead>Rate</TableHead>
-                              <TableHead>Type</TableHead>
-                              <TableHead>Effective</TableHead>
-                              <TableHead>Status</TableHead>
-                            </TableRow>
-                          </TableHeader>
-                          <TableBody>
-                            {rates.map((rate) => (
-                              <TableRow key={rate.id} data-testid={`row-rate-${rate.id}`}>
-                                <TableCell className="font-medium capitalize">{rate.serviceType?.replace(/_/g, " ")}</TableCell>
-                                <TableCell>${parseFloat(rate.rate).toFixed(2)}</TableCell>
-                                <TableCell className="capitalize">{rate.rateType}</TableCell>
-                                <TableCell>
-                                  {rate.effectiveFrom ? format(new Date(rate.effectiveFrom), "MMM d, yyyy") : "N/A"}
-                                </TableCell>
-                                <TableCell>
-                                  <Badge variant={rate.isActive ? "default" : "secondary"}>
-                                    {rate.isActive ? "Active" : "Inactive"}
-                                  </Badge>
-                                </TableCell>
-                              </TableRow>
-                            ))}
-                          </TableBody>
-                        </Table>
-                      )}
-                    </CardContent>
-                  </Card>
+                  <CaregiverRatesSection caregiverId={caregiverId} baseWage={caregiver.hourlyWage} />
                 </div>
               )}
 
-              {activeSection === "notes" && (
+              {activeSection === "notes" && caregiverId && (
                 <div className="space-y-6">
-                  <Card>
-                    <CardHeader>
-                      <div className="flex items-center justify-between">
-                        <CardTitle className="flex items-center gap-2">
-                          <MessageSquare className="w-5 h-5" />
-                          Notes
-                        </CardTitle>
-                        <Button size="sm" onClick={() => { setDialogType("note"); setShowAddDialog(true); }} data-testid="button-add-note">
-                          <Plus className="w-4 h-4 mr-2" />
-                          Add Note
-                        </Button>
-                      </div>
-                    </CardHeader>
-                    <CardContent>
-                      {notes.length === 0 ? (
-                        <p className="text-muted-foreground text-sm">No notes found</p>
-                      ) : (
-                        <div className="space-y-4">
-                          {notes.map((note) => (
-                            <div key={note.id} className="p-4 border rounded-lg" data-testid={`card-note-${note.id}`}>
-                              <div className="flex items-center justify-between mb-2">
-                                <div className="flex items-center gap-2">
-                                  <Badge variant="outline" className="capitalize">{note.noteType}</Badge>
-                                  {note.subject && <span className="font-medium">{note.subject}</span>}
-                                </div>
-                                <span className="text-sm text-muted-foreground">
-                                  {format(new Date(note.createdAt), "MMM d, yyyy")}
-                                </span>
-                              </div>
-                              <p className="text-sm">{note.content}</p>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </CardContent>
-                  </Card>
-
-                  {caregiverId && (
-                    <EmployeeWriteUpsSection
-                      employeeType="caregiver"
-                      employeeId={caregiverId}
-                    />
-                  )}
+                  <CaregiverNotesSection caregiverId={caregiverId} />
+                  <EmployeeWriteUpsSection employeeType="caregiver" employeeId={caregiverId} />
                 </div>
               )}
 
-              {activeSection === "preferences" && (
+              {activeSection === "preferences" && caregiverId && (
                 <div className="space-y-6">
-                  <Card>
-                    <CardHeader>
-                      <div className="flex items-center justify-between">
-                        <CardTitle className="flex items-center gap-2">
-                          <Heart className="w-5 h-5" />
-                          Work Preferences
-                        </CardTitle>
-                        <Button size="sm" onClick={() => { setDialogType("preference"); setShowAddDialog(true); }} data-testid="button-add-preference">
-                          <Plus className="w-4 h-4 mr-2" />
-                          Add Preference
-                        </Button>
-                      </div>
-                    </CardHeader>
-                    <CardContent>
-                      {preferences.length === 0 ? (
-                        <p className="text-muted-foreground text-sm">No preferences set</p>
-                      ) : (
-                        <Table>
-                          <TableHeader>
-                            <TableRow>
-                              <TableHead>Type</TableHead>
-                              <TableHead>Value</TableHead>
-                              <TableHead>Priority</TableHead>
-                              <TableHead>Notes</TableHead>
-                            </TableRow>
-                          </TableHeader>
-                          <TableBody>
-                            {preferences.map((pref) => (
-                              <TableRow key={pref.id} data-testid={`row-preference-${pref.id}`}>
-                                <TableCell className="font-medium capitalize">{pref.preferenceType?.replace(/_/g, " ")}</TableCell>
-                                <TableCell>{pref.preferenceValue}</TableCell>
-                                <TableCell>
-                                  <Badge variant={pref.priority === 1 ? "default" : pref.priority === 2 ? "secondary" : "outline"}>
-                                    {pref.priority === 1 ? "High" : pref.priority === 2 ? "Medium" : "Low"}
-                                  </Badge>
-                                </TableCell>
-                                <TableCell className="text-sm text-muted-foreground">{pref.notes || "N/A"}</TableCell>
-                              </TableRow>
-                            ))}
-                          </TableBody>
-                        </Table>
-                      )}
-                    </CardContent>
-                  </Card>
+                  <CaregiverPreferencesSection caregiverId={caregiverId} />
                 </div>
               )}
 
-              {activeSection === "absence" && (
+              {activeSection === "absence" && caregiverId && (
                 <div className="space-y-6">
-                  <Card>
-                    <CardHeader>
-                      <div className="flex items-center justify-between">
-                        <CardTitle className="flex items-center gap-2">
-                          <AlertTriangle className="w-5 h-5" />
-                          Absences & Restrictions
-                        </CardTitle>
-                        <Button size="sm" onClick={() => { setDialogType("absence"); setShowAddDialog(true); }} data-testid="button-add-absence">
-                          <Plus className="w-4 h-4 mr-2" />
-                          Add Absence
-                        </Button>
-                      </div>
-                    </CardHeader>
-                    <CardContent>
-                      {absences.length === 0 ? (
-                        <p className="text-muted-foreground text-sm">No absences or restrictions recorded</p>
-                      ) : (
-                        <Table>
-                          <TableHeader>
-                            <TableRow>
-                              <TableHead>Type</TableHead>
-                              <TableHead>Start Date</TableHead>
-                              <TableHead>End Date</TableHead>
-                              <TableHead>Status</TableHead>
-                              <TableHead>Reason</TableHead>
-                            </TableRow>
-                          </TableHeader>
-                          <TableBody>
-                            {absences.map((absence) => (
-                              <TableRow key={absence.id} data-testid={`row-absence-${absence.id}`}>
-                                <TableCell className="font-medium capitalize">{absence.absenceType?.replace(/_/g, " ")}</TableCell>
-                                <TableCell>{format(new Date(absence.startDate), "MMM d, yyyy")}</TableCell>
-                                <TableCell>
-                                  {absence.endDate ? format(new Date(absence.endDate), "MMM d, yyyy") : "Ongoing"}
-                                </TableCell>
-                                <TableCell>
-                                  <Badge variant={
-                                    absence.status === "approved" ? "default" :
-                                    absence.status === "pending" ? "secondary" : "destructive"
-                                  }>
-                                    {absence.status}
-                                  </Badge>
-                                </TableCell>
-                                <TableCell className="text-sm">{absence.reason || "N/A"}</TableCell>
-                              </TableRow>
-                            ))}
-                          </TableBody>
-                        </Table>
-                      )}
-                    </CardContent>
-                  </Card>
+                  <CaregiverAbsencesSection caregiverId={caregiverId} />
                 </div>
               )}
 
-              {activeSection === "availability" && (
+              {activeSection === "availability" && caregiverId && (
                 <div className="space-y-6">
-                  <Card>
-                    <CardHeader>
-                      <div className="flex items-center justify-between">
-                        <CardTitle className="flex items-center gap-2">
-                          <CalendarDays className="w-5 h-5" />
-                          Weekly Availability
-                        </CardTitle>
-                        <Button size="sm" onClick={() => { setDialogType("availability"); setShowAddDialog(true); }} data-testid="button-add-availability">
-                          <Plus className="w-4 h-4 mr-2" />
-                          Add Slot
-                        </Button>
-                      </div>
-                    </CardHeader>
-                    <CardContent>
-                      {availability.length === 0 ? (
-                        <p className="text-muted-foreground text-sm">No availability set</p>
-                      ) : (
-                        <div className="grid grid-cols-7 gap-2">
-                          {DAY_NAMES.map((day, idx) => {
-                            const daySlots = availability.filter((a) => a.dayOfWeek === idx);
-                            return (
-                              <div key={day} className="border rounded-lg p-2">
-                                <h4 className="font-medium text-sm text-center border-b pb-1 mb-2">{day}</h4>
-                                {daySlots.length === 0 ? (
-                                  <p className="text-xs text-muted-foreground text-center">Not set</p>
-                                ) : (
-                                  <div className="space-y-1">
-                                    {daySlots.map((slot) => (
-                                      <div
-                                        key={slot.id}
-                                        className={`text-xs p-1 rounded text-center ${
-                                          slot.isAvailable ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"
-                                        }`}
-                                      >
-                                        {slot.startTime} - {slot.endTime}
-                                      </div>
-                                    ))}
-                                  </div>
-                                )}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </CardContent>
-                  </Card>
+                  <CaregiverAvailabilitySection caregiverId={caregiverId} />
                 </div>
               )}
 
-              {activeSection === "payroll-info" && (
+              {activeSection === "payroll-info" && caregiverId && (
                 <div className="space-y-6">
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="flex items-center gap-2">
-                        <CreditCard className="w-5 h-5" />
-                        Payroll Information
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      {!payrollInfo ? (
-                        <div className="text-center py-8">
-                          <p className="text-muted-foreground mb-4">No payroll information configured</p>
-                          <Button onClick={() => { setDialogType("payroll-info"); setShowAddDialog(true); }} data-testid="button-setup-payroll">
-                            <Plus className="w-4 h-4 mr-2" />
-                            Setup Payroll Info
-                          </Button>
-                        </div>
-                      ) : (
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                          <div className="space-y-1">
-                            <Label className="text-muted-foreground text-sm">Payment Method</Label>
-                            <p className="font-medium capitalize" data-testid="text-payment-method">
-                              {payrollInfo.paymentMethod?.replace(/_/g, " ") || "N/A"}
-                            </p>
-                          </div>
-                          <div className="space-y-1">
-                            <Label className="text-muted-foreground text-sm">Bank Name</Label>
-                            <p className="font-medium" data-testid="text-bank-name">{payrollInfo.bankName || "N/A"}</p>
-                          </div>
-                          <div className="space-y-1">
-                            <Label className="text-muted-foreground text-sm">Account Type</Label>
-                            <p className="font-medium capitalize" data-testid="text-account-type">{payrollInfo.accountType || "N/A"}</p>
-                          </div>
-                          <div className="space-y-1">
-                            <Label className="text-muted-foreground text-sm">Tax Filing Status</Label>
-                            <p className="font-medium capitalize" data-testid="text-tax-status">
-                              {payrollInfo.taxFilingStatus?.replace(/_/g, " ") || "N/A"}
-                            </p>
-                          </div>
-                          <div className="space-y-1">
-                            <Label className="text-muted-foreground text-sm">W-4 On File</Label>
-                            <Badge variant={payrollInfo.w4OnFile ? "default" : "secondary"} data-testid="badge-w4">
-                              {payrollInfo.w4OnFile ? "Yes" : "No"}
-                            </Badge>
-                          </div>
-                          <div className="space-y-1">
-                            <Label className="text-muted-foreground text-sm">I-9 On File</Label>
-                            <Badge variant={payrollInfo.i9OnFile ? "default" : "secondary"} data-testid="badge-i9">
-                              {payrollInfo.i9OnFile ? "Yes" : "No"}
-                            </Badge>
-                          </div>
-                        </div>
-                      )}
-                    </CardContent>
-                  </Card>
+                  <CaregiverPayrollInfoSection caregiverId={caregiverId} />
                 </div>
               )}
 
-              {activeSection === "expenses" && (
+              {activeSection === "expenses" && caregiverId && (
                 <div className="space-y-6">
-                  <Card>
-                    <CardHeader>
-                      <div className="flex items-center justify-between">
-                        <CardTitle className="flex items-center gap-2">
-                          <Receipt className="w-5 h-5" />
-                          Expenses
-                        </CardTitle>
-                        <Button size="sm" onClick={() => { setDialogType("expense"); setShowAddDialog(true); }} data-testid="button-add-expense">
-                          <Plus className="w-4 h-4 mr-2" />
-                          Add Expense
-                        </Button>
-                      </div>
-                    </CardHeader>
-                    <CardContent>
-                      {expenses.length === 0 ? (
-                        <p className="text-muted-foreground text-sm">No expenses recorded</p>
-                      ) : (
-                        <Table>
-                          <TableHeader>
-                            <TableRow>
-                              <TableHead>Date</TableHead>
-                              <TableHead>Type</TableHead>
-                              <TableHead>Amount</TableHead>
-                              <TableHead>Status</TableHead>
-                              <TableHead>Description</TableHead>
-                            </TableRow>
-                          </TableHeader>
-                          <TableBody>
-                            {expenses.map((expense) => (
-                              <TableRow key={expense.id} data-testid={`row-expense-${expense.id}`}>
-                                <TableCell>{format(new Date(expense.expenseDate), "MMM d, yyyy")}</TableCell>
-                                <TableCell className="capitalize">{expense.expenseType?.replace(/_/g, " ")}</TableCell>
-                                <TableCell>${parseFloat(expense.amount).toFixed(2)}</TableCell>
-                                <TableCell>
-                                  <Badge variant={
-                                    expense.status === "paid" ? "default" :
-                                    expense.status === "approved" ? "secondary" :
-                                    expense.status === "pending" ? "outline" : "destructive"
-                                  }>
-                                    {expense.status}
-                                  </Badge>
-                                </TableCell>
-                                <TableCell className="text-sm">{expense.description || "N/A"}</TableCell>
-                              </TableRow>
-                            ))}
-                          </TableBody>
-                        </Table>
-                      )}
-                    </CardContent>
-                  </Card>
+                  <CaregiverExpensesSection caregiverId={caregiverId} />
                 </div>
               )}
 
@@ -2465,58 +1985,14 @@ export default function CaregiverProfile() {
                 </div>
               )}
 
-              {activeSection === "office-move" && (
+              {activeSection === "office-move" && caregiverId && (
                 <div className="space-y-6">
-                  <Card>
-                    <CardHeader>
-                      <div className="flex items-center justify-between">
-                        <CardTitle className="flex items-center gap-2">
-                          <ArrowRightLeft className="w-5 h-5" />
-                          Office Transfer History
-                        </CardTitle>
-                        <Button size="sm" onClick={() => { setDialogType("office-move"); setShowAddDialog(true); }} data-testid="button-add-office-move">
-                          <Plus className="w-4 h-4 mr-2" />
-                          Record Transfer
-                        </Button>
-                      </div>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="mb-4 p-4 bg-muted/50 rounded-lg">
-                        <p className="text-sm text-muted-foreground">Current Office</p>
-                        <p className="text-lg font-medium" data-testid="text-current-office">{office?.name || "Not assigned"}</p>
-                      </div>
-                      {officeMoves.length === 0 ? (
-                        <p className="text-muted-foreground text-sm">No transfer history</p>
-                      ) : (
-                        <Table>
-                          <TableHeader>
-                            <TableRow>
-                              <TableHead>Date</TableHead>
-                              <TableHead>From</TableHead>
-                              <TableHead>To</TableHead>
-                              <TableHead>Status</TableHead>
-                              <TableHead>Reason</TableHead>
-                            </TableRow>
-                          </TableHeader>
-                          <TableBody>
-                            {officeMoves.map((move) => (
-                              <TableRow key={move.id} data-testid={`row-office-move-${move.id}`}>
-                                <TableCell>{format(new Date(move.moveDate), "MMM d, yyyy")}</TableCell>
-                                <TableCell>{offices.find(o => o.id === move.fromOfficeId)?.name || "N/A"}</TableCell>
-                                <TableCell>{offices.find(o => o.id === move.toOfficeId)?.name || "N/A"}</TableCell>
-                                <TableCell>
-                                  <Badge variant={move.status === "completed" ? "default" : "secondary"}>
-                                    {move.status}
-                                  </Badge>
-                                </TableCell>
-                                <TableCell className="text-sm">{move.reason || "N/A"}</TableCell>
-                              </TableRow>
-                            ))}
-                          </TableBody>
-                        </Table>
-                      )}
-                    </CardContent>
-                  </Card>
+                  <CaregiverOfficeMovesSection
+                    caregiverId={caregiverId}
+                    currentOfficeName={office?.name}
+                    currentOfficeId={caregiver.officeId}
+                    offices={offices}
+                  />
                 </div>
               )}
 
@@ -2773,147 +2249,6 @@ export default function CaregiverProfile() {
         </div>
       </main>
 
-      <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>
-              {dialogType === "note" && "Add Note"}
-              {dialogType === "preference" && "Add Preference"}
-              {dialogType === "absence" && "Add Absence"}
-              {dialogType === "availability" && "Add Availability Slot"}
-              {dialogType === "expense" && "Add Expense"}
-              {dialogType === "rate" && "Add Rate"}
-              {dialogType === "in-service" && "Add In-Service Training"}
-              {dialogType === "office-move" && "Record Office Transfer"}
-              {dialogType === "payroll-info" && "Setup Payroll Info"}
-            </DialogTitle>
-          </DialogHeader>
-          {dialogType === "absence" ? (
-            <>
-              <div className="py-4 space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="absenceType">Absence Type</Label>
-                  <Select
-                    value={absenceForm.absenceType}
-                    onValueChange={(value) => setAbsenceForm(prev => ({ ...prev, absenceType: value }))}
-                  >
-                    <SelectTrigger id="absenceType" data-testid="select-absence-type">
-                      <SelectValue placeholder="Select type" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="vacation">Vacation</SelectItem>
-                      <SelectItem value="sick">Sick</SelectItem>
-                      <SelectItem value="personal">Personal</SelectItem>
-                      <SelectItem value="fmla">FMLA</SelectItem>
-                      <SelectItem value="restriction">Restriction</SelectItem>
-                      <SelectItem value="unavailable">Unavailable</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="startDate">Start Date *</Label>
-                    <Input
-                      id="startDate"
-                      type="date"
-                      value={absenceForm.startDate}
-                      onChange={(e) => setAbsenceForm(prev => ({ ...prev, startDate: e.target.value }))}
-                      data-testid="input-absence-start-date"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="endDate">End Date</Label>
-                    <Input
-                      id="endDate"
-                      type="date"
-                      value={absenceForm.endDate}
-                      onChange={(e) => setAbsenceForm(prev => ({ ...prev, endDate: e.target.value }))}
-                      data-testid="input-absence-end-date"
-                    />
-                  </div>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <Checkbox
-                    id="isAllDay"
-                    checked={absenceForm.isAllDay}
-                    onCheckedChange={(checked) => setAbsenceForm(prev => ({ ...prev, isAllDay: checked === true }))}
-                    data-testid="checkbox-absence-all-day"
-                  />
-                  <Label htmlFor="isAllDay">All Day</Label>
-                </div>
-                {!absenceForm.isAllDay && (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="startTime">Start Time (HH:MM)</Label>
-                      <Input
-                        id="startTime"
-                        type="time"
-                        value={absenceForm.startTime}
-                        onChange={(e) => setAbsenceForm(prev => ({ ...prev, startTime: e.target.value }))}
-                        data-testid="input-absence-start-time"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="endTime">End Time (HH:MM)</Label>
-                      <Input
-                        id="endTime"
-                        type="time"
-                        value={absenceForm.endTime}
-                        onChange={(e) => setAbsenceForm(prev => ({ ...prev, endTime: e.target.value }))}
-                        data-testid="input-absence-end-time"
-                      />
-                    </div>
-                  </div>
-                )}
-                <div className="space-y-2">
-                  <Label htmlFor="reason">Reason</Label>
-                  <Textarea
-                    id="reason"
-                    value={absenceForm.reason}
-                    onChange={(e) => setAbsenceForm(prev => ({ ...prev, reason: e.target.value }))}
-                    placeholder="Enter reason for absence..."
-                    data-testid="textarea-absence-reason"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="status">Status</Label>
-                  <Select
-                    value={absenceForm.status}
-                    onValueChange={(value) => setAbsenceForm(prev => ({ ...prev, status: value }))}
-                  >
-                    <SelectTrigger id="status" data-testid="select-absence-status">
-                      <SelectValue placeholder="Select status" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="pending">Pending</SelectItem>
-                      <SelectItem value="approved">Approved</SelectItem>
-                      <SelectItem value="denied">Denied</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-              <DialogFooter>
-                <Button variant="outline" onClick={() => { setShowAddDialog(false); resetAbsenceForm(); }} data-testid="button-cancel-absence">Cancel</Button>
-                <Button onClick={handleSaveAbsence} disabled={createAbsenceMutation.isPending} data-testid="button-save-absence">
-                  {createAbsenceMutation.isPending ? "Saving..." : "Save"}
-                </Button>
-              </DialogFooter>
-            </>
-          ) : (
-            <>
-              <div className="py-4">
-                <p className="text-sm text-muted-foreground">
-                  Form for adding {dialogType} would be implemented here with proper validation and API calls.
-                </p>
-              </div>
-              <DialogFooter>
-                <Button variant="outline" onClick={() => setShowAddDialog(false)}>Cancel</Button>
-                <Button onClick={() => setShowAddDialog(false)}>Save</Button>
-              </DialogFooter>
-            </>
-          )}
-        </DialogContent>
-      </Dialog>
 
       <Dialog open={showSearchDialog} onOpenChange={setShowSearchDialog}>
         <DialogContent className="max-w-md">

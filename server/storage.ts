@@ -973,8 +973,10 @@ export interface IStorage {
 
   // Caregiver Office Moves operations
   getCaregiverOfficeMoves(caregiverId: string): Promise<CaregiverOfficeMove[]>;
+  getCaregiverOfficeMove(id: string): Promise<CaregiverOfficeMove | undefined>;
   createCaregiverOfficeMove(move: InsertCaregiverOfficeMove): Promise<CaregiverOfficeMove>;
   updateCaregiverOfficeMove(id: string, move: Partial<InsertCaregiverOfficeMove>): Promise<CaregiverOfficeMove>;
+  deleteCaregiverOfficeMove(id: string): Promise<void>;
 
   // Caregiver Schedules operations
   getCaregiverSchedules(caregiverId: string, startDate?: Date, endDate?: Date): Promise<CaregiverSchedule[]>;
@@ -5276,6 +5278,10 @@ export class DatabaseStorage implements IStorage {
   async updateCaregiverOfficeMove(id: string, move: Partial<InsertCaregiverOfficeMove>): Promise<CaregiverOfficeMove> {
     const [updated] = await db.update(caregiverOfficeMoves).set({ ...move, updatedAt: new Date() }).where(eq(caregiverOfficeMoves.id, id)).returning();
     return updated;
+  }
+
+  async deleteCaregiverOfficeMove(id: string): Promise<void> {
+    await db.delete(caregiverOfficeMoves).where(eq(caregiverOfficeMoves.id, id));
   }
 
   // Caregiver Schedules
