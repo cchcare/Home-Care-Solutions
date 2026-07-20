@@ -53,6 +53,8 @@ import {
   insertClientNoticeSchema,
   insertComplianceOfficerDesignationSchema,
   insertComplianceHotlineReportSchema,
+  insertClientSpecialRequestSchema,
+  insertClientSpendDownSchema,
   insertSystemSettingSchema,
   insertEntityFieldConfigSchema,
   insertCaregiverNoteSchema,
@@ -4349,6 +4351,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const validatedData = insertCarePlanSchema.parse({
         ...req.body,
+        startDate: coerceDate(req.body.startDate),
+        endDate: coerceDate(req.body.endDate),
+        nextAssessmentDate: coerceDate(req.body.nextAssessmentDate),
         createdBy: req.session?.user?.id,
       });
       if (!validatedData.clientId || !(await getClientInScope(req, validatedData.clientId))) {
@@ -4376,6 +4381,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!(await getClientInScope(req, carePlan.clientId))) return undefined;
     return carePlan;
   };
+
+  app.put("/api/care-plans/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      if (!(await getCarePlanInScope(req, req.params.id))) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+      const { clientId, createdBy, ...updateData } = req.body;
+      const coerced = {
+        ...updateData,
+        startDate: coerceDate(updateData.startDate),
+        endDate: coerceDate(updateData.endDate),
+        nextAssessmentDate: coerceDate(updateData.nextAssessmentDate),
+      };
+      const validatedData = insertCarePlanSchema.partial().omit({ clientId: true, createdBy: true }).parse(coerced);
+      const carePlan = await storage.updateCarePlan(req.params.id, validatedData);
+      res.json(carePlan);
+    } catch (error) {
+      console.error("Error updating care plan:", error);
+      res.status(400).json({ message: "Failed to update care plan" });
+    }
+  });
 
   // Care plan goals routes
   app.get("/api/care-plans/:id/goals", isAuthenticated, async (req: any, res) => {
@@ -4425,6 +4451,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.delete("/api/care-plans/:id/goals/:goalId", isAuthenticated, async (req: any, res) => {
+    try {
+      if (!(await getCarePlanInScope(req, req.params.id))) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+      const existingGoal = await storage.getCarePlanGoal(req.params.goalId);
+      if (!existingGoal || existingGoal.carePlanId !== req.params.id) {
+        return res.status(404).json({ message: "Goal not found" });
+      }
+      await storage.deleteCarePlanGoal(req.params.goalId);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting care plan goal:", error);
+      res.status(500).json({ message: "Failed to delete care plan goal" });
+    }
+  });
+
   // Care plan interventions routes
   app.get("/api/care-plans/:id/interventions", isAuthenticated, async (req: any, res) => {
     try {
@@ -4470,6 +4513,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error updating care plan intervention:", error);
       res.status(400).json({ message: "Failed to update care plan intervention" });
+    }
+  });
+
+  app.delete("/api/care-plans/:id/interventions/:interventionId", isAuthenticated, async (req: any, res) => {
+    try {
+      if (!(await getCarePlanInScope(req, req.params.id))) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+      const existingIntervention = await storage.getCarePlanIntervention(req.params.interventionId);
+      if (!existingIntervention || existingIntervention.carePlanId !== req.params.id) {
+        return res.status(404).json({ message: "Intervention not found" });
+      }
+      await storage.deleteCarePlanIntervention(req.params.interventionId);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting care plan intervention:", error);
+      res.status(500).json({ message: "Failed to delete care plan intervention" });
     }
   });
 
@@ -10088,6 +10148,161 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error deleting client notice:", error);
       res.status(500).json({ message: "Failed to delete client notice" });
+    }
+  });
+
+  // ─── Client Special Requests ────────────────────────────────────────────────
+  const getSpecialRequestInScope = async (req: any, id: string) => {
+    const request = await storage.getClientSpecialRequest(id);
+    if (!request) return undefined;
+    const client = await getClientInScope(req, request.clientId);
+    if (!client) return undefined;
+    return request;
+  };
+
+  app.get("/api/clients/:clientId/special-requests", isAuthenticated, async (req: any, res) => {
+    try {
+      if (!(await getClientInScope(req, req.params.clientId))) {
+        return res.status(404).json({ message: "Client not found" });
+      }
+      res.json(await storage.getClientSpecialRequests(req.params.clientId));
+    } catch (error) {
+      console.error("Error fetching client special requests:", error);
+      res.status(500).json({ message: "Failed to fetch client special requests" });
+    }
+  });
+
+  app.post("/api/clients/:clientId/special-requests", isAuthenticated, async (req: any, res) => {
+    try {
+      const client = await getClientInScope(req, req.params.clientId);
+      if (!client) {
+        return res.status(404).json({ message: "Client not found" });
+      }
+      const coerced = {
+        ...req.body,
+        clientId: req.params.clientId,
+        officeId: client.officeId,
+        createdBy: req.session?.user?.id,
+        requestedDate: coerceDate(req.body.requestedDate) || new Date(),
+        resolvedAt: coerceDate(req.body.resolvedAt),
+      };
+      const validatedData = insertClientSpecialRequestSchema.parse(coerced);
+      const request = await storage.createClientSpecialRequest(validatedData);
+      res.status(201).json(request);
+    } catch (error) {
+      console.error("Error creating client special request:", error);
+      res.status(400).json({ message: "Failed to create client special request" });
+    }
+  });
+
+  app.put("/api/client-special-requests/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      if (!(await getSpecialRequestInScope(req, req.params.id))) {
+        return res.status(404).json({ message: "Special request not found" });
+      }
+      const coerced = {
+        ...req.body,
+        requestedDate: coerceDate(req.body.requestedDate),
+        resolvedAt: coerceDate(req.body.resolvedAt),
+        resolvedBy: req.body.status === "completed" || req.body.status === "declined" ? (req.body.resolvedBy || req.session?.user?.id) : req.body.resolvedBy,
+      };
+      const validatedData = insertClientSpecialRequestSchema.partial().omit({ clientId: true, officeId: true, createdBy: true }).parse(coerced);
+      const request = await storage.updateClientSpecialRequest(req.params.id, validatedData);
+      res.json(request);
+    } catch (error) {
+      console.error("Error updating client special request:", error);
+      res.status(400).json({ message: "Failed to update client special request" });
+    }
+  });
+
+  app.delete("/api/client-special-requests/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      if (!(await getSpecialRequestInScope(req, req.params.id))) {
+        return res.status(404).json({ message: "Special request not found" });
+      }
+      await storage.deleteClientSpecialRequest(req.params.id);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting client special request:", error);
+      res.status(500).json({ message: "Failed to delete client special request" });
+    }
+  });
+
+  // ─── Client Spend Down (PA Medicaid excess-income program) ──────────────────
+  const getSpendDownInScope = async (req: any, id: string) => {
+    const spendDown = await storage.getClientSpendDown(id);
+    if (!spendDown) return undefined;
+    const client = await getClientInScope(req, spendDown.clientId);
+    if (!client) return undefined;
+    return spendDown;
+  };
+
+  app.get("/api/clients/:clientId/spend-downs", isAuthenticated, async (req: any, res) => {
+    try {
+      if (!(await getClientInScope(req, req.params.clientId))) {
+        return res.status(404).json({ message: "Client not found" });
+      }
+      res.json(await storage.getClientSpendDowns(req.params.clientId));
+    } catch (error) {
+      console.error("Error fetching client spend-downs:", error);
+      res.status(500).json({ message: "Failed to fetch client spend-downs" });
+    }
+  });
+
+  app.post("/api/clients/:clientId/spend-downs", isAuthenticated, async (req: any, res) => {
+    try {
+      const client = await getClientInScope(req, req.params.clientId);
+      if (!client) {
+        return res.status(404).json({ message: "Client not found" });
+      }
+      const coerced = {
+        ...req.body,
+        clientId: req.params.clientId,
+        officeId: client.officeId,
+        createdBy: req.session?.user?.id,
+        periodStart: coerceDate(req.body.periodStart),
+        periodEnd: coerceDate(req.body.periodEnd),
+        metDate: coerceDate(req.body.metDate),
+      };
+      const validatedData = insertClientSpendDownSchema.parse(coerced);
+      const spendDown = await storage.createClientSpendDown(validatedData);
+      res.status(201).json(spendDown);
+    } catch (error) {
+      console.error("Error creating client spend-down:", error);
+      res.status(400).json({ message: "Failed to create client spend-down" });
+    }
+  });
+
+  app.put("/api/client-spend-downs/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      if (!(await getSpendDownInScope(req, req.params.id))) {
+        return res.status(404).json({ message: "Spend-down record not found" });
+      }
+      const coerced = {
+        ...req.body,
+        periodStart: coerceDate(req.body.periodStart),
+        periodEnd: coerceDate(req.body.periodEnd),
+        metDate: coerceDate(req.body.metDate),
+      };
+      const validatedData = insertClientSpendDownSchema.partial().omit({ clientId: true, officeId: true, createdBy: true }).parse(coerced);
+      const spendDown = await storage.updateClientSpendDown(req.params.id, validatedData);
+      res.json(spendDown);
+    } catch (error) {
+      console.error("Error updating client spend-down:", error);
+      res.status(400).json({ message: "Failed to update client spend-down" });
+    }
+  });
+
+  app.delete("/api/client-spend-downs/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      if (!(await getSpendDownInScope(req, req.params.id))) {
+        return res.status(404).json({ message: "Spend-down record not found" });
+      }
+      await storage.deleteClientSpendDown(req.params.id);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting client spend-down:", error);
+      res.status(500).json({ message: "Failed to delete client spend-down" });
     }
   });
 
@@ -17734,6 +17949,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error deleting referral source:", error);
       res.status(500).json({ message: "Failed to delete referral source" });
+    }
+  });
+
+  // Get the referral that led to a given client (if any) — used on the
+  // client profile's Referral Member Info section.
+  app.get("/api/clients/:clientId/referral", isAuthenticated, async (req: any, res) => {
+    try {
+      if (!(await getClientInScope(req, req.params.clientId))) {
+        return res.status(404).json({ message: "Client not found" });
+      }
+      const referral = await storage.getClientReferralByClientId(req.params.clientId);
+      res.json(referral || null);
+    } catch (error) {
+      console.error("Error fetching client's referral:", error);
+      res.status(500).json({ message: "Failed to fetch client's referral" });
     }
   });
 

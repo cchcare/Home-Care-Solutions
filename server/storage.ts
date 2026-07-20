@@ -377,6 +377,12 @@ import {
   complianceHotlineReports,
   type ComplianceHotlineReport,
   type InsertComplianceHotlineReport,
+  clientSpecialRequests,
+  type ClientSpecialRequest,
+  type InsertClientSpecialRequest,
+  clientSpendDowns,
+  type ClientSpendDown,
+  type InsertClientSpendDown,
   emailTemplates,
   type EmailTemplate,
   type InsertEmailTemplate,
@@ -594,12 +600,14 @@ export interface IStorage {
   getCarePlanGoals(carePlanId: string): Promise<CarePlanGoal[]>;
   createCarePlanGoal(goal: InsertCarePlanGoal): Promise<CarePlanGoal>;
   updateCarePlanGoal(id: string, goal: Partial<InsertCarePlanGoal>): Promise<CarePlanGoal>;
+  deleteCarePlanGoal(id: string): Promise<void>;
 
   // Care plan interventions operations
   getCarePlanIntervention(id: string): Promise<CarePlanIntervention | undefined>;
   getCarePlanInterventions(carePlanId: string): Promise<CarePlanIntervention[]>;
   createCarePlanIntervention(intervention: InsertCarePlanIntervention): Promise<CarePlanIntervention>;
   updateCarePlanIntervention(id: string, intervention: Partial<InsertCarePlanIntervention>): Promise<CarePlanIntervention>;
+  deleteCarePlanIntervention(id: string): Promise<void>;
 
   // Progress notes operations
   getProgressNotesByClient(clientId: string): Promise<ProgressNote[]>;
@@ -1324,6 +1332,7 @@ export interface IStorage {
   // Client Referral operations
   getClientReferrals(officeId?: string): Promise<ClientReferral[]>;
   getClientReferral(id: string): Promise<ClientReferral | undefined>;
+  getClientReferralByClientId(clientId: string): Promise<ClientReferral | undefined>;
   createClientReferral(referral: InsertClientReferral): Promise<ClientReferral>;
   updateClientReferral(id: string, referral: Partial<InsertClientReferral>): Promise<ClientReferral>;
   getReferralsBySource(sourceId: string): Promise<ClientReferral[]>;
@@ -1538,6 +1547,20 @@ export interface IStorage {
   createComplianceHotlineReport(report: InsertComplianceHotlineReport): Promise<ComplianceHotlineReport>;
   updateComplianceHotlineReport(id: string, report: Partial<InsertComplianceHotlineReport>): Promise<ComplianceHotlineReport>;
   deleteComplianceHotlineReport(id: string): Promise<void>;
+
+  // Client Special Requests
+  getClientSpecialRequests(clientId: string): Promise<ClientSpecialRequest[]>;
+  getClientSpecialRequest(id: string): Promise<ClientSpecialRequest | undefined>;
+  createClientSpecialRequest(request: InsertClientSpecialRequest): Promise<ClientSpecialRequest>;
+  updateClientSpecialRequest(id: string, request: Partial<InsertClientSpecialRequest>): Promise<ClientSpecialRequest>;
+  deleteClientSpecialRequest(id: string): Promise<void>;
+
+  // Client Spend Down
+  getClientSpendDowns(clientId: string): Promise<ClientSpendDown[]>;
+  getClientSpendDown(id: string): Promise<ClientSpendDown | undefined>;
+  createClientSpendDown(spendDown: InsertClientSpendDown): Promise<ClientSpendDown>;
+  updateClientSpendDown(id: string, spendDown: Partial<InsertClientSpendDown>): Promise<ClientSpendDown>;
+  deleteClientSpendDown(id: string): Promise<void>;
 
   getClientSatisfactionSurveys(officeId: string): Promise<ClientSatisfactionSurvey[]>;
   getClientSatisfactionSurvey(id: string): Promise<ClientSatisfactionSurvey | undefined>;
@@ -2336,6 +2359,10 @@ export class DatabaseStorage implements IStorage {
     return updatedGoal;
   }
 
+  async deleteCarePlanGoal(id: string): Promise<void> {
+    await db.delete(carePlanGoals).where(eq(carePlanGoals.id, id));
+  }
+
   // Care plan interventions operations
   async getCarePlanIntervention(id: string): Promise<CarePlanIntervention | undefined> {
     const [intervention] = await db.select().from(carePlanInterventions).where(eq(carePlanInterventions.id, id));
@@ -2362,6 +2389,10 @@ export class DatabaseStorage implements IStorage {
       .where(eq(carePlanInterventions.id, id))
       .returning();
     return updatedIntervention;
+  }
+
+  async deleteCarePlanIntervention(id: string): Promise<void> {
+    await db.delete(carePlanInterventions).where(eq(carePlanInterventions.id, id));
   }
 
   // Progress notes operations
@@ -7715,6 +7746,13 @@ export class DatabaseStorage implements IStorage {
     return referral;
   }
 
+  async getClientReferralByClientId(clientId: string): Promise<ClientReferral | undefined> {
+    const [referral] = await db.select().from(clientReferrals)
+      .where(eq(clientReferrals.clientId, clientId))
+      .orderBy(desc(clientReferrals.createdAt));
+    return referral;
+  }
+
   async createClientReferral(referral: InsertClientReferral): Promise<ClientReferral> {
     const [created] = await db.insert(clientReferrals).values(referral).returning();
     return created;
@@ -9318,6 +9356,64 @@ export class DatabaseStorage implements IStorage {
 
   async deleteComplianceHotlineReport(id: string): Promise<void> {
     await db.delete(complianceHotlineReports).where(eq(complianceHotlineReports.id, id));
+  }
+
+  // ─── Client Special Requests ────────────────────────────────────────────────
+  async getClientSpecialRequests(clientId: string): Promise<ClientSpecialRequest[]> {
+    return db.select().from(clientSpecialRequests)
+      .where(eq(clientSpecialRequests.clientId, clientId))
+      .orderBy(desc(clientSpecialRequests.requestedDate));
+  }
+
+  async getClientSpecialRequest(id: string): Promise<ClientSpecialRequest | undefined> {
+    const [row] = await db.select().from(clientSpecialRequests).where(eq(clientSpecialRequests.id, id));
+    return row;
+  }
+
+  async createClientSpecialRequest(request: InsertClientSpecialRequest): Promise<ClientSpecialRequest> {
+    const [row] = await db.insert(clientSpecialRequests).values(request).returning();
+    return row;
+  }
+
+  async updateClientSpecialRequest(id: string, request: Partial<InsertClientSpecialRequest>): Promise<ClientSpecialRequest> {
+    const [row] = await db.update(clientSpecialRequests)
+      .set({ ...request, updatedAt: new Date() })
+      .where(eq(clientSpecialRequests.id, id))
+      .returning();
+    return row;
+  }
+
+  async deleteClientSpecialRequest(id: string): Promise<void> {
+    await db.delete(clientSpecialRequests).where(eq(clientSpecialRequests.id, id));
+  }
+
+  // ─── Client Spend Down ───────────────────────────────────────────────────────
+  async getClientSpendDowns(clientId: string): Promise<ClientSpendDown[]> {
+    return db.select().from(clientSpendDowns)
+      .where(eq(clientSpendDowns.clientId, clientId))
+      .orderBy(desc(clientSpendDowns.periodStart));
+  }
+
+  async getClientSpendDown(id: string): Promise<ClientSpendDown | undefined> {
+    const [row] = await db.select().from(clientSpendDowns).where(eq(clientSpendDowns.id, id));
+    return row;
+  }
+
+  async createClientSpendDown(spendDown: InsertClientSpendDown): Promise<ClientSpendDown> {
+    const [row] = await db.insert(clientSpendDowns).values(spendDown).returning();
+    return row;
+  }
+
+  async updateClientSpendDown(id: string, spendDown: Partial<InsertClientSpendDown>): Promise<ClientSpendDown> {
+    const [row] = await db.update(clientSpendDowns)
+      .set({ ...spendDown, updatedAt: new Date() })
+      .where(eq(clientSpendDowns.id, id))
+      .returning();
+    return row;
+  }
+
+  async deleteClientSpendDown(id: string): Promise<void> {
+    await db.delete(clientSpendDowns).where(eq(clientSpendDowns.id, id));
   }
 
   async getClientSatisfactionSurveys(officeId: string): Promise<ClientSatisfactionSurvey[]> {

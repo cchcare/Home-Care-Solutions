@@ -843,6 +843,92 @@ export async function ensureComplianceProgramSchema() {
   }
 }
 
+// Client profile fixes: Special Requests + Spend Down tracking, added when the
+// client profile's stub sections were built out. Same self-heal pattern.
+let clientProfileSchemaReady = false;
+export async function ensureClientProfileSchema() {
+  if (clientProfileSchemaReady) return;
+  const client = await pool.connect();
+  try {
+    const ready = await client.query(`
+      SELECT EXISTS (
+        SELECT 1 FROM information_schema.tables WHERE table_name = 'client_profile_init_marker'
+      ) AS marker_exists;
+    `);
+    if (ready.rows[0]?.marker_exists) {
+      clientProfileSchemaReady = true;
+      return;
+    }
+
+    await client.query(`DO $$ BEGIN
+      CREATE TYPE special_request_category AS ENUM (
+        'dietary', 'scheduling', 'communication', 'care_preference', 'equipment', 'other'
+      );
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$;`);
+    await client.query(`DO $$ BEGIN
+      CREATE TYPE special_request_priority AS ENUM ('low', 'medium', 'high');
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$;`);
+    await client.query(`DO $$ BEGIN
+      CREATE TYPE special_request_status AS ENUM ('open', 'in_progress', 'completed', 'declined');
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$;`);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS client_special_requests (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        client_id varchar NOT NULL REFERENCES clients(id),
+        office_id varchar REFERENCES offices(id),
+        category special_request_category NOT NULL,
+        description text NOT NULL,
+        requested_date timestamp NOT NULL,
+        requested_by varchar,
+        priority special_request_priority DEFAULT 'medium',
+        status special_request_status NOT NULL DEFAULT 'open',
+        resolution_notes text,
+        resolved_at timestamp,
+        resolved_by varchar REFERENCES users(id),
+        created_by varchar REFERENCES users(id),
+        created_at timestamp DEFAULT NOW(),
+        updated_at timestamp DEFAULT NOW()
+      );
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_special_requests_client ON client_special_requests (client_id);`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_special_requests_status ON client_special_requests (status);`);
+
+    await client.query(`DO $$ BEGIN
+      CREATE TYPE spend_down_status AS ENUM ('not_met', 'partially_met', 'met');
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$;`);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS client_spend_downs (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        client_id varchar NOT NULL REFERENCES clients(id),
+        office_id varchar REFERENCES offices(id),
+        period_start timestamp NOT NULL,
+        period_end timestamp NOT NULL,
+        spend_down_amount numeric(10,2) NOT NULL,
+        amount_met numeric(10,2) DEFAULT 0,
+        status spend_down_status NOT NULL DEFAULT 'not_met',
+        met_date timestamp,
+        document_id varchar REFERENCES documents(id),
+        notes text,
+        created_by varchar REFERENCES users(id),
+        created_at timestamp DEFAULT NOW(),
+        updated_at timestamp DEFAULT NOW()
+      );
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_spend_down_client ON client_spend_downs (client_id);`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_spend_down_period ON client_spend_downs (period_start, period_end);`);
+
+    await client.query(`CREATE TABLE IF NOT EXISTS client_profile_init_marker (initialized_at timestamp DEFAULT NOW());`);
+    clientProfileSchemaReady = true;
+    console.log("[Init] client profile schema (special requests, spend downs) ensured.");
+  } catch (err) {
+    console.error("[Init] ensureClientProfileSchema failed (non-fatal):", err);
+  } finally {
+    client.release();
+  }
+}
+
 // Guards runProductionInit() so it can only ever execute once per database,
 // no matter how many times the app restarts with INIT_PRODUCTION_DB=true left
 // set. Without this marker, every reboot/redeploy that inherited the env var

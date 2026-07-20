@@ -94,6 +94,12 @@ import type { Client, Document, Office, Mco, User as UserType, ClientCommunicati
 import { EmailDocumentDialog } from "@/components/email-document-dialog";
 import { AddressInput } from "@/components/address-input";
 import { ClientNoticesSection } from "@/components/client-notices-section";
+import { ClientAuthorizationsSection } from "@/components/client-authorizations-section";
+import { ClientSpecialRequestsSection } from "@/components/client-special-requests-section";
+import { ClientSpendDownSection } from "@/components/client-spend-down-section";
+import { ClientReferralSection } from "@/components/client-referral-section";
+import { ClientVisitsSection } from "@/components/client-visits-section";
+import { ClientPocSection } from "@/components/client-poc-section";
 
 const DOCUMENT_CATEGORIES = [
   { value: "id_card", label: "ID Card" },
@@ -2103,33 +2109,23 @@ export default function ClientProfile() {
               </Dialog>
 
               {/* Visits Section */}
-              {activeSection === "visits" && (
+              {activeSection === "visits" && clientId && (
                 <div className="space-y-6">
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="flex items-center gap-2">
-                        <Clock className="w-5 h-5" />
-                        Visits
-                      </CardTitle>
-                      <CardDescription>View and manage client visits</CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                      <p className="text-muted-foreground text-center py-8">Visits tracking coming soon</p>
-                    </CardContent>
-                  </Card>
+                  <ClientVisitsSection clientId={clientId} />
                 </div>
               )}
 
               {/* POC Section */}
               {activeSection === "poc" && (
                 <div className="space-y-6">
+                  {clientId && <ClientPocSection clientId={clientId} />}
                   <Card>
                     <CardHeader>
                       <CardTitle className="flex items-center gap-2">
                         <FileText className="w-5 h-5" />
-                        Plan of Care (POC)
+                        Plan of Care Documents
                       </CardTitle>
-                      <CardDescription>Manage client's plan of care documents</CardDescription>
+                      <CardDescription>Signed POC forms, physician orders, and related documents.</CardDescription>
                     </CardHeader>
                     <CardContent>
                       <div className="mb-6 p-4 border rounded-lg bg-muted/50">
@@ -2229,38 +2225,16 @@ export default function ClientProfile() {
               )}
 
               {/* Spend Down Section */}
-              {activeSection === "spend-down" && (
+              {activeSection === "spend-down" && clientId && (
                 <div className="space-y-6">
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="flex items-center gap-2">
-                        <Wallet className="w-5 h-5" />
-                        Spend Down
-                      </CardTitle>
-                      <CardDescription>Track client spend down information</CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                      <p className="text-muted-foreground text-center py-8">Spend down tracking coming soon</p>
-                    </CardContent>
-                  </Card>
+                  <ClientSpendDownSection clientId={clientId} />
                 </div>
               )}
 
               {/* Referral Member Info Section */}
-              {activeSection === "referral" && (
+              {activeSection === "referral" && clientId && (
                 <div className="space-y-6">
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="flex items-center gap-2">
-                        <UserPlus className="w-5 h-5" />
-                        Referral Member Info
-                      </CardTitle>
-                      <CardDescription>Manage referral and member information</CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                      <p className="text-muted-foreground text-center py-8">Referral member information coming soon</p>
-                    </CardContent>
-                  </Card>
+                  <ClientReferralSection clientId={clientId} />
                 </div>
               )}
 
@@ -2838,38 +2812,15 @@ export default function ClientProfile() {
               )}
 
               {/* Auth/Orders Section */}
-              {activeSection === "auth-orders" && (
+              {activeSection === "auth-orders" && clientId && (
                 <div className="space-y-6">
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="flex items-center gap-2">
-                        <ClipboardList className="w-5 h-5" />
-                        Authorizations & Orders
-                      </CardTitle>
-                      <CardDescription>Manage client authorizations and orders</CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                      <p className="text-muted-foreground text-center py-8">Authorizations and orders management coming soon</p>
-                    </CardContent>
-                  </Card>
+                  <ClientAuthorizationsSection clientId={clientId} officeId={client?.officeId} />
                 </div>
               )}
 
-              {/* Special Requests Section */}
-              {activeSection === "special-requests" && (
+              {activeSection === "special-requests" && clientId && (
                 <div className="space-y-6">
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="flex items-center gap-2">
-                        <Star className="w-5 h-5" />
-                        Special Requests
-                      </CardTitle>
-                      <CardDescription>Manage special requests for this client</CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                      <p className="text-muted-foreground text-center py-8">Special requests management coming soon</p>
-                    </CardContent>
-                  </Card>
+                  <ClientSpecialRequestsSection clientId={clientId} />
                 </div>
               )}
 

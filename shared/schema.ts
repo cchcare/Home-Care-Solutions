@@ -5434,3 +5434,81 @@ export const complianceHotlineReportsRelations = relations(complianceHotlineRepo
 export type ComplianceHotlineReport = typeof complianceHotlineReports.$inferSelect;
 export type InsertComplianceHotlineReport = typeof complianceHotlineReports.$inferInsert;
 export const insertComplianceHotlineReportSchema = createInsertSchema(complianceHotlineReports).omit({ id: true, createdAt: true, updatedAt: true });
+
+// ─── Client Special Requests ────────────────────────────────────────────────
+// Ad hoc client/family requests distinct from formal care-plan interventions —
+// dietary, scheduling, communication preference, equipment, etc.
+export const specialRequestCategoryEnum = pgEnum("special_request_category", [
+  "dietary", "scheduling", "communication", "care_preference", "equipment", "other",
+]);
+export const specialRequestPriorityEnum = pgEnum("special_request_priority", ["low", "medium", "high"]);
+export const specialRequestStatusEnum = pgEnum("special_request_status", ["open", "in_progress", "completed", "declined"]);
+
+export const clientSpecialRequests = pgTable("client_special_requests", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  clientId: varchar("client_id").references(() => clients.id).notNull(),
+  officeId: varchar("office_id").references(() => offices.id),
+  category: specialRequestCategoryEnum("category").notNull(),
+  description: text("description").notNull(),
+  requestedDate: timestamp("requested_date").notNull(),
+  requestedBy: varchar("requested_by"), // free text — client, family member name, etc.
+  priority: specialRequestPriorityEnum("priority").default("medium"),
+  status: specialRequestStatusEnum("status").default("open").notNull(),
+  resolutionNotes: text("resolution_notes"),
+  resolvedAt: timestamp("resolved_at"),
+  resolvedBy: varchar("resolved_by").references(() => users.id),
+  createdBy: varchar("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_special_requests_client").on(table.clientId),
+  index("idx_special_requests_status").on(table.status),
+]);
+
+export const clientSpecialRequestsRelations = relations(clientSpecialRequests, ({ one }) => ({
+  client: one(clients, { fields: [clientSpecialRequests.clientId], references: [clients.id] }),
+  office: one(offices, { fields: [clientSpecialRequests.officeId], references: [offices.id] }),
+  resolvedByUser: one(users, { fields: [clientSpecialRequests.resolvedBy], references: [users.id] }),
+  createdByUser: one(users, { fields: [clientSpecialRequests.createdBy], references: [users.id] }),
+}));
+
+export type ClientSpecialRequest = typeof clientSpecialRequests.$inferSelect;
+export type InsertClientSpecialRequest = typeof clientSpecialRequests.$inferInsert;
+export const insertClientSpecialRequestSchema = createInsertSchema(clientSpecialRequests).omit({ id: true, createdAt: true, updatedAt: true });
+
+// ─── Client Spend Down (PA Medicaid) ─────────────────────────────────────────
+// Tracks the monthly income amount a client must incur in medical expenses
+// before Medicaid coverage activates for that period ("spend-down"/"excess
+// income" program). One row per tracked period.
+export const spendDownStatusEnum = pgEnum("spend_down_status", ["not_met", "partially_met", "met"]);
+
+export const clientSpendDowns = pgTable("client_spend_downs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  clientId: varchar("client_id").references(() => clients.id).notNull(),
+  officeId: varchar("office_id").references(() => offices.id),
+  periodStart: timestamp("period_start").notNull(),
+  periodEnd: timestamp("period_end").notNull(),
+  spendDownAmount: numeric("spend_down_amount", { precision: 10, scale: 2 }).notNull(),
+  amountMet: numeric("amount_met", { precision: 10, scale: 2 }).default("0"),
+  status: spendDownStatusEnum("status").default("not_met").notNull(),
+  metDate: timestamp("met_date"),
+  documentId: varchar("document_id").references(() => documents.id), // receipts/proof of spend-down
+  notes: text("notes"),
+  createdBy: varchar("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_spend_down_client").on(table.clientId),
+  index("idx_spend_down_period").on(table.periodStart, table.periodEnd),
+]);
+
+export const clientSpendDownsRelations = relations(clientSpendDowns, ({ one }) => ({
+  client: one(clients, { fields: [clientSpendDowns.clientId], references: [clients.id] }),
+  office: one(offices, { fields: [clientSpendDowns.officeId], references: [offices.id] }),
+  document: one(documents, { fields: [clientSpendDowns.documentId], references: [documents.id] }),
+  createdByUser: one(users, { fields: [clientSpendDowns.createdBy], references: [users.id] }),
+}));
+
+export type ClientSpendDown = typeof clientSpendDowns.$inferSelect;
+export type InsertClientSpendDown = typeof clientSpendDowns.$inferInsert;
+export const insertClientSpendDownSchema = createInsertSchema(clientSpendDowns).omit({ id: true, createdAt: true, updatedAt: true });
