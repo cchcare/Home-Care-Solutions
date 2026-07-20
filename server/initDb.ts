@@ -846,6 +846,7 @@ export async function ensureComplianceProgramSchema() {
 // Client profile fixes: Special Requests + Spend Down tracking, added when the
 // client profile's stub sections were built out. Same self-heal pattern.
 let clientProfileSchemaReady = false;
+let staffPerformancePtoSchemaReady = false;
 export async function ensureClientProfileSchema() {
   if (clientProfileSchemaReady) return;
   const client = await pool.connect();
@@ -924,6 +925,38 @@ export async function ensureClientProfileSchema() {
     console.log("[Init] client profile schema (special requests, spend downs) ensured.");
   } catch (err) {
     console.error("[Init] ensureClientProfileSchema failed (non-fatal):", err);
+  } finally {
+    client.release();
+  }
+}
+
+// Extends performance_reviews and pto_balances (previously caregiver-only)
+// to also support internal office staff, reviewed/tracked via users.id.
+export async function ensureStaffPerformancePtoSchema() {
+  if (staffPerformancePtoSchemaReady) return;
+  const client = await pool.connect();
+  try {
+    const ready = await client.query(`
+      SELECT EXISTS (
+        SELECT 1 FROM information_schema.tables WHERE table_name = 'staff_performance_pto_init_marker'
+      ) AS marker_exists;
+    `);
+    if (ready.rows[0]?.marker_exists) {
+      staffPerformancePtoSchemaReady = true;
+      return;
+    }
+
+    await client.query(`ALTER TABLE performance_reviews ALTER COLUMN caregiver_id DROP NOT NULL;`);
+    await client.query(`ALTER TABLE performance_reviews ADD COLUMN IF NOT EXISTS user_id varchar REFERENCES users(id);`);
+
+    await client.query(`ALTER TABLE pto_balances ALTER COLUMN caregiver_id DROP NOT NULL;`);
+    await client.query(`ALTER TABLE pto_balances ADD COLUMN IF NOT EXISTS user_id varchar REFERENCES users(id);`);
+
+    await client.query(`CREATE TABLE IF NOT EXISTS staff_performance_pto_init_marker (initialized_at timestamp DEFAULT NOW());`);
+    staffPerformancePtoSchemaReady = true;
+    console.log("[Init] staff performance review / PTO balance schema ensured.");
+  } catch (err) {
+    console.error("[Init] ensureStaffPerformancePtoSchema failed (non-fatal):", err);
   } finally {
     client.release();
   }

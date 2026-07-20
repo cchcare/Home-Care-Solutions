@@ -2867,7 +2867,10 @@ export const performanceReviewStatusEnum = pgEnum("performance_review_status", [
 
 export const performanceReviews = pgTable("performance_reviews", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  caregiverId: varchar("caregiver_id").references(() => caregivers.id).notNull(),
+  // Exactly one of caregiverId/userId identifies the reviewed employee —
+  // caregiverId for field caregivers, userId for internal office staff.
+  caregiverId: varchar("caregiver_id").references(() => caregivers.id),
+  userId: varchar("user_id").references(() => users.id),
   reviewerId: varchar("reviewer_id").references(() => users.id).notNull(),
   reviewType: performanceReviewTypeEnum("review_type").notNull(),
   reviewPeriodStart: timestamp("review_period_start"),
@@ -2890,6 +2893,7 @@ export const performanceReviews = pgTable("performance_reviews", {
 
 export const performanceReviewsRelations = relations(performanceReviews, ({ one, many }) => ({
   caregiver: one(caregivers, { fields: [performanceReviews.caregiverId], references: [caregivers.id] }),
+  employeeUser: one(users, { fields: [performanceReviews.userId], references: [users.id] }),
   reviewer: one(users, { fields: [performanceReviews.reviewerId], references: [users.id] }),
   acknowledgedByUser: one(users, { fields: [performanceReviews.acknowledgedBy], references: [users.id] }),
   metrics: many(performanceMetrics),
@@ -2969,7 +2973,11 @@ export const ptoTypeEnum = pgEnum("pto_type", ["vacation", "sick", "personal"]);
 // PTO Balances table
 export const ptoBalances = pgTable("pto_balances", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  caregiverId: varchar("caregiver_id").references(() => caregivers.id).notNull(),
+  // Exactly one of caregiverId/userId identifies the employee — caregiverId
+  // for field caregivers (with the full accrual-ledger engine), userId for
+  // internal office staff (tracked as simple manual balances).
+  caregiverId: varchar("caregiver_id").references(() => caregivers.id),
+  userId: varchar("user_id").references(() => users.id),
   year: integer("year").notNull(),
   ptoType: ptoTypeEnum("pto_type").notNull(),
   accrued: numeric("accrued", { precision: 10, scale: 2 }).default("0"),
@@ -2982,6 +2990,7 @@ export const ptoBalances = pgTable("pto_balances", {
 
 export const ptoBalancesRelations = relations(ptoBalances, ({ one }) => ({
   caregiver: one(caregivers, { fields: [ptoBalances.caregiverId], references: [caregivers.id] }),
+  employeeUser: one(users, { fields: [ptoBalances.userId], references: [users.id] }),
 }));
 
 export type PtoBalance = typeof ptoBalances.$inferSelect;

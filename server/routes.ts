@@ -15450,7 +15450,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Non-admins can only see reviews they conduct or are the subject of.
         const myCaregiver = await storage.getCaregiverByUserId(user.id).catch(() => null);
         const myCgId = myCaregiver?.id;
-        reviews = reviews.filter(r => r.reviewerId === user.id || (myCgId && r.caregiverId === myCgId));
+        reviews = reviews.filter(r => r.reviewerId === user.id || (myCgId && r.caregiverId === myCgId) || r.userId === user.id);
       }
       if (status) {
         const statuses = status.split(",");
@@ -15531,8 +15531,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const adminRoles = ["super_admin", "admin", "office_admin", "manager"];
       const isAdmin = adminRoles.includes(user.role);
       if (!isAdmin && review.reviewerId !== user.id) {
-        const myCaregiver = await storage.getCaregiverByUserId(user.id).catch(() => null);
-        if (!myCaregiver || myCaregiver.id !== review.caregiverId) {
+        const isReviewedUser = review.userId === user.id;
+        let isReviewedCaregiver = false;
+        if (!isReviewedUser && review.caregiverId) {
+          const myCaregiver = await storage.getCaregiverByUserId(user.id).catch(() => null);
+          isReviewedCaregiver = !!myCaregiver && myCaregiver.id === review.caregiverId;
+        }
+        if (!isReviewedUser && !isReviewedCaregiver) {
           return res.status(403).json({ message: "Access denied" });
         }
       }
@@ -15540,6 +15545,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error fetching performance review:", error);
       res.status(500).json({ message: "Failed to fetch performance review" });
+    }
+  });
+
+  // Performance reviews for a specific staff member (used by the Staff Profile page)
+  app.get("/api/users/:userId/performance-reviews", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      if (!user) return res.status(401).json({ message: "Unauthorized" });
+      const adminRoles = ["super_admin", "admin", "office_admin", "manager"];
+      const isAdmin = adminRoles.includes(user.role);
+      if (!isAdmin && user.id !== req.params.userId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      const reviews = await storage.getPerformanceReviewsByUser(req.params.userId);
+      res.json(reviews);
+    } catch (error) {
+      console.error("Error fetching staff performance reviews:", error);
+      res.status(500).json({ message: "Failed to fetch performance reviews" });
     }
   });
 
@@ -15614,6 +15637,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const review = await storage.getPerformanceReview(reviewId);
     if (!review) return false;
     if (review.reviewerId === user.id) return true;
+    if (review.userId) {
+      if (review.userId === user.id) return true;
+      const reviewedUser = await storage.getUser(review.userId);
+      return canAccessOffice(req, reviewedUser?.primaryOfficeId);
+    }
+    if (!review.caregiverId) return false;
     const caregiver = await storage.getCaregiver(review.caregiverId);
     if (caregiver?.userId && caregiver.userId === user.id) return true;
     return canAccessOffice(req, caregiver?.officeId);
@@ -15680,14 +15709,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!review) {
         return res.status(404).json({ message: "Performance review not found" });
       }
-      // Only the caregiver the review is about may acknowledge it. Ignore any
-      // client-supplied caregiverId (that let a caller acknowledge as someone
-      // else); use the review's own caregiverId.
-      const reviewCaregiver = await storage.getCaregiver(review.caregiverId);
-      if (!reviewCaregiver || reviewCaregiver.userId !== req.session?.user?.id) {
-        return res.status(403).json({ message: "Only the reviewed caregiver may acknowledge this review" });
+      // Only the person the review is about may acknowledge it. Ignore any
+      // client-supplied id (that let a caller acknowledge as someone else);
+      // use the review's own caregiverId/userId.
+      let acknowledgerId: string;
+      if (review.userId) {
+        if (review.userId !== req.session?.user?.id) {
+          return res.status(403).json({ message: "Only the reviewed staff member may acknowledge this review" });
+        }
+        acknowledgerId = review.userId;
+      } else {
+        if (!review.caregiverId) {
+          return res.status(400).json({ message: "Review is not associated with a caregiver or staff member" });
+        }
+        const reviewCaregiver = await storage.getCaregiver(review.caregiverId);
+        if (!reviewCaregiver || reviewCaregiver.userId !== req.session?.user?.id) {
+          return res.status(403).json({ message: "Only the reviewed caregiver may acknowledge this review" });
+        }
+        acknowledgerId = review.caregiverId;
       }
-      const updatedReview = await storage.acknowledgeReview(req.params.id, review.caregiverId);
+      const updatedReview = await storage.acknowledgeReview(req.params.id, acknowledgerId);
       
       await storage.createAuditLog({
         userId: req.session?.user?.id,
@@ -15759,20 +15800,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!ctx) return;
       const { user, review } = ctx;
 
-      const caregiver = await storage.getCaregiver(review.caregiverId);
-      if (!caregiver) return res.status(404).json({ message: "Caregiver not found" });
+      let recipientEmail: string | null = null;
+      let recipientName = "";
+      let recipientType: "caregiver" | "user" = "caregiver";
+      let recipientId: string;
 
-      let recipientEmail = caregiver.email || null;
-      let recipientName = `${caregiver.firstName || ""} ${caregiver.lastName || ""}`.trim();
-      if (!recipientEmail && caregiver.userId) {
-        const cgUser = await storage.getUser(caregiver.userId);
-        if (cgUser) {
-          recipientEmail = recipientEmail || cgUser.email || null;
-          if (!recipientName) recipientName = `${cgUser.firstName || ""} ${cgUser.lastName || ""}`.trim();
+      if (review.userId) {
+        const reviewedUser = await storage.getUser(review.userId);
+        if (!reviewedUser) return res.status(404).json({ message: "Staff member not found" });
+        recipientEmail = reviewedUser.email || null;
+        recipientName = `${reviewedUser.firstName || ""} ${reviewedUser.lastName || ""}`.trim();
+        recipientType = "user";
+        recipientId = reviewedUser.id;
+      } else {
+        if (!review.caregiverId) return res.status(400).json({ message: "Review is not associated with a caregiver or staff member" });
+        const caregiver = await storage.getCaregiver(review.caregiverId);
+        if (!caregiver) return res.status(404).json({ message: "Caregiver not found" });
+
+        recipientEmail = caregiver.email || null;
+        recipientName = `${caregiver.firstName || ""} ${caregiver.lastName || ""}`.trim();
+        if (!recipientEmail && caregiver.userId) {
+          const cgUser = await storage.getUser(caregiver.userId);
+          if (cgUser) {
+            recipientEmail = recipientEmail || cgUser.email || null;
+            if (!recipientName) recipientName = `${cgUser.firstName || ""} ${cgUser.lastName || ""}`.trim();
+          }
         }
+        recipientId = caregiver.id;
       }
       if (!recipientEmail) {
-        return res.status(400).json({ message: "Caregiver has no email on file. Cannot send for acknowledgement." });
+        return res.status(400).json({ message: "Employee has no email on file. Cannot send for acknowledgement." });
       }
 
       const metrics = await storage.getPerformanceMetrics(review.id);
@@ -15803,8 +15860,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         documentContent,
         recipientEmail,
         recipientName: recipientName || "Employee",
-        recipientType: "caregiver",
-        recipientId: caregiver.id,
+        recipientType,
+        recipientId,
         accessToken,
         expiresAt,
         sentBy: user.id,
@@ -16263,6 +16320,78 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error creating/updating PTO balance:", error);
       res.status(400).json({ message: "Failed to create/update PTO balance" });
+    }
+  });
+
+  // Get PTO balance for a specific staff member (basic CRUD, no accrual ledger)
+  app.get("/api/users/:id/pto-balance", isAuthenticated, async (req: any, res) => {
+    try {
+      const requester = req.session?.user;
+      if (!requester) return res.status(401).json({ message: "Unauthorized" });
+      const targetUser = await storage.getUser(req.params.id);
+      if (!targetUser) return res.status(404).json({ message: "Staff member not found" });
+      const adminRoles = ["super_admin", "admin", "office_admin", "manager", "supervisor"];
+      const isAdmin = adminRoles.includes(requester.role);
+      if (!isAdmin && requester.id !== req.params.id) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      if (isAdmin && !(await canAccessOffice(req, targetUser.primaryOfficeId))) {
+        return res.status(404).json({ message: "Staff member not found" });
+      }
+      const year = parseInt(req.query.year as string) || new Date().getFullYear();
+      const balances = await storage.getPtoBalanceByUser(req.params.id, year);
+      res.json(balances);
+    } catch (error) {
+      console.error("Error fetching staff PTO balance:", error);
+      res.status(500).json({ message: "Failed to fetch staff PTO balance" });
+    }
+  });
+
+  // Create or update PTO balance for a staff member
+  app.post("/api/users/:id/pto-balance", isAuthenticated, async (req: any, res) => {
+    try {
+      const actorRole = req.session?.user?.role;
+      if (!["super_admin", "admin", "office_admin", "supervisor"].includes(actorRole || "")) {
+        return res.status(403).json({ message: "You do not have permission to modify PTO balances" });
+      }
+      const targetUser = await storage.getUser(req.params.id);
+      if (!targetUser || !(await canAccessOffice(req, targetUser.primaryOfficeId))) {
+        return res.status(404).json({ message: "Staff member not found" });
+      }
+
+      const year = req.body.year || new Date().getFullYear();
+      const ptoType = req.body.ptoType;
+
+      const existingBalance = await storage.getPtoBalanceByTypeForUser(req.params.id, year, ptoType);
+
+      let balance;
+      if (existingBalance) {
+        balance = await storage.updatePtoBalance(existingBalance.id, req.body);
+      } else {
+        const validatedData = insertPtoBalanceSchema.parse({
+          ...req.body,
+          caregiverId: null,
+          userId: req.params.id,
+          year,
+        });
+        balance = await storage.createPtoBalance(validatedData);
+      }
+
+      await storage.createAuditLog({
+        userId: req.session?.user?.id,
+        action: existingBalance ? "update" : "create",
+        entityType: "pto_balance",
+        entityId: balance.id,
+        oldValues: existingBalance,
+        newValues: balance,
+        ipAddress: req.ip,
+        userAgent: req.get("User-Agent"),
+      });
+
+      res.status(existingBalance ? 200 : 201).json(balance);
+    } catch (error) {
+      console.error("Error creating/updating staff PTO balance:", error);
+      res.status(400).json({ message: "Failed to create/update staff PTO balance" });
     }
   });
 
@@ -22758,7 +22887,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
             });
 
             const stat = fs.statSync(filePath);
-            const caregiver = await storage.getCaregiver(review.caregiverId);
+            const caregiver = review.caregiverId ? await storage.getCaregiver(review.caregiverId) : null;
+            const reviewedUser = review.userId ? await storage.getUser(review.userId) : null;
+            const signerUserId = review.userId || caregiver?.userId || null;
             const doc = await storage.createDocument({
               fileName: fileBase,
               originalName: `Performance Review (${review.reviewType}) - signed.pdf`,
@@ -22766,19 +22897,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
               fileSize: stat.size,
               documentType: "performance_review",
               documentCategory: "performance_review",
-              caregiverId: review.caregiverId,
-              officeId: caregiver?.officeId ?? null,
+              caregiverId: review.caregiverId ?? null,
+              officeId: caregiver?.officeId ?? reviewedUser?.primaryOfficeId ?? null,
               uploadedBy: request.sentBy || review.reviewerId,
               isSignatureRequired: true,
               isSigned: true,
-              signedBy: caregiver?.userId ?? null,
+              signedBy: signerUserId,
               signedAt,
             } as any);
             signedDocumentId = doc.id;
             await storage.updatePerformanceReview(review.id, {
               status: "completed",
               acknowledgedAt: signedAt,
-              acknowledgedBy: caregiver?.userId ?? null,
+              acknowledgedBy: signerUserId,
               completedDate: signedAt,
             } as any);
           }

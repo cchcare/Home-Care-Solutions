@@ -1178,6 +1178,7 @@ export interface IStorage {
   updatePerformanceReview(id: string, review: Partial<InsertPerformanceReview>): Promise<PerformanceReview>;
   getPerformanceReview(id: string): Promise<PerformanceReview | undefined>;
   getPerformanceReviewsByCaregiver(caregiverId: string): Promise<PerformanceReview[]>;
+  getPerformanceReviewsByUser(userId: string): Promise<PerformanceReview[]>;
   getPerformanceReviewsByReviewer(reviewerId: string): Promise<PerformanceReview[]>;
   getAllPerformanceReviews(): Promise<PerformanceReview[]>;
   getUpcomingReviews(daysAhead: number): Promise<PerformanceReview[]>;
@@ -1215,6 +1216,8 @@ export interface IStorage {
   // PTO Balance operations
   getPtoBalance(caregiverId: string, year: number): Promise<PtoBalance[]>;
   getPtoBalanceByType(caregiverId: string, year: number, ptoType: string): Promise<PtoBalance | undefined>;
+  getPtoBalanceByUser(userId: string, year: number): Promise<PtoBalance[]>;
+  getPtoBalanceByTypeForUser(userId: string, year: number, ptoType: string): Promise<PtoBalance | undefined>;
   createPtoBalance(balance: InsertPtoBalance): Promise<PtoBalance>;
   updatePtoBalance(id: string, balance: Partial<InsertPtoBalance>): Promise<PtoBalance>;
 
@@ -6662,6 +6665,14 @@ export class DatabaseStorage implements IStorage {
       .orderBy(desc(performanceReviews.createdAt));
   }
 
+  async getPerformanceReviewsByUser(userId: string): Promise<PerformanceReview[]> {
+    return await db
+      .select()
+      .from(performanceReviews)
+      .where(eq(performanceReviews.userId, userId))
+      .orderBy(desc(performanceReviews.createdAt));
+  }
+
   async getPerformanceReviewsByReviewer(reviewerId: string): Promise<PerformanceReview[]> {
     return await db
       .select()
@@ -6905,6 +6916,28 @@ export class DatabaseStorage implements IStorage {
       .from(ptoBalances)
       .where(and(
         eq(ptoBalances.caregiverId, caregiverId),
+        eq(ptoBalances.year, year),
+        eq(ptoBalances.ptoType, ptoType as any)
+      ));
+    return balance;
+  }
+
+  async getPtoBalanceByUser(userId: string, year: number): Promise<PtoBalance[]> {
+    return await db
+      .select()
+      .from(ptoBalances)
+      .where(and(
+        eq(ptoBalances.userId, userId),
+        eq(ptoBalances.year, year)
+      ));
+  }
+
+  async getPtoBalanceByTypeForUser(userId: string, year: number, ptoType: string): Promise<PtoBalance | undefined> {
+    const [balance] = await db
+      .select()
+      .from(ptoBalances)
+      .where(and(
+        eq(ptoBalances.userId, userId),
         eq(ptoBalances.year, year),
         eq(ptoBalances.ptoType, ptoType as any)
       ));
