@@ -162,7 +162,7 @@ export async function getComplianceInsights(officeId?: string): Promise<Complian
 
   try {
     const response = await openai.chat.completions.create({
-      model: "gpt-4o",
+      model: "gpt-5",
       messages: [
         {
           role: "system",
@@ -181,7 +181,7 @@ export async function getComplianceInsights(officeId?: string): Promise<Complian
         },
       ],
       response_format: { type: "json_object" },
-      max_tokens: 2000,
+      max_completion_tokens: 2000,
     });
 
     const parsed = JSON.parse(response.choices[0]?.message?.content || "{}");
