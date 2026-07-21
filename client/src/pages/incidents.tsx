@@ -1203,7 +1203,11 @@ export default function IncidentsPage() {
       {/* Incidents List */}
       <div className="space-y-4">
         {isLoading ? (
-          <div className="text-center py-8">Loading incidents...</div>
+          <div className="space-y-4">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} className="h-32 bg-muted rounded-lg animate-pulse" />
+            ))}
+          </div>
         ) : filteredIncidents.length === 0 ? (
           <Card>
             <CardContent className="pt-6">

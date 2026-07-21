@@ -344,11 +344,15 @@ export default function Documents() {
                     </thead>
                     <tbody className="divide-y divide-border">
                       {isLoading ? (
-                        <tr>
-                          <td colSpan={6} className="p-8 text-center text-muted-foreground">
-                            Loading documents...
-                          </td>
-                        </tr>
+                        Array.from({ length: 5 }).map((_, i) => (
+                          <tr key={i}>
+                            {Array.from({ length: 6 }).map((__, j) => (
+                              <td key={j} className="p-4">
+                                <div className="h-4 bg-muted rounded animate-pulse" />
+                              </td>
+                            ))}
+                          </tr>
+                        ))
                       ) : filteredDocuments.length > 0 ? (
                         filteredDocuments.map((document: Document) => (
                           <tr key={document.id} className="hover:bg-muted/25 transition-colors" data-testid={`row-document-${document.id}`}>
@@ -434,11 +438,22 @@ export default function Documents() {
                         ))
                       ) : (
                         <tr>
-                          <td colSpan={6} className="p-8 text-center text-muted-foreground">
-                            {searchTerm || selectedDocumentType !== "all" 
-                              ? "No documents found matching your criteria" 
-                              : "No documents uploaded yet"
-                            }
+                          <td colSpan={6} className="p-8">
+                            <div className="flex flex-col items-center text-center">
+                              <div className="w-14 h-14 bg-muted rounded-full flex items-center justify-center mb-3">
+                                <FileText className="h-7 w-7 text-muted-foreground/60" />
+                              </div>
+                              <p className="text-sm font-semibold text-foreground">
+                                {searchTerm || selectedDocumentType !== "all"
+                                  ? "No documents match your search"
+                                  : "No documents uploaded yet"}
+                              </p>
+                              <p className="text-sm text-muted-foreground mt-1">
+                                {searchTerm || selectedDocumentType !== "all"
+                                  ? "Try a different search term or document type."
+                                  : "Upload your first document to get started."}
+                              </p>
+                            </div>
                           </td>
                         </tr>
                       )}
