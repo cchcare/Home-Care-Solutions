@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { TableSkeletonRows, ListSkeleton } from "@/components/ui/loading-states";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Sidebar } from "@/components/sidebar";
 import { TopBar } from "@/components/topbar";
@@ -157,7 +158,7 @@ function CaregiverPayrollTab({ periodId, canEdit }: { periodId: string; canEdit:
             </TableRow>
           </TableHeader>
           <TableBody>
-            {isLoading ? <TableRow><TableCell colSpan={8} className="text-center py-8 text-muted-foreground">Loading…</TableCell></TableRow>
+            {isLoading ? <TableSkeletonRows rows={5} cols={8} />
               : rows.length === 0 ? <TableRow><TableCell colSpan={8} className="text-center py-8 text-muted-foreground">No hours recorded in this period.</TableCell></TableRow>
               : rows.map((r) => (
                 <TableRow key={r.caregiverId} data-testid={`cg-row-${r.caregiverId}`}>
@@ -205,7 +206,7 @@ function CoordinatorPayrollTab({ periodId, canEdit }: { periodId: string; canEdi
     onError: (e: any) => toast({ title: "Save failed", description: e.message, variant: "destructive" }),
   });
 
-  if (isLoading) return <Card><CardContent className="py-8 text-center text-muted-foreground">Loading…</CardContent></Card>;
+  if (isLoading) return <Card><CardContent className="py-6"><ListSkeleton rows={4} rowHeight="h-10" /></CardContent></Card>;
   if (blocks.length === 0) return <Card><CardContent className="py-8 text-center text-muted-foreground">No coordinators found for this office.</CardContent></Card>;
 
   return (
@@ -390,7 +391,7 @@ function ScheduleTab({ period, canEdit }: { period: CompPayrollPeriod; canEdit: 
               </TableRow>
             </TableHeader>
             <TableBody>
-              {isLoading ? <TableRow><TableCell colSpan={5} className="text-center py-8 text-muted-foreground">Loading…</TableCell></TableRow>
+              {isLoading ? <TableSkeletonRows rows={5} cols={5} />
                 : entries.length === 0 ? <TableRow><TableCell colSpan={5} className="text-center py-8 text-muted-foreground">No entries yet. Add one above or import a spreadsheet.</TableCell></TableRow>
                 : entries.map((e) => (
                   <TableRow key={e.id} data-testid={`entry-${e.id}`}>

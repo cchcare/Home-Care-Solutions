@@ -9,8 +9,10 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { EmptyState } from "@/components/ui/empty-state";
+import { ListSkeleton } from "@/components/ui/loading-states";
 import { useToast } from "@/hooks/use-toast";
-import { Download, Play, Search, History } from "lucide-react";
+import { Download, Play, Search, History, Wallet } from "lucide-react";
 import { format } from "date-fns";
 
 type BalanceRow = {
@@ -158,9 +160,13 @@ export default function PtoBalances() {
         </CardHeader>
         <CardContent>
           {isLoading ? (
-            <p className="text-muted-foreground py-8 text-center">Loading…</p>
+            <ListSkeleton rows={6} rowHeight="h-10" />
           ) : filtered.length === 0 ? (
-            <p className="text-muted-foreground py-8 text-center">No caregivers match the filters.</p>
+            <EmptyState
+              icon={Wallet}
+              title="No matching caregivers"
+              description="No caregivers match the current filters. Try adjusting the office, threshold, or search."
+            />
           ) : (
             <Table>
               <TableHeader>

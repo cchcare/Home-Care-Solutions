@@ -592,10 +592,18 @@ export default function Dashboard() {
                 </CardHeader>
                 <CardContent className="p-4">
                   {quickLinksLoading ? (
-                    <div className="text-center text-muted-foreground py-4">Loading...</div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+                      {Array.from({ length: 4 }).map((_, i) => (
+                        <div key={i} className="h-16 bg-muted rounded-lg animate-pulse" />
+                      ))}
+                    </div>
                   ) : quickLinks.length === 0 ? (
-                    <div className="text-center text-muted-foreground py-4">
-                      No quick links configured. {isOfficeManager && "Click 'Add Link' to add your first link."}
+                    <div className="text-center py-6">
+                      <Globe className="w-8 h-8 text-muted-foreground/30 mx-auto mb-2" />
+                      <p className="text-sm font-medium text-foreground">No quick links yet</p>
+                      {isOfficeManager && (
+                        <p className="text-xs text-muted-foreground mt-1">Click "Add Link" to add your first link.</p>
+                      )}
                     </div>
                   ) : (
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">

@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Sidebar } from "@/components/sidebar";
 import { TopBar } from "@/components/topbar";
 import { apiRequest } from "@/lib/queryClient";
+import { ListSkeleton } from "@/components/ui/loading-states";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -380,7 +381,7 @@ export default function ExpirationAlerts() {
 
               <TabsContent value="upcoming">
                 {expirationsLoading ? (
-                  <div className="text-center py-8 text-gray-500">Loading...</div>
+                  <ListSkeleton rows={4} rowHeight="h-20" />
                 ) : (
                   <div className="space-y-6">
                     {expiringToday.length > 0 && (

@@ -10,9 +10,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Sidebar } from "@/components/sidebar";
 import { TopBar } from "@/components/topbar";
+import { EmptyState } from "@/components/ui/empty-state";
+import { TableSkeletonRows } from "@/components/ui/loading-states";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
-import { Plus, Edit, Trash2, Users, X } from "lucide-react";
+import { Plus, Edit, Trash2, Users, UserCog, X } from "lucide-react";
 import type { Coordinator, Caregiver, Office } from "@shared/schema";
 
 interface FormState {
@@ -122,24 +124,37 @@ export default function Coordinators() {
                 </TableHeader>
                 <TableBody>
                   {isLoading ? (
-                    <TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground">Loading…</TableCell></TableRow>
+                    <TableSkeletonRows rows={5} cols={6} />
                   ) : coordinators.length === 0 ? (
-                    <TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground">No coordinators yet. Add one to get started.</TableCell></TableRow>
+                    <TableRow>
+                      <TableCell colSpan={6} className="p-0">
+                        <EmptyState
+                          icon={UserCog}
+                          title="No coordinators yet"
+                          description="Coordinators manage caregiver assignments and compensation."
+                          action={isManager ? (
+                            <Button size="sm" onClick={openCreate}>
+                              <Plus className="mr-2 h-4 w-4" /> Add your first coordinator
+                            </Button>
+                          ) : undefined}
+                        />
+                      </TableCell>
+                    </TableRow>
                   ) : coordinators.map((c) => (
-                    <TableRow key={c.id} data-testid={`row-coordinator-${c.id}`}>
+                    <TableRow key={c.id} className="hover:bg-muted/40 transition-colors" data-testid={`row-coordinator-${c.id}`}>
                       <TableCell className="font-medium">{c.firstName} {c.lastName}</TableCell>
                       <TableCell>{c.title || "—"}</TableCell>
-                      <TableCell>{c.email || "—"}</TableCell>
-                      <TableCell>{c.phone || "—"}</TableCell>
+                      <TableCell className="text-muted-foreground">{c.email || "—"}</TableCell>
+                      <TableCell className="text-muted-foreground">{c.phone || "—"}</TableCell>
                       <TableCell className="text-right tabular-nums">{c.coordinatorRate != null ? `$${Number(c.coordinatorRate).toFixed(2)}/hr` : "—"}</TableCell>
                       <TableCell className="text-right">
-                        <Button variant="ghost" size="icon" onClick={() => setAssignFor(c)} title="Assigned caregivers" data-testid={`button-assign-${c.id}`}>
+                        <Button variant="ghost" size="icon" onClick={() => setAssignFor(c)} title="Assigned caregivers" aria-label={`View caregivers assigned to ${c.firstName} ${c.lastName}`} data-testid={`button-assign-${c.id}`}>
                           <Users className="h-4 w-4" />
                         </Button>
                         {isManager && (
                           <>
-                            <Button variant="ghost" size="icon" onClick={() => openEdit(c)} data-testid={`button-edit-${c.id}`}><Edit className="h-4 w-4" /></Button>
-                            <Button variant="ghost" size="icon" onClick={() => { if (confirm(`Delete coordinator ${c.firstName} ${c.lastName}?`)) deleteMutation.mutate(c.id); }} data-testid={`button-delete-${c.id}`}><Trash2 className="h-4 w-4" /></Button>
+                            <Button variant="ghost" size="icon" onClick={() => openEdit(c)} title="Edit coordinator" aria-label={`Edit ${c.firstName} ${c.lastName}`} data-testid={`button-edit-${c.id}`}><Edit className="h-4 w-4" /></Button>
+                            <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive" onClick={() => { if (confirm(`Delete coordinator ${c.firstName} ${c.lastName}?`)) deleteMutation.mutate(c.id); }} title="Delete coordinator" aria-label={`Delete ${c.firstName} ${c.lastName}`} data-testid={`button-delete-${c.id}`}><Trash2 className="h-4 w-4" /></Button>
                           </>
                         )}
                       </TableCell>

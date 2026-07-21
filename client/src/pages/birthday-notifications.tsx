@@ -8,6 +8,7 @@ import { Sidebar } from "@/components/sidebar";
 import { TopBar } from "@/components/topbar";
 import { apiRequest } from "@/lib/queryClient";
 import { OfficeSelector } from "@/components/office-selector";
+import { ListSkeleton } from "@/components/ui/loading-states";
 import { useOffice } from "@/context/office-context";
 import { dateOnlyParts } from "@/lib/dateOnly";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -387,7 +388,7 @@ export default function BirthdayNotifications() {
                   </CardHeader>
                   <CardContent>
                     {upcomingLoading ? (
-                      <div className="text-center py-8 text-gray-500">Loading...</div>
+                      <ListSkeleton rows={4} rowHeight="h-12" />
                     ) : upcomingBirthdays.length === 0 ? (
                       <div className="text-center py-8 text-gray-500">
                         <Cake className="w-12 h-12 mx-auto mb-2 text-gray-300" />
@@ -448,7 +449,7 @@ export default function BirthdayNotifications() {
                   </CardHeader>
                   <CardContent>
                     {todayLoading ? (
-                      <div className="text-center py-8 text-gray-500">Loading...</div>
+                      <ListSkeleton rows={3} rowHeight="h-12" />
                     ) : todaysBirthdays.length === 0 ? (
                       <div className="text-center py-8 text-gray-500">
                         <Cake className="w-12 h-12 mx-auto mb-2 text-gray-300" />
@@ -504,7 +505,7 @@ export default function BirthdayNotifications() {
                   </CardHeader>
                   <CardContent>
                     {historyLoading ? (
-                      <div className="text-center py-8 text-gray-500">Loading...</div>
+                      <ListSkeleton rows={4} rowHeight="h-12" />
                     ) : notificationHistory.length === 0 ? (
                       <div className="text-center py-8 text-gray-500">
                         <Send className="w-12 h-12 mx-auto mb-2 text-gray-300" />

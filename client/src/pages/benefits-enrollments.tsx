@@ -6,6 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { TableSkeletonRows } from "@/components/ui/loading-states";
 import { Badge } from "@/components/ui/badge";
 import { Download, ClipboardList, FileText } from "lucide-react";
 import type { EnrollmentWindow } from "@shared/schema";
@@ -120,7 +121,7 @@ export default function BenefitsEnrollmentsPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {isLoading && <TableRow><TableCell colSpan={10} className="text-center py-6">Loading…</TableCell></TableRow>}
+                  {isLoading && <TableSkeletonRows rows={5} cols={10} />}
                   {!isLoading && filtered.map(r => (
                     <TableRow key={r.id} data-testid={`row-enrollment-${r.id}`}>
                       <TableCell><div className="font-medium">{r.employeeName}</div><div className="text-xs text-muted-foreground">{r.employeeEmail}</div></TableCell>

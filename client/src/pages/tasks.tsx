@@ -13,6 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Sidebar } from "@/components/sidebar";
 import { TopBar } from "@/components/topbar";
+import { ListSkeleton } from "@/components/ui/loading-states";
 import { OfficeSelector } from "@/components/office-selector";
 import { useOfficeScope } from "@/context/office-context";
 import { useForm } from "react-hook-form";
@@ -476,7 +477,7 @@ export default function TasksPage() {
       {/* Tasks List */}
       <div className="space-y-4">
         {isLoading ? (
-          <div className="text-center py-8">Loading tasks...</div>
+          <ListSkeleton rows={4} rowHeight="h-28" />
         ) : filteredTasks.length === 0 ? (
           <Card>
             <CardContent className="pt-6">
@@ -527,13 +528,19 @@ export default function TasksPage() {
                         {task.description && (
                           <p className="text-muted-foreground">{task.description}</p>
                         )}
-                        <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                          {task.dueDate && (
-                            <div className="flex items-center gap-1">
-                              <Calendar className="h-4 w-4" />
-                              <span>Due {format(new Date(task.dueDate), "MMM d, yyyy")}</span>
-                            </div>
-                          )}
+                        <div className="flex items-center gap-4 text-sm text-muted-foreground flex-wrap">
+                          {task.dueDate && (() => {
+                            const overdue = task.status !== "completed" && new Date(task.dueDate) < new Date();
+                            return (
+                              <div className={`flex items-center gap-1 ${overdue ? "text-red-600 dark:text-red-400 font-medium" : ""}`}>
+                                <Calendar className="h-4 w-4" />
+                                <span>
+                                  Due {format(new Date(task.dueDate), "MMM d, yyyy")}
+                                  {overdue && " (overdue)"}
+                                </span>
+                              </div>
+                            );
+                          })()}
                           {assignee && (
                             <div className="flex items-center gap-1">
                               <User className="h-4 w-4" />

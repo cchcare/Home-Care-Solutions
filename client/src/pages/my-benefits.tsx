@@ -128,7 +128,7 @@ export default function MyBenefitsPage() {
 
   if (isLoading) {
     return (
-      <div className="flex h-screen"><Sidebar /><div className="flex-1 flex flex-col"><TopBar /><main className="flex-1 p-6"><p>Loading…</p></main></div></div>
+      <div className="flex h-screen"><Sidebar /><div className="flex-1 flex flex-col"><TopBar /><main className="flex-1 p-6"><div className="max-w-3xl space-y-4"><div className="h-8 bg-muted rounded w-48 animate-pulse" /><div className="h-40 bg-muted rounded-lg animate-pulse" /><div className="h-40 bg-muted rounded-lg animate-pulse" /></div></main></div></div>
     );
   }
 
