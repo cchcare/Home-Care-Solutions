@@ -7,7 +7,9 @@ import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Search, Users } from "lucide-react";
+import { Link } from "wouter";
 import { Sidebar } from "@/components/sidebar";
+import { EmptyState } from "@/components/ui/empty-state";
 
 type StaffRow = {
   id: string;
@@ -139,16 +141,33 @@ export default function Staff() {
                 ))
               ) : staff.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-center text-muted-foreground py-10" data-testid="text-staff-empty">
-                    No staff match the current filters.
+                  <TableCell colSpan={6} className="p-0">
+                    <EmptyState
+                      icon={Users}
+                      title="No staff found"
+                      description="No staff members match the current filters. Try adjusting the office, title, or status filters."
+                      data-testid="text-staff-empty"
+                    />
                   </TableCell>
                 </TableRow>
               ) : (
                 staff.map((s) => {
                   const name = [s.firstName, s.lastName].filter(Boolean).join(" ") || "(no name)";
                   return (
-                    <TableRow key={s.id} data-testid={`row-staff-${s.id}`}>
-                      <TableCell className="font-medium">{name}</TableCell>
+                    <TableRow key={s.id} className="hover:bg-muted/40 transition-colors" data-testid={`row-staff-${s.id}`}>
+                      <TableCell className="font-medium">
+                        {s.userId ? (
+                          <Link
+                            href={`/staff/${s.userId}`}
+                            className="text-primary hover:underline"
+                            data-testid={`link-staff-${s.id}`}
+                          >
+                            {name}
+                          </Link>
+                        ) : (
+                          name
+                        )}
+                      </TableCell>
                       <TableCell>{s.position || "—"}</TableCell>
                       <TableCell>{s.department || "—"}</TableCell>
                       <TableCell>{s.officeName || "—"}</TableCell>

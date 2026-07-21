@@ -27,6 +27,7 @@ import {
   Plus,
   Search,
   UserCheck,
+  Users,
   Award,
   AlertCircle,
   Eye,
@@ -814,11 +815,15 @@ export default function Caregivers() {
                     </thead>
                     <tbody className="divide-y divide-border">
                       {isLoading ? (
-                        <tr>
-                          <td colSpan={8} className="p-8 text-center text-muted-foreground">
-                            Loading caregivers...
-                          </td>
-                        </tr>
+                        Array.from({ length: 6 }).map((_, i) => (
+                          <tr key={i}>
+                            {Array.from({ length: 8 }).map((__, j) => (
+                              <td key={j} className="p-4">
+                                <div className="h-4 bg-muted rounded animate-pulse" />
+                              </td>
+                            ))}
+                          </tr>
+                        ))
                       ) : caregivers.length > 0 ? (
                         caregivers.map((caregiver: EnrichedCaregiver) => {
                           const startDate = caregiver.startDate || caregiver.hireDate;
@@ -938,10 +943,22 @@ export default function Caregivers() {
                         })
                       ) : (
                         <tr>
-                          <td colSpan={8} className="p-8 text-center text-muted-foreground">
-                            {chips.length > 0
-                              ? "No caregivers match your filters"
-                              : "No caregivers found"}
+                          <td colSpan={8} className="p-8">
+                            <div className="flex flex-col items-center text-center">
+                              <div className="w-14 h-14 bg-muted rounded-full flex items-center justify-center mb-3">
+                                <Users className="h-7 w-7 text-muted-foreground/60" />
+                              </div>
+                              <p className="text-sm font-semibold text-foreground">
+                                {chips.length > 0
+                                  ? "No caregivers match your filters"
+                                  : "No caregivers yet"}
+                              </p>
+                              <p className="text-sm text-muted-foreground mt-1">
+                                {chips.length > 0
+                                  ? "Try clearing or adjusting the active filters above."
+                                  : "Add your first caregiver to get started."}
+                              </p>
+                            </div>
                           </td>
                         </tr>
                       )}
