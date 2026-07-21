@@ -49,10 +49,27 @@ export default function StaffProfile() {
 
   if (isLoading) {
     return (
-      <div className="flex h-screen">
+      <div className="flex h-screen overflow-hidden">
         <Sidebar />
-        <main className="flex-1 flex items-center justify-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+        <main className="flex-1 flex overflow-hidden">
+          <aside className="w-56 border-r bg-muted/25 p-4 space-y-3">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-full bg-muted animate-pulse flex-shrink-0" />
+              <div className="flex-1 space-y-2">
+                <div className="h-4 bg-muted rounded animate-pulse" />
+                <div className="h-3 bg-muted rounded w-16 animate-pulse" />
+              </div>
+            </div>
+            {Array.from({ length: 6 }).map((_, i) => (
+              <div key={i} className="h-9 bg-muted rounded-lg animate-pulse" />
+            ))}
+          </aside>
+          <div className="flex-1 p-6">
+            <div className="max-w-5xl space-y-4">
+              <div className="h-8 bg-muted rounded w-56 animate-pulse" />
+              <div className="h-64 bg-muted rounded-lg animate-pulse" />
+            </div>
+          </div>
         </main>
       </div>
     );
@@ -83,52 +100,75 @@ export default function StaffProfile() {
         <TopBar title={staffName} />
 
         <div className="flex flex-1 overflow-hidden">
-          <aside className="w-56 border-r bg-muted/30 overflow-y-auto">
-            <div className="p-4 border-b">
-              <div className="flex items-center gap-3">
-                <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center">
-                  <User className="w-6 h-6 text-primary" />
+          <aside className="w-56 border-r bg-muted/25 overflow-y-auto">
+            <div className="p-4 border-b border-border/50">
+              <div className="flex items-center gap-3 mb-3">
+                <div className={`w-12 h-12 rounded-full flex items-center justify-center flex-shrink-0 font-semibold text-sm ${
+                  staff.isActive
+                    ? "bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400"
+                    : "bg-gray-100 dark:bg-gray-900/30 text-gray-700 dark:text-gray-400"
+                }`}>
+                  {staff.firstName || staff.lastName ? (
+                    <>{staff.firstName?.[0]}{staff.lastName?.[0]}</>
+                  ) : (
+                    <User className="w-6 h-6" />
+                  )}
                 </div>
-                <div className="min-w-0">
-                  <p className="font-semibold truncate" data-testid="text-staff-name">{staffName}</p>
-                  <Badge variant={staff.isActive ? "default" : "secondary"} className="mt-1" data-testid="badge-staff-status">
+                <div className="min-w-0 flex-1">
+                  <p className="font-semibold text-sm truncate" data-testid="text-staff-name" title={staffName}>
+                    {staffName}
+                  </p>
+                  <Badge
+                    variant={staff.isActive ? "default" : "secondary"}
+                    className="mt-1.5 text-xs"
+                    data-testid="badge-staff-status"
+                  >
                     {staff.isActive ? "Active" : "Inactive"}
                   </Badge>
                 </div>
               </div>
-              <div className="mt-3 text-sm text-muted-foreground">
-                <p className="flex items-center gap-1">
-                  <Building className="w-3 h-3" />
-                  {office?.name || "No office assigned"}
-                </p>
-                <p className="flex items-center gap-1 mt-1 capitalize">
-                  <Briefcase className="w-3 h-3" />
-                  {staff.role ? staff.role.replace(/_/g, " ") : "—"}
-                </p>
+              <div className="space-y-2 text-xs">
+                <div className="flex items-start gap-2 p-2 rounded bg-muted/50">
+                  <Building className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-muted-foreground" />
+                  <span className="text-muted-foreground">{office?.name || "No office"}</span>
+                </div>
+                <div className="flex items-start gap-2 p-2 rounded bg-muted/50">
+                  <Briefcase className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-muted-foreground" />
+                  <span className="text-muted-foreground capitalize">
+                    {staff.role ? staff.role.replace(/_/g, " ") : "No role"}
+                  </span>
+                </div>
               </div>
               <Link href="/employees">
-                <Button variant="outline" size="sm" className="w-full mt-3" data-testid="button-back-directory">
-                  <Search className="w-4 h-4 mr-2" />
-                  Employee Directory
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full mt-4"
+                  data-testid="button-back-directory"
+                >
+                  <Search className="w-3.5 h-3.5 mr-2" />
+                  Directory
                 </Button>
               </Link>
             </div>
 
-            <nav className="p-2 space-y-1">
+            <nav className="p-3 space-y-1">
               {STAFF_MENU_ITEMS.map((item) => {
                 const IconComponent = item.icon;
+                const isActive = activeSection === item.id;
                 return (
                   <button
                     key={item.id}
                     onClick={() => setActiveSection(item.id)}
-                    className={`w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors ${
-                      activeSection === item.id
-                        ? "bg-primary text-primary-foreground"
-                        : "hover:bg-muted text-muted-foreground hover:text-foreground"
+                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
+                      isActive
+                        ? "bg-primary text-primary-foreground shadow-sm"
+                        : "text-muted-foreground hover:text-foreground hover:bg-muted/60"
                     }`}
                     data-testid={`menu-${item.id}`}
+                    title={item.label}
                   >
-                    <IconComponent className="w-4 h-4 flex-shrink-0" />
+                    <IconComponent className={`w-4 h-4 flex-shrink-0 ${isActive ? "text-primary-foreground" : ""}`} />
                     <span className="truncate">{item.label}</span>
                   </button>
                 );
@@ -140,36 +180,39 @@ export default function StaffProfile() {
             <div className="max-w-5xl space-y-6">
               {activeSection === "profile" && (
                 <div className="space-y-6">
-                  <div className="rounded-lg border p-6 bg-card">
-                    <h2 className="text-lg font-semibold mb-4">Personal Information</h2>
-                    <dl className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
+                  <div className="rounded-lg border border-border/50 p-6 bg-card hover:shadow-md transition-shadow">
+                    <h2 className="text-base font-semibold mb-5 text-foreground flex items-center gap-2">
+                      <User className="w-5 h-5 text-primary" />
+                      Personal Information
+                    </h2>
+                    <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-5 text-sm">
                       <div>
-                        <dt className="text-muted-foreground flex items-center gap-1"><Mail className="w-3.5 h-3.5" />Email</dt>
-                        <dd className="mt-1">{staff.email || "—"}</dd>
+                        <dt className="text-xs font-medium text-muted-foreground uppercase tracking-wide flex items-center gap-1.5"><Mail className="w-3.5 h-3.5" />Email</dt>
+                        <dd className="mt-1.5 text-foreground">{staff.email || "—"}</dd>
                       </div>
                       <div>
-                        <dt className="text-muted-foreground flex items-center gap-1"><Phone className="w-3.5 h-3.5" />Phone</dt>
-                        <dd className="mt-1">{staff.mobilePhone || "—"}</dd>
+                        <dt className="text-xs font-medium text-muted-foreground uppercase tracking-wide flex items-center gap-1.5"><Phone className="w-3.5 h-3.5" />Phone</dt>
+                        <dd className="mt-1.5 text-foreground">{staff.mobilePhone || "—"}</dd>
                       </div>
                       <div>
-                        <dt className="text-muted-foreground">Role</dt>
-                        <dd className="mt-1 capitalize">{staff.role ? staff.role.replace(/_/g, " ") : "—"}</dd>
+                        <dt className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Role</dt>
+                        <dd className="mt-1.5 capitalize text-foreground">{staff.role ? staff.role.replace(/_/g, " ") : "—"}</dd>
                       </div>
                       <div>
-                        <dt className="text-muted-foreground">Office</dt>
-                        <dd className="mt-1">{office?.name || "—"}</dd>
+                        <dt className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Office</dt>
+                        <dd className="mt-1.5 text-foreground">{office?.name || "—"}</dd>
                       </div>
                       <div>
-                        <dt className="text-muted-foreground">Hire Date</dt>
-                        <dd className="mt-1">{staff.hireDate ? format(new Date(staff.hireDate), "MMM d, yyyy") : "—"}</dd>
+                        <dt className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Hire Date</dt>
+                        <dd className="mt-1.5 text-foreground">{staff.hireDate ? format(new Date(staff.hireDate), "MMM d, yyyy") : "—"}</dd>
                       </div>
                       <div>
-                        <dt className="text-muted-foreground">Termination Date</dt>
-                        <dd className="mt-1">{staff.terminationDate ? format(new Date(staff.terminationDate), "MMM d, yyyy") : "—"}</dd>
+                        <dt className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Termination Date</dt>
+                        <dd className="mt-1.5 text-foreground">{staff.terminationDate ? format(new Date(staff.terminationDate), "MMM d, yyyy") : "—"}</dd>
                       </div>
-                      <div>
-                        <dt className="text-muted-foreground">Address</dt>
-                        <dd className="mt-1">
+                      <div className="sm:col-span-2">
+                        <dt className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Address</dt>
+                        <dd className="mt-1.5 text-foreground">
                           {staff.address
                             ? `${staff.address}${staff.address2 ? `, ${staff.address2}` : ""}, ${staff.city || ""} ${staff.state || ""} ${staff.zipCode || ""}`.trim()
                             : "—"}
