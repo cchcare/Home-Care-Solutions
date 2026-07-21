@@ -6143,8 +6143,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       for (const e of all) {
         if (e.kind === "user") byId.set(e.id, { ...e, reports: [] });
       }
-      // Caregivers cannot be managers, so they only appear as leaves under
-      // their assigned manager (or under an "Unassigned" root).
+      // Caregivers and coordinators cannot be managers, so they only appear
+      // as leaves under their assigned manager (or under an "Unassigned" root).
       const roots: Node[] = [];
       const unassigned: Node[] = [];
 
@@ -6156,7 +6156,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           roots.push(node);
         }
       }
-      for (const c of all.filter((x) => x.kind === "caregiver")) {
+      for (const c of all.filter((x) => x.kind !== "user")) {
         const node: Node = { ...c, reports: [] };
         if (c.managerId && byId.has(c.managerId)) {
           byId.get(c.managerId)!.reports.push(node);
@@ -6184,7 +6184,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.put("/api/employees/:kind/:id/manager", isAuthenticated, requireEmployeeDirectoryAccess, async (req: any, res) => {
     try {
-      const kind = req.params.kind === "user" ? "user" : req.params.kind === "caregiver" ? "caregiver" : null;
+      const kind = ["user", "caregiver", "coordinator"].includes(req.params.kind)
+        ? (req.params.kind as "user" | "caregiver" | "coordinator")
+        : null;
       if (!kind) return res.status(400).json({ message: "Invalid employee kind" });
       const managerId: string | null = req.body?.managerId ?? null;
       if (managerId !== null && typeof managerId !== "string") {
@@ -6200,9 +6202,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
           if (target.primaryOfficeId !== officeScope) {
             return res.status(403).json({ message: "Cross-office assignment not allowed" });
           }
-        } else {
+        } else if (kind === "caregiver") {
           const target = await storage.getCaregiver(req.params.id);
           if (!target) return res.status(404).json({ message: "Caregiver not found" });
+          if (target.officeId !== officeScope) {
+            return res.status(403).json({ message: "Cross-office assignment not allowed" });
+          }
+        } else {
+          const target = await storage.getCoordinator(req.params.id);
+          if (!target) return res.status(404).json({ message: "Coordinator not found" });
           if (target.officeId !== officeScope) {
             return res.status(403).json({ message: "Cross-office assignment not allowed" });
           }
@@ -6219,7 +6227,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await storage.createAuditLog({
         userId: req.session?.user?.id,
         action: "set_manager",
-        entityType: kind === "user" ? "user" : "caregiver",
+        entityType: kind,
         entityId: req.params.id,
         newValues: { managerId },
         ipAddress: req.ip,

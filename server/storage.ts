@@ -482,7 +482,7 @@ import { encryptNote, decryptNote } from './encryption';
 
 // Unified employee directory view (caregivers + non-caregiver users)
 export type EmployeeDirectoryEntry = {
-  kind: "user" | "caregiver";
+  kind: "user" | "caregiver" | "coordinator";
   id: string;
   firstName: string | null;
   lastName: string | null;
@@ -732,7 +732,7 @@ export interface IStorage {
   // Unified employee directory (caregivers + non-caregiver users)
   getEmployeeDirectory(officeId?: string): Promise<EmployeeDirectoryEntry[]>;
   getEmployeeManagerCandidates(officeId?: string): Promise<EmployeeManagerCandidate[]>;
-  setEmployeeManager(kind: "user" | "caregiver", employeeId: string, managerUserId: string | null): Promise<void>;
+  setEmployeeManager(kind: "user" | "caregiver" | "coordinator", employeeId: string, managerUserId: string | null): Promise<void>;
 
   // Employee write-ups / disciplinary notes (polymorphic: caregivers + users)
   getEmployeeNote(id: string): Promise<EmployeeNote | undefined>;
@@ -3092,6 +3092,24 @@ export class DatabaseStorage implements IStorage {
       .leftJoin(managers, eq(caregivers.managerId, managers.id))
       .where(officeId ? eq(caregivers.officeId, officeId) : undefined);
 
+    const coordRows = await db
+      .select({
+        id: coordinators.id,
+        firstName: coordinators.firstName,
+        lastName: coordinators.lastName,
+        email: coordinators.email,
+        phone: coordinators.phone,
+        title: coordinators.title,
+        officeId: coordinators.officeId,
+        isActive: coordinators.isActive,
+        managerId: coordinators.managerId,
+        managerFirstName: managers.firstName,
+        managerLastName: managers.lastName,
+      })
+      .from(coordinators)
+      .leftJoin(managers, eq(coordinators.managerId, managers.id))
+      .where(officeId ? eq(coordinators.officeId, officeId) : undefined);
+
     const officeRows = await db
       .select({ id: offices.id, name: offices.name })
       .from(offices);
@@ -3137,7 +3155,24 @@ export class DatabaseStorage implements IStorage {
       managerName: c.managerId ? fmt(c.managerFirstName ?? null, c.managerLastName ?? null) : null,
     }));
 
-    return [...userEntries, ...cgEntries].sort((a, b) => {
+    const coordEntries: EmployeeDirectoryEntry[] = coordRows.map((c) => ({
+      kind: "coordinator",
+      id: c.id,
+      firstName: c.firstName ?? null,
+      lastName: c.lastName ?? null,
+      email: c.email ?? null,
+      phone: c.phone ?? null,
+      role: "coordinator",
+      title: c.title ?? null,
+      officeId: c.officeId ?? null,
+      officeName: c.officeId ? officeMap.get(c.officeId) ?? null : null,
+      isActive: c.isActive ?? null,
+      hireDate: null,
+      managerId: c.managerId ?? null,
+      managerName: c.managerId ? fmt(c.managerFirstName ?? null, c.managerLastName ?? null) : null,
+    }));
+
+    return [...userEntries, ...cgEntries, ...coordEntries].sort((a, b) => {
       const an = `${a.lastName ?? ""} ${a.firstName ?? ""}`.trim().toLowerCase();
       const bn = `${b.lastName ?? ""} ${b.firstName ?? ""}`.trim().toLowerCase();
       return an.localeCompare(bn);
@@ -3165,7 +3200,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async setEmployeeManager(
-    kind: "user" | "caregiver",
+    kind: "user" | "caregiver" | "coordinator",
     employeeId: string,
     managerUserId: string | null,
   ): Promise<void> {
@@ -3195,11 +3230,18 @@ export class DatabaseStorage implements IStorage {
         .update(users)
         .set({ managerId: managerUserId, updatedAt: new Date() })
         .where(eq(users.id, employeeId));
-    } else {
+    } else if (kind === "caregiver") {
       await db
         .update(caregivers)
         .set({ managerId: managerUserId, updatedAt: new Date() })
         .where(eq(caregivers.id, employeeId));
+    } else {
+      // Coordinators (like caregivers) always report to a user, so no
+      // reporting-cycle check is needed.
+      await db
+        .update(coordinators)
+        .set({ managerId: managerUserId, updatedAt: new Date() })
+        .where(eq(coordinators.id, employeeId));
     }
   }
 

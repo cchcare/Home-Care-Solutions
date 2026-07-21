@@ -37,7 +37,7 @@ import { Link } from "wouter";
 import { format } from "date-fns";
 
 type EmployeeRow = {
-  kind: "user" | "caregiver";
+  kind: "user" | "caregiver" | "coordinator";
   id: string;
   firstName: string | null;
   lastName: string | null;
@@ -69,7 +69,7 @@ export default function EmployeesPage() {
   const { toast } = useToast();
   const [search, setSearch] = useState("");
   const [officeFilter, setOfficeFilter] = useState<string>("all");
-  const [kindFilter, setKindFilter] = useState<"all" | "user" | "caregiver">("all");
+  const [kindFilter, setKindFilter] = useState<"all" | "user" | "caregiver" | "coordinator">("all");
   const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive">("active");
   const [sortKey, setSortKey] = useState<SortKey>("name");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
@@ -147,7 +147,7 @@ export default function EmployeesPage() {
 
   const setManagerMutation = useMutation({
     mutationFn: async (vars: {
-      kind: "user" | "caregiver";
+      kind: "user" | "caregiver" | "coordinator";
       id: string;
       managerId: string | null;
     }) => {
@@ -259,6 +259,7 @@ export default function EmployeesPage() {
                 <SelectItem value="all">All employees</SelectItem>
                 <SelectItem value="user">Office staff</SelectItem>
                 <SelectItem value="caregiver">Caregivers</SelectItem>
+                <SelectItem value="coordinator">Coordinators</SelectItem>
               </SelectContent>
             </Select>
             <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as any)}>
@@ -400,12 +401,20 @@ export default function EmployeesPage() {
                             <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold flex-shrink-0 ${
                               e.kind === "caregiver"
                                 ? "bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400"
+                                : e.kind === "coordinator"
+                                ? "bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400"
                                 : "bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400"
                             }`}>
                               {e.firstName?.[0]}{e.lastName?.[0]}
                             </div>
                             <Link
-                              href={e.kind === "caregiver" ? `/caregivers/${e.id}` : `/staff/${e.id}`}
+                              href={
+                                e.kind === "caregiver"
+                                  ? `/caregivers/${e.id}`
+                                  : e.kind === "coordinator"
+                                  ? "/coordinators"
+                                  : `/staff/${e.id}`
+                              }
                               className="font-medium text-primary hover:underline truncate"
                               data-testid={`link-employee-${e.id}`}
                               title={formatName(e.firstName, e.lastName)}
@@ -417,9 +426,13 @@ export default function EmployeesPage() {
                         <td className="px-6 py-4">
                           <Badge
                             className="text-xs"
-                            variant={e.kind === "caregiver" ? "default" : "secondary"}
+                            variant={e.kind === "user" ? "secondary" : "default"}
                           >
-                            {e.kind === "caregiver" ? "Caregiver" : "Staff"}
+                            {e.kind === "caregiver"
+                              ? "Caregiver"
+                              : e.kind === "coordinator"
+                              ? "Coordinator"
+                              : "Staff"}
                           </Badge>
                         </td>
                         <td className="px-6 py-4">

@@ -207,6 +207,7 @@ export function Sidebar() {
               { name: "Kiosk Setup", href: "/kiosk-setup", icon: Monitor },
             ]
           },
+          { name: "Coordinators", href: "/coordinators", icon: UserCog },
         ]
       },
       ...(((user as any)?.role === "admin" ||
@@ -267,7 +268,6 @@ export function Sidebar() {
         children: [
           { name: "Payroll Hub", href: "/payroll", icon: DollarSign },
           { name: "Billing & Payroll", href: "/billing-payroll", icon: DollarSign },
-          { name: "Coordinators", href: "/coordinators", icon: UserCog },
           { name: "Coordinator Compensation", href: "/coordinator-compensation", icon: Calculator },
           { name: "Coordinator Pay", href: "/coordinator-pay-records", icon: DollarSign },
           { name: "Financial Reports", href: "/financial-reports", icon: FileBarChart },

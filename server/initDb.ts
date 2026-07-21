@@ -962,6 +962,36 @@ export async function ensureStaffPerformancePtoSchema() {
   }
 }
 
+// Coordinators join the employee directory / org chart: they gain a
+// manager_id reporting line, mirroring caregivers.manager_id.
+let coordinatorDirectorySchemaReady = false;
+export async function ensureCoordinatorDirectorySchema() {
+  if (coordinatorDirectorySchemaReady) return;
+  const client = await pool.connect();
+  try {
+    const ready = await client.query(`
+      SELECT EXISTS (
+        SELECT 1 FROM information_schema.tables WHERE table_name = 'coordinator_directory_init_marker'
+      ) AS marker_exists;
+    `);
+    if (ready.rows[0]?.marker_exists) {
+      coordinatorDirectorySchemaReady = true;
+      return;
+    }
+
+    await client.query(`ALTER TABLE coordinators ADD COLUMN IF NOT EXISTS manager_id varchar;`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_coordinators_manager ON coordinators (manager_id);`);
+
+    await client.query(`CREATE TABLE IF NOT EXISTS coordinator_directory_init_marker (initialized_at timestamp DEFAULT NOW());`);
+    coordinatorDirectorySchemaReady = true;
+    console.log("[Init] coordinator directory schema (manager_id) ensured.");
+  } catch (err) {
+    console.error("[Init] ensureCoordinatorDirectorySchema failed (non-fatal):", err);
+  } finally {
+    client.release();
+  }
+}
+
 // Guards runProductionInit() so it can only ever execute once per database,
 // no matter how many times the app restarts with INIT_PRODUCTION_DB=true left
 // set. Without this marker, every reboot/redeploy that inherited the env var

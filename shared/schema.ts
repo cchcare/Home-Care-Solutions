@@ -74,9 +74,14 @@ export const coordinators = pgTable("coordinators", {
   // of the caregivers they manage. Coordinators are NOT paid per hour directly.
   coordinatorRate: numeric("coordinator_rate", { precision: 10, scale: 2 }),
   isActive: boolean("is_active").default(true),
+  // Reporting line for the employee directory / org chart. Coordinators report
+  // to an office-staff user, same as caregivers.managerId.
+  managerId: varchar("manager_id"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
-});
+}, (table) => [
+  index("idx_coordinators_manager").on(table.managerId),
+]);
 
 // User storage table.
 export const users = pgTable("users", {
