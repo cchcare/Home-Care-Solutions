@@ -446,7 +446,7 @@ export default function Clients() {
     ageMin, ageMax, createdWithinDays, sortOption,
   ]);
 
-  const { data: clients = [], isLoading } = useQuery<Client[]>({
+  const { data: clients = [], isLoading, error: clientsError, refetch: refetchClients } = useQuery<Client[]>({
     queryKey: ["/api/clients", queryParams],
     queryFn: async () => {
       const r = await fetch(`/api/clients?${queryParams}`, { credentials: "include" });
@@ -1141,6 +1141,20 @@ export default function Clients() {
                 </CardContent>
               </Card>
             </div>
+
+            {clientsError && (
+              <div
+                className="flex items-center justify-between gap-3 p-4 rounded-lg border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20"
+                data-testid="banner-clients-error"
+              >
+                <p className="text-sm text-red-800 dark:text-red-200">
+                  Couldn't load clients: {(clientsError as Error).message}
+                </p>
+                <Button variant="outline" size="sm" onClick={() => refetchClients()}>
+                  Retry
+                </Button>
+              </div>
+            )}
 
             {/* Clients Table */}
             <Card>

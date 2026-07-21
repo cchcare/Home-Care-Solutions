@@ -5617,7 +5617,78 @@ export class DatabaseStorage implements IStorage {
       .leftJoin(offices, eq(officeStaff.officeId, offices.id))
       .where(conditions.length ? and(...conditions) : undefined)
       .orderBy(users.lastName, users.firstName);
-    return rows as any;
+
+    // Office users without an office_staff assignment record still belong in
+    // the staff directory — synthesize a directory row from the user account
+    // so every staff member is listed, whether or not HR has created a formal
+    // staff assignment for them.
+    const assigned = await db
+      .selectDistinct({ userId: officeStaff.userId })
+      .from(officeStaff);
+    const assignedIds = new Set(assigned.map((r) => r.userId));
+
+    const userConds: any[] = [
+      ne(users.role, "caregiver"),
+      ne(users.role, "family"),
+    ];
+    if (filters?.officeIds) userConds.push(inArray(users.primaryOfficeId, filters.officeIds));
+    if (filters?.isActive !== undefined) userConds.push(eq(users.isActive, filters.isActive));
+    if (filters?.search && filters.search.trim()) {
+      const q = `%${filters.search.trim().toLowerCase()}%`;
+      userConds.push(or(
+        sql`lower(${users.firstName}) like ${q}`,
+        sql`lower(${users.lastName}) like ${q}`,
+        sql`lower(${users.firstName} || ' ' || ${users.lastName}) like ${q}`,
+      ));
+    }
+    const userRows = await db
+      .select({
+        id: users.id,
+        primaryOfficeId: users.primaryOfficeId,
+        role: users.role,
+        hireDate: users.hireDate,
+        isActive: users.isActive,
+        createdAt: users.createdAt,
+        updatedAt: users.updatedAt,
+        firstName: users.firstName,
+        lastName: users.lastName,
+        email: users.email,
+        officeName: offices.name,
+      })
+      .from(users)
+      .leftJoin(offices, eq(users.primaryOfficeId, offices.id))
+      .where(and(...userConds));
+
+    const humanize = (role: string | null) => (role ? role.replace(/_/g, " ") : null);
+    const synthesized = userRows
+      .filter((u) => !assignedIds.has(u.id))
+      .map((u) => ({
+        id: `user-${u.id}`,
+        officeId: u.primaryOfficeId,
+        userId: u.id,
+        position: humanize(u.role),
+        department: null,
+        startDate: u.hireDate ?? null,
+        endDate: null,
+        isPrimary: true,
+        isActive: u.isActive,
+        notes: null,
+        createdAt: u.createdAt,
+        updatedAt: u.updatedAt,
+        firstName: u.firstName,
+        lastName: u.lastName,
+        email: u.email,
+        officeName: u.officeName,
+      }))
+      .filter((r) => !filters?.position || r.position === filters.position);
+
+    const merged = [...(rows as any[]), ...synthesized];
+    merged.sort((a, b) => {
+      const an = `${a.lastName ?? ""} ${a.firstName ?? ""}`.trim().toLowerCase();
+      const bn = `${b.lastName ?? ""} ${b.firstName ?? ""}`.trim().toLowerCase();
+      return an.localeCompare(bn);
+    });
+    return merged as any;
   }
 
   async getOfficeStaffMember(id: string): Promise<OfficeStaff | undefined> {

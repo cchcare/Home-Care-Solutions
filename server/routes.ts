@@ -8479,6 +8479,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Client-side render errors reported by the frontend ErrorBoundary. Stored
+  // in the same in-memory error log the AI issues panel reads, so blank-page
+  // crashes become visible in /error-log instead of vanishing.
+  app.post("/api/client-errors", isAuthenticated, async (req: any, res) => {
+    try {
+      const { errorLogStorage } = await import("./storage");
+      const { message, stack, componentStack, url } = req.body || {};
+      if (!message) return res.status(400).json({ message: "message is required" });
+      errorLogStorage.logError({
+        endpoint: String(url || "client").slice(0, 500),
+        method: "RENDER",
+        errorMessage: `${String(message).slice(0, 1000)}\n${String(stack || "").slice(0, 2000)}\n${String(componentStack || "").slice(0, 1000)}`,
+        statusCode: 0,
+        userId: req.session?.user?.id,
+      });
+      res.json({ ok: true });
+    } catch (error) {
+      console.error("Error logging client error:", error);
+      res.status(500).json({ message: "Failed to log client error" });
+    }
+  });
+
   // AI Error Diagnosis route - HIPAA compliant: no PHI/PII stored or processed
   app.post("/api/ai-issues/diagnose", isAuthenticated, async (req: any, res) => {
     try {
@@ -9829,9 +9851,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       const credential = await storage.createOfficeCredential(validatedData);
       res.status(201).json(credential);
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error creating office credential:", error);
-      res.status(400).json({ message: "Failed to create office credential" });
+      // Surface the specific reason (e.g. which field failed validation) so
+      // the UI toast tells the user what to fix instead of a generic failure.
+      const detail = error?.issues?.length
+        ? error.issues.map((i: any) => `${i.path?.join(".") || "field"}: ${i.message}`).join("; ")
+        : error?.message;
+      res.status(400).json({ message: `Failed to create office credential${detail ? ` — ${detail}` : ""}` });
     }
   });
 

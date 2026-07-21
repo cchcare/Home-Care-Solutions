@@ -209,7 +209,7 @@ export default function Caregivers() {
     return p.toString();
   }, [selectedOfficeId, search, status, coordinatorIds, specializations, certType, certExpiresWithinDays]);
 
-  const { data: caregivers = [], isLoading } = useQuery<EnrichedCaregiver[]>({
+  const { data: caregivers = [], isLoading, error: caregiversError, refetch: refetchCaregivers } = useQuery<EnrichedCaregiver[]>({
     queryKey: ["/api/caregivers", queryParams],
     queryFn: async () => {
       const r = await fetch(
@@ -761,6 +761,20 @@ export default function Caregivers() {
                 </CardContent>
               </Card>
             </div>
+
+            {caregiversError && (
+              <div
+                className="flex items-center justify-between gap-3 p-4 rounded-lg border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20"
+                data-testid="banner-caregivers-error"
+              >
+                <p className="text-sm text-red-800 dark:text-red-200">
+                  Couldn't load caregivers: {(caregiversError as Error).message}
+                </p>
+                <Button variant="outline" size="sm" onClick={() => refetchCaregivers()}>
+                  Retry
+                </Button>
+              </div>
+            )}
 
             {/* Caregivers Table */}
             <Card>
