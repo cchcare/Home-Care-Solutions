@@ -483,7 +483,7 @@ export default function TasksPage() {
             <CardContent className="pt-6">
               <div className="text-center py-8">
                 <ClipboardList className="mx-auto h-12 w-12 text-muted-foreground" />
-                <h3 className="mt-2 text-sm font-semibold text-gray-900">No tasks found</h3>
+                <h3 className="mt-2 text-sm font-semibold text-foreground">No tasks found</h3>
                 <p className="mt-1 text-sm text-muted-foreground">
                   {statusFilter !== "all" || priorityFilter !== "all" 
                     ? "Try adjusting your filters" 

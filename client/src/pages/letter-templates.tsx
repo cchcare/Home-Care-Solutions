@@ -287,7 +287,7 @@ export default function LetterTemplates() {
           <div className="flex-1 flex items-center justify-center">
             <div className="text-center">
               <Shield className="mx-auto h-12 w-12 text-muted-foreground" />
-              <h3 className="mt-2 text-sm font-semibold text-gray-900">Access Denied</h3>
+              <h3 className="mt-2 text-sm font-semibold text-foreground">Access Denied</h3>
               <p className="mt-1 text-sm text-muted-foreground">
                 You don't have permission to access letter templates. Only administrators can manage templates.
               </p>
