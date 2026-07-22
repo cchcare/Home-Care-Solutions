@@ -4535,6 +4535,47 @@ export class DatabaseStorage implements IStorage {
     await db.delete(caregiverTimeEntries).where(eq(caregiverTimeEntries.importBatchId, importBatchId));
   }
 
+  // Remove only the entries a given source produced for a run (batch ids are
+  // prefixed "import_" for spreadsheet uploads and "schedule_" for pulls from
+  // the caregiver schedule), so re-running one source never wipes the other.
+  async deleteTimeEntriesBySourcePrefix(payrollRunId: string, prefix: string): Promise<void> {
+    await db.delete(caregiverTimeEntries).where(and(
+      eq(caregiverTimeEntries.payrollRunId, payrollRunId),
+      like(caregiverTimeEntries.importBatchId, `${prefix}%`),
+    ));
+  }
+
+  // Confirmed/completed visits for every caregiver in an office within a pay
+  // period — the source rows for pulling payroll hours straight from the
+  // schedule instead of a spreadsheet import.
+  async getSchedulesForPayrollPull(
+    officeId: string,
+    periodStart: Date,
+    periodEnd: Date,
+    statuses: string[],
+  ): Promise<Array<CaregiverSchedule & { caregiverFirstName: string | null; caregiverLastName: string | null }>> {
+    const rows = await db
+      .select({
+        schedule: caregiverSchedules,
+        caregiverFirstName: caregivers.firstName,
+        caregiverLastName: caregivers.lastName,
+      })
+      .from(caregiverSchedules)
+      .innerJoin(caregivers, eq(caregiverSchedules.caregiverId, caregivers.id))
+      .where(and(
+        eq(caregivers.officeId, officeId),
+        gte(caregiverSchedules.scheduledDate, periodStart),
+        lte(caregiverSchedules.scheduledDate, periodEnd),
+        inArray(caregiverSchedules.status, statuses),
+      ))
+      .orderBy(caregiverSchedules.scheduledDate);
+    return rows.map((r) => ({
+      ...r.schedule,
+      caregiverFirstName: r.caregiverFirstName,
+      caregiverLastName: r.caregiverLastName,
+    }));
+  }
+
   // Find caregiver by assignment ID for billing import matching
   async getCaregiverByAssignmentId(assignmentId: string): Promise<Caregiver | undefined> {
     const [caregiver] = await db.select().from(caregivers).where(eq(caregivers.assignmentId, assignmentId));

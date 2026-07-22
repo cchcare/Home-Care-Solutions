@@ -11430,8 +11430,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const payPeriodEnd = new Date(payrollRun.payPeriodEnd);
       const midpoint = new Date(payPeriodStart.getTime() + (payPeriodEnd.getTime() - payPeriodStart.getTime()) / 2);
 
-      // Delete existing entries for this payroll run (re-import replaces old data)
-      await storage.deleteTimeEntriesByPayrollRun(runId);
+      // Re-import replaces previously *uploaded* hours only — entries pulled
+      // from the caregiver schedule ("schedule_" batches) are left intact so
+      // the two sources can be combined in one run.
+      await storage.deleteTimeEntriesBySourcePrefix(runId, "import_");
 
       const entriesToCreate: any[] = [];
 
@@ -11520,9 +11522,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       });
 
-      // Process entries - match caregivers and clients
+      // Process entries — match the caregiver by Assignment ID first, then by
+      // their HHAX caregiver code (the "HHA ID" on HHAeXchange exports), so a
+      // plain HHA hours export imports without any ADP identifiers.
       for (const entry of entriesToCreate) {
-        const caregiver = await storage.getCaregiverByAssignmentId(entry.caregiverAssignmentId);
+        const caregiver =
+          (await storage.getCaregiverByAssignmentId(entry.caregiverAssignmentId)) ??
+          (await storage.getCaregiverByHhaxCode(entry.caregiverAssignmentId));
         const client = await storage.getClientByHhaxId(entry.clientHhaxId);
 
         if (!caregiver) {
@@ -11533,31 +11539,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
             caregiverAssignmentId: entry.caregiverAssignmentId,
             hours: entry.hours,
             week: entry.weekNumber,
-            error: `Caregiver not found for Assignment ID: ${entry.caregiverAssignmentId}`,
+            error: `Caregiver not found for Assignment ID / HHA ID: ${entry.caregiverAssignmentId}`,
           });
           unmatched++;
           continue;
         }
 
-        if (!client) {
-          resultsList.push({
-            row: entry.rowNumber,
-            status: "unmatched",
-            clientHhaxId: entry.clientHhaxId,
-            caregiverAssignmentId: entry.caregiverAssignmentId,
-            hours: entry.hours,
-            week: entry.weekNumber,
-            caregiverName: `${caregiver.firstName || ""} ${caregiver.lastName || ""}`.trim(),
-            error: `Client not found for HHAX ID: ${entry.clientHhaxId}`,
-          });
-          unmatched++;
-          continue;
-        }
-
+        // A missing client match no longer blocks the hours — payroll pays the
+        // caregiver either way. The row is imported and flagged so the client
+        // link can be fixed later.
         await storage.createTimeEntry({
           payrollRunId: runId,
           caregiverId: caregiver.id,
-          clientId: client.id,
+          clientId: client?.id ?? null,
           entryDate: entry.entryDate,
           hoursWorked: entry.hours.toFixed(2),
           weekNumber: entry.weekNumber,
@@ -11566,9 +11560,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
 
         const caregiverName = `${caregiver.firstName || ""} ${caregiver.lastName || ""}`.trim();
-        const clientName = client.firstName && client.lastName 
-          ? `${client.firstName} ${client.lastName}` 
-          : client.hhaxAdmissionId || "";
+        const clientName = client
+          ? (client.firstName && client.lastName
+              ? `${client.firstName} ${client.lastName}`
+              : client.hhaxAdmissionId || "")
+          : `(no client match: ${entry.clientHhaxId})`;
 
         resultsList.push({
           row: entry.rowNumber,
@@ -11596,6 +11592,100 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error importing billing hours:", error);
       res.status(500).json({ message: "Failed to import billing hours" });
+    }
+  });
+
+  // Pull payroll hours straight from the caregiver schedule — no ADP or
+  // spreadsheet needed. Counts confirmed (and completed) client visits inside
+  // the run's pay period and turns them into time entries, replacing any
+  // previous schedule pull but leaving uploaded HHA hours untouched.
+  app.post("/api/payroll/:runId/pull-schedule-hours", isAuthenticated, requireFeature('billing_payroll'), async (req: any, res) => {
+    try {
+      const { runId } = req.params;
+      const payrollRun = await storage.getPayrollRun(runId);
+      if (!payrollRun || !(await canAccessOffice(req, payrollRun.officeId))) {
+        return res.status(404).json({ message: "Payroll run not found" });
+      }
+
+      const statuses: string[] = Array.isArray(req.body?.statuses) && req.body.statuses.length
+        ? req.body.statuses.map(String)
+        : ["confirmed", "completed"];
+
+      const payPeriodStart = new Date(payrollRun.payPeriodStart);
+      const payPeriodEnd = new Date(payrollRun.payPeriodEnd);
+      const midpoint = new Date(payPeriodStart.getTime() + (payPeriodEnd.getTime() - payPeriodStart.getTime()) / 2);
+
+      const schedules = await storage.getSchedulesForPayrollPull(
+        payrollRun.officeId, payPeriodStart, payPeriodEnd, statuses,
+      );
+
+      // Visit length from the scheduled start/end times ("HH:MM"); a shift
+      // ending past midnight rolls into the next day.
+      const shiftHours = (start: string | null, end: string | null): number | null => {
+        if (!start || !end) return null;
+        const m1 = /^(\d{1,2}):(\d{2})/.exec(start.trim());
+        const m2 = /^(\d{1,2}):(\d{2})/.exec(end.trim());
+        if (!m1 || !m2) return null;
+        const startMin = Number(m1[1]) * 60 + Number(m1[2]);
+        let endMin = Number(m2[1]) * 60 + Number(m2[2]);
+        if (endMin <= startMin) endMin += 24 * 60;
+        return (endMin - startMin) / 60;
+      };
+
+      const importBatchId = `schedule_${Date.now()}`;
+      await storage.deleteTimeEntriesBySourcePrefix(runId, "schedule_");
+
+      let created = 0;
+      let skipped = 0;
+      let totalHours = 0;
+      const caregiverIds = new Set<string>();
+      const skippedDetails: Array<{ scheduleId: string; caregiver: string; date: string; reason: string }> = [];
+
+      for (const s of schedules) {
+        const hours = shiftHours(s.startTime, s.endTime);
+        const caregiverName = `${s.caregiverFirstName || ""} ${s.caregiverLastName || ""}`.trim();
+        const dateStr = new Date(s.scheduledDate).toISOString().slice(0, 10);
+        if (hours === null || hours <= 0) {
+          skipped++;
+          skippedDetails.push({
+            scheduleId: s.id,
+            caregiver: caregiverName,
+            date: dateStr,
+            reason: `Invalid start/end time (${s.startTime || "—"}–${s.endTime || "—"})`,
+          });
+          continue;
+        }
+        const entryDate = new Date(s.scheduledDate);
+        await storage.createTimeEntry({
+          payrollRunId: runId,
+          caregiverId: s.caregiverId,
+          clientId: s.clientId ?? null,
+          entryDate,
+          hoursWorked: hours.toFixed(2),
+          weekNumber: entryDate <= midpoint ? 1 : 2,
+          importBatchId,
+          notes: `Pulled from schedule (${s.status})`,
+        });
+        created++;
+        totalHours += hours;
+        caregiverIds.add(s.caregiverId);
+      }
+
+      res.json({
+        summary: {
+          visitsFound: schedules.length,
+          entriesCreated: created,
+          skipped,
+          caregivers: caregiverIds.size,
+          totalHours: Number(totalHours.toFixed(2)),
+          statuses,
+        },
+        skippedDetails,
+        importBatchId,
+      });
+    } catch (error) {
+      console.error("Error pulling schedule hours:", error);
+      res.status(500).json({ message: "Failed to pull hours from schedule" });
     }
   });
 
