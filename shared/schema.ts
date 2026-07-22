@@ -122,6 +122,9 @@ export const users = pgTable("users", {
   // when they joined (shown on the unified employee directory page).
   managerId: varchar("manager_id"),
   hireDate: timestamp("hire_date"),
+  // Set when this user's onboarding instance completes (written by the
+  // onboarding module; column originally added via ensureOnboardingSchema).
+  onboardedAt: timestamp("onboarded_at"),
   // Offboarding (Task #137): when set, auto-creates an offboarding instance
   // from a matching template and triggers the termination workflow on the date.
   terminationDate: timestamp("termination_date"),
@@ -234,6 +237,9 @@ export const caregivers = pgTable("caregivers", {
   isActive: boolean("is_active").default(true),
   // Employee directory: who this caregiver reports to (references users.id)
   managerId: varchar("manager_id"),
+  // Set when this caregiver's onboarding instance completes (written by the
+  // onboarding module; column originally added via ensureOnboardingSchema).
+  onboardedAt: timestamp("onboarded_at"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => [
@@ -5526,3 +5532,29 @@ export const clientSpendDownsRelations = relations(clientSpendDowns, ({ one }) =
 export type ClientSpendDown = typeof clientSpendDowns.$inferSelect;
 export type InsertClientSpendDown = typeof clientSpendDowns.$inferInsert;
 export const insertClientSpendDownSchema = createInsertSchema(clientSpendDowns).omit({ id: true, createdAt: true, updatedAt: true });
+
+// ---------------------------------------------------------------------------
+// Boot-time init/self-heal marker tables.
+//
+// These are written by server/initDb.ts, NOT by application code. They are
+// declared here so `drizzle-kit push` recognizes them as part of the schema
+// instead of treating them as foreign tables to drop. production_init_marker
+// is CRITICAL: its row is the guard that stops runProductionInit() from
+// truncating the entire production database on boot — dropping it caused
+// full production data loss on redeploy. Never remove these declarations.
+// ---------------------------------------------------------------------------
+const initMarker = (name: string) =>
+  pgTable(name, {
+    initializedAt: timestamp("initialized_at").defaultNow(),
+  });
+
+export const productionInitMarker = initMarker("production_init_marker");
+export const employeeNotesInitMarker = initMarker("employee_notes_init_marker");
+export const onboardingInitMarker = initMarker("onboarding_init_marker");
+export const offboardingInitMarker = initMarker("offboarding_init_marker");
+export const selfServiceInitMarker = initMarker("self_service_init_marker");
+export const complianceBranchInitMarker = initMarker("compliance_branch_init_marker");
+export const complianceProgramInitMarker = initMarker("compliance_program_init_marker");
+export const clientProfileInitMarker = initMarker("client_profile_init_marker");
+export const staffPerformancePtoInitMarker = initMarker("staff_performance_pto_init_marker");
+export const coordinatorDirectoryInitMarker = initMarker("coordinator_directory_init_marker");

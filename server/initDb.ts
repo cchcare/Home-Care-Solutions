@@ -1021,6 +1021,37 @@ export async function runProductionInit() {
 
   const client = await pool.connect();
   try {
+    // Second, independent safety net: even if the init marker is missing
+    // (e.g. a drizzle-kit push dropped the marker table), NEVER truncate a
+    // database that plainly contains live data. A real reset of a non-empty
+    // database requires an explicit second env var acknowledging data loss.
+    let liveRows = 0;
+    try {
+      const live = await client.query(`
+        SELECT
+          COALESCE((SELECT count(*) FROM clients), 0) +
+          COALESCE((SELECT count(*) FROM caregivers), 0) +
+          COALESCE((SELECT count(*) FROM offices), 0) AS n
+      `);
+      liveRows = Number(live.rows[0]?.n ?? 0);
+    } catch {
+      // Tables don't exist yet — genuinely fresh database, safe to proceed.
+      liveRows = 0;
+    }
+    if (liveRows > 0 && process.env.INIT_PRODUCTION_DB_FORCE !== "yes-erase-everything") {
+      console.warn(
+        `[Init] REFUSING production reset: database contains ${liveRows} live ` +
+        "client/caregiver/office rows but no init marker. This usually means " +
+        "the production_init_marker table was dropped (e.g. by drizzle-kit push). " +
+        "Marker restored; no data was touched. To intentionally erase everything, " +
+        "set INIT_PRODUCTION_DB_FORCE=yes-erase-everything for one boot."
+      );
+      // Re-arm the guard so future boots take the fast path again.
+      await client.query(`CREATE TABLE IF NOT EXISTS production_init_marker (initialized_at timestamp DEFAULT NOW());`);
+      await client.query(`INSERT INTO production_init_marker DEFAULT VALUES;`);
+      return;
+    }
+
     console.log("[Init] Starting production database reset...");
 
     await client.query("BEGIN");
