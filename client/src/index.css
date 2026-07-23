@@ -34,7 +34,7 @@
   --font-sans: Inter, system-ui, sans-serif;
   --font-serif: Georgia, serif;
   --font-mono: Menlo, monospace;
-  --radius: 0.75rem;
+  --radius: 0.875rem;
 }
 
 .dark {
@@ -84,6 +84,74 @@
 
   body {
     @apply font-sans antialiased bg-background text-foreground;
+  }
+
+  /* Consistent, visible keyboard-focus ring across the app. Only shows for
+     keyboard/programmatic focus (not mouse clicks), so it never adds visual
+     noise for pointer users while keeping the app fully keyboard-navigable. */
+  :focus-visible {
+    outline: 2px solid hsl(var(--ring) / 1);
+    outline-offset: 2px;
+    border-radius: calc(var(--radius) - 6px);
+  }
+
+  /* Slim, unobtrusive scrollbars that still look intentional (WebKit +
+     Firefox). Falls back to native scrollbars everywhere else. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--muted-foreground) / 0.35) transparent;
+  }
+  *::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  *::-webkit-scrollbar-thumb {
+    background-color: hsl(var(--muted-foreground) / 0.3);
+    border-radius: 9999px;
+    border: 2px solid transparent;
+    background-clip: content-box;
+  }
+  *::-webkit-scrollbar-thumb:hover {
+    background-color: hsl(var(--muted-foreground) / 0.5);
+    background-clip: content-box;
+  }
+
+  /* Respect the OS-level reduced-motion preference for any CSS keyframe
+     animation (Framer Motion components handle this themselves via
+     useReducedMotion in motion.tsx). */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.001ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.001ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+@layer utilities {
+  /* Shimmering skeleton-loader sheen, used by <Skeleton> and loading-states. */
+  .skeleton-shimmer {
+    position: relative;
+    overflow: hidden;
+  }
+  .skeleton-shimmer::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    transform: translateX(-100%);
+    background: linear-gradient(
+      90deg,
+      transparent,
+      hsl(var(--foreground) / 0.06),
+      transparent
+    );
+    animation: shimmer 1.6s infinite;
   }
 }
 
