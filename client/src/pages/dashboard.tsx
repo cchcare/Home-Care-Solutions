@@ -5,6 +5,8 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { StatCard } from "@/components/ui/stat-card";
+import { StaggerContainer, StaggerItem } from "@/components/ui/motion";
 import { Sidebar } from "@/components/sidebar";
 import { TopBar } from "@/components/topbar";
 import { useOfficeScope } from "@/context/office-context";
@@ -273,99 +275,52 @@ export default function Dashboard() {
           <div className="max-w-7xl mx-auto space-y-6">
             
             {/* Key Metrics Cards */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-              <Card className="hover:shadow-md transition-shadow">
-                <CardContent className="p-6">
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1">
-                      <p className="text-muted-foreground text-xs font-semibold uppercase tracking-wider">Active Clients</p>
-                      {metricsLoading ? (
-                        <div className="h-10 bg-muted rounded w-24 animate-pulse mt-2" />
-                      ) : (
-                        <>
-                          <p className="text-3xl font-bold text-foreground mt-2" data-testid="text-active-clients">
-                            {metrics?.activeClients || 0}
-                          </p>
-                          <p className="text-xs text-muted-foreground mt-1">Current census</p>
-                        </>
-                      )}
-                    </div>
-                    <div className="w-12 h-12 bg-blue-100 dark:bg-blue-900/30 rounded-lg flex items-center justify-center flex-shrink-0">
-                      <Users className="w-6 h-6 text-blue-600 dark:text-blue-400" />
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card className="hover:shadow-md transition-shadow">
-                <CardContent className="p-6">
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1">
-                      <p className="text-muted-foreground text-xs font-semibold uppercase tracking-wider">Active Caregivers</p>
-                      {metricsLoading ? (
-                        <div className="h-10 bg-muted rounded w-24 animate-pulse mt-2" />
-                      ) : (
-                        <>
-                          <p className="text-3xl font-bold text-foreground mt-2" data-testid="text-active-caregivers">
-                            {metrics?.activeCaregivers || 0}
-                          </p>
-                          <p className="text-xs text-muted-foreground mt-1">On staff</p>
-                        </>
-                      )}
-                    </div>
-                    <div className="w-12 h-12 bg-green-100 dark:bg-green-900/30 rounded-lg flex items-center justify-center flex-shrink-0">
-                      <UserCheck className="w-6 h-6 text-green-600 dark:text-green-400" />
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card className="hover:shadow-md transition-shadow">
-                <CardContent className="p-6">
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1">
-                      <p className="text-muted-foreground text-xs font-semibold uppercase tracking-wider">Pending Tasks</p>
-                      {metricsLoading ? (
-                        <div className="h-10 bg-muted rounded w-24 animate-pulse mt-2" />
-                      ) : (
-                        <>
-                          <p className="text-3xl font-bold text-foreground mt-2" data-testid="text-pending-tasks">
-                            {metrics?.pendingTasks || 0}
-                          </p>
-                          <p className="text-xs text-red-600 dark:text-red-400 font-medium mt-1">Need attention</p>
-                        </>
-                      )}
-                    </div>
-                    <div className="w-12 h-12 bg-red-100 dark:bg-red-900/30 rounded-lg flex items-center justify-center flex-shrink-0">
-                      <AlertTriangle className="w-6 h-6 text-red-600 dark:text-red-400" />
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card className="hover:shadow-md transition-shadow">
-                <CardContent className="p-6">
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1">
-                      <p className="text-muted-foreground text-xs font-semibold uppercase tracking-wider">Compliance Rate</p>
-                      {metricsLoading ? (
-                        <div className="h-10 bg-muted rounded w-24 animate-pulse mt-2" />
-                      ) : (
-                        <>
-                          <p className="text-3xl font-bold text-foreground mt-2" data-testid="text-compliance-rate">
-                            {metrics?.complianceRate || 0}%
-                          </p>
-                          <p className="text-xs text-muted-foreground mt-1">On track</p>
-                        </>
-                      )}
-                    </div>
-                    <div className="w-12 h-12 bg-purple-100 dark:bg-purple-900/30 rounded-lg flex items-center justify-center flex-shrink-0">
-                      <Shield className="w-6 h-6 text-purple-600 dark:text-purple-400" />
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
+            <StaggerContainer className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+              <StaggerItem>
+                <StatCard
+                  icon={Users}
+                  tone="blue"
+                  label="Active Clients"
+                  value={metrics?.activeClients || 0}
+                  sublabel="Current census"
+                  loading={metricsLoading}
+                  valueTestId="text-active-clients"
+                />
+              </StaggerItem>
+              <StaggerItem>
+                <StatCard
+                  icon={UserCheck}
+                  tone="green"
+                  label="Active Caregivers"
+                  value={metrics?.activeCaregivers || 0}
+                  sublabel="On staff"
+                  loading={metricsLoading}
+                  valueTestId="text-active-caregivers"
+                />
+              </StaggerItem>
+              <StaggerItem>
+                <StatCard
+                  icon={AlertTriangle}
+                  tone="red"
+                  label="Pending Tasks"
+                  value={metrics?.pendingTasks || 0}
+                  sublabel="Need attention"
+                  loading={metricsLoading}
+                  valueTestId="text-pending-tasks"
+                />
+              </StaggerItem>
+              <StaggerItem>
+                <StatCard
+                  icon={Shield}
+                  tone="purple"
+                  label="Compliance Rate"
+                  value={`${metrics?.complianceRate || 0}%`}
+                  sublabel="On track"
+                  loading={metricsLoading}
+                  valueTestId="text-compliance-rate"
+                />
+              </StaggerItem>
+            </StaggerContainer>
 
             {/* Monthly Statistics Charts */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6" data-testid="charts-monthly-stats">

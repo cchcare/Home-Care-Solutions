@@ -26,6 +26,9 @@ interface StatCardProps {
   onClick?: () => void;
   className?: string;
   "data-testid"?: string;
+  /** testid for just the value element, for callers that had a stable
+   *  selector on the number itself before adopting this component. */
+  valueTestId?: string;
 }
 
 /**
@@ -45,6 +48,7 @@ export function StatCard({
   onClick,
   className,
   "data-testid": testId,
+  valueTestId,
 }: StatCardProps) {
   const tones = TONE_CLASSES[tone];
   const Comp = onClick ? "button" : "div";
@@ -71,7 +75,9 @@ export function StatCard({
             {loading ? (
               <div className="mt-2 h-8 w-20 skeleton-shimmer rounded bg-muted" />
             ) : (
-              <p className="mt-1.5 text-3xl font-bold tabular-nums text-foreground">{value}</p>
+              <p className="mt-1.5 text-3xl font-bold tabular-nums text-foreground" data-testid={valueTestId}>
+                {value}
+              </p>
             )}
             {(sublabel || trend) && !loading && (
               <div className="mt-1 flex items-center gap-2">
