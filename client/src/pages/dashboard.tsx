@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Sidebar } from "@/components/sidebar";
-import { OfficeSelector } from "@/components/office-selector";
+import { TopBar } from "@/components/topbar";
 import { useOfficeScope } from "@/context/office-context";
 import { isUnauthorizedError } from "@/lib/authUtils";
 import { Link } from "wouter";
@@ -29,13 +29,6 @@ import {
   Eye,
   Edit,
   Heart,
-  Search,
-  Bell,
-  Settings,
-  User,
-  Key,
-  LogOut,
-  ChevronDown,
   ExternalLink,
   Trash2,
   PlusCircle,
@@ -46,13 +39,6 @@ import {
   CheckCircle,
   FileText
 } from "lucide-react";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { AiIssuesPanel } from "@/components/ai-issues-panel";
 import { OpenFollowUpsWidget } from "@/components/open-follow-ups-widget";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
@@ -64,7 +50,7 @@ import type { OfficeDashboardLink } from "@shared/schema";
 
 export default function Dashboard() {
   const { toast } = useToast();
-  const { isAuthenticated, isLoading, user, logout } = useAuth();
+  const { isAuthenticated, isLoading, user } = useAuth();
   const { selectedOfficeId, setSelectedOfficeId, isAllOffices, canMutate, viewOnlyMessage } = useOfficeScope();
 
   const isCaregiver = (user as any)?.role === "caregiver";
@@ -221,9 +207,7 @@ export default function Dashboard() {
       <div className="flex h-screen overflow-hidden">
         <Sidebar />
         <main className="flex-1 flex flex-col overflow-hidden">
-          <header className="bg-card border-b border-border h-16 flex items-center justify-between px-6 flex-shrink-0">
-            <div className="h-8 bg-muted rounded w-48 animate-pulse" />
-          </header>
+          <TopBar title="Dashboard Overview" />
           <div className="flex-1 overflow-auto p-6 bg-background">
             <div className="max-w-7xl mx-auto space-y-6">
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -276,96 +260,13 @@ export default function Dashboard() {
       
       {/* Main Content Area */}
       <main className="flex-1 flex flex-col overflow-hidden">
-        {/* Top Header */}
-        <header className="bg-card border-b border-border h-16 flex items-center justify-between px-6 flex-shrink-0">
-          <div className="flex items-center space-x-4">
-            <div className="hidden sm:block">
-              <h2 className="text-lg font-semibold text-foreground">Dashboard Overview</h2>
-              <p className="text-sm text-muted-foreground">Welcome back, manage your care operations</p>
-            </div>
-            <OfficeSelector
-              selectedOfficeId={selectedOfficeId === "all" ? undefined : selectedOfficeId}
-              onOfficeChange={setSelectedOfficeId}
-              showAllOption={true}
-            />
-          </div>
-
-          <div className="flex items-center space-x-4">
-            {/* Search */}
-            <div className="hidden md:flex items-center bg-muted rounded-lg px-3 py-2 max-w-xs">
-              <Search className="w-4 h-4 text-muted-foreground mr-2" />
-              <input 
-                type="text" 
-                placeholder="Search clients, caregivers..." 
-                className="bg-transparent border-0 focus:outline-none text-sm text-foreground placeholder-muted-foreground flex-1"
-                data-testid="input-global-search"
-              />
-            </div>
-
-            {/* Notifications */}
-            <button 
-              className="relative p-2 text-muted-foreground hover:text-foreground" 
-              onClick={() => toast({ title: "Notifications", description: `${metrics?.criticalAlerts || 0} critical alerts pending` })}
-              data-testid="button-notifications"
-            >
-              <Bell className="w-5 h-5" />
-              <span className="absolute -top-1 -right-1 bg-destructive text-destructive-foreground text-xs rounded-full w-5 h-5 flex items-center justify-center">
-                {metrics?.criticalAlerts || 0}
-              </span>
-            </button>
-
-            {/* User Menu */}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button 
-                  className="flex items-center space-x-2 p-2 rounded-lg hover:bg-muted" 
-                  data-testid="button-user-menu"
-                >
-                  <div className="w-8 h-8 bg-primary rounded-full flex items-center justify-center">
-                    <span className="text-primary-foreground text-sm font-medium">
-                      {user?.firstName?.[0] || 'U'}{user?.lastName?.[0] || 'U'}
-                    </span>
-                  </div>
-                  <ChevronDown className="w-4 h-4 text-muted-foreground" />
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-56">
-                <div className="px-2 py-1.5">
-                  <p className="text-sm font-medium">{user?.firstName} {user?.lastName}</p>
-                  <p className="text-xs text-muted-foreground">{user?.email || 'User'}</p>
-                </div>
-                <DropdownMenuSeparator />
-                <Link href="/account-settings">
-                  <DropdownMenuItem data-testid="menu-item-my-account">
-                    <User className="mr-2 h-4 w-4" />
-                    My Account
-                  </DropdownMenuItem>
-                </Link>
-                <Link href="/account-settings">
-                  <DropdownMenuItem data-testid="menu-item-settings">
-                    <Settings className="mr-2 h-4 w-4" />
-                    Settings
-                  </DropdownMenuItem>
-                </Link>
-                <Link href="/account-settings">
-                  <DropdownMenuItem data-testid="menu-item-change-password">
-                    <Key className="mr-2 h-4 w-4" />
-                    Change Password
-                  </DropdownMenuItem>
-                </Link>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem 
-                  onClick={() => logout()}
-                  className="text-destructive focus:text-destructive"
-                  data-testid="menu-item-logout"
-                >
-                  <LogOut className="mr-2 h-4 w-4" />
-                  Log Out
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
-        </header>
+        <TopBar
+          title="Dashboard Overview"
+          subtitle="Welcome back, manage your care operations"
+          showOfficeSelector
+          selectedOfficeId={selectedOfficeId}
+          onOfficeChange={setSelectedOfficeId}
+        />
 
         {/* Content Area */}
         <div className="flex-1 overflow-auto p-6 bg-background">

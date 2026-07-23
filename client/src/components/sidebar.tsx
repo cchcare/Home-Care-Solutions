@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useLocation } from "wouter";
+import { AnimatePresence, motion } from "framer-motion";
 import { useAuth } from "@/hooks/useAuth";
 import { useFeatures } from "@/hooks/use-features";
 import { Button } from "@/components/ui/button";
@@ -98,6 +99,30 @@ export function Sidebar() {
   const isMobile = useIsMobile();
   const [collapsedRaw, , toggleCollapsed] = useSidebarCollapsed();
   const collapsed = !isMobile && collapsedRaw;
+  const mobileTriggerRef = useRef<HTMLButtonElement>(null);
+
+  // Escape closes the mobile drawer and returns focus to the hamburger
+  // button that opened it, so keyboard users never lose their place.
+  useEffect(() => {
+    if (!isMobile || !isOpen) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setIsOpen(false);
+        mobileTriggerRef.current?.focus();
+      }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [isMobile, isOpen]);
+
+  // Prevent the page behind the drawer from scrolling while it's open.
+  useEffect(() => {
+    if (!isMobile) return;
+    document.body.style.overflow = isOpen ? "hidden" : "";
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, [isMobile, isOpen]);
 
   const toggleMenu = (menuName: string) => {
     setExpandedMenus(prev =>
@@ -360,7 +385,7 @@ export function Sidebar() {
           href={child.href}
           target="_blank"
           rel="noopener noreferrer"
-          className={`flex items-center space-x-3 p-2.5 ${pl} rounded-lg text-sm font-medium transition-colors text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground`}
+          className={`flex items-center space-x-3 p-2.5 ${pl} rounded-xl text-sm font-medium transition-colors text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground`}
           onClick={() => isMobile && setIsOpen(false)}
           data-testid={`nav-link-${child.name.toLowerCase().replace(/\s+/g, '-')}`}
         >
@@ -374,13 +399,14 @@ export function Sidebar() {
       <Link
         key={child.name}
         href={child.href || "#"}
-        className={`flex items-center space-x-3 p-2.5 ${pl} rounded-lg text-sm font-medium transition-colors ${
+        className={`flex items-center space-x-3 p-2.5 ${pl} rounded-xl text-sm font-medium transition-colors ${
           isActive
             ? "bg-sidebar-primary text-sidebar-primary-foreground"
             : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
         }`}
         onClick={() => isMobile && setIsOpen(false)}
         data-testid={`nav-link-${child.name.toLowerCase().replace(/\s+/g, '-')}`}
+        aria-current={isActive ? "page" : undefined}
       >
         <ChildIcon className="w-4 h-4" />
         <span>{child.name}</span>
@@ -400,7 +426,7 @@ export function Sidebar() {
       <div key={child.name}>
         <button
           onClick={() => toggleSubMenu(child.name)}
-          className={`w-full flex items-center justify-between p-2.5 ${pl} rounded-lg text-sm font-medium transition-colors ${
+          className={`w-full flex items-center justify-between p-2.5 ${pl} rounded-xl text-sm font-medium transition-colors ${
             hasActive
               ? "text-sidebar-primary"
               : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
@@ -434,7 +460,7 @@ export function Sidebar() {
             <PopoverTrigger asChild>
               <TooltipTrigger asChild>
                 <button
-                  className={`w-full flex items-center justify-center p-3 rounded-lg transition-colors ${
+                  className={`w-full flex items-center justify-center p-3 rounded-xl transition-colors ${
                     hasActive
                       ? "bg-sidebar-accent text-sidebar-primary"
                       : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
@@ -470,7 +496,7 @@ export function Sidebar() {
         href={item.href}
         target="_blank"
         rel="noopener noreferrer"
-        className="w-full flex items-center justify-center p-3 rounded-lg transition-colors text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+        className="w-full flex items-center justify-center p-3 rounded-xl transition-colors text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
         data-testid={`nav-link-${item.name.toLowerCase().replace(/\s+/g, '-')}`}
         aria-label={item.name}
       >
@@ -479,13 +505,14 @@ export function Sidebar() {
     ) : (
       <Link
         href={item.href || "#"}
-        className={`w-full flex items-center justify-center p-3 rounded-lg transition-colors ${
+        className={`w-full flex items-center justify-center p-3 rounded-xl transition-colors ${
           isActive
             ? "bg-sidebar-primary text-sidebar-primary-foreground"
             : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
         }`}
         data-testid={`nav-link-${item.name.toLowerCase().replace(/\s+/g, '-')}`}
         aria-label={item.name}
+        aria-current={isActive ? "page" : undefined}
       >
         <Icon className="w-5 h-5" />
       </Link>
@@ -503,44 +530,61 @@ export function Sidebar() {
     <>
       {isMobile && (
         <Button
+          ref={mobileTriggerRef}
           variant="ghost"
           size="sm"
-          className="fixed top-4 left-4 z-50 lg:hidden print:hidden"
+          className="fixed top-4 left-4 z-50 lg:hidden print:hidden rounded-xl bg-card/90 shadow-soft backdrop-blur"
           onClick={() => setIsOpen(true)}
           data-testid="button-open-sidebar"
+          aria-label="Open navigation menu"
+          aria-expanded={isOpen}
         >
           <Menu className="w-5 h-5" />
         </Button>
       )}
 
-      {isMobile && isOpen && (
-        <div
-          className="fixed inset-0 bg-foreground/50 backdrop-blur-sm z-40 lg:hidden print:hidden"
-          onClick={() => setIsOpen(false)}
-        />
-      )}
+      <AnimatePresence>
+        {isMobile && isOpen && (
+          <motion.div
+            key="sidebar-backdrop"
+            className="fixed inset-0 bg-foreground/50 backdrop-blur-sm z-40 lg:hidden print:hidden"
+            onClick={() => setIsOpen(false)}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            aria-hidden="true"
+          />
+        )}
+      </AnimatePresence>
 
-      <aside
+      <motion.aside
         className={`
-          bg-sidebar border-r border-sidebar-border flex-shrink-0 sidebar-transition print:hidden
+          bg-sidebar border-r border-sidebar-border flex-shrink-0 print:hidden
           transition-[width] duration-200 ease-in-out
           ${collapsed ? "w-16" : "w-64"}
           ${isMobile ? "fixed inset-y-0 left-0 z-50" : ""}
-          ${isMobile && !isOpen ? "sidebar-closed" : ""}
         `}
         data-testid="sidebar"
         data-collapsed={collapsed ? "true" : "false"}
+        animate={isMobile ? { x: isOpen ? 0 : "-100%" } : { x: 0 }}
+        initial={false}
+        transition={{ type: "tween", duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
+        role={isMobile ? "dialog" : undefined}
+        aria-modal={isMobile ? isOpen : undefined}
+        aria-label={isMobile ? "Navigation menu" : undefined}
+        aria-hidden={isMobile && !isOpen ? true : undefined}
       >
-        <div className="flex flex-col h-full">
+          <div className="flex flex-col h-full">
           <div className={`flex items-center ${collapsed ? "justify-center" : "justify-between"} ${collapsed ? "p-3" : "p-6"} border-b border-sidebar-border`}>
             {collapsed ? (
-              <div className="w-8 h-8 bg-sidebar-primary rounded-lg flex items-center justify-center" aria-label="Home Care">
+              <div className="w-8 h-8 bg-sidebar-primary rounded-xl flex items-center justify-center" aria-label="Home Care">
                 <Heart className="w-5 h-5 text-sidebar-primary-foreground" />
               </div>
             ) : (
               <div className="flex flex-col">
                 <div className="flex items-center space-x-3">
-                  <div className="w-8 h-8 bg-sidebar-primary rounded-lg flex items-center justify-center">
+                  <div className="w-8 h-8 bg-sidebar-primary rounded-xl flex items-center justify-center">
                     <Heart className="w-5 h-5 text-sidebar-primary-foreground" />
                   </div>
                   <h1 className="text-xl font-bold text-sidebar-foreground">Home Care</h1>
@@ -605,7 +649,7 @@ export function Sidebar() {
                   <div key={item.name}>
                     <button
                       onClick={() => toggleMenu(item.name)}
-                      className={`w-full flex items-center justify-between p-3 rounded-lg font-medium transition-colors ${
+                      className={`w-full flex items-center justify-between p-3 rounded-xl font-medium transition-colors ${
                         hasActive
                           ? "bg-sidebar-accent text-sidebar-primary"
                           : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
@@ -641,7 +685,7 @@ export function Sidebar() {
                     href={item.href}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="flex items-center space-x-3 p-3 rounded-lg font-medium transition-colors text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                    className="flex items-center space-x-3 p-3 rounded-xl font-medium transition-colors text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
                     onClick={() => isMobile && setIsOpen(false)}
                     data-testid={`nav-link-${item.name.toLowerCase().replace(/\s+/g, '-')}`}
                   >
@@ -655,13 +699,14 @@ export function Sidebar() {
                 <Link
                   key={item.name}
                   href={item.href || "#"}
-                  className={`flex items-center space-x-3 p-3 rounded-lg font-medium transition-colors ${
+                  className={`flex items-center space-x-3 p-3 rounded-xl font-medium transition-colors ${
                     isActive
                       ? "bg-sidebar-primary text-sidebar-primary-foreground"
                       : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
                   }`}
                   onClick={() => isMobile && setIsOpen(false)}
                   data-testid={`nav-link-${item.name.toLowerCase().replace(/\s+/g, '-')}`}
+                  aria-current={isActive ? "page" : undefined}
                 >
                   <Icon className="w-5 h-5" />
                   <span>{item.name}</span>
@@ -692,7 +737,7 @@ export function Sidebar() {
                 <TooltipTrigger asChild>
                   <button
                     onClick={handleLogout}
-                    className="w-full flex items-center justify-center p-2 rounded-lg bg-sidebar-accent hover:bg-sidebar-accent/80 transition-colors"
+                    className="w-full flex items-center justify-center p-2 rounded-xl bg-sidebar-accent hover:bg-sidebar-accent/80 transition-colors"
                     data-testid="button-logout"
                     aria-label={
                       user?.firstName || user?.lastName
@@ -715,7 +760,7 @@ export function Sidebar() {
                 </TooltipContent>
               </Tooltip>
             ) : (
-              <div className="flex items-center space-x-3 p-3 rounded-lg bg-sidebar-accent">
+              <div className="flex items-center space-x-3 p-3 rounded-xl bg-sidebar-accent">
                 <div className="w-8 h-8 bg-accent rounded-full flex items-center justify-center">
                   <span className="text-accent-foreground text-sm font-medium">
                     {user?.firstName?.[0]}{user?.lastName?.[0]}
@@ -742,7 +787,7 @@ export function Sidebar() {
             )}
           </div>
         </div>
-      </aside>
+      </motion.aside>
     </>
   );
 }

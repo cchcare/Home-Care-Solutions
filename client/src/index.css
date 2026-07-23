@@ -67,16 +67,6 @@
   --sidebar-ring: hsl(210, 100%, 55%);
 }
 
-.sidebar-transition {
-  transition: transform 0.3s ease-in-out, width 0.2s ease-in-out;
-}
-
-@media (max-width: 1024px) {
-  .sidebar-closed {
-    transform: translateX(-100%);
-  }
-}
-
 @layer base {
   * {
     @apply border-border;
