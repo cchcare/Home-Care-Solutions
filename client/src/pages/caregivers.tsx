@@ -15,6 +15,8 @@ import {
 } from "@/components/ui/select";
 import { Sidebar } from "@/components/sidebar";
 import { TopBar } from "@/components/topbar";
+import { StatCard } from "@/components/ui/stat-card";
+import { StaggerContainer, StaggerItem } from "@/components/ui/motion";
 import { AddCaregiverModal } from "@/components/add-caregiver-modal";
 import { OcrUploadDialog } from "@/components/ocr-upload-dialog";
 import { OfficeSelector } from "@/components/office-selector";
@@ -27,6 +29,7 @@ import {
   Plus,
   Search,
   UserCheck,
+  Users,
   Award,
   AlertCircle,
   Eye,
@@ -208,7 +211,7 @@ export default function Caregivers() {
     return p.toString();
   }, [selectedOfficeId, search, status, coordinatorIds, specializations, certType, certExpiresWithinDays]);
 
-  const { data: caregivers = [], isLoading } = useQuery<EnrichedCaregiver[]>({
+  const { data: caregivers = [], isLoading, error: caregiversError, refetch: refetchCaregivers } = useQuery<EnrichedCaregiver[]>({
     queryKey: ["/api/caregivers", queryParams],
     queryFn: async () => {
       const r = await fetch(
@@ -701,65 +704,58 @@ export default function Caregivers() {
             </Card>
 
             {/* Caregiver Statistics */}
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-              <Card>
-                <CardContent className="p-6">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm font-medium text-muted-foreground">Total Caregivers</p>
-                      <p className="text-2xl font-bold text-foreground" data-testid="text-total-caregivers">
-                        {caregivers.length}
-                      </p>
-                    </div>
-                    <UserCheck className="w-8 h-8 text-primary" />
-                  </div>
-                </CardContent>
-              </Card>
+            <StaggerContainer className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <StaggerItem>
+                <StatCard
+                  icon={UserCheck}
+                  tone="blue"
+                  label="Total Caregivers"
+                  value={caregivers.length}
+                  valueTestId="text-total-caregivers"
+                />
+              </StaggerItem>
+              <StaggerItem>
+                <StatCard
+                  icon={UserCheck}
+                  tone="green"
+                  label="Active Staff"
+                  value={caregivers.filter((c: Caregiver) => c.isActive).length}
+                  valueTestId="text-active-caregivers-count"
+                />
+              </StaggerItem>
+              <StaggerItem>
+                <StatCard
+                  icon={AlertCircle}
+                  tone="red"
+                  label="Certifications Due"
+                  value={12}
+                  valueTestId="text-certifications-due"
+                />
+              </StaggerItem>
+              <StaggerItem>
+                <StatCard
+                  icon={Award}
+                  tone="purple"
+                  label="Compliance Rate"
+                  value="94%"
+                  valueTestId="text-caregiver-compliance"
+                />
+              </StaggerItem>
+            </StaggerContainer>
 
-              <Card>
-                <CardContent className="p-6">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm font-medium text-muted-foreground">Active Staff</p>
-                      <p className="text-2xl font-bold text-foreground" data-testid="text-active-caregivers-count">
-                        {caregivers.filter((c: Caregiver) => c.isActive).length}
-                      </p>
-                    </div>
-                    <div className="w-8 h-8 bg-accent rounded-full flex items-center justify-center">
-                      <UserCheck className="w-5 h-5 text-accent-foreground" />
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardContent className="p-6">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm font-medium text-muted-foreground">Certifications Due</p>
-                      <p className="text-2xl font-bold text-foreground" data-testid="text-certifications-due">
-                        12
-                      </p>
-                    </div>
-                    <AlertCircle className="w-8 h-8 text-destructive" />
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardContent className="p-6">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm font-medium text-muted-foreground">Compliance Rate</p>
-                      <p className="text-2xl font-bold text-foreground" data-testid="text-caregiver-compliance">
-                        94%
-                      </p>
-                    </div>
-                    <Award className="w-8 h-8 text-accent" />
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
+            {caregiversError && (
+              <div
+                className="flex items-center justify-between gap-3 p-4 rounded-lg border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20"
+                data-testid="banner-caregivers-error"
+              >
+                <p className="text-sm text-red-800 dark:text-red-200">
+                  Couldn't load caregivers: {(caregiversError as Error).message}
+                </p>
+                <Button variant="outline" size="sm" onClick={() => refetchCaregivers()}>
+                  Retry
+                </Button>
+              </div>
+            )}
 
             {/* Caregivers Table */}
             <Card>
@@ -814,11 +810,15 @@ export default function Caregivers() {
                     </thead>
                     <tbody className="divide-y divide-border">
                       {isLoading ? (
-                        <tr>
-                          <td colSpan={8} className="p-8 text-center text-muted-foreground">
-                            Loading caregivers...
-                          </td>
-                        </tr>
+                        Array.from({ length: 6 }).map((_, i) => (
+                          <tr key={i}>
+                            {Array.from({ length: 8 }).map((__, j) => (
+                              <td key={j} className="p-4">
+                                <div className="h-4 bg-muted rounded animate-pulse" />
+                              </td>
+                            ))}
+                          </tr>
+                        ))
                       ) : caregivers.length > 0 ? (
                         caregivers.map((caregiver: EnrichedCaregiver) => {
                           const startDate = caregiver.startDate || caregiver.hireDate;
@@ -938,10 +938,22 @@ export default function Caregivers() {
                         })
                       ) : (
                         <tr>
-                          <td colSpan={8} className="p-8 text-center text-muted-foreground">
-                            {chips.length > 0
-                              ? "No caregivers match your filters"
-                              : "No caregivers found"}
+                          <td colSpan={8} className="p-8">
+                            <div className="flex flex-col items-center text-center">
+                              <div className="w-14 h-14 bg-muted rounded-full flex items-center justify-center mb-3">
+                                <Users className="h-7 w-7 text-muted-foreground/60" />
+                              </div>
+                              <p className="text-sm font-semibold text-foreground">
+                                {chips.length > 0
+                                  ? "No caregivers match your filters"
+                                  : "No caregivers yet"}
+                              </p>
+                              <p className="text-sm text-muted-foreground mt-1">
+                                {chips.length > 0
+                                  ? "Try clearing or adjusting the active filters above."
+                                  : "Add your first caregiver to get started."}
+                              </p>
+                            </div>
                           </td>
                         </tr>
                       )}

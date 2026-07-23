@@ -350,6 +350,39 @@ import {
   coordinatorPayRecords,
   type CoordinatorPayRecord,
   type InsertCoordinatorPayRecord,
+  compPayrollPeriods,
+  type CompPayrollPeriod,
+  type InsertCompPayrollPeriod,
+  compScheduleEntries,
+  type CompScheduleEntry,
+  type InsertCompScheduleEntry,
+  compCaregiverPayments,
+  type CompCaregiverPayment,
+  type InsertCompCaregiverPayment,
+  compCoordinatorPayments,
+  type CompCoordinatorPayment,
+  type InsertCompCoordinatorPayment,
+  officeCredentials,
+  type OfficeCredential,
+  type InsertOfficeCredential,
+  caregiverCompetencyReviews,
+  type CaregiverCompetencyReview,
+  type InsertCaregiverCompetencyReview,
+  clientNotices,
+  type ClientNotice,
+  type InsertClientNotice,
+  complianceOfficerDesignations,
+  type ComplianceOfficerDesignation,
+  type InsertComplianceOfficerDesignation,
+  complianceHotlineReports,
+  type ComplianceHotlineReport,
+  type InsertComplianceHotlineReport,
+  clientSpecialRequests,
+  type ClientSpecialRequest,
+  type InsertClientSpecialRequest,
+  clientSpendDowns,
+  type ClientSpendDown,
+  type InsertClientSpendDown,
   emailTemplates,
   type EmailTemplate,
   type InsertEmailTemplate,
@@ -449,7 +482,7 @@ import { encryptNote, decryptNote } from './encryption';
 
 // Unified employee directory view (caregivers + non-caregiver users)
 export type EmployeeDirectoryEntry = {
-  kind: "user" | "caregiver";
+  kind: "user" | "caregiver" | "coordinator";
   id: string;
   firstName: string | null;
   lastName: string | null;
@@ -557,19 +590,24 @@ export interface IStorage {
   getAssignedCaregiversByClient(clientId: string): Promise<Caregiver[]>;
 
   // Care plan operations
+  getCarePlan(id: string): Promise<CarePlan | undefined>;
   getCarePlansByClient(clientId: string): Promise<CarePlan[]>;
   createCarePlan(carePlan: InsertCarePlan): Promise<CarePlan>;
   updateCarePlan(id: string, carePlan: Partial<InsertCarePlan>): Promise<CarePlan>;
 
   // Care plan goals operations
+  getCarePlanGoal(id: string): Promise<CarePlanGoal | undefined>;
   getCarePlanGoals(carePlanId: string): Promise<CarePlanGoal[]>;
   createCarePlanGoal(goal: InsertCarePlanGoal): Promise<CarePlanGoal>;
   updateCarePlanGoal(id: string, goal: Partial<InsertCarePlanGoal>): Promise<CarePlanGoal>;
+  deleteCarePlanGoal(id: string): Promise<void>;
 
   // Care plan interventions operations
+  getCarePlanIntervention(id: string): Promise<CarePlanIntervention | undefined>;
   getCarePlanInterventions(carePlanId: string): Promise<CarePlanIntervention[]>;
   createCarePlanIntervention(intervention: InsertCarePlanIntervention): Promise<CarePlanIntervention>;
   updateCarePlanIntervention(id: string, intervention: Partial<InsertCarePlanIntervention>): Promise<CarePlanIntervention>;
+  deleteCarePlanIntervention(id: string): Promise<void>;
 
   // Progress notes operations
   getProgressNotesByClient(clientId: string): Promise<ProgressNote[]>;
@@ -610,12 +648,14 @@ export interface IStorage {
 
   // Task operations
   getAllTasks(officeId?: string): Promise<Task[]>;
+  getTask(id: string): Promise<Task | undefined>;
   getTasksByUser(userId: string): Promise<Task[]>;
   createTask(task: InsertTask): Promise<Task>;
   updateTask(id: string, task: Partial<InsertTask>): Promise<Task>;
   deleteTask(id: string): Promise<void>;
 
   // Message operations
+  getMessage(id: string): Promise<Message | undefined>;
   getMessagesByUser(userId: string, officeId?: string): Promise<Message[]>;
   getSentMessagesByUser(userId: string, status?: string): Promise<Message[]>;
   getReceivedMessagesByUser(userId: string, status?: string): Promise<Message[]>;
@@ -635,6 +675,7 @@ export interface IStorage {
   updateCertification(id: string, certification: Partial<InsertCertification>): Promise<Certification>;
 
   // Compliance operations
+  getComplianceItem(id: string): Promise<ComplianceItem | undefined>;
   getComplianceItemsByCaregiver(caregiverId: string): Promise<ComplianceItem[]>;
   createComplianceItem(item: InsertComplianceItem): Promise<ComplianceItem>;
   updateComplianceItem(id: string, item: Partial<InsertComplianceItem>): Promise<ComplianceItem>;
@@ -675,6 +716,7 @@ export interface IStorage {
 
   // Training operations
   getAllTrainings(officeId?: string): Promise<Training[]>;
+  getTraining(id: string): Promise<Training | undefined>;
   createTraining(training: InsertTraining): Promise<Training>;
 
   // Training record operations
@@ -690,7 +732,7 @@ export interface IStorage {
   // Unified employee directory (caregivers + non-caregiver users)
   getEmployeeDirectory(officeId?: string): Promise<EmployeeDirectoryEntry[]>;
   getEmployeeManagerCandidates(officeId?: string): Promise<EmployeeManagerCandidate[]>;
-  setEmployeeManager(kind: "user" | "caregiver", employeeId: string, managerUserId: string | null): Promise<void>;
+  setEmployeeManager(kind: "user" | "caregiver" | "coordinator", employeeId: string, managerUserId: string | null): Promise<void>;
 
   // Employee write-ups / disciplinary notes (polymorphic: caregivers + users)
   getEmployeeNote(id: string): Promise<EmployeeNote | undefined>;
@@ -731,6 +773,7 @@ export interface IStorage {
   removeFamilyMemberFromClient(clientId: string, familyMemberId: string): Promise<void>;
 
   // Family portal update operations
+  getFamilyUpdate(id: string): Promise<FamilyUpdate | undefined>;
   getFamilyUpdates(clientId?: string, familyMemberId?: string): Promise<FamilyUpdate[]>;
   createFamilyUpdate(update: InsertFamilyUpdate): Promise<FamilyUpdate>;
   updateFamilyUpdate(id: string, update: Partial<InsertFamilyUpdate>): Promise<FamilyUpdate>;
@@ -769,6 +812,7 @@ export interface IStorage {
   
   // Master week slots
   getMasterWeekSlots(templateId: string): Promise<MasterWeekSlot[]>;
+  getMasterWeekSlot(id: string): Promise<MasterWeekSlot | undefined>;
   createMasterWeekSlot(slot: InsertMasterWeekSlot): Promise<MasterWeekSlot>;
   updateMasterWeekSlot(id: string, slot: Partial<InsertMasterWeekSlot>): Promise<MasterWeekSlot>;
   deleteMasterWeekSlot(id: string): Promise<void>;
@@ -854,6 +898,7 @@ export interface IStorage {
   deleteEntityFieldConfig(id: string): Promise<void>;
 
   // Client Communications operations
+  getClientCommunication(id: string): Promise<ClientCommunication | undefined>;
   getClientCommunications(clientId: string): Promise<ClientCommunication[]>;
   createClientCommunication(communication: InsertClientCommunication): Promise<ClientCommunication>;
   updateClientCommunication(id: string, communication: Partial<InsertClientCommunication>): Promise<ClientCommunication>;
@@ -936,8 +981,10 @@ export interface IStorage {
 
   // Caregiver Office Moves operations
   getCaregiverOfficeMoves(caregiverId: string): Promise<CaregiverOfficeMove[]>;
+  getCaregiverOfficeMove(id: string): Promise<CaregiverOfficeMove | undefined>;
   createCaregiverOfficeMove(move: InsertCaregiverOfficeMove): Promise<CaregiverOfficeMove>;
   updateCaregiverOfficeMove(id: string, move: Partial<InsertCaregiverOfficeMove>): Promise<CaregiverOfficeMove>;
+  deleteCaregiverOfficeMove(id: string): Promise<void>;
 
   // Caregiver Schedules operations
   getCaregiverSchedules(caregiverId: string, startDate?: Date, endDate?: Date): Promise<CaregiverSchedule[]>;
@@ -1131,6 +1178,7 @@ export interface IStorage {
   updatePerformanceReview(id: string, review: Partial<InsertPerformanceReview>): Promise<PerformanceReview>;
   getPerformanceReview(id: string): Promise<PerformanceReview | undefined>;
   getPerformanceReviewsByCaregiver(caregiverId: string): Promise<PerformanceReview[]>;
+  getPerformanceReviewsByUser(userId: string): Promise<PerformanceReview[]>;
   getPerformanceReviewsByReviewer(reviewerId: string): Promise<PerformanceReview[]>;
   getAllPerformanceReviews(): Promise<PerformanceReview[]>;
   getUpcomingReviews(daysAhead: number): Promise<PerformanceReview[]>;
@@ -1168,6 +1216,8 @@ export interface IStorage {
   // PTO Balance operations
   getPtoBalance(caregiverId: string, year: number): Promise<PtoBalance[]>;
   getPtoBalanceByType(caregiverId: string, year: number, ptoType: string): Promise<PtoBalance | undefined>;
+  getPtoBalanceByUser(userId: string, year: number): Promise<PtoBalance[]>;
+  getPtoBalanceByTypeForUser(userId: string, year: number, ptoType: string): Promise<PtoBalance | undefined>;
   createPtoBalance(balance: InsertPtoBalance): Promise<PtoBalance>;
   updatePtoBalance(id: string, balance: Partial<InsertPtoBalance>): Promise<PtoBalance>;
 
@@ -1285,6 +1335,7 @@ export interface IStorage {
   // Client Referral operations
   getClientReferrals(officeId?: string): Promise<ClientReferral[]>;
   getClientReferral(id: string): Promise<ClientReferral | undefined>;
+  getClientReferralByClientId(clientId: string): Promise<ClientReferral | undefined>;
   createClientReferral(referral: InsertClientReferral): Promise<ClientReferral>;
   updateClientReferral(id: string, referral: Partial<InsertClientReferral>): Promise<ClientReferral>;
   getReferralsBySource(sourceId: string): Promise<ClientReferral[]>;
@@ -1465,6 +1516,55 @@ export interface IStorage {
   upsertClientEmergencyPlan(plan: InsertClientEmergencyPlan): Promise<ClientEmergencyPlan>;
 
   // Client Satisfaction Surveys
+  // Office credential operations (agency-level licensure/enrollment tracking)
+  getOfficeCredentials(officeId?: string): Promise<OfficeCredential[]>;
+  getOfficeCredential(id: string): Promise<OfficeCredential | undefined>;
+  createOfficeCredential(credential: InsertOfficeCredential): Promise<OfficeCredential>;
+  updateOfficeCredential(id: string, credential: Partial<InsertOfficeCredential>): Promise<OfficeCredential>;
+  deleteOfficeCredential(id: string): Promise<void>;
+
+  // Caregiver Competency Reviews (28 Pa. Code § 611.55)
+  getCaregiverCompetencyReviews(caregiverId: string): Promise<CaregiverCompetencyReview[]>;
+  getCaregiverCompetencyReview(id: string): Promise<CaregiverCompetencyReview | undefined>;
+  createCaregiverCompetencyReview(review: InsertCaregiverCompetencyReview): Promise<CaregiverCompetencyReview>;
+  updateCaregiverCompetencyReview(id: string, review: Partial<InsertCaregiverCompetencyReview>): Promise<CaregiverCompetencyReview>;
+  deleteCaregiverCompetencyReview(id: string): Promise<void>;
+
+  // Client Rights & Notices (28 Pa. Code § 611.57)
+  getClientNotices(clientId: string): Promise<ClientNotice[]>;
+  getClientNotice(id: string): Promise<ClientNotice | undefined>;
+  createClientNotice(notice: InsertClientNotice): Promise<ClientNotice>;
+  updateClientNotice(id: string, notice: Partial<InsertClientNotice>): Promise<ClientNotice>;
+  deleteClientNotice(id: string): Promise<void>;
+
+  // OIG Seven Elements: Compliance Officer/Committee Designations
+  getComplianceOfficerDesignations(officeId: string): Promise<ComplianceOfficerDesignation[]>;
+  getComplianceOfficerDesignation(id: string): Promise<ComplianceOfficerDesignation | undefined>;
+  createComplianceOfficerDesignation(designation: InsertComplianceOfficerDesignation): Promise<ComplianceOfficerDesignation>;
+  updateComplianceOfficerDesignation(id: string, designation: Partial<InsertComplianceOfficerDesignation>): Promise<ComplianceOfficerDesignation>;
+  deleteComplianceOfficerDesignation(id: string): Promise<void>;
+
+  // OIG Seven Elements: Compliance Hotline Reports
+  getComplianceHotlineReports(officeId: string): Promise<ComplianceHotlineReport[]>;
+  getComplianceHotlineReport(id: string): Promise<ComplianceHotlineReport | undefined>;
+  createComplianceHotlineReport(report: InsertComplianceHotlineReport): Promise<ComplianceHotlineReport>;
+  updateComplianceHotlineReport(id: string, report: Partial<InsertComplianceHotlineReport>): Promise<ComplianceHotlineReport>;
+  deleteComplianceHotlineReport(id: string): Promise<void>;
+
+  // Client Special Requests
+  getClientSpecialRequests(clientId: string): Promise<ClientSpecialRequest[]>;
+  getClientSpecialRequest(id: string): Promise<ClientSpecialRequest | undefined>;
+  createClientSpecialRequest(request: InsertClientSpecialRequest): Promise<ClientSpecialRequest>;
+  updateClientSpecialRequest(id: string, request: Partial<InsertClientSpecialRequest>): Promise<ClientSpecialRequest>;
+  deleteClientSpecialRequest(id: string): Promise<void>;
+
+  // Client Spend Down
+  getClientSpendDowns(clientId: string): Promise<ClientSpendDown[]>;
+  getClientSpendDown(id: string): Promise<ClientSpendDown | undefined>;
+  createClientSpendDown(spendDown: InsertClientSpendDown): Promise<ClientSpendDown>;
+  updateClientSpendDown(id: string, spendDown: Partial<InsertClientSpendDown>): Promise<ClientSpendDown>;
+  deleteClientSpendDown(id: string): Promise<void>;
+
   getClientSatisfactionSurveys(officeId: string): Promise<ClientSatisfactionSurvey[]>;
   getClientSatisfactionSurvey(id: string): Promise<ClientSatisfactionSurvey | undefined>;
   createClientSatisfactionSurvey(survey: InsertClientSatisfactionSurvey): Promise<ClientSatisfactionSurvey>;
@@ -1836,6 +1936,153 @@ export class DatabaseStorage implements IStorage {
     await db.delete(coordinators).where(eq(coordinators.id, id));
   }
 
+  async getCaregiversByCoordinator(coordinatorId: string): Promise<Caregiver[]> {
+    return await db.select().from(caregivers).where(eq(caregivers.coordinatorId, coordinatorId)).orderBy(asc(caregivers.lastName));
+  }
+
+  async getClientsByCoordinator(coordinatorId: string): Promise<Client[]> {
+    return await db.select().from(clients).where(eq(clients.coordinatorId, coordinatorId)).orderBy(asc(clients.lastName));
+  }
+
+  async getDocumentsByCoordinator(coordinatorId: string): Promise<Document[]> {
+    return await db.select().from(documents)
+      .where(eq(documents.coordinatorId, coordinatorId))
+      .orderBy(desc(documents.createdAt));
+  }
+
+  async getTrainingRecordsByCoordinator(
+    coordinatorId: string,
+  ): Promise<Array<TrainingRecord & { trainingTitle: string | null; trainingCategory: string | null }>> {
+    const rows = await db
+      .select({
+        record: trainingRecords,
+        trainingTitle: trainings.title,
+        trainingCategory: trainings.trainingType,
+      })
+      .from(trainingRecords)
+      .leftJoin(trainings, eq(trainingRecords.trainingId, trainings.id))
+      .where(eq(trainingRecords.coordinatorId, coordinatorId))
+      .orderBy(desc(trainingRecords.createdAt));
+    return rows.map((r) => ({ ...r.record, trainingTitle: r.trainingTitle, trainingCategory: r.trainingCategory }));
+  }
+
+  async getCompPaymentsByCoordinator(
+    coordinatorId: string,
+  ): Promise<Array<CompCoordinatorPayment & { periodName: string | null; periodStartDate: string | null; periodEndDate: string | null; periodStatus: string | null }>> {
+    const rows = await db
+      .select({
+        payment: compCoordinatorPayments,
+        periodName: compPayrollPeriods.name,
+        periodStartDate: compPayrollPeriods.startDate,
+        periodEndDate: compPayrollPeriods.endDate,
+        periodStatus: compPayrollPeriods.status,
+      })
+      .from(compCoordinatorPayments)
+      .innerJoin(compPayrollPeriods, eq(compCoordinatorPayments.periodId, compPayrollPeriods.id))
+      .where(eq(compCoordinatorPayments.coordinatorId, coordinatorId))
+      .orderBy(desc(compPayrollPeriods.startDate));
+    return rows.map((r) => ({
+      ...r.payment,
+      periodName: r.periodName,
+      periodStartDate: r.periodStartDate,
+      periodEndDate: r.periodEndDate,
+      periodStatus: r.periodStatus,
+    }));
+  }
+
+  // ─── Coordinator Compensation Module ───────────────────────────────────────
+  async getCompPayrollPeriods(officeId?: string): Promise<CompPayrollPeriod[]> {
+    if (officeId) {
+      return await db.select().from(compPayrollPeriods).where(eq(compPayrollPeriods.officeId, officeId)).orderBy(desc(compPayrollPeriods.startDate));
+    }
+    return await db.select().from(compPayrollPeriods).orderBy(desc(compPayrollPeriods.startDate));
+  }
+
+  async getCompPayrollPeriod(id: string): Promise<CompPayrollPeriod | undefined> {
+    const [row] = await db.select().from(compPayrollPeriods).where(eq(compPayrollPeriods.id, id));
+    return row;
+  }
+
+  async createCompPayrollPeriod(data: InsertCompPayrollPeriod): Promise<CompPayrollPeriod> {
+    const [row] = await db.insert(compPayrollPeriods).values(data).returning();
+    return row;
+  }
+
+  async updateCompPayrollPeriod(id: string, data: Partial<InsertCompPayrollPeriod>): Promise<CompPayrollPeriod> {
+    const [row] = await db.update(compPayrollPeriods).set({ ...data, updatedAt: new Date() }).where(eq(compPayrollPeriods.id, id)).returning();
+    return row;
+  }
+
+  async deleteCompPayrollPeriod(id: string): Promise<void> {
+    await db.delete(compPayrollPeriods).where(eq(compPayrollPeriods.id, id));
+  }
+
+  // Schedule entries within a date range (inclusive), optionally by caregiver.
+  async getCompScheduleEntries(filters: { officeId?: string; caregiverId?: string; startDate?: string; endDate?: string }): Promise<CompScheduleEntry[]> {
+    const conditions: any[] = [];
+    if (filters.officeId) conditions.push(eq(compScheduleEntries.officeId, filters.officeId));
+    if (filters.caregiverId) conditions.push(eq(compScheduleEntries.caregiverId, filters.caregiverId));
+    if (filters.startDate) conditions.push(gte(compScheduleEntries.workDate, filters.startDate));
+    if (filters.endDate) conditions.push(lte(compScheduleEntries.workDate, filters.endDate));
+    const q = db.select().from(compScheduleEntries);
+    const rows = conditions.length ? await q.where(and(...conditions)).orderBy(desc(compScheduleEntries.workDate)) : await q.orderBy(desc(compScheduleEntries.workDate));
+    return rows;
+  }
+
+  async getCompScheduleEntry(id: string): Promise<CompScheduleEntry | undefined> {
+    const [row] = await db.select().from(compScheduleEntries).where(eq(compScheduleEntries.id, id));
+    return row;
+  }
+
+  async createCompScheduleEntry(data: InsertCompScheduleEntry): Promise<CompScheduleEntry> {
+    const [row] = await db.insert(compScheduleEntries).values(data).returning();
+    return row;
+  }
+
+  async createCompScheduleEntriesBulk(rows: InsertCompScheduleEntry[]): Promise<CompScheduleEntry[]> {
+    if (rows.length === 0) return [];
+    return await db.insert(compScheduleEntries).values(rows).returning();
+  }
+
+  async updateCompScheduleEntry(id: string, data: Partial<InsertCompScheduleEntry>): Promise<CompScheduleEntry> {
+    const [row] = await db.update(compScheduleEntries).set({ ...data, updatedAt: new Date() }).where(eq(compScheduleEntries.id, id)).returning();
+    return row;
+  }
+
+  async deleteCompScheduleEntry(id: string): Promise<void> {
+    await db.delete(compScheduleEntries).where(eq(compScheduleEntries.id, id));
+  }
+
+  async getCompCaregiverPayments(periodId: string): Promise<CompCaregiverPayment[]> {
+    return await db.select().from(compCaregiverPayments).where(eq(compCaregiverPayments.periodId, periodId));
+  }
+
+  async upsertCompCaregiverPayment(periodId: string, caregiverId: string, paymentMade: string, notes: string | null, updatedBy: string | null): Promise<CompCaregiverPayment> {
+    const [row] = await db.insert(compCaregiverPayments)
+      .values({ periodId, caregiverId, paymentMade, notes, updatedBy })
+      .onConflictDoUpdate({
+        target: [compCaregiverPayments.periodId, compCaregiverPayments.caregiverId],
+        set: { paymentMade, notes, updatedBy, updatedAt: new Date() },
+      })
+      .returning();
+    return row;
+  }
+
+  async getCompCoordinatorPayments(periodId: string): Promise<CompCoordinatorPayment[]> {
+    return await db.select().from(compCoordinatorPayments).where(eq(compCoordinatorPayments.periodId, periodId));
+  }
+
+  async upsertCompCoordinatorPayment(periodId: string, coordinatorId: string, paymentMade: string, notes: string | null, updatedBy: string | null): Promise<CompCoordinatorPayment> {
+    const [row] = await db.insert(compCoordinatorPayments)
+      .values({ periodId, coordinatorId, paymentMade, notes, updatedBy })
+      .onConflictDoUpdate({
+        target: [compCoordinatorPayments.periodId, compCoordinatorPayments.coordinatorId],
+        set: { paymentMade, notes, updatedBy, updatedAt: new Date() },
+      })
+      .returning();
+    return row;
+  }
+
   // Client operations
   async getAllClients(officeId?: string): Promise<Client[]> {
     if (officeId) {
@@ -2110,6 +2357,11 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Care plan operations
+  async getCarePlan(id: string): Promise<CarePlan | undefined> {
+    const [carePlan] = await db.select().from(carePlans).where(eq(carePlans.id, id));
+    return carePlan;
+  }
+
   async getCarePlansByClient(clientId: string): Promise<CarePlan[]> {
     return await db
       .select()
@@ -2133,6 +2385,11 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Care plan goals operations
+  async getCarePlanGoal(id: string): Promise<CarePlanGoal | undefined> {
+    const [goal] = await db.select().from(carePlanGoals).where(eq(carePlanGoals.id, id));
+    return goal;
+  }
+
   async getCarePlanGoals(carePlanId: string): Promise<CarePlanGoal[]> {
     return await db
       .select()
@@ -2155,7 +2412,16 @@ export class DatabaseStorage implements IStorage {
     return updatedGoal;
   }
 
+  async deleteCarePlanGoal(id: string): Promise<void> {
+    await db.delete(carePlanGoals).where(eq(carePlanGoals.id, id));
+  }
+
   // Care plan interventions operations
+  async getCarePlanIntervention(id: string): Promise<CarePlanIntervention | undefined> {
+    const [intervention] = await db.select().from(carePlanInterventions).where(eq(carePlanInterventions.id, id));
+    return intervention;
+  }
+
   async getCarePlanInterventions(carePlanId: string): Promise<CarePlanIntervention[]> {
     return await db
       .select()
@@ -2176,6 +2442,10 @@ export class DatabaseStorage implements IStorage {
       .where(eq(carePlanInterventions.id, id))
       .returning();
     return updatedIntervention;
+  }
+
+  async deleteCarePlanIntervention(id: string): Promise<void> {
+    await db.delete(carePlanInterventions).where(eq(carePlanInterventions.id, id));
   }
 
   // Progress notes operations
@@ -2267,6 +2537,11 @@ export class DatabaseStorage implements IStorage {
       .from(tasks)
       .where(conditions.length > 0 ? and(...conditions) : undefined)
       .orderBy(desc(tasks.dueDate));
+  }
+
+  async getTask(id: string): Promise<Task | undefined> {
+    const [task] = await db.select().from(tasks).where(eq(tasks.id, id));
+    return task;
   }
 
   async getTasksByUser(userId: string): Promise<Task[]> {
@@ -2504,6 +2779,11 @@ export class DatabaseStorage implements IStorage {
       .orderBy(desc(complianceItems.dueDate));
   }
 
+  async getComplianceItem(id: string): Promise<ComplianceItem | undefined> {
+    const [item] = await db.select().from(complianceItems).where(eq(complianceItems.id, id));
+    return item;
+  }
+
   async getComplianceItemsByCaregiver(caregiverId: string): Promise<ComplianceItem[]> {
     return await db
       .select()
@@ -2734,6 +3014,11 @@ export class DatabaseStorage implements IStorage {
       .orderBy(desc(trainings.createdAt));
   }
 
+  async getTraining(id: string): Promise<Training | undefined> {
+    const [training] = await db.select().from(trainings).where(eq(trainings.id, id));
+    return training;
+  }
+
   async createTraining(training: InsertTraining): Promise<Training> {
     const [newTraining] = await db.insert(trainings).values(training).returning();
     return newTraining;
@@ -2765,6 +3050,11 @@ export class DatabaseStorage implements IStorage {
   // Additional user operations for communication
   async getAllUsers(): Promise<User[]> {
     return await db.select().from(users).orderBy(desc(users.createdAt));
+  }
+
+  async getMessage(id: string): Promise<Message | undefined> {
+    const [message] = await db.select().from(messages).where(eq(messages.id, id));
+    return message;
   }
 
   async updateMessage(id: string, data: Partial<InsertMessage>): Promise<Message> {
@@ -2852,6 +3142,24 @@ export class DatabaseStorage implements IStorage {
       .leftJoin(managers, eq(caregivers.managerId, managers.id))
       .where(officeId ? eq(caregivers.officeId, officeId) : undefined);
 
+    const coordRows = await db
+      .select({
+        id: coordinators.id,
+        firstName: coordinators.firstName,
+        lastName: coordinators.lastName,
+        email: coordinators.email,
+        phone: coordinators.phone,
+        title: coordinators.title,
+        officeId: coordinators.officeId,
+        isActive: coordinators.isActive,
+        managerId: coordinators.managerId,
+        managerFirstName: managers.firstName,
+        managerLastName: managers.lastName,
+      })
+      .from(coordinators)
+      .leftJoin(managers, eq(coordinators.managerId, managers.id))
+      .where(officeId ? eq(coordinators.officeId, officeId) : undefined);
+
     const officeRows = await db
       .select({ id: offices.id, name: offices.name })
       .from(offices);
@@ -2897,7 +3205,24 @@ export class DatabaseStorage implements IStorage {
       managerName: c.managerId ? fmt(c.managerFirstName ?? null, c.managerLastName ?? null) : null,
     }));
 
-    return [...userEntries, ...cgEntries].sort((a, b) => {
+    const coordEntries: EmployeeDirectoryEntry[] = coordRows.map((c) => ({
+      kind: "coordinator",
+      id: c.id,
+      firstName: c.firstName ?? null,
+      lastName: c.lastName ?? null,
+      email: c.email ?? null,
+      phone: c.phone ?? null,
+      role: "coordinator",
+      title: c.title ?? null,
+      officeId: c.officeId ?? null,
+      officeName: c.officeId ? officeMap.get(c.officeId) ?? null : null,
+      isActive: c.isActive ?? null,
+      hireDate: null,
+      managerId: c.managerId ?? null,
+      managerName: c.managerId ? fmt(c.managerFirstName ?? null, c.managerLastName ?? null) : null,
+    }));
+
+    return [...userEntries, ...cgEntries, ...coordEntries].sort((a, b) => {
       const an = `${a.lastName ?? ""} ${a.firstName ?? ""}`.trim().toLowerCase();
       const bn = `${b.lastName ?? ""} ${b.firstName ?? ""}`.trim().toLowerCase();
       return an.localeCompare(bn);
@@ -2925,7 +3250,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async setEmployeeManager(
-    kind: "user" | "caregiver",
+    kind: "user" | "caregiver" | "coordinator",
     employeeId: string,
     managerUserId: string | null,
   ): Promise<void> {
@@ -2955,11 +3280,18 @@ export class DatabaseStorage implements IStorage {
         .update(users)
         .set({ managerId: managerUserId, updatedAt: new Date() })
         .where(eq(users.id, employeeId));
-    } else {
+    } else if (kind === "caregiver") {
       await db
         .update(caregivers)
         .set({ managerId: managerUserId, updatedAt: new Date() })
         .where(eq(caregivers.id, employeeId));
+    } else {
+      // Coordinators (like caregivers) always report to a user, so no
+      // reporting-cycle check is needed.
+      await db
+        .update(coordinators)
+        .set({ managerId: managerUserId, updatedAt: new Date() })
+        .where(eq(coordinators.id, employeeId));
     }
   }
 
@@ -3183,6 +3515,11 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Family portal update operations
+  async getFamilyUpdate(id: string): Promise<FamilyUpdate | undefined> {
+    const [update] = await db.select().from(familyUpdates).where(eq(familyUpdates.id, id));
+    return update;
+  }
+
   async getFamilyUpdates(clientId?: string, familyMemberId?: string): Promise<FamilyUpdate[]> {
     let query = db.select().from(familyUpdates);
     
@@ -3433,6 +3770,11 @@ export class DatabaseStorage implements IStorage {
 
   async deleteMasterWeekTemplate(id: string): Promise<void> {
     await db.delete(masterWeekTemplates).where(eq(masterWeekTemplates.id, id));
+  }
+
+  async getMasterWeekSlot(id: string): Promise<MasterWeekSlot | undefined> {
+    const [slot] = await db.select().from(masterWeekSlots).where(eq(masterWeekSlots.id, id));
+    return slot;
   }
 
   async getMasterWeekSlots(templateId: string): Promise<MasterWeekSlot[]> {
@@ -3966,6 +4308,12 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Client Communications operations
+  async getClientCommunication(id: string): Promise<ClientCommunication | undefined> {
+    const [result] = await db.select().from(clientCommunications).where(eq(clientCommunications.id, id));
+    if (!result) return undefined;
+    return { ...result, message: decryptNote(result.message) || result.message };
+  }
+
   async getClientCommunications(clientId: string): Promise<ClientCommunication[]> {
     const results = await db.select().from(clientCommunications)
       .where(eq(clientCommunications.clientId, clientId))
@@ -4237,6 +4585,47 @@ export class DatabaseStorage implements IStorage {
     await db.delete(caregiverTimeEntries).where(eq(caregiverTimeEntries.importBatchId, importBatchId));
   }
 
+  // Remove only the entries a given source produced for a run (batch ids are
+  // prefixed "import_" for spreadsheet uploads and "schedule_" for pulls from
+  // the caregiver schedule), so re-running one source never wipes the other.
+  async deleteTimeEntriesBySourcePrefix(payrollRunId: string, prefix: string): Promise<void> {
+    await db.delete(caregiverTimeEntries).where(and(
+      eq(caregiverTimeEntries.payrollRunId, payrollRunId),
+      like(caregiverTimeEntries.importBatchId, `${prefix}%`),
+    ));
+  }
+
+  // Confirmed/completed visits for every caregiver in an office within a pay
+  // period — the source rows for pulling payroll hours straight from the
+  // schedule instead of a spreadsheet import.
+  async getSchedulesForPayrollPull(
+    officeId: string,
+    periodStart: Date,
+    periodEnd: Date,
+    statuses: string[],
+  ): Promise<Array<CaregiverSchedule & { caregiverFirstName: string | null; caregiverLastName: string | null }>> {
+    const rows = await db
+      .select({
+        schedule: caregiverSchedules,
+        caregiverFirstName: caregivers.firstName,
+        caregiverLastName: caregivers.lastName,
+      })
+      .from(caregiverSchedules)
+      .innerJoin(caregivers, eq(caregiverSchedules.caregiverId, caregivers.id))
+      .where(and(
+        eq(caregivers.officeId, officeId),
+        gte(caregiverSchedules.scheduledDate, periodStart),
+        lte(caregiverSchedules.scheduledDate, periodEnd),
+        inArray(caregiverSchedules.status, statuses),
+      ))
+      .orderBy(caregiverSchedules.scheduledDate);
+    return rows.map((r) => ({
+      ...r.schedule,
+      caregiverFirstName: r.caregiverFirstName,
+      caregiverLastName: r.caregiverLastName,
+    }));
+  }
+
   // Find caregiver by assignment ID for billing import matching
   async getCaregiverByAssignmentId(assignmentId: string): Promise<Caregiver | undefined> {
     const [caregiver] = await db.select().from(caregivers).where(eq(caregivers.assignmentId, assignmentId));
@@ -4442,6 +4831,12 @@ export class DatabaseStorage implements IStorage {
       ...r,
       content: decryptNote(r.content) || r.content,
     }));
+  }
+
+  async getCaregiverNote(id: string): Promise<CaregiverNote | undefined> {
+    const [note] = await db.select().from(caregiverNotes).where(eq(caregiverNotes.id, id));
+    if (!note) return undefined;
+    return { ...note, content: decryptNote(note.content) || note.content };
   }
 
   async createCaregiverNote(note: InsertCaregiverNote): Promise<CaregiverNote> {
@@ -4681,6 +5076,11 @@ export class DatabaseStorage implements IStorage {
     return await db.select().from(caregiverPreferences).where(eq(caregiverPreferences.caregiverId, caregiverId)).orderBy(asc(caregiverPreferences.priority));
   }
 
+  async getCaregiverPreference(id: string): Promise<CaregiverPreference | undefined> {
+    const [pref] = await db.select().from(caregiverPreferences).where(eq(caregiverPreferences.id, id));
+    return pref;
+  }
+
   async createCaregiverPreference(preference: InsertCaregiverPreference): Promise<CaregiverPreference> {
     const [created] = await db.insert(caregiverPreferences).values(preference).returning();
     return created;
@@ -4700,6 +5100,11 @@ export class DatabaseStorage implements IStorage {
     return await db.select().from(caregiverAbsences).where(eq(caregiverAbsences.caregiverId, caregiverId)).orderBy(desc(caregiverAbsences.startDate));
   }
 
+  async getCaregiverAbsence(id: string): Promise<CaregiverAbsence | undefined> {
+    const [absence] = await db.select().from(caregiverAbsences).where(eq(caregiverAbsences.id, id));
+    return absence;
+  }
+
   async createCaregiverAbsence(absence: InsertCaregiverAbsence): Promise<CaregiverAbsence> {
     const [created] = await db.insert(caregiverAbsences).values(absence).returning();
     return created;
@@ -4717,6 +5122,11 @@ export class DatabaseStorage implements IStorage {
   // Caregiver Availability
   async getCaregiverAvailability(caregiverId: string): Promise<CaregiverAvailability[]> {
     return await db.select().from(caregiverAvailability).where(eq(caregiverAvailability.caregiverId, caregiverId)).orderBy(asc(caregiverAvailability.dayOfWeek));
+  }
+
+  async getCaregiverAvailabilityById(id: string): Promise<CaregiverAvailability | undefined> {
+    const [avail] = await db.select().from(caregiverAvailability).where(eq(caregiverAvailability.id, id));
+    return avail;
   }
 
   async createCaregiverAvailability(availability: InsertCaregiverAvailability): Promise<CaregiverAvailability> {
@@ -4930,6 +5340,11 @@ export class DatabaseStorage implements IStorage {
     return await db.select().from(caregiverExpenses).where(eq(caregiverExpenses.caregiverId, caregiverId)).orderBy(desc(caregiverExpenses.expenseDate));
   }
 
+  async getCaregiverExpense(id: string): Promise<CaregiverExpense | undefined> {
+    const [expense] = await db.select().from(caregiverExpenses).where(eq(caregiverExpenses.id, id));
+    return expense;
+  }
+
   async createCaregiverExpense(expense: InsertCaregiverExpense): Promise<CaregiverExpense> {
     const [created] = await db.insert(caregiverExpenses).values(expense).returning();
     return created;
@@ -4949,6 +5364,11 @@ export class DatabaseStorage implements IStorage {
     return await db.select().from(caregiverPaychecks).where(eq(caregiverPaychecks.caregiverId, caregiverId)).orderBy(desc(caregiverPaychecks.payDate));
   }
 
+  async getCaregiverPaycheck(id: string): Promise<CaregiverPaycheck | undefined> {
+    const [paycheck] = await db.select().from(caregiverPaychecks).where(eq(caregiverPaychecks.id, id));
+    return paycheck;
+  }
+
   async createCaregiverPaycheck(paycheck: InsertCaregiverPaycheck): Promise<CaregiverPaycheck> {
     const [created] = await db.insert(caregiverPaychecks).values(paycheck).returning();
     return created;
@@ -4962,6 +5382,11 @@ export class DatabaseStorage implements IStorage {
   // Caregiver Rates
   async getCaregiverRates(caregiverId: string): Promise<CaregiverRate[]> {
     return await db.select().from(caregiverRates).where(eq(caregiverRates.caregiverId, caregiverId)).orderBy(desc(caregiverRates.createdAt));
+  }
+
+  async getCaregiverRate(id: string): Promise<CaregiverRate | undefined> {
+    const [rate] = await db.select().from(caregiverRates).where(eq(caregiverRates.id, id));
+    return rate;
   }
 
   async createCaregiverRate(rate: InsertCaregiverRate): Promise<CaregiverRate> {
@@ -4983,6 +5408,11 @@ export class DatabaseStorage implements IStorage {
     return await db.select().from(caregiverInServices).where(eq(caregiverInServices.caregiverId, caregiverId)).orderBy(desc(caregiverInServices.trainingDate));
   }
 
+  async getCaregiverInService(id: string): Promise<CaregiverInService | undefined> {
+    const [inService] = await db.select().from(caregiverInServices).where(eq(caregiverInServices.id, id));
+    return inService;
+  }
+
   async createCaregiverInService(inService: InsertCaregiverInService): Promise<CaregiverInService> {
     const [created] = await db.insert(caregiverInServices).values(inService).returning();
     return created;
@@ -5002,6 +5432,11 @@ export class DatabaseStorage implements IStorage {
     return await db.select().from(caregiverOfficeMoves).where(eq(caregiverOfficeMoves.caregiverId, caregiverId)).orderBy(desc(caregiverOfficeMoves.moveDate));
   }
 
+  async getCaregiverOfficeMove(id: string): Promise<CaregiverOfficeMove | undefined> {
+    const [move] = await db.select().from(caregiverOfficeMoves).where(eq(caregiverOfficeMoves.id, id));
+    return move;
+  }
+
   async createCaregiverOfficeMove(move: InsertCaregiverOfficeMove): Promise<CaregiverOfficeMove> {
     const [created] = await db.insert(caregiverOfficeMoves).values(move).returning();
     return created;
@@ -5010,6 +5445,10 @@ export class DatabaseStorage implements IStorage {
   async updateCaregiverOfficeMove(id: string, move: Partial<InsertCaregiverOfficeMove>): Promise<CaregiverOfficeMove> {
     const [updated] = await db.update(caregiverOfficeMoves).set({ ...move, updatedAt: new Date() }).where(eq(caregiverOfficeMoves.id, id)).returning();
     return updated;
+  }
+
+  async deleteCaregiverOfficeMove(id: string): Promise<void> {
+    await db.delete(caregiverOfficeMoves).where(eq(caregiverOfficeMoves.id, id));
   }
 
   // Caregiver Schedules
@@ -5269,7 +5708,78 @@ export class DatabaseStorage implements IStorage {
       .leftJoin(offices, eq(officeStaff.officeId, offices.id))
       .where(conditions.length ? and(...conditions) : undefined)
       .orderBy(users.lastName, users.firstName);
-    return rows as any;
+
+    // Office users without an office_staff assignment record still belong in
+    // the staff directory — synthesize a directory row from the user account
+    // so every staff member is listed, whether or not HR has created a formal
+    // staff assignment for them.
+    const assigned = await db
+      .selectDistinct({ userId: officeStaff.userId })
+      .from(officeStaff);
+    const assignedIds = new Set(assigned.map((r) => r.userId));
+
+    const userConds: any[] = [
+      ne(users.role, "caregiver"),
+      ne(users.role, "family"),
+    ];
+    if (filters?.officeIds) userConds.push(inArray(users.primaryOfficeId, filters.officeIds));
+    if (filters?.isActive !== undefined) userConds.push(eq(users.isActive, filters.isActive));
+    if (filters?.search && filters.search.trim()) {
+      const q = `%${filters.search.trim().toLowerCase()}%`;
+      userConds.push(or(
+        sql`lower(${users.firstName}) like ${q}`,
+        sql`lower(${users.lastName}) like ${q}`,
+        sql`lower(${users.firstName} || ' ' || ${users.lastName}) like ${q}`,
+      ));
+    }
+    const userRows = await db
+      .select({
+        id: users.id,
+        primaryOfficeId: users.primaryOfficeId,
+        role: users.role,
+        hireDate: users.hireDate,
+        isActive: users.isActive,
+        createdAt: users.createdAt,
+        updatedAt: users.updatedAt,
+        firstName: users.firstName,
+        lastName: users.lastName,
+        email: users.email,
+        officeName: offices.name,
+      })
+      .from(users)
+      .leftJoin(offices, eq(users.primaryOfficeId, offices.id))
+      .where(and(...userConds));
+
+    const humanize = (role: string | null) => (role ? role.replace(/_/g, " ") : null);
+    const synthesized = userRows
+      .filter((u) => !assignedIds.has(u.id))
+      .map((u) => ({
+        id: `user-${u.id}`,
+        officeId: u.primaryOfficeId,
+        userId: u.id,
+        position: humanize(u.role),
+        department: null,
+        startDate: u.hireDate ?? null,
+        endDate: null,
+        isPrimary: true,
+        isActive: u.isActive,
+        notes: null,
+        createdAt: u.createdAt,
+        updatedAt: u.updatedAt,
+        firstName: u.firstName,
+        lastName: u.lastName,
+        email: u.email,
+        officeName: u.officeName,
+      }))
+      .filter((r) => !filters?.position || r.position === filters.position);
+
+    const merged = [...(rows as any[]), ...synthesized];
+    merged.sort((a, b) => {
+      const an = `${a.lastName ?? ""} ${a.firstName ?? ""}`.trim().toLowerCase();
+      const bn = `${b.lastName ?? ""} ${b.firstName ?? ""}`.trim().toLowerCase();
+      return an.localeCompare(bn);
+    });
+    return merged as any;
   }
 
   async getOfficeStaffMember(id: string): Promise<OfficeStaff | undefined> {
@@ -5533,10 +6043,14 @@ export class DatabaseStorage implements IStorage {
       .where(and(...caregiverConditions));
 
     // Filter by upcoming birthdays within the specified days
+    // dateOfBirth is a date-only value stored in a `timestamp` column; read
+    // its month/day with UTC getters (not local getters) so this agrees
+    // with getTodaysBirthdays's SQL EXTRACT(...) regardless of the
+    // server process's local timezone.
     const upcomingClients = allClients.filter(client => {
       if (!client.dateOfBirth) return false;
       const dob = new Date(client.dateOfBirth);
-      const thisYearBirthday = new Date(today.getFullYear(), dob.getMonth(), dob.getDate());
+      const thisYearBirthday = new Date(today.getFullYear(), dob.getUTCMonth(), dob.getUTCDate());
       if (thisYearBirthday < today) {
         thisYearBirthday.setFullYear(today.getFullYear() + 1);
       }
@@ -5547,7 +6061,7 @@ export class DatabaseStorage implements IStorage {
     const upcomingCaregivers = allCaregivers.filter(caregiver => {
       if (!caregiver.dateOfBirth) return false;
       const dob = new Date(caregiver.dateOfBirth);
-      const thisYearBirthday = new Date(today.getFullYear(), dob.getMonth(), dob.getDate());
+      const thisYearBirthday = new Date(today.getFullYear(), dob.getUTCMonth(), dob.getUTCDate());
       if (thisYearBirthday < today) {
         thisYearBirthday.setFullYear(today.getFullYear() + 1);
       }
@@ -6355,6 +6869,14 @@ export class DatabaseStorage implements IStorage {
       .orderBy(desc(performanceReviews.createdAt));
   }
 
+  async getPerformanceReviewsByUser(userId: string): Promise<PerformanceReview[]> {
+    return await db
+      .select()
+      .from(performanceReviews)
+      .where(eq(performanceReviews.userId, userId))
+      .orderBy(desc(performanceReviews.createdAt));
+  }
+
   async getPerformanceReviewsByReviewer(reviewerId: string): Promise<PerformanceReview[]> {
     return await db
       .select()
@@ -6598,6 +7120,28 @@ export class DatabaseStorage implements IStorage {
       .from(ptoBalances)
       .where(and(
         eq(ptoBalances.caregiverId, caregiverId),
+        eq(ptoBalances.year, year),
+        eq(ptoBalances.ptoType, ptoType as any)
+      ));
+    return balance;
+  }
+
+  async getPtoBalanceByUser(userId: string, year: number): Promise<PtoBalance[]> {
+    return await db
+      .select()
+      .from(ptoBalances)
+      .where(and(
+        eq(ptoBalances.userId, userId),
+        eq(ptoBalances.year, year)
+      ));
+  }
+
+  async getPtoBalanceByTypeForUser(userId: string, year: number, ptoType: string): Promise<PtoBalance | undefined> {
+    const [balance] = await db
+      .select()
+      .from(ptoBalances)
+      .where(and(
+        eq(ptoBalances.userId, userId),
         eq(ptoBalances.year, year),
         eq(ptoBalances.ptoType, ptoType as any)
       ));
@@ -7439,6 +7983,13 @@ export class DatabaseStorage implements IStorage {
     return referral;
   }
 
+  async getClientReferralByClientId(clientId: string): Promise<ClientReferral | undefined> {
+    const [referral] = await db.select().from(clientReferrals)
+      .where(eq(clientReferrals.clientId, clientId))
+      .orderBy(desc(clientReferrals.createdAt));
+    return referral;
+  }
+
   async createClientReferral(referral: InsertClientReferral): Promise<ClientReferral> {
     const [created] = await db.insert(clientReferrals).values(referral).returning();
     return created;
@@ -7792,6 +8343,11 @@ export class DatabaseStorage implements IStorage {
     return check;
   }
 
+  async getCaregiverExclusionCheck(id: string): Promise<CaregiverExclusionCheck | undefined> {
+    const [check] = await db.select().from(caregiverExclusionChecks).where(eq(caregiverExclusionChecks.id, id));
+    return check;
+  }
+
   async createCaregiverExclusionCheck(check: InsertCaregiverExclusionCheck): Promise<CaregiverExclusionCheck> {
     const [created] = await db.insert(caregiverExclusionChecks).values(check).returning();
     return created;
@@ -7825,6 +8381,11 @@ export class DatabaseStorage implements IStorage {
   async createCaregiverFalsePositive(fp: InsertCaregiverExclusionFalsePositive): Promise<CaregiverExclusionFalsePositive> {
     const [created] = await db.insert(caregiverExclusionFalsePositives).values(fp).returning();
     return created;
+  }
+
+  async getCaregiverFalsePositive(id: string): Promise<CaregiverExclusionFalsePositive | undefined> {
+    const [fp] = await db.select().from(caregiverExclusionFalsePositives).where(eq(caregiverExclusionFalsePositives.id, id));
+    return fp;
   }
 
   async deleteCaregiverFalsePositive(id: string): Promise<void> {
@@ -8886,11 +9447,221 @@ export class DatabaseStorage implements IStorage {
   }
 
   // ─── Client Satisfaction Surveys ────────────────────────────────────────────
+  // ─── Office Credentials (agency-level licensure/enrollment) ────────────────
+  async getOfficeCredentials(officeId?: string): Promise<OfficeCredential[]> {
+    if (officeId) {
+      return db.select().from(officeCredentials)
+        .where(eq(officeCredentials.officeId, officeId))
+        .orderBy(asc(officeCredentials.expirationDate));
+    }
+    return db.select().from(officeCredentials).orderBy(asc(officeCredentials.expirationDate));
+  }
+
+  async getOfficeCredential(id: string): Promise<OfficeCredential | undefined> {
+    const [credential] = await db.select().from(officeCredentials).where(eq(officeCredentials.id, id));
+    return credential;
+  }
+
+  async createOfficeCredential(credential: InsertOfficeCredential): Promise<OfficeCredential> {
+    const [created] = await db.insert(officeCredentials).values(credential).returning();
+    return created;
+  }
+
+  async updateOfficeCredential(id: string, credential: Partial<InsertOfficeCredential>): Promise<OfficeCredential> {
+    const [updated] = await db.update(officeCredentials)
+      .set({ ...credential, updatedAt: new Date() })
+      .where(eq(officeCredentials.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteOfficeCredential(id: string): Promise<void> {
+    await db.delete(officeCredentials).where(eq(officeCredentials.id, id));
+  }
+
+  // ─── Caregiver Competency Reviews (28 Pa. Code § 611.55) ───────────────────
+  async getCaregiverCompetencyReviews(caregiverId: string): Promise<CaregiverCompetencyReview[]> {
+    return db.select().from(caregiverCompetencyReviews)
+      .where(eq(caregiverCompetencyReviews.caregiverId, caregiverId))
+      .orderBy(desc(caregiverCompetencyReviews.reviewDate));
+  }
+
+  async getCaregiverCompetencyReview(id: string): Promise<CaregiverCompetencyReview | undefined> {
+    const [row] = await db.select().from(caregiverCompetencyReviews).where(eq(caregiverCompetencyReviews.id, id));
+    return row;
+  }
+
+  async createCaregiverCompetencyReview(review: InsertCaregiverCompetencyReview): Promise<CaregiverCompetencyReview> {
+    const [row] = await db.insert(caregiverCompetencyReviews).values(review).returning();
+    return row;
+  }
+
+  async updateCaregiverCompetencyReview(id: string, review: Partial<InsertCaregiverCompetencyReview>): Promise<CaregiverCompetencyReview> {
+    const [row] = await db.update(caregiverCompetencyReviews)
+      .set({ ...review, updatedAt: new Date() })
+      .where(eq(caregiverCompetencyReviews.id, id))
+      .returning();
+    return row;
+  }
+
+  async deleteCaregiverCompetencyReview(id: string): Promise<void> {
+    await db.delete(caregiverCompetencyReviews).where(eq(caregiverCompetencyReviews.id, id));
+  }
+
+  // ─── Client Rights & Notices (28 Pa. Code § 611.57) ────────────────────────
+  async getClientNotices(clientId: string): Promise<ClientNotice[]> {
+    return db.select().from(clientNotices)
+      .where(eq(clientNotices.clientId, clientId))
+      .orderBy(desc(clientNotices.providedAt));
+  }
+
+  async getClientNotice(id: string): Promise<ClientNotice | undefined> {
+    const [row] = await db.select().from(clientNotices).where(eq(clientNotices.id, id));
+    return row;
+  }
+
+  async createClientNotice(notice: InsertClientNotice): Promise<ClientNotice> {
+    const [row] = await db.insert(clientNotices).values(notice).returning();
+    return row;
+  }
+
+  async updateClientNotice(id: string, notice: Partial<InsertClientNotice>): Promise<ClientNotice> {
+    const [row] = await db.update(clientNotices)
+      .set(notice)
+      .where(eq(clientNotices.id, id))
+      .returning();
+    return row;
+  }
+
+  async deleteClientNotice(id: string): Promise<void> {
+    await db.delete(clientNotices).where(eq(clientNotices.id, id));
+  }
+
+  // ─── OIG Seven Elements: Compliance Officer/Committee Designations ─────────
+  async getComplianceOfficerDesignations(officeId: string): Promise<ComplianceOfficerDesignation[]> {
+    return db.select().from(complianceOfficerDesignations)
+      .where(eq(complianceOfficerDesignations.officeId, officeId))
+      .orderBy(desc(complianceOfficerDesignations.effectiveDate));
+  }
+
+  async getComplianceOfficerDesignation(id: string): Promise<ComplianceOfficerDesignation | undefined> {
+    const [row] = await db.select().from(complianceOfficerDesignations).where(eq(complianceOfficerDesignations.id, id));
+    return row;
+  }
+
+  async createComplianceOfficerDesignation(designation: InsertComplianceOfficerDesignation): Promise<ComplianceOfficerDesignation> {
+    const [row] = await db.insert(complianceOfficerDesignations).values(designation).returning();
+    return row;
+  }
+
+  async updateComplianceOfficerDesignation(id: string, designation: Partial<InsertComplianceOfficerDesignation>): Promise<ComplianceOfficerDesignation> {
+    const [row] = await db.update(complianceOfficerDesignations)
+      .set({ ...designation, updatedAt: new Date() })
+      .where(eq(complianceOfficerDesignations.id, id))
+      .returning();
+    return row;
+  }
+
+  async deleteComplianceOfficerDesignation(id: string): Promise<void> {
+    await db.delete(complianceOfficerDesignations).where(eq(complianceOfficerDesignations.id, id));
+  }
+
+  // ─── OIG Seven Elements: Compliance Hotline Reports ─────────────────────────
+  async getComplianceHotlineReports(officeId: string): Promise<ComplianceHotlineReport[]> {
+    return db.select().from(complianceHotlineReports)
+      .where(eq(complianceHotlineReports.officeId, officeId))
+      .orderBy(desc(complianceHotlineReports.receivedAt));
+  }
+
+  async getComplianceHotlineReport(id: string): Promise<ComplianceHotlineReport | undefined> {
+    const [row] = await db.select().from(complianceHotlineReports).where(eq(complianceHotlineReports.id, id));
+    return row;
+  }
+
+  async createComplianceHotlineReport(report: InsertComplianceHotlineReport): Promise<ComplianceHotlineReport> {
+    const [row] = await db.insert(complianceHotlineReports).values(report).returning();
+    return row;
+  }
+
+  async updateComplianceHotlineReport(id: string, report: Partial<InsertComplianceHotlineReport>): Promise<ComplianceHotlineReport> {
+    const [row] = await db.update(complianceHotlineReports)
+      .set({ ...report, updatedAt: new Date() })
+      .where(eq(complianceHotlineReports.id, id))
+      .returning();
+    return row;
+  }
+
+  async deleteComplianceHotlineReport(id: string): Promise<void> {
+    await db.delete(complianceHotlineReports).where(eq(complianceHotlineReports.id, id));
+  }
+
+  // ─── Client Special Requests ────────────────────────────────────────────────
+  async getClientSpecialRequests(clientId: string): Promise<ClientSpecialRequest[]> {
+    return db.select().from(clientSpecialRequests)
+      .where(eq(clientSpecialRequests.clientId, clientId))
+      .orderBy(desc(clientSpecialRequests.requestedDate));
+  }
+
+  async getClientSpecialRequest(id: string): Promise<ClientSpecialRequest | undefined> {
+    const [row] = await db.select().from(clientSpecialRequests).where(eq(clientSpecialRequests.id, id));
+    return row;
+  }
+
+  async createClientSpecialRequest(request: InsertClientSpecialRequest): Promise<ClientSpecialRequest> {
+    const [row] = await db.insert(clientSpecialRequests).values(request).returning();
+    return row;
+  }
+
+  async updateClientSpecialRequest(id: string, request: Partial<InsertClientSpecialRequest>): Promise<ClientSpecialRequest> {
+    const [row] = await db.update(clientSpecialRequests)
+      .set({ ...request, updatedAt: new Date() })
+      .where(eq(clientSpecialRequests.id, id))
+      .returning();
+    return row;
+  }
+
+  async deleteClientSpecialRequest(id: string): Promise<void> {
+    await db.delete(clientSpecialRequests).where(eq(clientSpecialRequests.id, id));
+  }
+
+  // ─── Client Spend Down ───────────────────────────────────────────────────────
+  async getClientSpendDowns(clientId: string): Promise<ClientSpendDown[]> {
+    return db.select().from(clientSpendDowns)
+      .where(eq(clientSpendDowns.clientId, clientId))
+      .orderBy(desc(clientSpendDowns.periodStart));
+  }
+
+  async getClientSpendDown(id: string): Promise<ClientSpendDown | undefined> {
+    const [row] = await db.select().from(clientSpendDowns).where(eq(clientSpendDowns.id, id));
+    return row;
+  }
+
+  async createClientSpendDown(spendDown: InsertClientSpendDown): Promise<ClientSpendDown> {
+    const [row] = await db.insert(clientSpendDowns).values(spendDown).returning();
+    return row;
+  }
+
+  async updateClientSpendDown(id: string, spendDown: Partial<InsertClientSpendDown>): Promise<ClientSpendDown> {
+    const [row] = await db.update(clientSpendDowns)
+      .set({ ...spendDown, updatedAt: new Date() })
+      .where(eq(clientSpendDowns.id, id))
+      .returning();
+    return row;
+  }
+
+  async deleteClientSpendDown(id: string): Promise<void> {
+    await db.delete(clientSpendDowns).where(eq(clientSpendDowns.id, id));
+  }
+
   async getClientSatisfactionSurveys(officeId: string): Promise<ClientSatisfactionSurvey[]> {
     return db.select().from(clientSatisfactionSurveys).where(eq(clientSatisfactionSurveys.officeId, officeId)).orderBy(desc(clientSatisfactionSurveys.createdAt));
   }
   async getClientSatisfactionSurvey(id: string): Promise<ClientSatisfactionSurvey | undefined> {
     const [row] = await db.select().from(clientSatisfactionSurveys).where(eq(clientSatisfactionSurveys.id, id));
+    return row;
+  }
+  async getClientSatisfactionSurveyByToken(token: string): Promise<ClientSatisfactionSurvey | undefined> {
+    const [row] = await db.select().from(clientSatisfactionSurveys).where(eq(clientSatisfactionSurveys.accessToken, token));
     return row;
   }
   async createClientSatisfactionSurvey(survey: InsertClientSatisfactionSurvey): Promise<ClientSatisfactionSurvey> {

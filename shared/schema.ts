@@ -70,10 +70,20 @@ export const coordinators = pgTable("coordinators", {
   phone: varchar("phone"),
   officeId: varchar("office_id").references(() => offices.id),
   title: varchar("title"),
+  // Hourly rate used only to compute coordinator compensation from the hours
+  // of the caregivers they manage. Coordinators are NOT paid per hour directly.
+  coordinatorRate: numeric("coordinator_rate", { precision: 10, scale: 2 }),
   isActive: boolean("is_active").default(true),
+  // When the coordinator started with the agency (shown on their profile).
+  startDate: timestamp("start_date"),
+  // Reporting line for the employee directory / org chart. Coordinators report
+  // to an office-staff user, same as caregivers.managerId.
+  managerId: varchar("manager_id"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
-});
+}, (table) => [
+  index("idx_coordinators_manager").on(table.managerId),
+]);
 
 // User storage table.
 export const users = pgTable("users", {
@@ -114,6 +124,9 @@ export const users = pgTable("users", {
   // when they joined (shown on the unified employee directory page).
   managerId: varchar("manager_id"),
   hireDate: timestamp("hire_date"),
+  // Set when this user's onboarding instance completes (written by the
+  // onboarding module; column originally added via ensureOnboardingSchema).
+  onboardedAt: timestamp("onboarded_at"),
   // Offboarding (Task #137): when set, auto-creates an offboarding instance
   // from a matching template and triggers the termination workflow on the date.
   terminationDate: timestamp("termination_date"),
@@ -170,6 +183,9 @@ export const clients = pgTable("clients", {
   primaryCaregiverId: varchar("primary_caregiver_id"),
   officeId: varchar("office_id").references(() => offices.id),
   mcoId: varchar("mco_id"),
+  // Hourly rate the agency bills the client for care (distinct from what the
+  // caregiver is paid). Informational for the compensation module.
+  billingRate: numeric("billing_rate", { precision: 10, scale: 2 }),
   status: varchar("status").default("active"),
   serviceStartDate: timestamp("service_start_date"),
   lastServiceDate: timestamp("last_service_date"),
@@ -223,6 +239,9 @@ export const caregivers = pgTable("caregivers", {
   isActive: boolean("is_active").default(true),
   // Employee directory: who this caregiver reports to (references users.id)
   managerId: varchar("manager_id"),
+  // Set when this caregiver's onboarding instance completes (written by the
+  // onboarding module; column originally added via ensureOnboardingSchema).
+  onboardedAt: timestamp("onboarded_at"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => [
@@ -313,6 +332,7 @@ export const documents = pgTable("documents", {
   clientId: varchar("client_id").references(() => clients.id),
   caregiverId: varchar("caregiver_id").references(() => caregivers.id),
   userId: varchar("user_id").references(() => users.id), // For staff/user documents
+  coordinatorId: varchar("coordinator_id").references(() => coordinators.id), // For coordinator documents
   uploadedBy: varchar("uploaded_by").references(() => users.id),
   officeId: varchar("office_id").references(() => offices.id),
   fileName: varchar("file_name").notNull(),
@@ -366,6 +386,16 @@ export const incidentReports = pgTable("incident_reports", {
   dohSubmittedAt: timestamp("doh_submitted_at"),
   dohSubmissionRef: varchar("doh_submission_ref"),
   dohSubmissionStatus: varchar("doh_submission_status").default("not_required"), // not_required, pending, submitted, acknowledged
+  // CHC (Community HealthChoices) waiver participants need a separate report
+  // to their Service Coordinator within 24 hours — the SC/MCO, not the
+  // provider, then logs it in the state's EIM system. This is distinct from
+  // (and may apply alongside) the DOH fields above.
+  scNotificationRequired: boolean("sc_notification_required").default(false),
+  serviceCoordinatorName: varchar("service_coordinator_name"),
+  serviceCoordinatorContact: varchar("service_coordinator_contact"),
+  scNotificationDue: timestamp("sc_notification_due"),
+  scNotifiedAt: timestamp("sc_notified_at"),
+  scNotificationStatus: varchar("sc_notification_status").default("not_required"), // not_required, pending, notified
   internalInvestigationNotes: text("internal_investigation_notes"),
   correctiveActionRequired: boolean("corrective_action_required").default(false),
   createdAt: timestamp("created_at").defaultNow(),
@@ -831,7 +861,9 @@ export const trainings = pgTable("trainings", {
 
 export const trainingRecords = pgTable("training_records", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  caregiverId: varchar("caregiver_id").notNull(),
+  // Exactly one of caregiverId / coordinatorId is set per record.
+  caregiverId: varchar("caregiver_id"),
+  coordinatorId: varchar("coordinator_id"),
   trainingId: varchar("training_id").notNull(),
   status: trainingStatusEnum("status").default("not_started"),
   startDate: timestamp("start_date"),
@@ -2229,6 +2261,9 @@ export const clientAuthorizations = pgTable("client_authorizations", {
   clientId: varchar("client_id").references(() => clients.id).notNull(),
   mcoId: varchar("mco_id").references(() => mcos.id),
   officeId: varchar("office_id").references(() => offices.id),
+  // Links the authorized hours to the client's Person-Centered Service Plan
+  // (care plan). Nullable — not every authorization has a plan on file yet.
+  carePlanId: varchar("care_plan_id").references(() => carePlans.id),
   authorizationNumber: varchar("authorization_number").notNull(),
   serviceType: varchar("service_type").notNull(),
   approvedHours: numeric("approved_hours", { precision: 10, scale: 2 }),
@@ -2250,6 +2285,7 @@ export const clientAuthorizationsRelations = relations(clientAuthorizations, ({ 
   client: one(clients, { fields: [clientAuthorizations.clientId], references: [clients.id] }),
   mco: one(mcos, { fields: [clientAuthorizations.mcoId], references: [mcos.id] }),
   office: one(offices, { fields: [clientAuthorizations.officeId], references: [offices.id] }),
+  carePlan: one(carePlans, { fields: [clientAuthorizations.carePlanId], references: [carePlans.id] }),
 }));
 
 export type ClientAuthorization = typeof clientAuthorizations.$inferSelect;
@@ -2847,7 +2883,10 @@ export const performanceReviewStatusEnum = pgEnum("performance_review_status", [
 
 export const performanceReviews = pgTable("performance_reviews", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  caregiverId: varchar("caregiver_id").references(() => caregivers.id).notNull(),
+  // Exactly one of caregiverId/userId identifies the reviewed employee —
+  // caregiverId for field caregivers, userId for internal office staff.
+  caregiverId: varchar("caregiver_id").references(() => caregivers.id),
+  userId: varchar("user_id").references(() => users.id),
   reviewerId: varchar("reviewer_id").references(() => users.id).notNull(),
   reviewType: performanceReviewTypeEnum("review_type").notNull(),
   reviewPeriodStart: timestamp("review_period_start"),
@@ -2870,6 +2909,7 @@ export const performanceReviews = pgTable("performance_reviews", {
 
 export const performanceReviewsRelations = relations(performanceReviews, ({ one, many }) => ({
   caregiver: one(caregivers, { fields: [performanceReviews.caregiverId], references: [caregivers.id] }),
+  employeeUser: one(users, { fields: [performanceReviews.userId], references: [users.id] }),
   reviewer: one(users, { fields: [performanceReviews.reviewerId], references: [users.id] }),
   acknowledgedByUser: one(users, { fields: [performanceReviews.acknowledgedBy], references: [users.id] }),
   metrics: many(performanceMetrics),
@@ -2949,7 +2989,11 @@ export const ptoTypeEnum = pgEnum("pto_type", ["vacation", "sick", "personal"]);
 // PTO Balances table
 export const ptoBalances = pgTable("pto_balances", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  caregiverId: varchar("caregiver_id").references(() => caregivers.id).notNull(),
+  // Exactly one of caregiverId/userId identifies the employee — caregiverId
+  // for field caregivers (with the full accrual-ledger engine), userId for
+  // internal office staff (tracked as simple manual balances).
+  caregiverId: varchar("caregiver_id").references(() => caregivers.id),
+  userId: varchar("user_id").references(() => users.id),
   year: integer("year").notNull(),
   ptoType: ptoTypeEnum("pto_type").notNull(),
   accrued: numeric("accrued", { precision: 10, scale: 2 }).default("0"),
@@ -2962,6 +3006,7 @@ export const ptoBalances = pgTable("pto_balances", {
 
 export const ptoBalancesRelations = relations(ptoBalances, ({ one }) => ({
   caregiver: one(caregivers, { fields: [ptoBalances.caregiverId], references: [caregivers.id] }),
+  employeeUser: one(users, { fields: [ptoBalances.userId], references: [users.id] }),
 }));
 
 export type PtoBalance = typeof ptoBalances.$inferSelect;
@@ -4515,6 +4560,10 @@ export const clientSatisfactionSurveys = pgTable("client_satisfaction_surveys", 
   description: text("description"),
   questions: jsonb("questions"),
   status: clientSurveyStatusEnum("status").default("draft").notNull(),
+  // Unguessable public-submission token (family/client respondents have no
+  // account) — the response route resolves the survey through this token
+  // rather than trusting a client-supplied survey id.
+  accessToken: varchar("access_token").unique(),
   sentAt: timestamp("sent_at"),
   closedAt: timestamp("closed_at"),
   createdBy: varchar("created_by").references(() => users.id),
@@ -5092,3 +5141,426 @@ export const qualityManagementLogs = pgTable("quality_management_logs", {
 export type QualityManagementLog = typeof qualityManagementLogs.$inferSelect;
 export type InsertQualityManagementLog = typeof qualityManagementLogs.$inferInsert;
 export const insertQualityManagementLogSchema = createInsertSchema(qualityManagementLogs).omit({ id: true, createdAt: true, updatedAt: true });
+
+// ─── Coordinator Compensation Module ─────────────────────────────────────────
+// Self-contained payroll/compensation model, separate from the EVV-oriented
+// caregiver_schedules and the quarterly coordinator_pay_records. Reuses the
+// core coordinators / caregivers / clients entities.
+//
+// Compensation model (per payroll period, per caregiver a coordinator manages):
+//   caregiver_payroll = regular_hours * caregiver_rate
+//                     + overtime_hours * caregiver_rate * 1.5
+//   coordinator_gross = coordinator_rate * caregiver_total_hours
+//   compensation      = coordinator_gross - caregiver_payroll  (may be negative)
+// Coordinator period total = sum of compensation across their caregivers.
+// Overtime is split weekly at 40 hrs/week (FLSA) within the period.
+
+export const compPayrollPeriodStatusEnum = pgEnum("comp_payroll_period_status", ["open", "closed"]);
+
+export const compPayrollPeriods = pgTable("comp_payroll_periods", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id"),
+  officeId: varchar("office_id").references(() => offices.id),
+  name: varchar("name").notNull(),
+  startDate: date("start_date").notNull(),
+  endDate: date("end_date").notNull(),
+  // Weekly overtime threshold in hours (FLSA default 40). Configurable per period.
+  otWeeklyThreshold: numeric("ot_weekly_threshold", { precision: 6, scale: 2 }).default("40"),
+  status: compPayrollPeriodStatusEnum("status").default("open").notNull(),
+  createdBy: varchar("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_comp_periods_office").on(table.officeId),
+  index("idx_comp_periods_dates").on(table.startDate, table.endDate),
+]);
+
+export const compScheduleEntries = pgTable("comp_schedule_entries", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id"),
+  officeId: varchar("office_id").references(() => offices.id),
+  caregiverId: varchar("caregiver_id").references(() => caregivers.id).notNull(),
+  clientId: varchar("client_id").references(() => clients.id),
+  workDate: date("work_date").notNull(),
+  hours: numeric("hours", { precision: 6, scale: 2 }).notNull(),
+  notes: text("notes"),
+  createdBy: varchar("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_comp_sched_caregiver").on(table.caregiverId),
+  index("idx_comp_sched_client").on(table.clientId),
+  index("idx_comp_sched_date").on(table.workDate),
+  index("idx_comp_sched_office").on(table.officeId),
+]);
+
+// Per-period per-caregiver payment tracking. Hours and payroll amounts are
+// computed from schedule entries at read time; only the manual payment is stored.
+export const compCaregiverPayments = pgTable("comp_caregiver_payments", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  periodId: varchar("period_id").references(() => compPayrollPeriods.id, { onDelete: "cascade" }).notNull(),
+  caregiverId: varchar("caregiver_id").references(() => caregivers.id).notNull(),
+  paymentMade: numeric("payment_made", { precision: 12, scale: 2 }).default("0").notNull(),
+  notes: text("notes"),
+  updatedBy: varchar("updated_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  unique("uniq_comp_cg_payment").on(table.periodId, table.caregiverId),
+]);
+
+// Per-period per-coordinator payment tracking. Compensation is computed.
+export const compCoordinatorPayments = pgTable("comp_coordinator_payments", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  periodId: varchar("period_id").references(() => compPayrollPeriods.id, { onDelete: "cascade" }).notNull(),
+  coordinatorId: varchar("coordinator_id").references(() => coordinators.id).notNull(),
+  paymentMade: numeric("payment_made", { precision: 12, scale: 2 }).default("0").notNull(),
+  notes: text("notes"),
+  updatedBy: varchar("updated_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  unique("uniq_comp_coord_payment").on(table.periodId, table.coordinatorId),
+]);
+
+export type CompPayrollPeriod = typeof compPayrollPeriods.$inferSelect;
+export type InsertCompPayrollPeriod = typeof compPayrollPeriods.$inferInsert;
+export const insertCompPayrollPeriodSchema = createInsertSchema(compPayrollPeriods).omit({ id: true, createdAt: true, updatedAt: true });
+
+export type CompScheduleEntry = typeof compScheduleEntries.$inferSelect;
+export type InsertCompScheduleEntry = typeof compScheduleEntries.$inferInsert;
+export const insertCompScheduleEntrySchema = createInsertSchema(compScheduleEntries).omit({ id: true, createdAt: true, updatedAt: true });
+
+export type CompCaregiverPayment = typeof compCaregiverPayments.$inferSelect;
+export type InsertCompCaregiverPayment = typeof compCaregiverPayments.$inferInsert;
+export const insertCompCaregiverPaymentSchema = createInsertSchema(compCaregiverPayments).omit({ id: true, createdAt: true, updatedAt: true });
+
+export type CompCoordinatorPayment = typeof compCoordinatorPayments.$inferSelect;
+export type InsertCompCoordinatorPayment = typeof compCoordinatorPayments.$inferInsert;
+export const insertCompCoordinatorPaymentSchema = createInsertSchema(compCoordinatorPayments).omit({ id: true, createdAt: true, updatedAt: true });
+
+// ─── Agency / Office Credentials (PA licensure, payer enrollment, MCO credentialing) ───
+// Tracks the AGENCY's own credentials per office — distinct from per-caregiver
+// compliance items. Covers PA DOH home care license renewals, PA Medicaid
+// PROMISe (OLTL) revalidation, CMS/Medicare enrollment where applicable,
+// per-MCO recredentialing cycles, FWA training attestations, and insurance.
+export const officeCredentialTypeEnum = pgEnum("office_credential_type", [
+  "pa_doh_license",       // 28 Pa. Code Ch. 611 home care agency license
+  "promise_revalidation", // PA Medicaid PROMISe enrollment revalidation (OLTL)
+  "medicare_enrollment",  // CMS/Medicare enrollment revalidation (if applicable)
+  "mco_credentialing",    // per-MCO recredentialing (links to mcos via mcoId)
+  "fwa_training",         // annual Fraud/Waste/Abuse training + attestation
+  "liability_insurance",  // general/professional liability policy
+  "workers_comp",         // workers' compensation policy
+  "surety_bond",
+  "other",
+]);
+
+export const officeCredentialStatusEnum = pgEnum("office_credential_status", [
+  "active", "renewal_in_progress", "expired", "not_applicable",
+]);
+
+export const officeCredentials = pgTable("office_credentials", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  officeId: varchar("office_id").references(() => offices.id).notNull(),
+  credentialType: officeCredentialTypeEnum("credential_type").notNull(),
+  mcoId: varchar("mco_id").references(() => mcos.id), // only for mco_credentialing / fwa_training rows tied to a specific MCO
+  name: varchar("name").notNull(), // display label, e.g. "PA DOH Home Care Agency License"
+  identifier: varchar("identifier"), // license #, PROMISe provider ID, PTAN, policy #, ...
+  issuedBy: varchar("issued_by"), // DOH, DHS/OLTL, CMS, MCO name, carrier
+  effectiveDate: timestamp("effective_date"),
+  expirationDate: timestamp("expiration_date"), // next renewal/revalidation due date
+  renewalCadenceMonths: integer("renewal_cadence_months"), // 12 = annual, 36 = MCO recredential, 60 = PROMISe
+  // How many days before expiration the renewal paperwork must be submitted
+  // (e.g. PA DOH renewal form due 60 days before license expiration).
+  renewalLeadTimeDays: integer("renewal_lead_time_days"),
+  status: officeCredentialStatusEnum("status").default("active"),
+  lastRenewedAt: timestamp("last_renewed_at"),
+  documentId: varchar("document_id").references(() => documents.id), // uploaded certificate/letter
+  notes: text("notes"),
+  createdBy: varchar("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_office_credentials_office").on(table.officeId),
+  index("idx_office_credentials_expiration").on(table.expirationDate),
+]);
+
+export const officeCredentialsRelations = relations(officeCredentials, ({ one }) => ({
+  office: one(offices, { fields: [officeCredentials.officeId], references: [offices.id] }),
+  mco: one(mcos, { fields: [officeCredentials.mcoId], references: [mcos.id] }),
+  document: one(documents, { fields: [officeCredentials.documentId], references: [documents.id] }),
+  createdByUser: one(users, { fields: [officeCredentials.createdBy], references: [users.id] }),
+}));
+
+export type OfficeCredential = typeof officeCredentials.$inferSelect;
+export type InsertOfficeCredential = typeof officeCredentials.$inferInsert;
+export const insertOfficeCredentialSchema = createInsertSchema(officeCredentials).omit({ id: true, createdAt: true, updatedAt: true });
+
+// ─── Professional Development: Caregiver Competency Reviews (28 Pa. Code § 611.55) ───
+// PA requires competency to be reviewed at least annually for direct care
+// workers (and more frequently after disciplinary action). Each review
+// records how competency was established and an optional development plan.
+export const caregiverCompetencyReviews = pgTable("caregiver_competency_reviews", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  caregiverId: varchar("caregiver_id").references(() => caregivers.id).notNull(),
+  officeId: varchar("office_id").references(() => offices.id),
+  reviewDate: timestamp("review_date").notNull(),
+  reviewerId: varchar("reviewer_id").references(() => users.id),
+  // direct_observation | competency_test | training_completion | consumer_feedback
+  method: varchar("method").notNull(),
+  topicsCovered: text("topics_covered"),
+  // satisfactory | needs_improvement | unsatisfactory
+  outcome: varchar("outcome").default("satisfactory").notNull(),
+  developmentPlan: text("development_plan"),
+  nextReviewDue: timestamp("next_review_due"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_competency_reviews_caregiver").on(table.caregiverId),
+  index("idx_competency_reviews_next_due").on(table.nextReviewDue),
+]);
+
+export const caregiverCompetencyReviewsRelations = relations(caregiverCompetencyReviews, ({ one }) => ({
+  caregiver: one(caregivers, { fields: [caregiverCompetencyReviews.caregiverId], references: [caregivers.id] }),
+  office: one(offices, { fields: [caregiverCompetencyReviews.officeId], references: [offices.id] }),
+  reviewer: one(users, { fields: [caregiverCompetencyReviews.reviewerId], references: [users.id] }),
+}));
+
+export type CaregiverCompetencyReview = typeof caregiverCompetencyReviews.$inferSelect;
+export type InsertCaregiverCompetencyReview = typeof caregiverCompetencyReviews.$inferInsert;
+export const insertCaregiverCompetencyReviewSchema = createInsertSchema(caregiverCompetencyReviews).omit({ id: true, createdAt: true, updatedAt: true });
+
+// ─── Client Rights & Notices (28 Pa. Code § 611.57) ───
+// Tracks delivery of the consumer protections notices: the pre-service
+// information packet, the Consumer Notice of Direct Care Worker Status
+// (40 Pa.B. 234), and the 10-calendar-day advance written service
+// termination notice.
+export const clientNotices = pgTable("client_notices", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  clientId: varchar("client_id").references(() => clients.id).notNull(),
+  officeId: varchar("office_id").references(() => offices.id),
+  // information_packet | dcw_status_notice | service_termination_notice | rate_change_notice | other
+  noticeType: varchar("notice_type").notNull(),
+  providedAt: timestamp("provided_at").notNull(),
+  // in_person | mail | email | esignature
+  method: varchar("method").default("in_person"),
+  // For service_termination_notice: the date services end. Must be at least
+  // 10 calendar days after providedAt in most cases (§ 611.57).
+  effectiveDate: timestamp("effective_date"),
+  documentId: varchar("document_id").references(() => documents.id),
+  notes: text("notes"),
+  createdBy: varchar("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_client_notices_client").on(table.clientId),
+  index("idx_client_notices_type").on(table.noticeType),
+]);
+
+export const clientNoticesRelations = relations(clientNotices, ({ one }) => ({
+  client: one(clients, { fields: [clientNotices.clientId], references: [clients.id] }),
+  office: one(offices, { fields: [clientNotices.officeId], references: [offices.id] }),
+  document: one(documents, { fields: [clientNotices.documentId], references: [documents.id] }),
+  createdByUser: one(users, { fields: [clientNotices.createdBy], references: [users.id] }),
+}));
+
+export type ClientNotice = typeof clientNotices.$inferSelect;
+export type InsertClientNotice = typeof clientNotices.$inferInsert;
+export const insertClientNoticeSchema = createInsertSchema(clientNotices).omit({ id: true, createdAt: true });
+
+// ─── OIG "Seven Elements" Compliance Program: Officer/Committee Designations ───
+// Element 2 (designated compliance officer/committee) of the OIG's seven
+// elements of an effective compliance program. Tracks who holds the role over
+// time — endDate null means currently serving.
+export const complianceOfficerRoleEnum = pgEnum("compliance_officer_role", [
+  "compliance_officer", "committee_member",
+]);
+
+export const complianceOfficerDesignations = pgTable("compliance_officer_designations", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  officeId: varchar("office_id").references(() => offices.id).notNull(),
+  role: complianceOfficerRoleEnum("role").default("compliance_officer").notNull(),
+  personName: varchar("person_name").notNull(),
+  userId: varchar("user_id").references(() => users.id), // optional link if they have a system account
+  title: varchar("title"),
+  email: varchar("email"),
+  phone: varchar("phone"),
+  effectiveDate: timestamp("effective_date").notNull(),
+  endDate: timestamp("end_date"), // null = currently serving
+  notes: text("notes"),
+  createdBy: varchar("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_compliance_officer_office").on(table.officeId),
+]);
+
+export const complianceOfficerDesignationsRelations = relations(complianceOfficerDesignations, ({ one }) => ({
+  office: one(offices, { fields: [complianceOfficerDesignations.officeId], references: [offices.id] }),
+  user: one(users, { fields: [complianceOfficerDesignations.userId], references: [users.id] }),
+  createdByUser: one(users, { fields: [complianceOfficerDesignations.createdBy], references: [users.id] }),
+}));
+
+export type ComplianceOfficerDesignation = typeof complianceOfficerDesignations.$inferSelect;
+export type InsertComplianceOfficerDesignation = typeof complianceOfficerDesignations.$inferInsert;
+export const insertComplianceOfficerDesignationSchema = createInsertSchema(complianceOfficerDesignations).omit({ id: true, createdAt: true, updatedAt: true });
+
+// ─── OIG "Seven Elements" Compliance Program: Hotline Reports ───────────────
+// Element 4 (effective communication channels, including an anonymous
+// reporting mechanism). Submitted in-app by an authenticated staff member —
+// reporterName/reporterContact are optional, so leaving them blank keeps the
+// record itself anonymous. No createdBy/session-user field is stored, so
+// there is no server-side identity trail to protect or leak for anonymous
+// reports. Resolution/corrective-action fields live inline on the report
+// (mirroring patientComplaints' pattern) rather than a separate CAP entity.
+export const complianceHotlineCategoryEnum = pgEnum("compliance_hotline_category", [
+  "fraud_waste_abuse", "hipaa_privacy", "billing_compliance", "patient_safety", "hr_conduct", "other",
+]);
+
+export const complianceHotlineSeverityEnum = pgEnum("compliance_hotline_severity", [
+  "low", "medium", "high", "critical",
+]);
+
+export const complianceHotlineStatusEnum = pgEnum("compliance_hotline_status", [
+  "received", "under_investigation", "resolved", "closed",
+]);
+
+export const complianceHotlineReports = pgTable("compliance_hotline_reports", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  officeId: varchar("office_id").references(() => offices.id).notNull(),
+  reportNumber: varchar("report_number").notNull(),
+  receivedAt: timestamp("received_at").notNull(),
+  isAnonymous: boolean("is_anonymous").default(false),
+  reporterName: varchar("reporter_name"),
+  reporterContact: varchar("reporter_contact"),
+  category: complianceHotlineCategoryEnum("category").notNull(),
+  severity: complianceHotlineSeverityEnum("severity").default("medium"),
+  description: text("description").notNull(),
+  assignedInvestigatorId: varchar("assigned_investigator_id").references(() => users.id),
+  status: complianceHotlineStatusEnum("status").default("received").notNull(),
+  correctiveAction: text("corrective_action"),
+  resolutionNotes: text("resolution_notes"),
+  resolvedAt: timestamp("resolved_at"),
+  resolvedBy: varchar("resolved_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_compliance_hotline_office").on(table.officeId),
+  index("idx_compliance_hotline_status").on(table.status),
+]);
+
+export const complianceHotlineReportsRelations = relations(complianceHotlineReports, ({ one }) => ({
+  office: one(offices, { fields: [complianceHotlineReports.officeId], references: [offices.id] }),
+  assignedInvestigator: one(users, { fields: [complianceHotlineReports.assignedInvestigatorId], references: [users.id] }),
+  resolvedByUser: one(users, { fields: [complianceHotlineReports.resolvedBy], references: [users.id] }),
+}));
+
+export type ComplianceHotlineReport = typeof complianceHotlineReports.$inferSelect;
+export type InsertComplianceHotlineReport = typeof complianceHotlineReports.$inferInsert;
+export const insertComplianceHotlineReportSchema = createInsertSchema(complianceHotlineReports).omit({ id: true, createdAt: true, updatedAt: true });
+
+// ─── Client Special Requests ────────────────────────────────────────────────
+// Ad hoc client/family requests distinct from formal care-plan interventions —
+// dietary, scheduling, communication preference, equipment, etc.
+export const specialRequestCategoryEnum = pgEnum("special_request_category", [
+  "dietary", "scheduling", "communication", "care_preference", "equipment", "other",
+]);
+export const specialRequestPriorityEnum = pgEnum("special_request_priority", ["low", "medium", "high"]);
+export const specialRequestStatusEnum = pgEnum("special_request_status", ["open", "in_progress", "completed", "declined"]);
+
+export const clientSpecialRequests = pgTable("client_special_requests", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  clientId: varchar("client_id").references(() => clients.id).notNull(),
+  officeId: varchar("office_id").references(() => offices.id),
+  category: specialRequestCategoryEnum("category").notNull(),
+  description: text("description").notNull(),
+  requestedDate: timestamp("requested_date").notNull(),
+  requestedBy: varchar("requested_by"), // free text — client, family member name, etc.
+  priority: specialRequestPriorityEnum("priority").default("medium"),
+  status: specialRequestStatusEnum("status").default("open").notNull(),
+  resolutionNotes: text("resolution_notes"),
+  resolvedAt: timestamp("resolved_at"),
+  resolvedBy: varchar("resolved_by").references(() => users.id),
+  createdBy: varchar("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_special_requests_client").on(table.clientId),
+  index("idx_special_requests_status").on(table.status),
+]);
+
+export const clientSpecialRequestsRelations = relations(clientSpecialRequests, ({ one }) => ({
+  client: one(clients, { fields: [clientSpecialRequests.clientId], references: [clients.id] }),
+  office: one(offices, { fields: [clientSpecialRequests.officeId], references: [offices.id] }),
+  resolvedByUser: one(users, { fields: [clientSpecialRequests.resolvedBy], references: [users.id] }),
+  createdByUser: one(users, { fields: [clientSpecialRequests.createdBy], references: [users.id] }),
+}));
+
+export type ClientSpecialRequest = typeof clientSpecialRequests.$inferSelect;
+export type InsertClientSpecialRequest = typeof clientSpecialRequests.$inferInsert;
+export const insertClientSpecialRequestSchema = createInsertSchema(clientSpecialRequests).omit({ id: true, createdAt: true, updatedAt: true });
+
+// ─── Client Spend Down (PA Medicaid) ─────────────────────────────────────────
+// Tracks the monthly income amount a client must incur in medical expenses
+// before Medicaid coverage activates for that period ("spend-down"/"excess
+// income" program). One row per tracked period.
+export const spendDownStatusEnum = pgEnum("spend_down_status", ["not_met", "partially_met", "met"]);
+
+export const clientSpendDowns = pgTable("client_spend_downs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  clientId: varchar("client_id").references(() => clients.id).notNull(),
+  officeId: varchar("office_id").references(() => offices.id),
+  periodStart: timestamp("period_start").notNull(),
+  periodEnd: timestamp("period_end").notNull(),
+  spendDownAmount: numeric("spend_down_amount", { precision: 10, scale: 2 }).notNull(),
+  amountMet: numeric("amount_met", { precision: 10, scale: 2 }).default("0"),
+  status: spendDownStatusEnum("status").default("not_met").notNull(),
+  metDate: timestamp("met_date"),
+  documentId: varchar("document_id").references(() => documents.id), // receipts/proof of spend-down
+  notes: text("notes"),
+  createdBy: varchar("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_spend_down_client").on(table.clientId),
+  index("idx_spend_down_period").on(table.periodStart, table.periodEnd),
+]);
+
+export const clientSpendDownsRelations = relations(clientSpendDowns, ({ one }) => ({
+  client: one(clients, { fields: [clientSpendDowns.clientId], references: [clients.id] }),
+  office: one(offices, { fields: [clientSpendDowns.officeId], references: [offices.id] }),
+  document: one(documents, { fields: [clientSpendDowns.documentId], references: [documents.id] }),
+  createdByUser: one(users, { fields: [clientSpendDowns.createdBy], references: [users.id] }),
+}));
+
+export type ClientSpendDown = typeof clientSpendDowns.$inferSelect;
+export type InsertClientSpendDown = typeof clientSpendDowns.$inferInsert;
+export const insertClientSpendDownSchema = createInsertSchema(clientSpendDowns).omit({ id: true, createdAt: true, updatedAt: true });
+
+// ---------------------------------------------------------------------------
+// Boot-time init/self-heal marker tables.
+//
+// These are written by server/initDb.ts, NOT by application code. They are
+// declared here so `drizzle-kit push` recognizes them as part of the schema
+// instead of treating them as foreign tables to drop. production_init_marker
+// is CRITICAL: its row is the guard that stops runProductionInit() from
+// truncating the entire production database on boot — dropping it caused
+// full production data loss on redeploy. Never remove these declarations.
+// ---------------------------------------------------------------------------
+const initMarker = (name: string) =>
+  pgTable(name, {
+    initializedAt: timestamp("initialized_at").defaultNow(),
+  });
+
+export const productionInitMarker = initMarker("production_init_marker");
+export const employeeNotesInitMarker = initMarker("employee_notes_init_marker");
+export const onboardingInitMarker = initMarker("onboarding_init_marker");
+export const offboardingInitMarker = initMarker("offboarding_init_marker");
+export const selfServiceInitMarker = initMarker("self_service_init_marker");
+export const complianceBranchInitMarker = initMarker("compliance_branch_init_marker");
+export const complianceProgramInitMarker = initMarker("compliance_program_init_marker");
+export const clientProfileInitMarker = initMarker("client_profile_init_marker");
+export const staffPerformancePtoInitMarker = initMarker("staff_performance_pto_init_marker");
+export const coordinatorDirectoryInitMarker = initMarker("coordinator_directory_init_marker");
+export const coordinatorProfileInitMarker = initMarker("coordinator_profile_init_marker");

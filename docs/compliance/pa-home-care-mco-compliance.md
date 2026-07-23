@@ -1,0 +1,279 @@
+# Pennsylvania Home Care & MCO Compliance — Gap Analysis
+
+**Scope confirmed with the agency:** non-medical home care agency licensed under **28 Pa. Code Chapter 611**
+(not a Chapter 601 skilled home health agency), billing PA Medicaid MCOs under **Community HealthChoices
+(CHC)** — AmeriHealth Caritas / Keystone First CHC, PA Health & Wellness, and UPMC Community HealthChoices.
+EVV is already submitted to the state aggregator (HHAeXchange) through a channel outside this app.
+
+**Important caveat:** this document is engineering research, not legal advice. Every citation below was
+pulled from primary or near-primary sources (PA Code, PA DHS/OLTL pages, MCO provider manuals, CMS/Medicaid.gov),
+but PA Medicaid managed-care rules change frequently and several source PDFs could not be fully parsed during
+research (flagged inline). Anything that would become hard business logic (a deadline, a billing code, a
+cadence) should be confirmed directly with DOH, OLTL, or the relevant MCO's current provider manual before
+being built.
+
+---
+
+## 1. What's already in place
+
+The app already has substantial, genuinely PA-specific compliance tooling. No action needed on these —
+listed here so a developer extending any of the gaps below knows what to build on top of.
+
+| Area | What it does | Where |
+|---|---|---|
+| Exclusion screening | Automated OIG LEIE, SAM.gov, and PA MediCheck pulls, twice-monthly (1st & 15th) — exceeds the MCO-required monthly cadence. NPI → license# → exact-name → fuzzy-name matching. | `server/exclusion-service.ts`, cron in `server/scheduler.ts` |
+| DOH survey checklist | Seeded with real regulation citations: 28 Pa. Code §§ 611.51–611.58 (personnel records, clearances, TB testing, training, care plans, incident reporting, HIPAA/infection-control/emergency-prep/complaint/QA policies) and 23 Pa.C.S. § 6344 (child abuse clearances). | `pa_survey_checklist_items` / `office_pa_survey_statuses`, seed data in `server/storage.ts:4579-4598` |
+| Background check tracking | PA-specific check types: `fbi_fingerprint`, `state_criminal`, `child_abuse`, `adult_protective`, `sex_offender`, `oig_exclusion` — matches OAPSA/Act 169. | `background_checks` table, `shared/schema.ts:2761` |
+| Survey Readiness Hub | Computed 0–100 readiness score; flags background-check age, TB test/CPR expiry, supervisory-visit gaps, policy-acknowledgment gaps, missing emergency plans, and overdue DOH CIR submissions. One-click reminder emails + printable report. | `GET /api/survey-readiness`, `server/routes.ts:23575-23712`, `client/src/pages/survey-readiness.tsx` / `survey-readiness-print.tsx` |
+| Expiration alerts | Daily scan of caregiver compliance items (background checks, TB, CPR, etc.) and client Medicaid/SNAP expiry, configurable alert thresholds (default 30/14/7/1 days), email + SMS. | `server/expiration-alert-service.ts`, cron in `server/scheduler.ts` |
+| Critical incident tracking | Severity/category classification, CIR Class I/II with computed DOH deadline, follow-ups with due dates and status. | `incident_reports`, `incident_follow_ups`, `client/src/pages/incidents.tsx` |
+| Claims lifecycle | draft → submit → process → paid/denied/void/resubmit, resubmission chain, aging report. | `claims` / `claim_line_items`, `server/routes.ts:16557-16654` |
+| Eligibility checks | Scheduled recurring checks (weekly/monthly/quarterly), PROMISe-portal-referenced verification source. | `eligibility_checks` / `eligibility_schedule`, `shared/schema.ts:2362,2402` |
+| HR/wage compliance | FLSA weekly-40hr overtime split (also in the newer Coordinator Compensation module), PTO accrual engine, mileage reimbursement, e-signature infrastructure, configurable onboarding/offboarding workflows. | `pto-service.ts`, `comp_*` tables, `esignature_templates`, `onboarding_templates` |
+
+---
+
+## 2. Gaps, in priority order
+
+Each item: what's missing, why it matters (with citation), and where it would plug into the existing codebase.
+
+**Implementation status: all four Tier 1 items, Tier 2 items 2.5–2.6, and Tier 3 items 2.8–2.10 are now built**
+(see the "Implemented"/"Built" notes under each), plus a new AI Daily Compliance Action Plan. Tier 2 item 2.7
+(EVV reconciliation, optional) and Tier 3 item 2.11 (record retention — blocked on a direct DOH answer, not a
+software gap yet) remain open for a future session.
+
+### Tier 1 — concrete, high-value, directly tied to CHC billing
+
+**2.1 — MCO records are unconfigured.** ✅ Implemented
+`mcos` and `mco_types` tables exist (`shared/schema.ts:1271,1285`) with full support for per-office,
+per-service-code billing rates, but **no MCO is actually seeded anywhere in the codebase** — the only place
+the names AmeriHealth Caritas, Keystone First, or UPMC Community HealthChoices appear at all is inside a
+static training-quiz HTML page (`client/public/tools/staff-training.html`), as a trivia question, not
+configuration. Seeding the three real CHC-MCOs would let `office_mco_billing_rates`, `client_authorizations`,
+and `claims` reference real payers instead of ad hoc admin-entered free text.
+*Recommended action:* seed AmeriHealth Caritas / Keystone First CHC, PA Health & Wellness, and UPMC Community
+HealthChoices as `mcos` records for each office that bills them.
+*Built:* a one-click "Add PA CHC MCOs" button on the MCO admin tab (`POST /api/admin/mcos/seed-pa-chc`,
+`client/src/pages/admin-settings.tsx`) idempotently creates the 3 real MCOs (matched by name, so it's safe to
+click more than once) under a new "PA Community HealthChoices (CHC)" MCO type, with contact/payer fields left
+blank for the admin to fill in. Also fixed a bug found along the way: the MCO admin tab had no office selector
+at all, so `POST /api/admin/mcos` (which requires an `officeId` after an earlier security-hardening pass) was
+silently 403'ing on every attempt to create an MCO — added an office selector and wired `officeId` through.
+
+**2.2 — No Service-Coordinator incident-notification tracking for CHC clients.** ✅ Implemented
+The existing incident model (`incident_reports.cirClass`: `class_1`/`class_2`, with `dohReportDue` /
+`dohSubmissionStatus`, `client/src/pages/incidents.tsx:961`) computes a **24-hour (Class I) / 5-calendar-day
+(Class II) DOH submission deadline**. Research could not confirm this exact Class I/II, 24hr/5-day framework
+is what 28 Pa. Code Chapter 611 actually imposes on non-medical home care agencies — it may have been modeled
+on a different license type (personal care home / assisted living residence rules under 55 Pa. Code Ch.
+2600/2800, which do use a Class I/II scheme). Separately — and this is the part that's clearly missing
+regardless of that ambiguity — for **CHC waiver participants specifically**, the real required path is:
+report the incident to the participant's Service Coordinator within 24 hours of discovery; the SC/MCO (not
+the provider) then investigates and logs it in the state's Enterprise Incident Management (EIM) system, with
+abuse/neglect/exploitation categories separately routed to Adult Protective Services under OAPSA.
+There is currently no field anywhere for "which Service Coordinator was notified, when, for this incident."
+*Recommended action:* add SC-notification fields (SC name/contact, notified-at timestamp, computed 24-hour
+deadline) to `incident_reports` **alongside** the existing DOH fields, not replacing them — a single incident
+may need both, depending on whether the affected client is a CHC waiver participant. Before finalizing
+category-specific timeframes (e.g., whether death or elopement carry a stricter window than the general
+24-hour rule), get a clean copy of the OLTL Critical Incident Management Bulletin directly — the source PDF
+returned as unparseable binary during this research and could not be independently verified
+(`https://www.pa.gov/content/dam/copapwp-pagov/en/dhs/documents/docs/publications/documents/forms-and-pubs-oltl/Critical-Incident-Management-Bulletin.pdf`).
+*Built:* added `scNotificationRequired`, `serviceCoordinatorName`, `serviceCoordinatorContact`,
+`scNotificationDue`, `scNotifiedAt`, `scNotificationStatus` to `incident_reports`, alongside the DOH fields
+(`shared/schema.ts`). The incident form (`client/src/pages/incidents.tsx`) has a "CHC Service Coordinator
+Notification" section that computes the 24-hour deadline from the incident date/time, shows a countdown badge
+next to the existing CIR badges, and a "Mark SC Notified" action mirroring "Mark DOH Submitted". Overdue SC
+notifications also surface as a `sc_notification_overdue` gap on the Survey Readiness dashboard. The
+category-specific-timeframe and Chapter-611-vs-personal-care-home ambiguity noted above is still unresolved —
+get the Bulletin directly before assuming the 24-hour figure covers every incident category.
+
+**2.3 — No claims timely-filing alerting.** ✅ Implemented
+CHC-MCO provider manuals (Keystone First CHC, AmeriHealth Caritas PA CHC, and the general PA Health & Wellness
+pattern) confirm a **180-calendar-day timely filing deadline** from date of service. The existing `claims`
+aging report (`GET /api/claims/aging`) surfaces how old unpaid claims are, but nothing proactively flags a
+claim that's approaching the 180-day cutoff the way `expiration-alert-service.ts` already does for
+certifications and background checks.
+*Recommended action:* extend the same expiration-alert pattern to claims with `status` still in a
+pre-submission state as they approach 180 days from `serviceDate`.
+*Built:* `expiration-alert-service.ts` now scans draft claims and flags them at the same 30/14/7/1-day
+thresholds as everything else, computing the deadline as `serviceDate + 180 days`. Surfaces in the existing
+admin alert emails/SMS and on the Expiration Alerts dashboard (`client/src/pages/expiration-alerts.tsx`) under
+a new "Claim Filing" badge/filter.
+
+**2.4 — Authorizations aren't linked to care plans.** ✅ Implemented
+`client_authorizations` (authorization #, approved vs. used hours, start/end/renewal dates, linked to `mcos`
+and `clients`) and `care_plans` / `care_plan_goals` / `care_plan_interventions`
+(`shared/schema.ts:252-300`) are two entirely separate features with no foreign-key relationship. Under CHC,
+every participant has a **Person-Centered Service Plan (PCSP)** that combines the care-management plan and
+the authorized-hours LTSS services plan — the 2022 CHC Agreement requires MCOs to decide authorization
+requests within **2 business days**, and participants undergo a full reassessment **at least every 12
+months**. None of that SLA/cadence is currently tracked.
+*Recommended action:* add a FK linking `client_authorizations` to a `care_plans` record, and add reminders for
+(a) the 12-month reassessment cycle and (b) authorizations nearing their end date, following the existing
+`expiration-alert-service.ts` pattern.
+*Built:* added `carePlanId` to `client_authorizations` (validated server-side to belong to the same client),
+plus two new expiration-alert item types — `authorization_renewal` (active authorizations approaching
+`endDate`) and `care_plan_reassessment` (care plans approaching `nextAssessmentDate`, which now auto-defaults
+to 12 months from the plan's start date if not set explicitly on creation). Along the way, discovered that
+neither client authorizations nor care plans had any create/edit UI at all — both were literal "Coming Soon"
+stubs in `client-profile-modal.tsx`. Built a real "Add Authorization" dialog (with an MCO and Care Plan picker)
+to replace the authorization stub, since the FK linkage isn't usable without a way to set it. The care-plan
+"Coming Soon" stub itself (goals/interventions authoring) is a separate, larger feature and remains a stub —
+`nextAssessmentDate` still gets defaulted correctly for any plan created through other paths (e.g. bulk import
+or a future editor), so the reassessment reminder works regardless.
+
+### Tier 2 — audit/licensing risk, less immediately financial
+
+**2.5 — No agency-level credentialing/recredentialing tracker.** ✅ Implemented
+Individual staff certifications are tracked in detail (`caregiver_compliance`), but nothing tracks the
+**agency's own** PA Medicaid PROMISe enrollment revalidation (a federal 5-year cycle, confirmed via CMS/DHS
+guidance, submitted at least 60 days before the due date) or each MCO's separate recredentialing cycle
+(commonly ~3 years under NCQA-aligned standards and 42 CFR § 438.214, though this session could not confirm
+the exact cycle length verbatim for AmeriHealth Caritas, PA Health & Wellness, or UPMC specifically — check
+each MCO's provider manual, Credentialing chapter, directly).
+*Recommended action:* a simple per-office, per-payer (PROMISe + each MCO) credentialing-date tracker with the
+same expiration-alert pattern used elsewhere.
+*Built:* new `office_credentials` table + full CRUD (`/api/office-credentials`) and an **Agency Credentials**
+page (`client/src/pages/office-credentials.tsx`, sidebar → Clinical → DOH Compliance). Tracks per-office:
+PA DOH license, PROMISe/OLTL revalidation, CMS/Medicare enrollment, per-MCO recredentialing (FK to `mcos`),
+FWA training attestation, liability insurance, workers' comp, surety bond, other. Each credential carries a
+renewal cadence (months) **and a submission lead time (days)** — the daily expiration alerts fire from the
+*submission deadline* (expiration minus lead time), so e.g. the DOH license alerts when the renewal form is
+due 60 days out, not when the license is already expiring. An "Add PA Recommended Set" button idempotently
+seeds the standard set (DOH annual/60-day lead, PROMISe 5-year/60-day, FWA annual, insurance rows, and one
+~3-year recredentialing row per configured MCO — cadences carry verify-me notes where research couldn't
+confirm them). Expiration dates are deliberately left blank on seed for the admin to fill in with real dates.
+A "Renewed" action stamps `lastRenewedAt` and advances the expiration by the cadence.
+
+**2.6 — No FWA (Fraud, Waste & Abuse) training + attestation tracking as its own record type.** ✅ Implemented
+CHC-MCOs require network-provider staff to complete FWA training with a follow-up attestation (confirmed for
+AmeriHealth Caritas via an online attestation form; PA Health & Wellness's "2026 HCBS Annual Training
+Presentation" naming strongly implies an annual cycle, though the exact cadence wasn't independently
+confirmed in readable text for every MCO). The generic `trainings`/`training_records` tables could hold this,
+but there's no seeded FWA training type or attestation-specific tracking distinct from general in-services.
+*Recommended action:* seed an FWA training type with an annual due-date cadence and route it through the
+existing expiration-alert / policy-acknowledgment infrastructure rather than building something new.
+*Built:* covered by the Agency Credentials tracker above — `fwa_training` is a first-class credential type
+(seeded annually with a 30-day lead time by "Add PA Recommended Set", optionally linkable to a specific MCO),
+flowing through the same renewal reminders. Individual-staff-level FWA course completion can additionally be
+tracked through the existing `trainings`/`training_records` tables if per-person records are needed later.
+
+**Also built (new, beyond the original gap list): AI Daily Compliance Action Plan.**
+`GET /api/compliance/ai-insights` (`server/compliance-insights-service.ts`) aggregates everything the trackers
+know — expiring agency credentials and staff certifications, overdue DOH/SC incident reports, claims nearing
+the 180-day filing deadline, authorization renewals, care-plan reassessments, and credentials missing an
+expiration date — and asks the existing OpenAI integration (same `gpt-4o` pattern as `aiAssistant.ts`) to
+produce a prioritized, de-duplicated daily action plan. When no AI key is configured (or the call fails), it
+degrades to a deterministic rule-based priority list — the response's `source` field says which you got. The
+plan renders as the top card on the Agency Credentials page. This is the first step toward the goal of AI
+handling more recurring compliance work; natural next steps are a scheduled morning digest email of the plan
+and AI-drafted renewal checklists per credential type.
+
+**2.7 — EVV reconciliation (optional enhancement, not an urgent gap).**
+Confirmed in code: `evvStatus` on `caregiver_schedules` (`server/storage.ts:5299-5315`) is computed purely
+from GPS distance at clock-in/out (compliant if both readings are within 150m of the expected address) — it
+has no connection to HHAeXchange or Sandata. Since the agency already submits real EVV data to HHAeXchange
+through a separate channel, **this is not a compliance gap today**. It's worth flagging as a future
+enhancement anyway: PA raised the required auto-verification rate to **≥85% effective January 1, 2025**, with
+a mandatory Corrective Action Plan triggered after 3 consecutive months below that threshold, and claims
+without a matching aggregator-side visit are denied with error code 928. A reconciliation view (comparing this
+app's clock-in/out records against what HHAeXchange actually received) would catch missed or late visits
+before they turn into a denial or drag the 85% number down — but only worth building if/when the manual
+cross-checking process becomes a real pain point.
+
+### Tier 3 — organizational / lower urgency
+
+**2.8 — Professional development: caregiver competency reviews (28 Pa. Code § 611.55).** ✅ Implemented
+PA requires direct care worker competency to be reviewed **at least annually**, established via direct
+observation, a competency test, training completion, or consumer feedback. Built a dedicated
+`caregiver_competency_reviews` table (method, outcome, topics covered, development plan, next-review-due date)
+with full CRUD, surfaced as a "Competency Reviews" section on the caregiver profile. The `nextReviewDue` date
+feeds the same expiration-alert pipeline as certifications/credentials (`server/expiration-alert-service.ts`,
+type `competency_review`) and the AI Daily Compliance Action Plan, so an overdue or upcoming review shows up
+alongside everything else that needs attention. `shared/schema.ts` (`caregiverCompetencyReviews`),
+`server/storage.ts`, `server/routes.ts` (`/api/caregivers/:id/competency-reviews`),
+`client/src/components/caregiver-competency-reviews-section.tsx`.
+
+**2.9 — Client rights tracking (28 Pa. Code § 611.57).** ✅ Implemented
+Built a `client_notices` table tracking delivery of the pre-service **information packet**, the **"Consumer
+Notice of Direct Care Worker Status"** disclosure (whether the worker is an employee or independent
+contractor, per 40 Pa.B. 234), the **10-calendar-day advance written notice** before terminating services, and
+rate-change notices — with method (in person/mail/email/e-signature), effective date, and free-text notes.
+Surfaced as a "Rights & Notices" section on the client profile, which computes and flags the actual number of
+days' notice given for a termination notice against the 10-day minimum in real time. Does not yet enforce the
+DOH complaint hotline / Ombudsman-contact content of the information packet itself, or the "shorter only for
+non-payment 14+ days after warning, or worker-safety risk" exceptions — those remain a content/process
+question for the packet template, not a schema gap. `shared/schema.ts` (`clientNotices`), `server/storage.ts`,
+`server/routes.ts` (`/api/clients/:id/notices`), `client/src/components/client-notices-section.tsx`.
+
+**2.10 — OIG "Seven Elements" compliance-program tracking.** ✅ Implemented
+MCO provider agreements commonly incorporate by reference the OIG's seven elements of an effective compliance
+program (written policies, a designated compliance officer/committee, training, communication/hotline lines,
+internal monitoring/auditing, disciplinary enforcement, and prompt corrective action — refreshed in OIG's
+General Compliance Program Guidance, Nov. 2023). An audit of the codebase found elements 1 (policies —
+`policyDocuments`/`policyAcknowledgments`), 3 (training — `trainings`/FWA training credential), 5 (monitoring —
+DOH audits/QAPI/Quality Management), and 6 (discipline — `employeeNotes`/write-ups) already substantially
+covered; `patient_complaints` was considered as a base for element 4 but rejected as purpose-built for
+patient/family grievances rather than staff/compliance reports. Elements 2 and 4 had zero existing tracking.
+*Built:* two new tables — `compliance_officer_designations` (who serves as compliance officer/committee member,
+with an end-dated history rather than deletion) and `compliance_hotline_reports` (category, severity,
+investigation status, corrective action/resolution notes, an auto-numbered `CHR-YYYY-NNN` report number).
+Hotline reports are submitted in-app by any authenticated staff member — `reporterName`/`reporterContact` are
+optional, so leaving them blank keeps the record anonymous, and the table stores no `createdBy` at all, so
+there's no server-side identity trail for an anonymous report to protect or leak. A new **Compliance Program**
+page (sidebar → Clinical → DOH Compliance) ties all seven elements together into one overview
+(`GET /api/compliance/program-overview`) showing each element's status and linking to whichever existing or
+new feature covers it. Hotline reports open past 30 days without resolution surface in the AI Daily Compliance
+Action Plan (`server/compliance-insights-service.ts`) the same way overdue DOH/SC incident notifications do.
+`shared/schema.ts` (`complianceOfficerDesignations`, `complianceHotlineReports`), `server/storage.ts`,
+`server/routes.ts` (`/api/compliance-officers`, `/api/compliance-hotline-reports`,
+`/api/compliance/program-overview`), `client/src/pages/compliance-program.tsx`.
+
+**2.11 — Record retention.**
+No enforced retention policy exists in the app. The federal 7-year home-health clinical-record retention rule
+(28 Pa. Code § 601.36) **does not apply** to this agency's Chapter 611 license. Research could not find a
+definitive numeric retention period for Chapter 611 HCA employee/background-check files specifically (the
+regulation requires files be kept "available for DOH inspection" without a citable numeric duration in the
+sections retrieved). Recommend getting a direct answer from DOH's Division of Home Health before building any
+retention-period enforcement — there's currently no clear rule to encode.
+
+---
+
+## 3. Research caveats — verify before hard-coding
+
+- **W1793 HCPCS code** — appeared in only one secondary source as a "PA-specific" companion/personal-assistance
+  billing code; could not be independently confirmed against a primary MCO fee schedule. Don't encode this
+  without checking each MCO's current approved billing-code list directly.
+- **S5125 vs. T1019** — both are legitimate personal-care/attendant-care HCPCS codes, but which one a given MCO
+  expects can differ; confirm per-MCO before hardcoding a default.
+- **Sandata/HHAeXchange merger (Oct. 2024)** — the current model (CHC-MCOs → HHAeXchange, FFS/PROMISe →
+  Sandata, participant-directed → Time4Care/PPL) may not stay stable now that HHAeXchange has acquired Sandata.
+  Re-check before building any EVV integration.
+- **Critical-incident timeframes by category** — the 24-hour rule is confirmed for the general case, but
+  whether death, elopement, or hospitalization carry a stricter/immediate window couldn't be confirmed (the
+  source Bulletin PDF wasn't parseable in this research). Get a clean copy before encoding per-category logic.
+- **MCO recredentialing cycle length** — assumed ~3 years from the general NCQA/42 CFR § 438.214 baseline, not
+  confirmed verbatim for AmeriHealth Caritas, PA Health & Wellness, or UPMC specifically.
+- **Background-check recheck cadence** — **PA does not require periodic rechecks** for Chapter 611 HCA/HCR
+  staff; the Chapter 611 rulemaking preamble explicitly states a one-time check suffices unless the agency has
+  reason to believe another is warranted. If `expiration-alert-service.ts` currently nags about background
+  checks "expiring," that's a stricter-than-required internal policy choice, which is fine to keep, but should
+  not be presented anywhere in the app as a legal mandate.
+
+---
+
+## 4. Suggested next step
+
+Only two items remain, both genuinely lower priority: Tier 2 item 2.7 (EVV reconciliation against
+HHAeXchange — a nice-to-have QA cross-check, not a compliance gap, since EVV submission already happens
+outside this app), and Tier 3 item 2.11 (record retention — blocked on a direct DOH answer, since research
+found no citable numeric retention period for this Chapter 611 license type to build against). Neither is
+urgent; get a direct answer from DOH or the relevant MCO provider manual before encoding either into hard
+business logic — see the caveats in section 3.
+
+For everything already built above (Tier 1, Tier 2 items 2.5–2.6, Tier 3 items 2.8–2.10): the deadlines/cycles
+encoded (DOH renewal lead times, MCO recredentialing cadence, CIR category timeframes, the 30-day hotline
+response SLA) are still research estimates or internal-policy choices in places — re-verify against the OLTL
+Critical Incident Management Bulletin and each MCO's current Credentialing provider-manual chapter before
+relying on them for an actual survey or audit.

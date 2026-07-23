@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
+import { AnimatePresence, motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import {
   Search,
@@ -24,7 +25,9 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { OfficeSelector } from "@/components/office-selector";
+import { ThemeToggle } from "@/components/theme-toggle";
 import { searchSiteCatalog, type SiteEntry } from "@/lib/site-catalog";
+import { cn } from "@/lib/utils";
 
 interface TopBarProps {
   title?: string;
@@ -61,6 +64,7 @@ export function TopBar({
   const [searchInput, setSearchInput] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [isOpen, setIsOpen] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(-1);
   const containerRef = useRef<HTMLDivElement | null>(null);
 
   // Debounce input -> debouncedQuery (200ms)
@@ -98,6 +102,26 @@ export function TopBar({
   const coordinatorCount = serverResults?.coordinators?.length ?? 0;
   const totalCount =
     clientCount + caregiverCount + officeCount + coordinatorCount + pageResults.length;
+
+  // Flat list of navigation targets in the same order the groups render
+  // below, so arrow-key navigation can move through every result as one
+  // continuous list regardless of which group it's in.
+  const flatNavPaths = useMemo(() => {
+    const paths: string[] = [];
+    serverResults?.clients?.forEach((c) => paths.push(`/clients/${c.id}`));
+    serverResults?.caregivers?.forEach((c) => paths.push(`/caregivers/${c.id}`));
+    serverResults?.offices?.forEach((o) => paths.push(`/offices/${o.id}`));
+    serverResults?.coordinators?.forEach((c) => paths.push(`/user-management?coordinatorId=${c.id}`));
+    navPages.forEach((p) => paths.push(p.path));
+    reportPages.forEach((p) => paths.push(p.path));
+    return paths;
+  }, [serverResults, navPages, reportPages]);
+
+  // Reset keyboard selection whenever the result set changes so a stale
+  // highlight never points at a row that no longer exists.
+  useEffect(() => {
+    setActiveIndex(-1);
+  }, [debouncedQuery, isOpen]);
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -143,8 +167,13 @@ export function TopBar({
     ? `${(user as any).firstName[0]}${(user as any).lastName[0]}`
     : (user as any)?.email?.[0]?.toUpperCase() || "U";
 
+  // Running counter assigning each rendered result row its position in
+  // flatNavPaths, so keyboard highlighting lines up across groups.
+  let rowIdx = -1;
+  const nextRowIdx = () => ++rowIdx;
+
   return (
-    <header className="bg-card border-b border-border h-16 flex items-center justify-between px-6 flex-shrink-0">
+    <header className="sticky top-0 z-30 bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/80 border-b border-border h-16 flex items-center justify-between px-6 flex-shrink-0 print:hidden">
       <div className="flex items-center space-x-4">
         {(title || subtitle) && (
           <div className="hidden sm:block">
@@ -169,7 +198,7 @@ export function TopBar({
               e.preventDefault();
               goToResultsPage();
             }}
-            className="flex items-center bg-muted rounded-lg px-3 py-2"
+            className="flex items-center bg-muted rounded-xl px-3 py-2 transition-shadow focus-within:ring-2 focus-within:ring-ring"
           >
             <Search className="w-4 h-4 text-muted-foreground mr-2" />
             <input
@@ -185,10 +214,25 @@ export function TopBar({
                 if (e.key === "Escape") {
                   setIsOpen(false);
                   (e.target as HTMLInputElement).blur();
+                } else if (e.key === "ArrowDown") {
+                  e.preventDefault();
+                  if (!isOpen) setIsOpen(true);
+                  setActiveIndex((i) => Math.min(i + 1, flatNavPaths.length - 1));
+                } else if (e.key === "ArrowUp") {
+                  e.preventDefault();
+                  setActiveIndex((i) => Math.max(i - 1, -1));
+                } else if (e.key === "Enter" && activeIndex >= 0 && flatNavPaths[activeIndex]) {
+                  e.preventDefault();
+                  handleNavigate(flatNavPaths[activeIndex]);
                 }
               }}
               className="bg-transparent border-0 focus:outline-none text-sm text-foreground placeholder-muted-foreground flex-1"
               data-testid="input-global-search"
+              role="combobox"
+              aria-expanded={isOpen}
+              aria-controls="global-search-results"
+              aria-activedescendant={activeIndex >= 0 ? `search-option-${activeIndex}` : undefined}
+              aria-autocomplete="list"
             />
             <button
               type="submit"
@@ -204,10 +248,17 @@ export function TopBar({
             </button>
           </form>
 
+          <AnimatePresence>
           {isOpen && enabled && (
-            <div
-              className="absolute right-0 mt-2 w-[28rem] max-h-[70vh] overflow-y-auto bg-popover border border-border rounded-lg shadow-lg z-50"
+            <motion.div
+              id="global-search-results"
+              role="listbox"
+              className="absolute right-0 mt-2 w-[28rem] max-h-[70vh] overflow-y-auto bg-popover border border-border rounded-xl shadow-soft-lg z-50"
               data-testid="popover-global-search-results"
+              initial={{ opacity: 0, y: -4, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -4, scale: 0.98 }}
+              transition={{ duration: 0.15 }}
             >
               {isFetching && totalCount === 0 ? (
                 <div className="p-4 text-sm text-muted-foreground" data-testid="text-search-loading">
@@ -224,6 +275,8 @@ export function TopBar({
                       {serverResults!.clients.map((c) => (
                         <SearchRow
                           key={`client-${c.id}`}
+                          rowId={nextRowIdx()}
+                          active={rowIdx === activeIndex}
                           testId={`search-result-client-${c.id}`}
                           title={`${c.firstName ?? ""} ${c.lastName ?? ""}`.trim() || "Client"}
                           subtitle={[c.memberId, c.phone].filter(Boolean).join(" • ") || undefined}
@@ -237,6 +290,8 @@ export function TopBar({
                       {serverResults!.caregivers.map((c) => (
                         <SearchRow
                           key={`caregiver-${c.id}`}
+                          rowId={nextRowIdx()}
+                          active={rowIdx === activeIndex}
                           testId={`search-result-caregiver-${c.id}`}
                           title={`${c.firstName ?? ""} ${c.lastName ?? ""}`.trim() || "Caregiver"}
                           subtitle={[c.hhaxCaregiverCode, c.phone || c.email].filter(Boolean).join(" • ") || undefined}
@@ -250,6 +305,8 @@ export function TopBar({
                       {serverResults!.offices.map((o) => (
                         <SearchRow
                           key={`office-${o.id}`}
+                          rowId={nextRowIdx()}
+                          active={rowIdx === activeIndex}
                           testId={`search-result-office-${o.id}`}
                           title={o.name}
                           onClick={() => handleNavigate(`/offices/${o.id}`)}
@@ -262,6 +319,8 @@ export function TopBar({
                       {serverResults!.coordinators.map((c) => (
                         <SearchRow
                           key={`coordinator-${c.id}`}
+                          rowId={nextRowIdx()}
+                          active={rowIdx === activeIndex}
                           testId={`search-result-coordinator-${c.id}`}
                           title={`${c.firstName ?? ""} ${c.lastName ?? ""}`.trim() || "Coordinator"}
                           subtitle={c.email ?? undefined}
@@ -275,6 +334,8 @@ export function TopBar({
                       {navPages.map((p) => (
                         <SearchRow
                           key={`page-${p.path}`}
+                          rowId={nextRowIdx()}
+                          active={rowIdx === activeIndex}
                           testId={`search-result-page-${p.path}`}
                           title={p.title}
                           subtitle={p.description}
@@ -288,6 +349,8 @@ export function TopBar({
                       {reportPages.map((p) => (
                         <SearchRow
                           key={`report-${p.path}`}
+                          rowId={nextRowIdx()}
+                          active={rowIdx === activeIndex}
                           testId={`search-result-report-${p.path}`}
                           title={p.title}
                           subtitle={p.description}
@@ -306,14 +369,19 @@ export function TopBar({
                   </button>
                 </div>
               )}
-            </div>
+            </motion.div>
           )}
+          </AnimatePresence>
         </div>
+
+        {/* Theme toggle */}
+        <ThemeToggle />
 
         {/* Notifications */}
         <button
-          className="relative p-2 text-muted-foreground hover:text-foreground rounded-lg hover:bg-muted"
+          className="relative p-2 text-muted-foreground hover:text-foreground rounded-xl hover:bg-muted transition-colors"
           data-testid="button-notifications"
+          aria-label="Notifications"
         >
           <Bell className="w-5 h-5" />
           <span className="absolute -top-1 -right-1 bg-destructive text-destructive-foreground text-xs rounded-full w-5 h-5 flex items-center justify-center">
@@ -326,7 +394,7 @@ export function TopBar({
           <DropdownMenuTrigger asChild>
             <Button
               variant="ghost"
-              className="flex items-center space-x-2 p-2 rounded-lg hover:bg-muted"
+              className="flex items-center space-x-2 p-2 rounded-xl hover:bg-muted"
               data-testid="button-user-menu"
             >
               <div className="w-8 h-8 bg-primary rounded-full flex items-center justify-center">
@@ -394,18 +462,30 @@ function SearchRow({
   subtitle,
   onClick,
   testId,
+  rowId,
+  active,
 }: {
   title: string;
   subtitle?: string;
   onClick: () => void;
   testId?: string;
+  /** Position within the flattened, cross-group result list (see flatNavPaths). */
+  rowId?: number;
+  /** Highlighted via keyboard arrow navigation. */
+  active?: boolean;
 }) {
   return (
     <button
       type="button"
+      id={rowId !== undefined ? `search-option-${rowId}` : undefined}
+      role="option"
+      aria-selected={active}
       onClick={onClick}
       data-testid={testId}
-      className="w-full text-left px-4 py-2 hover:bg-muted/60 focus:bg-muted/60 focus:outline-none"
+      className={cn(
+        "w-full text-left px-4 py-2 transition-colors hover:bg-muted/60 focus:bg-muted/60 focus:outline-none",
+        active && "bg-muted",
+      )}
     >
       <div className="text-sm font-medium text-foreground truncate">{title}</div>
       {subtitle && (

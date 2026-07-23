@@ -8,6 +8,7 @@ import { registerDohSavedComparisonRoutes } from "./audit-saved-comparison-route
 import { setupMobileApi } from "./mobileApi";
 import { setupTwilioWebhooks } from "./twilio";
 import { requireFeature, getOrganizationFeatures } from "./feature-gate";
+import { computeCaregiverPeriod, computeCaregiverCompensation, round2, type ScheduleHours } from "./coordinator-compensation";
 import multer from "multer";
 import crypto from "crypto";
 import path from "path";
@@ -48,6 +49,13 @@ import {
   insertEvvDataSchema,
   insertMcoTypeSchema,
   insertMcoSchema,
+  insertOfficeCredentialSchema,
+  insertCaregiverCompetencyReviewSchema,
+  insertClientNoticeSchema,
+  insertComplianceOfficerDesignationSchema,
+  insertComplianceHotlineReportSchema,
+  insertClientSpecialRequestSchema,
+  insertClientSpendDownSchema,
   insertSystemSettingSchema,
   insertEntityFieldConfigSchema,
   insertCaregiverNoteSchema,
@@ -108,6 +116,8 @@ import {
   insertTicketMessageSchema,
   insertCustomIntegrationSchema,
   insertCoordinatorPayRecordSchema,
+  insertCompPayrollPeriodSchema,
+  insertCompScheduleEntrySchema,
   insertPayrollRunSchema,
   insertShiftSwapRequestSchema,
   insertESignatureTemplateSchema,
@@ -143,6 +153,7 @@ import {
   sendUrgentAlert
 } from "./notification-service";
 import { insertNotificationPreferenceSchema, insertNotificationTemplateSchema } from "@shared/schema";
+import { insertClientSurveyResponseSchema } from "@shared/schema";
 import type { ExclusionSource, ExclusionRecord } from "@shared/schema";
 import { shiftMatchingService } from "./shift-matching-service";
 import {
@@ -254,6 +265,17 @@ const excelUpload = multer({
 
 // Configure multer for CSV file uploads (used by exclusion-list importers that
 // always receive plain CSV, not Excel).
+// Accepts either an Excel workbook or a CSV for the compensation schedule import.
+const compImportUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    if ([".xlsx", ".xls", ".csv", ".txt", ""].includes(ext)) return cb(null, true);
+    cb(new Error("Invalid file type. Upload an Excel (.xlsx) or CSV (.csv) file."));
+  },
+});
+
 const csvUpload = multer({
   storage: multer.memoryStorage(),
   limits: {
@@ -307,6 +329,64 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const client = await storage.getClient(clientId);
     if (!client || !(await canAccessOffice(req, client.officeId))) return undefined;
     return client;
+  };
+
+  // Same as getClientInScope, for the caregiver profile sub-resources
+  // (notes, preferences, absences, availability, payroll-info, expenses,
+  // paychecks, rates, in-services, office-moves, schedules, ...) that key
+  // off caregiverId but don't carry an officeId of their own.
+  const getCaregiverInScope = async (req: any, caregiverId: string) => {
+    const caregiver = await storage.getCaregiver(caregiverId);
+    if (!caregiver || !(await canAccessOffice(req, caregiver.officeId))) return undefined;
+    return caregiver;
+  };
+
+  // Documents don't always carry their own officeId (older rows, or ones
+  // uploaded against a client/caregiver/user). Resolve the effective office
+  // by falling back through the linked entity.
+  const getDocumentOfficeId = async (doc: { officeId: string | null; clientId: string | null; caregiverId: string | null; userId: string | null }): Promise<string | null> => {
+    if (doc.officeId) return doc.officeId;
+    if (doc.clientId) {
+      const client = await storage.getClient(doc.clientId);
+      if (client?.officeId) return client.officeId;
+    }
+    if (doc.caregiverId) {
+      const caregiver = await storage.getCaregiver(doc.caregiverId);
+      if (caregiver?.officeId) return caregiver.officeId;
+    }
+    if (doc.userId) {
+      const user = await storage.getUser(doc.userId);
+      if (user?.primaryOfficeId) return user.primaryOfficeId;
+    }
+    return null;
+  };
+  const canAccessDocument = async (req: any, doc: any): Promise<boolean> =>
+    canAccessOffice(req, await getDocumentOfficeId(doc));
+
+  // Resolve the set of caregiver IDs whose office the caller can access.
+  // Returns "ALL" for super_admin. Used to scope lists that key off
+  // caregiverId but carry no officeId of their own (e.g. time-off requests).
+  const allowedCaregiverIds = async (req: any): Promise<Set<string> | "ALL"> => {
+    const allowed = await resolveAllowedOfficeIds(req);
+    if (allowed === "ALL") return "ALL";
+    if (allowed.length === 0) return new Set();
+    const ids = new Set<string>();
+    for (const officeId of allowed) {
+      const caregivers = await storage.getAllCaregivers(officeId);
+      for (const cg of caregivers) ids.add(cg.id);
+    }
+    return ids;
+  };
+
+  // A client referral carries no officeId of its own; it resolves through its
+  // referral source. Returns the referral only if the caller can access that
+  // source's office.
+  const getClientReferralInScope = async (req: any, referralId: string) => {
+    const referral = await storage.getClientReferral(referralId);
+    if (!referral) return undefined;
+    const source = await storage.getReferralSource(referral.referralSourceId);
+    if (!source || !(await canAccessOffice(req, source.officeId))) return undefined;
+    return referral;
   };
 
   // Gate for RBAC administration (custom roles, permissions, role assignment).
@@ -815,8 +895,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (user.role === "caregiver") {
         return res.status(403).json({ message: "Access restricted" });
       }
-      const { officeId } = req.query;
-      const officeFilter = officeId && officeId !== 'all' ? String(officeId) : undefined;
+      const officeFilter = parseOfficeId(req);
       const metrics = await storage.getDashboardMetrics(officeFilter);
       res.json(metrics);
     } catch (error) {
@@ -833,8 +912,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ message: "Access restricted" });
       }
       const year = parseInt(req.query.year as string) || new Date().getFullYear();
-      const { officeId } = req.query;
-      const officeFilter = officeId && officeId !== 'all' ? String(officeId) : undefined;
+      const officeFilter = parseOfficeId(req);
       const stats = await storage.getMonthlyStats(year, officeFilter);
       res.json(stats);
     } catch (error) {
@@ -846,13 +924,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Care Quality Scorecard metrics endpoint
   app.get("/api/admin/care-quality-metrics", isAuthenticated, async (req: any, res) => {
     try {
-      const user = req.user;
+      const user = req.session?.user;
       if (!user || !["admin", "office_admin", "super_admin", "supervisor"].includes(user.role)) {
         return res.status(403).json({ message: "Access denied. Admin role required." });
       }
-      const { officeId, startDate, endDate, caregiverId } = req.query;
-      const officeFilter = officeId && officeId !== 'all' ? String(officeId) : undefined;
+      const { startDate, endDate, caregiverId } = req.query;
+      const officeFilter = parseOfficeId(req);
       const caregiverFilter = caregiverId && caregiverId !== 'all' ? String(caregiverId) : undefined;
+      if (caregiverFilter && !(await getCaregiverInScope(req, caregiverFilter))) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
       
       const start = startDate ? new Date(startDate as string) : new Date(Date.now() - 180 * 24 * 60 * 60 * 1000);
       const end = endDate ? new Date(endDate as string) : new Date();
@@ -1052,22 +1133,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/reports/schedule-overlaps", isAuthenticated, async (req: any, res) => {
     try {
       const currentUser = req.session?.user;
-      const { startDate, endDate, officeId } = req.query;
-      
+      const { startDate, endDate } = req.query;
+      const officeId = parseOfficeId(req);
+
       // Default to last 30 days
       const end = endDate ? new Date(endDate as string) : new Date();
       const start = startDate ? new Date(startDate as string) : new Date(end.getTime() - 30 * 24 * 60 * 60 * 1000);
-      
+
       // Get all caregiver schedules in date range
-      const allCaregiverSchedules = await storage.getAllCaregiverSchedules(officeId as string || undefined);
+      const allCaregiverSchedules = await storage.getAllCaregiverSchedules(officeId);
       const filteredCaregiverSchedules = allCaregiverSchedules.filter(s => {
         const schedDate = new Date(s.scheduledDate);
         return schedDate >= start && schedDate <= end;
       });
-      
+
       // Get all clients and caregivers for name lookups
-      const allClients = await storage.getAllClients(officeId as string || undefined);
-      const allCaregivers = await storage.getAllCaregivers(officeId as string || undefined);
+      const allClients = await storage.getAllClients(officeId);
+      const allCaregivers = await storage.getAllCaregivers(officeId);
       
       const clientMap = new Map(allClients.map(c => [c.id, `${c.firstName} ${c.lastName}`]));
       const caregiverMap = new Map(allCaregivers.map(c => [c.id, `${c.firstName} ${c.lastName}`]));
@@ -1470,10 +1552,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/offices/:id", isAuthenticated, async (req, res) => {
+  app.get("/api/offices/:id", isAuthenticated, async (req: any, res) => {
     try {
       const office = await storage.getOffice(req.params.id);
-      if (!office) {
+      if (!office || !(await canAccessOffice(req, req.params.id))) {
         return res.status(404).json({ message: "Office not found" });
       }
       res.json(office);
@@ -1483,9 +1565,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/offices", isAuthenticated, async (req: any, res) => {
+  app.post("/api/offices", isAuthenticated, requireAdminRole, async (req: any, res) => {
     try {
       const validatedData = insertOfficeSchema.parse(req.body);
+      const currentUser = req.session?.user;
+      // Non-super-admins may only create offices within their own organization.
+      if (currentUser?.role !== "super_admin") {
+        validatedData.organizationId = currentUser?.organizationId;
+      }
       const office = await storage.createOffice(validatedData);
       
       await storage.createAuditLog({
@@ -1505,10 +1592,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/offices/:id", isAuthenticated, async (req: any, res) => {
+  app.put("/api/offices/:id", isAuthenticated, requireAdminRole, async (req: any, res) => {
     try {
       const oldOffice = await storage.getOffice(req.params.id);
+      if (!oldOffice || !(await canAccessOffice(req, req.params.id))) {
+        return res.status(404).json({ message: "Office not found" });
+      }
       const validatedData = insertOfficeSchema.partial().parse(req.body);
+      // organizationId is org-structural; only super_admin may move an office
+      // between organizations.
+      if (req.session?.user?.role !== "super_admin") {
+        delete validatedData.organizationId;
+      }
       const office = await storage.updateOffice(req.params.id, validatedData);
       
       await storage.createAuditLog({
@@ -1529,13 +1624,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/offices/:id", isAuthenticated, async (req: any, res) => {
+  app.delete("/api/offices/:id", isAuthenticated, requireAdminRole, async (req: any, res) => {
     try {
       const office = await storage.getOffice(req.params.id);
-      if (!office) {
+      if (!office || !(await canAccessOffice(req, req.params.id))) {
         return res.status(404).json({ message: "Office not found" });
       }
-      
+
       await storage.deleteOffice(req.params.id);
       
       await storage.createAuditLog({
@@ -1577,10 +1672,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/coordinators/:id", isAuthenticated, async (req, res) => {
+  app.get("/api/coordinators/:id", isAuthenticated, async (req: any, res) => {
     try {
       const coordinator = await storage.getCoordinator(req.params.id);
-      if (!coordinator) {
+      if (!coordinator || !(await canAccessOffice(req, coordinator.officeId))) {
         return res.status(404).json({ message: "Coordinator not found" });
       }
       res.json(coordinator);
@@ -1590,9 +1685,126 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/coordinators", isAuthenticated, async (req: any, res) => {
+  // Caregivers assigned to a coordinator (assignment is caregiver.coordinatorId).
+  app.get("/api/coordinators/:id/caregivers", isAuthenticated, async (req: any, res) => {
     try {
+      const coordinator = await storage.getCoordinator(req.params.id);
+      if (!coordinator || !(await canAccessOffice(req, coordinator.officeId))) {
+        return res.status(404).json({ message: "Coordinator not found" });
+      }
+      const caregivers = await storage.getCaregiversByCoordinator(req.params.id);
+      res.json(caregivers);
+    } catch (error) {
+      console.error("Error fetching coordinator caregivers:", error);
+      res.status(500).json({ message: "Failed to fetch coordinator caregivers" });
+    }
+  });
+
+  // Scope guard shared by the coordinator profile sub-resources below.
+  const getCoordinatorInScope = async (req: any, id: string) => {
+    const coordinator = await storage.getCoordinator(id);
+    if (!coordinator || !(await canAccessOffice(req, coordinator.officeId))) return null;
+    return coordinator;
+  };
+
+  // Clients assigned to a coordinator (assignment is client.coordinatorId).
+  app.get("/api/coordinators/:id/clients", isAuthenticated, async (req: any, res) => {
+    try {
+      if (!(await getCoordinatorInScope(req, req.params.id))) {
+        return res.status(404).json({ message: "Coordinator not found" });
+      }
+      res.json(await storage.getClientsByCoordinator(req.params.id));
+    } catch (error) {
+      console.error("Error fetching coordinator clients:", error);
+      res.status(500).json({ message: "Failed to fetch coordinator clients" });
+    }
+  });
+
+  app.get("/api/coordinators/:id/documents", isAuthenticated, async (req: any, res) => {
+    try {
+      if (!(await getCoordinatorInScope(req, req.params.id))) {
+        return res.status(404).json({ message: "Coordinator not found" });
+      }
+      res.json(await storage.getDocumentsByCoordinator(req.params.id));
+    } catch (error) {
+      console.error("Error fetching coordinator documents:", error);
+      res.status(500).json({ message: "Failed to fetch coordinator documents" });
+    }
+  });
+
+  app.get("/api/coordinators/:id/trainings", isAuthenticated, async (req: any, res) => {
+    try {
+      if (!(await getCoordinatorInScope(req, req.params.id))) {
+        return res.status(404).json({ message: "Coordinator not found" });
+      }
+      res.json(await storage.getTrainingRecordsByCoordinator(req.params.id));
+    } catch (error) {
+      console.error("Error fetching coordinator trainings:", error);
+      res.status(500).json({ message: "Failed to fetch coordinator trainings" });
+    }
+  });
+
+  // Record a training for a coordinator (mirrors caregiver training records).
+  app.post("/api/coordinators/:id/trainings", isAuthenticated, requireAdminRole, async (req: any, res) => {
+    try {
+      if (!(await getCoordinatorInScope(req, req.params.id))) {
+        return res.status(404).json({ message: "Coordinator not found" });
+      }
+      const validated = insertTrainingRecordSchema.parse({
+        ...req.body,
+        coordinatorId: req.params.id,
+        caregiverId: null,
+        startDate: coerceDate(req.body.startDate),
+        completionDate: coerceDate(req.body.completionDate),
+        expirationDate: coerceDate(req.body.expirationDate),
+      });
+      const record = await storage.createTrainingRecord(validated);
+      res.status(201).json(record);
+    } catch (error: any) {
+      console.error("Error creating coordinator training record:", error);
+      const detail = error?.issues?.length
+        ? error.issues.map((i: any) => `${i.path?.join(".") || "field"}: ${i.message}`).join("; ")
+        : undefined;
+      res.status(400).json({ message: `Failed to record training${detail ? ` — ${detail}` : ""}` });
+    }
+  });
+
+  // Quarterly pay records (accrual, paid, balance) + compensation-module
+  // payments for a coordinator, plus the overall remaining balance.
+  app.get("/api/coordinators/:id/pay-summary", isAuthenticated, async (req: any, res) => {
+    try {
+      if (!(await getCoordinatorInScope(req, req.params.id))) {
+        return res.status(404).json({ message: "Coordinator not found" });
+      }
+      const [payRecords, compPayments] = await Promise.all([
+        storage.getCoordinatorPayRecordsByCoordinator(req.params.id),
+        storage.getCompPaymentsByCoordinator(req.params.id),
+      ]);
+      const totalAccrued = payRecords.reduce((s, r) => s + (Number(r.accrualAmount) || 0) + (Number(r.quarterlyBonus) || 0), 0);
+      const totalPaid = payRecords.reduce((s, r) => s + (Number(r.amountPaid) || 0), 0);
+      const balanceRemaining = payRecords.reduce((s, r) => s + (Number(r.balanceRemaining) || 0), 0);
+      res.json({
+        payRecords,
+        compPayments,
+        totals: {
+          totalAccrued: Number(totalAccrued.toFixed(2)),
+          totalPaid: Number(totalPaid.toFixed(2)),
+          balanceRemaining: Number(balanceRemaining.toFixed(2)),
+        },
+      });
+    } catch (error) {
+      console.error("Error fetching coordinator pay summary:", error);
+      res.status(500).json({ message: "Failed to fetch coordinator pay summary" });
+    }
+  });
+
+  app.post("/api/coordinators", isAuthenticated, requireAdminRole, async (req: any, res) => {
+    try {
+      if (typeof req.body?.startDate === "string") req.body.startDate = coerceDate(req.body.startDate);
       const validatedData = insertCoordinatorSchema.parse(req.body);
+      if (!(await canAccessOffice(req, validatedData.officeId))) {
+        return res.status(403).json({ message: "Office is outside your scope" });
+      }
       const coordinator = await storage.createCoordinator(validatedData);
       
       await storage.createAuditLog({
@@ -1612,9 +1824,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/coordinators/:id", isAuthenticated, async (req: any, res) => {
+  app.put("/api/coordinators/:id", isAuthenticated, requireAdminRole, async (req: any, res) => {
     try {
       const oldCoordinator = await storage.getCoordinator(req.params.id);
+      if (!oldCoordinator || !(await canAccessOffice(req, oldCoordinator.officeId))) {
+        return res.status(404).json({ message: "Coordinator not found" });
+      }
+      if (typeof req.body?.startDate === "string") req.body.startDate = coerceDate(req.body.startDate);
       const validatedData = insertCoordinatorSchema.partial().parse(req.body);
       const coordinator = await storage.updateCoordinator(req.params.id, validatedData);
       
@@ -1636,13 +1852,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/coordinators/:id", isAuthenticated, async (req: any, res) => {
+  app.delete("/api/coordinators/:id", isAuthenticated, requireAdminRole, async (req: any, res) => {
     try {
       const coordinator = await storage.getCoordinator(req.params.id);
-      if (!coordinator) {
+      if (!coordinator || !(await canAccessOffice(req, coordinator.officeId))) {
         return res.status(404).json({ message: "Coordinator not found" });
       }
-      
+
       await storage.deleteCoordinator(req.params.id);
       
       await storage.createAuditLog({
@@ -1662,6 +1878,522 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ═══════════════════════════════════════════════════════════════════════
+  // Coordinator Compensation Module
+  // Payroll periods, schedule entries, computed caregiver payroll, and
+  // computed coordinator compensation. All office-scoped.
+  // ═══════════════════════════════════════════════════════════════════════
+  const compManagerRoles = ["super_admin", "admin", "office_admin", "supervisor", "manager"];
+  const isCompManager = (req: any) => compManagerRoles.includes(req.session?.user?.role || "");
+
+  // Resolve the effective officeId for a create, forcing non-super-admins to
+  // their own office and validating super_admin's choice.
+  const resolveWriteOffice = async (req: any, requested?: string | null): Promise<string | null | undefined> => {
+    const user = req.session?.user;
+    if (user?.role === "super_admin") return requested ?? null;
+    return user?.primaryOfficeId ?? undefined;
+  };
+
+  // ─── Payroll Periods ───────────────────────────────────────────────────
+  app.get("/api/comp/periods", isAuthenticated, async (req: any, res) => {
+    try {
+      const officeId = parseOfficeId(req);
+      const periods = await storage.getCompPayrollPeriods(officeId);
+      res.json(periods);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message || "Failed to fetch payroll periods" });
+    }
+  });
+
+  app.get("/api/comp/periods/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const period = await storage.getCompPayrollPeriod(req.params.id);
+      if (!period || !(await canAccessOffice(req, period.officeId))) {
+        return res.status(404).json({ message: "Payroll period not found" });
+      }
+      res.json(period);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message || "Failed to fetch payroll period" });
+    }
+  });
+
+  app.post("/api/comp/periods", isAuthenticated, async (req: any, res) => {
+    try {
+      if (!isCompManager(req)) return res.status(403).json({ message: "Manager access required" });
+      const officeId = await resolveWriteOffice(req, req.body.officeId);
+      if (!officeId) return res.status(403).json({ message: "Office is outside your scope" });
+      const data = insertCompPayrollPeriodSchema.parse({
+        ...req.body,
+        officeId,
+        organizationId: req.session?.user?.organizationId ?? null,
+        createdBy: req.session?.user?.id ?? null,
+      });
+      const period = await storage.createCompPayrollPeriod(data);
+      res.status(201).json(period);
+    } catch (e: any) {
+      if (e.name === "ZodError") return res.status(400).json({ message: e.errors });
+      res.status(500).json({ message: e.message || "Failed to create payroll period" });
+    }
+  });
+
+  app.patch("/api/comp/periods/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      if (!isCompManager(req)) return res.status(403).json({ message: "Manager access required" });
+      const existing = await storage.getCompPayrollPeriod(req.params.id);
+      if (!existing || !(await canAccessOffice(req, existing.officeId))) {
+        return res.status(404).json({ message: "Payroll period not found" });
+      }
+      const { officeId, organizationId, ...body } = req.body;
+      const data = insertCompPayrollPeriodSchema.partial().parse(body);
+      const period = await storage.updateCompPayrollPeriod(req.params.id, data);
+      res.json(period);
+    } catch (e: any) {
+      if (e.name === "ZodError") return res.status(400).json({ message: e.errors });
+      res.status(500).json({ message: e.message || "Failed to update payroll period" });
+    }
+  });
+
+  app.delete("/api/comp/periods/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      if (!isCompManager(req)) return res.status(403).json({ message: "Manager access required" });
+      const existing = await storage.getCompPayrollPeriod(req.params.id);
+      if (!existing || !(await canAccessOffice(req, existing.officeId))) {
+        return res.status(404).json({ message: "Payroll period not found" });
+      }
+      await storage.deleteCompPayrollPeriod(req.params.id);
+      res.status(204).send();
+    } catch (e: any) {
+      res.status(500).json({ message: e.message || "Failed to delete payroll period" });
+    }
+  });
+
+  // ─── Schedule Entries ──────────────────────────────────────────────────
+  app.get("/api/comp/schedule-entries", isAuthenticated, async (req: any, res) => {
+    try {
+      const officeId = parseOfficeId(req);
+      const { caregiverId, startDate, endDate } = req.query as Record<string, string | undefined>;
+      const entries = await storage.getCompScheduleEntries({ officeId, caregiverId, startDate, endDate });
+      res.json(entries);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message || "Failed to fetch schedule entries" });
+    }
+  });
+
+  app.post("/api/comp/schedule-entries", isAuthenticated, async (req: any, res) => {
+    try {
+      if (!isCompManager(req)) return res.status(403).json({ message: "Manager access required" });
+      // The caregiver must be in the caller's scope; derive officeId from them.
+      const caregiver = await getCaregiverInScope(req, req.body.caregiverId);
+      if (!caregiver) return res.status(404).json({ message: "Caregiver not found" });
+      const data = insertCompScheduleEntrySchema.parse({
+        ...req.body,
+        officeId: caregiver.officeId,
+        organizationId: req.session?.user?.organizationId ?? null,
+        createdBy: req.session?.user?.id ?? null,
+      });
+      const entry = await storage.createCompScheduleEntry(data);
+      res.status(201).json(entry);
+    } catch (e: any) {
+      if (e.name === "ZodError") return res.status(400).json({ message: e.errors });
+      res.status(500).json({ message: e.message || "Failed to create schedule entry" });
+    }
+  });
+
+  app.patch("/api/comp/schedule-entries/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      if (!isCompManager(req)) return res.status(403).json({ message: "Manager access required" });
+      const existing = await storage.getCompScheduleEntry(req.params.id);
+      if (!existing || !(await canAccessOffice(req, existing.officeId))) {
+        return res.status(404).json({ message: "Schedule entry not found" });
+      }
+      const { officeId, organizationId, caregiverId, ...body } = req.body;
+      const data = insertCompScheduleEntrySchema.partial().parse(body);
+      const entry = await storage.updateCompScheduleEntry(req.params.id, data);
+      res.json(entry);
+    } catch (e: any) {
+      if (e.name === "ZodError") return res.status(400).json({ message: e.errors });
+      res.status(500).json({ message: e.message || "Failed to update schedule entry" });
+    }
+  });
+
+  app.delete("/api/comp/schedule-entries/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      if (!isCompManager(req)) return res.status(403).json({ message: "Manager access required" });
+      const existing = await storage.getCompScheduleEntry(req.params.id);
+      if (!existing || !(await canAccessOffice(req, existing.officeId))) {
+        return res.status(404).json({ message: "Schedule entry not found" });
+      }
+      await storage.deleteCompScheduleEntry(req.params.id);
+      res.status(204).send();
+    } catch (e: any) {
+      res.status(500).json({ message: e.message || "Failed to delete schedule entry" });
+    }
+  });
+
+  // ─── Schedule import (Excel/CSV) ───────────────────────────────────────
+  // Expects columns (header row, case-insensitive): caregiver, client, date,
+  // hours. "caregiver" matches employeeId, assignmentId, or "First Last" name;
+  // "client" matches "First Last" (optional). Rows that don't match a caregiver
+  // in the caller's office are reported back, not imported.
+  app.post("/api/comp/schedule-entries/import", isAuthenticated, compImportUpload.single("file"), async (req: any, res) => {
+    try {
+      if (!isCompManager(req)) return res.status(403).json({ message: "Manager access required" });
+      if (!req.file) return res.status(400).json({ message: "No file uploaded" });
+
+      const allowed = await resolveAllowedOfficeIds(req);
+      if (Array.isArray(allowed) && allowed.length === 0) {
+        return res.status(403).json({ message: "No office in scope" });
+      }
+      // Build lookup maps of caregivers/clients the caller can import against.
+      const scopeOfficeIds = allowed === "ALL" ? undefined : allowed;
+      const caregivers: any[] = [];
+      const clients: any[] = [];
+      if (scopeOfficeIds) {
+        for (const oid of scopeOfficeIds) {
+          caregivers.push(...await storage.getAllCaregivers(oid));
+          clients.push(...await storage.getAllClients(oid));
+        }
+      } else {
+        caregivers.push(...await storage.getAllCaregivers());
+        clients.push(...await storage.getAllClients());
+      }
+      const norm = (s: any) => String(s ?? "").trim().toLowerCase();
+      const caregiverByKey = new Map<string, any>();
+      for (const c of caregivers) {
+        if (c.employeeId) caregiverByKey.set(norm(c.employeeId), c);
+        if (c.assignmentId) caregiverByKey.set(norm(c.assignmentId), c);
+        caregiverByKey.set(norm(`${c.firstName} ${c.lastName}`), c);
+      }
+      const clientByName = new Map<string, any>();
+      for (const c of clients) clientByName.set(norm(`${c.firstName} ${c.lastName}`), c);
+
+      // Parse the upload (Excel or CSV) into a uniform list of raw string rows,
+      // then apply shared matching logic. Header names are matched flexibly.
+      const pickCol = (header: string): "caregiver" | "client" | "date" | "hours" | null => {
+        const key = norm(header);
+        if (["caregiver", "caregiver name", "employee", "employee id"].includes(key)) return "caregiver";
+        if (["client", "client name", "patient"].includes(key)) return "client";
+        if (["date", "work date", "service date"].includes(key)) return "date";
+        if (["hours", "hrs", "hours worked"].includes(key)) return "hours";
+        return null;
+      };
+      const toIsoDate = (v: any): string | null => {
+        if (v == null || v === "") return null;
+        if (v instanceof Date) return v.toISOString().slice(0, 10);
+        const s = String(v).trim();
+        const d = new Date(s);
+        if (isNaN(d.getTime())) return null;
+        return d.toISOString().slice(0, 10);
+      };
+
+      // rawRows[i] = { caregiver, client, date, hours, rowNum } as strings.
+      const rawRows: { caregiver: any; client: any; date: any; hours: any; rowNum: number }[] = [];
+      const ext = path.extname(req.file.originalname).toLowerCase();
+      const isCsv = ext === ".csv" || ext === ".txt" ||
+        (ext === "" && req.file.mimetype && req.file.mimetype.includes("csv"));
+
+      if (isCsv) {
+        const { parse } = await import("csv-parse/sync");
+        const records: string[][] = parse(req.file.buffer, { skip_empty_lines: true, trim: true, relax_column_count: true, bom: true });
+        if (records.length < 1) return res.status(400).json({ message: "The uploaded CSV is empty" });
+        const header = records[0];
+        const map: Record<string, number> = {};
+        header.forEach((h, i) => { const c = pickCol(h); if (c) map[c] = i; });
+        if (map.caregiver == null || map.date == null || map.hours == null) {
+          return res.status(400).json({ message: "Missing required columns. Expected: caregiver, date, hours (client optional)." });
+        }
+        for (let i = 1; i < records.length; i++) {
+          const row = records[i];
+          rawRows.push({
+            caregiver: row[map.caregiver], client: map.client != null ? row[map.client] : null,
+            date: row[map.date], hours: row[map.hours], rowNum: i + 1,
+          });
+        }
+      } else {
+        const ExcelJS = await import("exceljs");
+        const workbook = new ExcelJS.default.Workbook();
+        await workbook.xlsx.load(req.file.buffer);
+        const worksheet = workbook.worksheets[0];
+        if (!worksheet) return res.status(400).json({ message: "The uploaded file has no worksheet" });
+        const colIndex: Record<string, number> = {};
+        worksheet.getRow(1).eachCell((cell, col) => { const c = pickCol(String(cell.value ?? "")); if (c) colIndex[c] = col; });
+        if (!colIndex.caregiver || !colIndex.date || !colIndex.hours) {
+          return res.status(400).json({ message: "Missing required columns. Expected: caregiver, date, hours (client optional)." });
+        }
+        for (let r = 2; r <= worksheet.rowCount; r++) {
+          const row = worksheet.getRow(r);
+          rawRows.push({
+            caregiver: row.getCell(colIndex.caregiver).value,
+            client: colIndex.client ? row.getCell(colIndex.client).value : null,
+            date: row.getCell(colIndex.date).value,
+            hours: row.getCell(colIndex.hours).value,
+            rowNum: r,
+          });
+        }
+      }
+
+      const toImport: any[] = [];
+      const errors: { row: number; reason: string }[] = [];
+      for (const raw of rawRows) {
+        if (raw.caregiver == null || String(raw.caregiver).trim() === "") continue; // skip blank rows
+        const caregiver = caregiverByKey.get(norm(raw.caregiver));
+        if (!caregiver) { errors.push({ row: raw.rowNum, reason: `Caregiver "${raw.caregiver}" not found in your office` }); continue; }
+        const workDate = toIsoDate(raw.date);
+        if (!workDate) { errors.push({ row: raw.rowNum, reason: "Invalid or missing date" }); continue; }
+        const hoursNum = Number(raw.hours);
+        if (!isFinite(hoursNum) || hoursNum < 0) { errors.push({ row: raw.rowNum, reason: "Invalid or missing hours" }); continue; }
+        let clientId: string | null = null;
+        if (raw.client != null && String(raw.client).trim() !== "") {
+          const client = clientByName.get(norm(raw.client));
+          if (client) clientId = client.id;
+        }
+        toImport.push({
+          organizationId: req.session?.user?.organizationId ?? null,
+          officeId: caregiver.officeId,
+          caregiverId: caregiver.id,
+          clientId,
+          workDate,
+          hours: String(hoursNum),
+          createdBy: req.session?.user?.id ?? null,
+        });
+      }
+
+      const created = await storage.createCompScheduleEntriesBulk(toImport);
+      res.json({ imported: created.length, skipped: errors.length, errors });
+    } catch (e: any) {
+      console.error("Error importing schedule entries:", e);
+      res.status(500).json({ message: e.message || "Failed to import schedule" });
+    }
+  });
+
+  // ─── Caregiver payroll for a period (computed) ─────────────────────────
+  // Returns one row per caregiver with schedule entries in the period:
+  // total/regular/OT hours, computed payroll, manual payment, remaining.
+  // Shared computation used by the JSON views and the CSV exports.
+  const computeCaregiverPayrollRows = async (period: any) => {
+    const otThreshold = Number(period.otWeeklyThreshold ?? 40);
+    const entries = await storage.getCompScheduleEntries({
+      officeId: period.officeId ?? undefined,
+      startDate: period.startDate,
+      endDate: period.endDate,
+    });
+    const payments = await storage.getCompCaregiverPayments(period.id);
+    const paymentByCaregiver = new Map(payments.map(p => [p.caregiverId, p]));
+    const byCaregiver = new Map<string, ScheduleHours[]>();
+    for (const e of entries) {
+      const list = byCaregiver.get(e.caregiverId) ?? [];
+      list.push({ workDate: e.workDate, hours: Number(e.hours) || 0 });
+      byCaregiver.set(e.caregiverId, list);
+    }
+    const rows = [];
+    for (const [caregiverId, hrs] of byCaregiver) {
+      const caregiver = await storage.getCaregiver(caregiverId);
+      if (!caregiver) continue;
+      const rate = Number(caregiver.hourlyWage ?? 0);
+      const result = computeCaregiverPeriod(hrs, rate, otThreshold, period.startDate, period.endDate);
+      const pay = paymentByCaregiver.get(caregiverId);
+      const paymentMade = Number(pay?.paymentMade ?? 0);
+      rows.push({
+        caregiverId,
+        caregiverName: `${caregiver.firstName ?? ""} ${caregiver.lastName ?? ""}`.trim(),
+        coordinatorId: caregiver.coordinatorId ?? null,
+        rate,
+        ...result,
+        paymentMade: round2(paymentMade),
+        paymentRemaining: round2(result.payroll - paymentMade),
+      });
+    }
+    rows.sort((a, b) => a.caregiverName.localeCompare(b.caregiverName));
+    return rows;
+  };
+
+  const computeCoordinatorBlocks = async (period: any) => {
+    const otThreshold = Number(period.otWeeklyThreshold ?? 40);
+    const entries = await storage.getCompScheduleEntries({
+      officeId: period.officeId ?? undefined,
+      startDate: period.startDate,
+      endDate: period.endDate,
+    });
+    const coordPayments = await storage.getCompCoordinatorPayments(period.id);
+    const paymentByCoordinator = new Map(coordPayments.map(p => [p.coordinatorId, p]));
+    const byCaregiver = new Map<string, ScheduleHours[]>();
+    for (const e of entries) {
+      const list = byCaregiver.get(e.caregiverId) ?? [];
+      list.push({ workDate: e.workDate, hours: Number(e.hours) || 0 });
+      byCaregiver.set(e.caregiverId, list);
+    }
+    const coordinators = await storage.getAllCoordinators(period.officeId ?? undefined);
+    const coordMap = new Map(coordinators.map(c => [c.id, c]));
+    const rowsByCoordinator = new Map<string, any[]>();
+    for (const [caregiverId, hrs] of byCaregiver) {
+      const caregiver = await storage.getCaregiver(caregiverId);
+      if (!caregiver || !caregiver.coordinatorId) continue;
+      const coordinator = coordMap.get(caregiver.coordinatorId);
+      if (!coordinator) continue;
+      const rate = Number(caregiver.hourlyWage ?? 0);
+      const coordRate = Number(coordinator.coordinatorRate ?? 0);
+      const result = computeCaregiverPeriod(hrs, rate, otThreshold, period.startDate, period.endDate);
+      const { coordinatorGross, compensation } = computeCaregiverCompensation(result, coordRate);
+      const list = rowsByCoordinator.get(coordinator.id) ?? [];
+      list.push({
+        caregiverId,
+        caregiverName: `${caregiver.firstName ?? ""} ${caregiver.lastName ?? ""}`.trim(),
+        totalHours: result.totalHours,
+        regularHours: result.regularHours,
+        overtimeHours: result.overtimeHours,
+        caregiverPayroll: result.payroll,
+        coordinatorGross,
+        compensation,
+      });
+      rowsByCoordinator.set(coordinator.id, list);
+    }
+    const out = [];
+    for (const coordinator of coordinators) {
+      const rows = rowsByCoordinator.get(coordinator.id) ?? [];
+      const totalCompensation = round2(rows.reduce((s, r) => s + r.compensation, 0));
+      const pay = paymentByCoordinator.get(coordinator.id);
+      const paymentMade = Number(pay?.paymentMade ?? 0);
+      out.push({
+        coordinatorId: coordinator.id,
+        coordinatorName: `${coordinator.firstName} ${coordinator.lastName}`.trim(),
+        coordinatorRate: Number(coordinator.coordinatorRate ?? 0),
+        rows,
+        totalCompensation,
+        paymentMade: round2(paymentMade),
+        paymentRemaining: round2(totalCompensation - paymentMade),
+      });
+    }
+    out.sort((a, b) => a.coordinatorName.localeCompare(b.coordinatorName));
+    return out;
+  };
+
+  const csvCell = (v: any) => {
+    const s = String(v ?? "");
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+
+  app.get("/api/comp/periods/:id/caregiver-payroll", isAuthenticated, async (req: any, res) => {
+    try {
+      const period = await storage.getCompPayrollPeriod(req.params.id);
+      if (!period || !(await canAccessOffice(req, period.officeId))) {
+        return res.status(404).json({ message: "Payroll period not found" });
+      }
+      res.json({ period, rows: await computeCaregiverPayrollRows(period) });
+    } catch (e: any) {
+      console.error("Error computing caregiver payroll:", e);
+      res.status(500).json({ message: e.message || "Failed to compute caregiver payroll" });
+    }
+  });
+
+  app.put("/api/comp/periods/:id/caregiver-payment/:caregiverId", isAuthenticated, async (req: any, res) => {
+    try {
+      if (!isCompManager(req)) return res.status(403).json({ message: "Manager access required" });
+      const period = await storage.getCompPayrollPeriod(req.params.id);
+      if (!period || !(await canAccessOffice(req, period.officeId))) {
+        return res.status(404).json({ message: "Payroll period not found" });
+      }
+      if (!(await getCaregiverInScope(req, req.params.caregiverId))) {
+        return res.status(404).json({ message: "Caregiver not found" });
+      }
+      const paymentMade = String(Number(req.body.paymentMade) || 0);
+      const row = await storage.upsertCompCaregiverPayment(
+        period.id, req.params.caregiverId, paymentMade, req.body.notes ?? null, req.session?.user?.id ?? null,
+      );
+      res.json(row);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message || "Failed to save payment" });
+    }
+  });
+
+  // ─── Coordinator compensation for a period (computed) ──────────────────
+  // For each coordinator: a row per managed caregiver with hours, caregiver
+  // payroll, coordinator gross, and compensation; plus the coordinator's
+  // total compensation, manual payment, and remaining.
+  app.get("/api/comp/periods/:id/coordinator-payroll", isAuthenticated, async (req: any, res) => {
+    try {
+      const period = await storage.getCompPayrollPeriod(req.params.id);
+      if (!period || !(await canAccessOffice(req, period.officeId))) {
+        return res.status(404).json({ message: "Payroll period not found" });
+      }
+      res.json({ period, coordinators: await computeCoordinatorBlocks(period) });
+    } catch (e: any) {
+      console.error("Error computing coordinator payroll:", e);
+      res.status(500).json({ message: e.message || "Failed to compute coordinator payroll" });
+    }
+  });
+
+  // ─── CSV exports ───────────────────────────────────────────────────────
+  app.get("/api/comp/periods/:id/export.csv", isAuthenticated, async (req: any, res) => {
+    try {
+      const period = await storage.getCompPayrollPeriod(req.params.id);
+      if (!period || !(await canAccessOffice(req, period.officeId))) {
+        return res.status(404).json({ message: "Payroll period not found" });
+      }
+      const type = String(req.query.type || "caregiver");
+      const safeName = String(period.name).replace(/[^a-z0-9]+/gi, "_");
+      let csv = "";
+      if (type === "coordinator") {
+        const blocks = await computeCoordinatorBlocks(period);
+        csv += ["Coordinator", "Coordinator Rate", "Caregiver", "Total Hours", "Caregiver Payroll", "Coordinator Gross", "Compensation"].join(",") + "\n";
+        for (const b of blocks) {
+          if (b.rows.length === 0) {
+            csv += [b.coordinatorName, b.coordinatorRate, "(no hours)", 0, 0, 0, 0].map(csvCell).join(",") + "\n";
+          }
+          for (const r of b.rows) {
+            csv += [b.coordinatorName, b.coordinatorRate, r.caregiverName, r.totalHours, r.caregiverPayroll, r.coordinatorGross, r.compensation].map(csvCell).join(",") + "\n";
+          }
+          csv += [b.coordinatorName, "", "TOTAL", "", "", "", b.totalCompensation].map(csvCell).join(",") + "\n";
+          csv += [b.coordinatorName, "", "Payment made", "", "", "", b.paymentMade].map(csvCell).join(",") + "\n";
+          csv += [b.coordinatorName, "", "Remaining", "", "", "", b.paymentRemaining].map(csvCell).join(",") + "\n";
+        }
+        res.setHeader("Content-Disposition", `attachment; filename="coordinator-comp-${safeName}.csv"`);
+      } else {
+        const rows = await computeCaregiverPayrollRows(period);
+        csv += ["Caregiver", "Rate", "Total Hours", "Regular Hours", "OT Hours", "Payroll", "Payment Made", "Remaining"].join(",") + "\n";
+        for (const r of rows) {
+          csv += [r.caregiverName, r.rate, r.totalHours, r.regularHours, r.overtimeHours, r.payroll, r.paymentMade, r.paymentRemaining].map(csvCell).join(",") + "\n";
+        }
+        res.setHeader("Content-Disposition", `attachment; filename="caregiver-payroll-${safeName}.csv"`);
+      }
+      res.setHeader("Content-Type", "text/csv");
+      res.send(csv);
+    } catch (e: any) {
+      console.error("Error exporting compensation CSV:", e);
+      res.status(500).json({ message: e.message || "Failed to export" });
+    }
+  });
+
+  // Downloadable schedule-import template (matches the importer's columns).
+  app.get("/api/comp/schedule-entries/template.csv", isAuthenticated, (_req, res) => {
+    const csv = "caregiver,client,date,hours\n" +
+      "Jane Doe,John Smith,2026-01-05,8\n" +
+      "Jane Doe,John Smith,2026-01-06,8.5\n";
+    res.setHeader("Content-Type", "text/csv");
+    res.setHeader("Content-Disposition", 'attachment; filename="schedule-import-template.csv"');
+    res.send(csv);
+  });
+
+  app.put("/api/comp/periods/:id/coordinator-payment/:coordinatorId", isAuthenticated, async (req: any, res) => {
+    try {
+      if (!isCompManager(req)) return res.status(403).json({ message: "Manager access required" });
+      const period = await storage.getCompPayrollPeriod(req.params.id);
+      if (!period || !(await canAccessOffice(req, period.officeId))) {
+        return res.status(404).json({ message: "Payroll period not found" });
+      }
+      const coordinator = await storage.getCoordinator(req.params.coordinatorId);
+      if (!coordinator || !(await canAccessOffice(req, coordinator.officeId))) {
+        return res.status(404).json({ message: "Coordinator not found" });
+      }
+      const paymentMade = String(Number(req.body.paymentMade) || 0);
+      const row = await storage.upsertCompCoordinatorPayment(
+        period.id, req.params.coordinatorId, paymentMade, req.body.notes ?? null, req.session?.user?.id ?? null,
+      );
+      res.json(row);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message || "Failed to save payment" });
+    }
+  });
+
   // ---------------------------------------------------------------------
   // Geocoding proxy (server-side) — protects PII by NOT calling third-party
   // geocoders directly from the browser. Authenticated + per-user rate
@@ -1673,7 +2405,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (q.length < 4) {
         return res.json([]);
       }
-      const userId = req.user?.id || req.user?.claims?.sub || req.ip || "anon";
+      const userId = (req.session as any)?.user?.id || (req.session as any)?.user?.claims?.sub || req.ip || "anon";
       const rate = checkGeocodingRate(`addr:${userId}`);
       if (!rate.ok) {
         res.setHeader("Retry-After", Math.ceil(rate.retryAfterMs / 1000));
@@ -1699,7 +2431,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!/^\d{5}$/.test(zip)) {
         return res.status(400).json({ message: "ZIP must be exactly 5 digits." });
       }
-      const userId = req.user?.id || req.user?.claims?.sub || req.ip || "anon";
+      const userId = (req.session as any)?.user?.id || (req.session as any)?.user?.claims?.sub || req.ip || "anon";
       const rate = checkGeocodingRate(`zip:${userId}`);
       if (!rate.ok) {
         res.setHeader("Retry-After", Math.ceil(rate.retryAfterMs / 1000));
@@ -3072,45 +3804,61 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Invalid data format" });
       }
 
-      // Helper function to convert Excel dates to JavaScript Date objects
+      // Helper function to convert Excel dates to JavaScript Date objects.
+      // Date-only values (serial numbers, YYYY-MM-DD, MM/DD/YYYY, DD/MM/YYYY)
+      // are anchored to UTC noon so the calendar day survives being rendered
+      // later in any local timezone (see parseImportDate above for the same
+      // guard on the client bulk-import path).
       const parseExcelDate = (value: any): Date | undefined => {
         if (!value) return undefined;
-        
+
         // Already a Date object
         if (value instanceof Date) return value;
-        
+
         // Excel serial number (days since 1900-01-01, with Excel's leap year bug)
         if (typeof value === 'number') {
-          // Excel incorrectly considers 1900 a leap year, so subtract 1 for dates after Feb 28, 1900
-          const excelEpoch = new Date(1899, 11, 30); // Dec 30, 1899
-          const date = new Date(excelEpoch.getTime() + value * 24 * 60 * 60 * 1000);
-          return date;
+          const excelEpoch = new Date(Date.UTC(1899, 11, 30)); // Dec 30, 1899 UTC
+          const days = Math.floor(value);
+          const date = new Date(excelEpoch.getTime() + days * 24 * 60 * 60 * 1000);
+          return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate(), 12));
         }
-        
+
         // String date - try parsing various formats
         if (typeof value === 'string') {
           const trimmed = value.trim();
           if (!trimmed) return undefined;
-          
-          // Try ISO format first (YYYY-MM-DD)
-          let parsed = new Date(trimmed);
-          if (!isNaN(parsed.getTime())) return parsed;
-          
+
+          // Try ISO format first (bare YYYY-MM-DD only — a full timestamp
+          // with a time component falls through to native parsing below so
+          // its time-of-day isn't discarded)
+          const isoMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(trimmed);
+          if (isoMatch) {
+            const [, y, m, d] = isoMatch;
+            return new Date(Date.UTC(Number(y), Number(m) - 1, Number(d), 12));
+          }
+
           // Try MM/DD/YYYY format
           const mdyMatch = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
           if (mdyMatch) {
-            parsed = new Date(parseInt(mdyMatch[3]), parseInt(mdyMatch[1]) - 1, parseInt(mdyMatch[2]));
+            const [, m, d, y] = mdyMatch;
+            const parsed = new Date(Date.UTC(Number(y), Number(m) - 1, Number(d), 12));
             if (!isNaN(parsed.getTime())) return parsed;
           }
-          
+
           // Try DD/MM/YYYY format (if month > 12, swap)
           const dmyMatch = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
           if (dmyMatch && parseInt(dmyMatch[1]) > 12) {
-            parsed = new Date(parseInt(dmyMatch[3]), parseInt(dmyMatch[2]) - 1, parseInt(dmyMatch[1]));
+            const [, d, m, y] = dmyMatch;
+            const parsed = new Date(Date.UTC(Number(y), Number(m) - 1, Number(d), 12));
             if (!isNaN(parsed.getTime())) return parsed;
           }
+
+          // Fall back to native parsing for any other format (e.g. full
+          // timestamps that already carry an explicit offset).
+          const parsed = new Date(trimmed);
+          if (!isNaN(parsed.getTime())) return parsed;
         }
-        
+
         return undefined;
       };
 
@@ -3695,8 +4443,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Care plan routes
-  app.get("/api/clients/:clientId/care-plans", isAuthenticated, async (req, res) => {
+  app.get("/api/clients/:clientId/care-plans", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getClientInScope(req, req.params.clientId))) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
       const carePlans = await storage.getCarePlansByClient(req.params.clientId);
       res.json(carePlans);
     } catch (error) {
@@ -3709,8 +4460,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const validatedData = insertCarePlanSchema.parse({
         ...req.body,
+        startDate: coerceDate(req.body.startDate),
+        endDate: coerceDate(req.body.endDate),
+        nextAssessmentDate: coerceDate(req.body.nextAssessmentDate),
         createdBy: req.session?.user?.id,
       });
+      if (!validatedData.clientId || !(await getClientInScope(req, validatedData.clientId))) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+      // CHC participants get a full reassessment at least every 12 months;
+      // default the reminder date off the plan's start date (or today) if
+      // the caller didn't set one explicitly.
+      if (!validatedData.nextAssessmentDate) {
+        const base = validatedData.startDate ? new Date(validatedData.startDate) : new Date();
+        validatedData.nextAssessmentDate = new Date(base.getFullYear() + 1, base.getMonth(), base.getDate());
+      }
       const carePlan = await storage.createCarePlan(validatedData);
       res.status(201).json(carePlan);
     } catch (error) {
@@ -3719,9 +4483,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Care plan goals routes
-  app.get("/api/care-plans/:id/goals", isAuthenticated, async (req, res) => {
+  // A care plan carries no officeId of its own; it resolves through its client.
+  const getCarePlanInScope = async (req: any, carePlanId: string) => {
+    const carePlan = await storage.getCarePlan(carePlanId);
+    if (!carePlan || !carePlan.clientId) return undefined;
+    if (!(await getClientInScope(req, carePlan.clientId))) return undefined;
+    return carePlan;
+  };
+
+  app.put("/api/care-plans/:id", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getCarePlanInScope(req, req.params.id))) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+      const { clientId, createdBy, ...updateData } = req.body;
+      const coerced = {
+        ...updateData,
+        startDate: coerceDate(updateData.startDate),
+        endDate: coerceDate(updateData.endDate),
+        nextAssessmentDate: coerceDate(updateData.nextAssessmentDate),
+      };
+      const validatedData = insertCarePlanSchema.partial().omit({ clientId: true, createdBy: true }).parse(coerced);
+      const carePlan = await storage.updateCarePlan(req.params.id, validatedData);
+      res.json(carePlan);
+    } catch (error) {
+      console.error("Error updating care plan:", error);
+      res.status(400).json({ message: "Failed to update care plan" });
+    }
+  });
+
+  // Care plan goals routes
+  app.get("/api/care-plans/:id/goals", isAuthenticated, async (req: any, res) => {
+    try {
+      if (!(await getCarePlanInScope(req, req.params.id))) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
       const goals = await storage.getCarePlanGoals(req.params.id);
       res.json(goals);
     } catch (error) {
@@ -3732,6 +4528,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/care-plans/:id/goals", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getCarePlanInScope(req, req.params.id))) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
       const validatedData = insertCarePlanGoalSchema.parse({
         ...req.body,
         carePlanId: req.params.id,
@@ -3746,6 +4545,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.patch("/api/care-plans/:id/goals/:goalId", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getCarePlanInScope(req, req.params.id))) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+      const existingGoal = await storage.getCarePlanGoal(req.params.goalId);
+      if (!existingGoal || existingGoal.carePlanId !== req.params.id) {
+        return res.status(404).json({ message: "Goal not found" });
+      }
       const goal = await storage.updateCarePlanGoal(req.params.goalId, req.body);
       res.json(goal);
     } catch (error) {
@@ -3754,9 +4560,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Care plan interventions routes
-  app.get("/api/care-plans/:id/interventions", isAuthenticated, async (req, res) => {
+  app.delete("/api/care-plans/:id/goals/:goalId", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getCarePlanInScope(req, req.params.id))) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+      const existingGoal = await storage.getCarePlanGoal(req.params.goalId);
+      if (!existingGoal || existingGoal.carePlanId !== req.params.id) {
+        return res.status(404).json({ message: "Goal not found" });
+      }
+      await storage.deleteCarePlanGoal(req.params.goalId);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting care plan goal:", error);
+      res.status(500).json({ message: "Failed to delete care plan goal" });
+    }
+  });
+
+  // Care plan interventions routes
+  app.get("/api/care-plans/:id/interventions", isAuthenticated, async (req: any, res) => {
+    try {
+      if (!(await getCarePlanInScope(req, req.params.id))) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
       const interventions = await storage.getCarePlanInterventions(req.params.id);
       res.json(interventions);
     } catch (error) {
@@ -3767,6 +4593,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/care-plans/:id/interventions", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getCarePlanInScope(req, req.params.id))) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
       const validatedData = insertCarePlanInterventionSchema.parse({
         ...req.body,
         carePlanId: req.params.id,
@@ -3781,6 +4610,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.patch("/api/care-plans/:id/interventions/:interventionId", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getCarePlanInScope(req, req.params.id))) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+      const existingIntervention = await storage.getCarePlanIntervention(req.params.interventionId);
+      if (!existingIntervention || existingIntervention.carePlanId !== req.params.id) {
+        return res.status(404).json({ message: "Intervention not found" });
+      }
       const intervention = await storage.updateCarePlanIntervention(req.params.interventionId, req.body);
       res.json(intervention);
     } catch (error) {
@@ -3789,9 +4625,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Progress notes routes
-  app.get("/api/clients/:clientId/progress-notes", isAuthenticated, async (req, res) => {
+  app.delete("/api/care-plans/:id/interventions/:interventionId", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getCarePlanInScope(req, req.params.id))) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+      const existingIntervention = await storage.getCarePlanIntervention(req.params.interventionId);
+      if (!existingIntervention || existingIntervention.carePlanId !== req.params.id) {
+        return res.status(404).json({ message: "Intervention not found" });
+      }
+      await storage.deleteCarePlanIntervention(req.params.interventionId);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting care plan intervention:", error);
+      res.status(500).json({ message: "Failed to delete care plan intervention" });
+    }
+  });
+
+  // Progress notes routes
+  app.get("/api/clients/:clientId/progress-notes", isAuthenticated, async (req: any, res) => {
+    try {
+      if (!(await getClientInScope(req, req.params.clientId))) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
       const notes = await storage.getProgressNotesByClient(req.params.clientId);
       res.json(notes);
     } catch (error) {
@@ -3803,6 +4659,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/progress-notes", isAuthenticated, async (req: any, res) => {
     try {
       const validatedData = insertProgressNoteSchema.parse(req.body);
+      if (!validatedData.clientId || !(await getClientInScope(req, validatedData.clientId))) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
       const note = await storage.createProgressNote(validatedData);
       res.status(201).json(note);
     } catch (error) {
@@ -3836,14 +4695,39 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Generate encryption key for HIPAA compliance
       const encryptionKey = crypto.randomBytes(32).toString("hex");
 
-      // Derive officeId: use explicitly passed value, or fall back to the
-      // uploading user's office so the document appears in the correct list.
-      const officeId = req.body.officeId || (req.session?.user as any)?.officeId || null;
+      // Validate any linked client/caregiver is in the uploader's scope
+      // (prevents attaching a document to another org's client/caregiver).
+      const clientId = req.body.clientId || null;
+      const caregiverId = req.body.caregiverId || null;
+      const userId = req.body.userId || null;
+      const coordinatorId = req.body.coordinatorId || null;
+      if (clientId && !(await getClientInScope(req, clientId))) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+      if (caregiverId && !(await getCaregiverInScope(req, caregiverId))) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+      if (coordinatorId) {
+        const coord = await storage.getCoordinator(coordinatorId);
+        if (!coord || !(await canAccessOffice(req, coord.officeId))) {
+          return res.status(403).json({ message: "Forbidden" });
+        }
+      }
+
+      // Derive officeId: an explicitly passed value must be within the
+      // uploader's own scope; otherwise fall back to the uploader's own
+      // office so the document appears in the correct list.
+      const requestedOfficeId = req.body.officeId || null;
+      if (requestedOfficeId && !(await canAccessOffice(req, requestedOfficeId))) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+      const officeId = requestedOfficeId || (req.session?.user as any)?.primaryOfficeId || null;
 
       const document = await storage.createDocument({
-        clientId: req.body.clientId || null,
-        caregiverId: req.body.caregiverId || null,
-        userId: req.body.userId || null,
+        clientId,
+        caregiverId,
+        userId,
+        coordinatorId,
         officeId,
         uploadedBy: req.session?.user?.id,
         fileName,
@@ -3883,14 +4767,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/documents", isAuthenticated, async (req: any, res) => {
     try {
-      const { officeId } = req.query;
-      const officeFilter = officeId && officeId !== 'all' ? String(officeId) : undefined;
+      const officeFilter = parseOfficeId(req);
       const documents = await storage.getAllDocuments(officeFilter);
       const viewerId = req.session?.user?.id as string | undefined;
-      // Drop write-up docs the viewer is not permitted to see.
+      // Drop write-up docs the viewer is not permitted to see, and any
+      // document whose resolved office falls outside the caller's scope
+      // (covers rows with no officeId column set, which the SQL filter above
+      // can't catch).
       const result = [];
       for (const d of documents) {
         if (isWriteUpDoc(d) && !(await canAccessWriteUpDoc(viewerId, d))) continue;
+        if (!(await canAccessDocument(req, d))) continue;
         result.push(d);
       }
       res.json(result);
@@ -3902,6 +4789,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/caregivers/:caregiverId/documents", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getCaregiverInScope(req, req.params.caregiverId))) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
       const documents = await storage.getDocumentsByCaregiver(req.params.caregiverId);
       const viewerId = req.session?.user?.id as string | undefined;
       const result = [];
@@ -3916,8 +4806,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/clients/:clientId/documents", isAuthenticated, async (req, res) => {
+  app.get("/api/clients/:clientId/documents", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getClientInScope(req, req.params.clientId))) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
       const documents = await storage.getDocumentsByClient(req.params.clientId);
       res.json(documents);
     } catch (error) {
@@ -3936,6 +4829,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (isWriteUpDoc(document) && !(await canAccessWriteUpDoc(viewerId, document))) {
         return res.status(404).json({ message: "Document not found" });
       }
+      if (!(await canAccessDocument(req, document))) {
+        return res.status(404).json({ message: "Document not found" });
+      }
       res.json(document);
     } catch (error) {
       console.error("Error fetching document:", error);
@@ -3947,6 +4843,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const existing = await storage.getDocument(req.params.id);
       if (!existing) return res.status(404).json({ message: "Document not found" });
+      if (!(await canAccessDocument(req, existing))) {
+        return res.status(404).json({ message: "Document not found" });
+      }
       const viewerId = req.session?.user?.id as string | undefined;
 
       // Write-up documents are confidential disciplinary artefacts. They must
@@ -3990,6 +4889,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (isWriteUpDoc(document) && !(await canAccessWriteUpDoc(viewerId, document))) {
         return res.status(404).json({ message: "Document not found" });
       }
+      if (!(await canAccessDocument(req, document))) {
+        return res.status(404).json({ message: "Document not found" });
+      }
 
       const s3Key = getS3KeyForFile(document.fileName, "uploads");
       const localPath = path.join("uploads", document.fileName);
@@ -4012,6 +4914,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       const viewerId = req.session?.user?.id as string | undefined;
       if (isWriteUpDoc(document) && !(await canAccessWriteUpDoc(viewerId, document))) {
+        return res.status(404).json({ message: "Document not found" });
+      }
+      if (!(await canAccessDocument(req, document))) {
         return res.status(404).json({ message: "Document not found" });
       }
 
@@ -4134,8 +5039,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Client Communications routes
-  app.get("/api/clients/:clientId/communications", isAuthenticated, async (req, res) => {
+  app.get("/api/clients/:clientId/communications", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getClientInScope(req, req.params.clientId))) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
       const communications = await storage.getClientCommunications(req.params.clientId);
       res.json(communications);
     } catch (error) {
@@ -4146,6 +5054,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/clients/:clientId/communications", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getClientInScope(req, req.params.clientId))) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
       const communication = await storage.createClientCommunication({
         ...req.body,
         clientId: req.params.clientId,
@@ -4158,8 +5069,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/communications/:id", isAuthenticated, async (req, res) => {
+  app.delete("/api/communications/:id", isAuthenticated, async (req: any, res) => {
     try {
+      const existing = await storage.getClientCommunication(req.params.id);
+      if (!existing || !(await getClientInScope(req, existing.clientId))) {
+        return res.status(404).json({ message: "Communication not found" });
+      }
       await storage.deleteClientCommunication(req.params.id);
       res.json({ message: "Communication deleted successfully" });
     } catch (error) {
@@ -4169,8 +5084,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Office MCO Billing Rate routes
-  app.get("/api/offices/:officeId/billing-rates", isAuthenticated, async (req, res) => {
+  app.get("/api/offices/:officeId/billing-rates", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await canAccessOffice(req, req.params.officeId))) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
       const mcoId = req.query.mcoId as string | undefined;
       const rates = await storage.getOfficeMcoBillingRates(req.params.officeId, mcoId);
       res.json(rates);
@@ -4182,6 +5100,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/offices/:officeId/billing-rates", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await canAccessOffice(req, req.params.officeId))) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
       const rate = await storage.createOfficeMcoBillingRate({
         ...req.body,
         officeId: req.params.officeId,
@@ -4193,8 +5114,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/billing-rates/:id", isAuthenticated, requireFeature('billing_payroll'), async (req, res) => {
+  app.put("/api/billing-rates/:id", isAuthenticated, requireFeature('billing_payroll'), async (req: any, res) => {
     try {
+      const existing = await storage.getOfficeMcoBillingRate(req.params.id);
+      if (!existing || !(await canAccessOffice(req, existing.officeId))) {
+        return res.status(404).json({ message: "Billing rate not found" });
+      }
       const rate = await storage.updateOfficeMcoBillingRate(req.params.id, req.body);
       res.json(rate);
     } catch (error) {
@@ -4203,8 +5128,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/billing-rates/:id", isAuthenticated, requireFeature('billing_payroll'), async (req, res) => {
+  app.delete("/api/billing-rates/:id", isAuthenticated, requireFeature('billing_payroll'), async (req: any, res) => {
     try {
+      const existing = await storage.getOfficeMcoBillingRate(req.params.id);
+      if (!existing || !(await canAccessOffice(req, existing.officeId))) {
+        return res.status(404).json({ message: "Billing rate not found" });
+      }
       await storage.deleteOfficeMcoBillingRate(req.params.id);
       res.json({ message: "Billing rate deleted successfully" });
     } catch (error) {
@@ -4213,8 +5142,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/clients/:clientId/schedules/rollover", isAuthenticated, async (req, res) => {
+  app.post("/api/clients/:clientId/schedules/rollover", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getClientInScope(req, req.params.clientId))) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
       const days = req.body.days || 30;
       const schedules = await storage.rolloverSchedules(req.params.clientId, days);
       res.status(201).json(schedules);
@@ -4224,9 +5156,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // A master-week template carries no officeId of its own; it resolves
+  // through its client.
+  const getMasterWeekTemplateInScope = async (req: any, templateId: string) => {
+    const template = await storage.getMasterWeekTemplate(templateId);
+    if (!template || !template.clientId) return undefined;
+    if (!(await getClientInScope(req, template.clientId))) return undefined;
+    return template;
+  };
+
   // Master Week Template routes for clients
-  app.get("/api/clients/:clientId/master-week", isAuthenticated, async (req, res) => {
+  app.get("/api/clients/:clientId/master-week", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getClientInScope(req, req.params.clientId))) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
       const templates = await storage.getMasterWeekTemplatesByClient(req.params.clientId);
       res.json(templates);
     } catch (error) {
@@ -4237,6 +5181,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/clients/:clientId/master-week", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getClientInScope(req, req.params.clientId))) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
       const template = await storage.createMasterWeekTemplate({
         ...req.body,
         clientId: req.params.clientId,
@@ -4249,8 +5196,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/master-week/:templateId/slots", isAuthenticated, requireFeature('advanced_scheduling'), async (req, res) => {
+  app.get("/api/master-week/:templateId/slots", isAuthenticated, requireFeature('advanced_scheduling'), async (req: any, res) => {
     try {
+      if (!(await getMasterWeekTemplateInScope(req, req.params.templateId))) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
       const slots = await storage.getMasterWeekSlots(req.params.templateId);
       res.json(slots);
     } catch (error) {
@@ -4259,8 +5209,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/master-week/:templateId/slots", isAuthenticated, requireFeature('advanced_scheduling'), async (req, res) => {
+  app.post("/api/master-week/:templateId/slots", isAuthenticated, requireFeature('advanced_scheduling'), async (req: any, res) => {
     try {
+      if (!(await getMasterWeekTemplateInScope(req, req.params.templateId))) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
       const slot = await storage.createMasterWeekSlot({
         ...req.body,
         templateId: req.params.templateId,
@@ -4272,8 +5225,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/master-week/slots/:slotId", isAuthenticated, requireFeature('advanced_scheduling'), async (req, res) => {
+  app.delete("/api/master-week/slots/:slotId", isAuthenticated, requireFeature('advanced_scheduling'), async (req: any, res) => {
     try {
+      const slot = await storage.getMasterWeekSlot(req.params.slotId);
+      if (!slot || !slot.templateId || !(await getMasterWeekTemplateInScope(req, slot.templateId))) {
+        return res.status(404).json({ message: "Slot not found" });
+      }
       await storage.deleteMasterWeekSlot(req.params.slotId);
       res.json({ message: "Slot deleted successfully" });
     } catch (error) {
@@ -4283,10 +5240,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Incident report routes
-  app.get("/api/incident-reports", isAuthenticated, async (req, res) => {
+  app.get("/api/incident-reports", isAuthenticated, async (req: any, res) => {
     try {
       const {
-        officeId,
         search,
         statuses,
         severities,
@@ -4296,7 +5252,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         to,
       } = req.query as Record<string, string | undefined>;
 
-      const officeFilter = officeId && officeId !== 'all' ? String(officeId) : undefined;
+      const officeFilter = parseOfficeId(req);
 
       const parseList = (raw: string | undefined, name: string): string[] | undefined => {
         if (!raw) return undefined;
@@ -4362,6 +5318,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         reportedBy: req.session?.user?.id,
       };
       const validatedData = insertIncidentReportSchema.parse(coercedData);
+      if (validatedData.officeId && !(await canAccessOffice(req, validatedData.officeId))) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
       const report = await storage.createIncidentReport(validatedData);
 
       // Notify admins about new incident via branded email (non-fatal)
@@ -4424,16 +5383,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Task routes
   app.get("/api/tasks", isAuthenticated, async (req: any, res) => {
     try {
-      const { userId, officeId } = req.query;
-      const officeFilter = officeId && officeId !== 'all' ? String(officeId) : undefined;
+      const { userId } = req.query;
+      const officeFilter = parseOfficeId(req);
       let tasks;
-      
+
       if (userId) {
+        const currentUserId = req.session?.user?.id;
+        if (userId !== currentUserId) {
+          const target = await storage.getUser(userId as string);
+          if (!target || !(await canAccessOffice(req, target.primaryOfficeId))) {
+            return res.status(403).json({ message: "Forbidden" });
+          }
+        }
         tasks = await storage.getTasksByUser(userId as string);
       } else {
         tasks = await storage.getAllTasks(officeFilter);
       }
-      
+
       res.json(tasks);
     } catch (error) {
       console.error("Error fetching tasks:", error);
@@ -4450,6 +5416,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         createdBy: req.session?.user?.id,
       };
       const validatedData = insertTaskSchema.parse(coercedData);
+      if (validatedData.officeId && !(await canAccessOffice(req, validatedData.officeId))) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
       const task = await storage.createTask(validatedData);
       res.status(201).json(task);
     } catch (error) {
@@ -4458,8 +5427,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // A task is in scope if the caller is its assignee/creator, or its
+  // officeId (when set) is within the caller's allowed offices.
+  const canAccessTask = async (req: any, task: any): Promise<boolean> => {
+    const userId = req.session?.user?.id;
+    if (task.assignedTo === userId || task.createdBy === userId) return true;
+    return canAccessOffice(req, task.officeId);
+  };
+
   app.put("/api/tasks/:id", isAuthenticated, async (req: any, res) => {
     try {
+      const existing = await storage.getTask(req.params.id);
+      if (!existing || !(await canAccessTask(req, existing))) {
+        return res.status(404).json({ message: "Task not found" });
+      }
       const coercedData = {
         ...req.body,
         dueDate: coerceDate(req.body.dueDate),
@@ -4474,8 +5455,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/tasks/:id", isAuthenticated, async (req, res) => {
+  app.delete("/api/tasks/:id", isAuthenticated, async (req: any, res) => {
     try {
+      const existing = await storage.getTask(req.params.id);
+      if (!existing || !(await canAccessTask(req, existing))) {
+        return res.status(404).json({ message: "Task not found" });
+      }
       await storage.deleteTask(req.params.id);
       res.status(204).send();
     } catch (error) {
@@ -4641,8 +5626,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Certification routes
-  app.get("/api/caregivers/:caregiverId/certifications", isAuthenticated, async (req, res) => {
+  app.get("/api/caregivers/:caregiverId/certifications", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getCaregiverInScope(req, req.params.caregiverId))) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
       const certifications = await storage.getCertificationsByCaregiver(req.params.caregiverId);
       res.json(certifications);
     } catch (error) {
@@ -4654,6 +5642,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/certifications", isAuthenticated, async (req: any, res) => {
     try {
       const validatedData = insertCertificationSchema.parse(req.body);
+      if (validatedData.caregiverId && !(await getCaregiverInScope(req, validatedData.caregiverId))) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
       const certification = await storage.createCertification(validatedData);
       res.status(201).json(certification);
     } catch (error) {
@@ -4663,8 +5654,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Compliance routes
-  app.get("/api/caregivers/:caregiverId/compliance", isAuthenticated, async (req, res) => {
+  app.get("/api/caregivers/:caregiverId/compliance", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getCaregiverInScope(req, req.params.caregiverId))) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
       const complianceItems = await storage.getCaregiverComplianceByCaregiver(req.params.caregiverId);
       res.json(complianceItems);
     } catch (error) {
@@ -4673,9 +5667,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/compliance", isAuthenticated, async (req, res) => {
+  app.get("/api/compliance", isAuthenticated, async (req: any, res) => {
     try {
-      const officeId = req.query.officeId as string | undefined;
+      const officeId = parseOfficeId(req);
       const complianceItems = await storage.getAllComplianceItems(officeId);
       res.json(complianceItems);
     } catch (error) {
@@ -4692,6 +5686,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         completedDate: coerceDate(req.body.completedDate),
       };
       const validatedData = insertComplianceItemSchema.parse(coercedData);
+      if (validatedData.officeId && !(await canAccessOffice(req, validatedData.officeId))) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
       const item = await storage.createComplianceItem(validatedData);
       res.status(201).json(item);
     } catch (error) {
@@ -4700,8 +5697,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/compliance/:id", isAuthenticated, async (req, res) => {
+  app.put("/api/compliance/:id", isAuthenticated, async (req: any, res) => {
     try {
+      const existing = await storage.getComplianceItem(req.params.id);
+      if (!existing || !(await canAccessOffice(req, existing.officeId))) {
+        return res.status(404).json({ message: "Compliance item not found" });
+      }
       const coercedData = {
         ...req.body,
         dueDate: coerceDate(req.body.dueDate),
@@ -4718,10 +5719,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
 
   // Training management routes
-  app.get("/api/trainings", isAuthenticated, async (req, res) => {
+  app.get("/api/trainings", isAuthenticated, async (req: any, res) => {
     try {
-      const { officeId } = req.query;
-      const officeFilter = officeId && officeId !== 'all' ? String(officeId) : undefined;
+      const officeFilter = parseOfficeId(req);
       const trainings = await storage.getAllTrainings(officeFilter);
       res.json(trainings);
     } catch (error) {
@@ -4733,6 +5733,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/trainings", isAuthenticated, async (req: any, res) => {
     try {
       const validatedData = insertTrainingSchema.parse(req.body);
+      if (validatedData.officeId && !(await canAccessOffice(req, validatedData.officeId))) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
       const training = await storage.createTraining(validatedData);
       res.status(201).json(training);
     } catch (error) {
@@ -4741,8 +5744,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/trainings/:id", isAuthenticated, async (req, res) => {
+  app.put("/api/trainings/:id", isAuthenticated, async (req: any, res) => {
     try {
+      const existing = await storage.getTraining(req.params.id);
+      // A null officeId is a shared/global training visible to all offices.
+      if (!existing || (existing.officeId && !(await canAccessOffice(req, existing.officeId)))) {
+        return res.status(404).json({ message: "Training not found" });
+      }
       const validatedData = insertTrainingSchema.partial().omit({ id: true, createdAt: true, updatedAt: true }).parse(req.body);
       const training = await storage.updateTraining(req.params.id, validatedData);
       res.json(training);
@@ -4941,8 +5949,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Update message status
-  app.patch("/api/messages/:id", isAuthenticated, async (req, res) => {
+  app.patch("/api/messages/:id", isAuthenticated, async (req: any, res) => {
     try {
+      const existing = await storage.getMessage(req.params.id);
+      if (!existing) return res.status(404).json({ message: "Message not found" });
+      const userId = req.session?.user?.id;
+      if (existing.senderId !== userId && existing.recipientId !== userId) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
       const message = await storage.updateMessage(req.params.id, req.body);
       res.json(message);
     } catch (error) {
@@ -5246,8 +6260,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       for (const e of all) {
         if (e.kind === "user") byId.set(e.id, { ...e, reports: [] });
       }
-      // Caregivers cannot be managers, so they only appear as leaves under
-      // their assigned manager (or under an "Unassigned" root).
+      // Caregivers and coordinators cannot be managers, so they only appear
+      // as leaves under their assigned manager (or under an "Unassigned" root).
       const roots: Node[] = [];
       const unassigned: Node[] = [];
 
@@ -5259,7 +6273,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           roots.push(node);
         }
       }
-      for (const c of all.filter((x) => x.kind === "caregiver")) {
+      for (const c of all.filter((x) => x.kind !== "user")) {
         const node: Node = { ...c, reports: [] };
         if (c.managerId && byId.has(c.managerId)) {
           byId.get(c.managerId)!.reports.push(node);
@@ -5287,7 +6301,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.put("/api/employees/:kind/:id/manager", isAuthenticated, requireEmployeeDirectoryAccess, async (req: any, res) => {
     try {
-      const kind = req.params.kind === "user" ? "user" : req.params.kind === "caregiver" ? "caregiver" : null;
+      const kind = ["user", "caregiver", "coordinator"].includes(req.params.kind)
+        ? (req.params.kind as "user" | "caregiver" | "coordinator")
+        : null;
       if (!kind) return res.status(400).json({ message: "Invalid employee kind" });
       const managerId: string | null = req.body?.managerId ?? null;
       if (managerId !== null && typeof managerId !== "string") {
@@ -5303,9 +6319,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
           if (target.primaryOfficeId !== officeScope) {
             return res.status(403).json({ message: "Cross-office assignment not allowed" });
           }
-        } else {
+        } else if (kind === "caregiver") {
           const target = await storage.getCaregiver(req.params.id);
           if (!target) return res.status(404).json({ message: "Caregiver not found" });
+          if (target.officeId !== officeScope) {
+            return res.status(403).json({ message: "Cross-office assignment not allowed" });
+          }
+        } else {
+          const target = await storage.getCoordinator(req.params.id);
+          if (!target) return res.status(404).json({ message: "Coordinator not found" });
           if (target.officeId !== officeScope) {
             return res.status(403).json({ message: "Cross-office assignment not allowed" });
           }
@@ -5322,7 +6344,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await storage.createAuditLog({
         userId: req.session?.user?.id,
         action: "set_manager",
-        entityType: kind === "user" ? "user" : "caregiver",
+        entityType: kind,
         entityId: req.params.id,
         newValues: { managerId },
         ipAddress: req.ip,
@@ -5412,7 +6434,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .orderBy(desc(docsTable.createdAt));
 
       // 2) Letters generated for the employee
-      const scope = kind === "caregiver" ? "caregiver" : "user";
+      const scope = kind === "caregiver" ? "caregiver" : "staff";
       const letters = await db.select().from(generatedLetters).where(and(
         eq(generatedLetters.scope, scope as any),
         eq(generatedLetters.targetId, id),
@@ -5918,9 +6940,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/incident-reports/:id", isAuthenticated, async (req, res) => {
+  // An incident follow-up carries no officeId of its own; it resolves
+  // through its parent incident report.
+  const getIncidentInScope = async (req: any, incidentId: string) => {
+    const incident = await storage.getIncidentReport(incidentId);
+    if (!incident || !(await canAccessOffice(req, incident.officeId))) return undefined;
+    return incident;
+  };
+
+  app.get("/api/incident-reports/:id", isAuthenticated, async (req: any, res) => {
     try {
-      const incident = await storage.getIncidentReport(req.params.id);
+      const incident = await getIncidentInScope(req, req.params.id);
       if (!incident) {
         return res.status(404).json({ message: "Incident report not found" });
       }
@@ -5931,9 +6961,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/incident-reports/:id", isAuthenticated, async (req, res) => {
+  app.put("/api/incident-reports/:id", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getIncidentInScope(req, req.params.id))) {
+        return res.status(404).json({ message: "Incident report not found" });
+      }
       const validatedData = insertIncidentReportSchema.partial().parse(req.body);
+      if (validatedData.officeId && !(await canAccessOffice(req, validatedData.officeId))) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
       const incident = await storage.updateIncidentReport(req.params.id, validatedData);
       res.json(incident);
     } catch (error) {
@@ -5943,8 +6979,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Incident Follow-up Routes
-  app.get("/api/incidents/:id/follow-ups", isAuthenticated, async (req, res) => {
+  app.get("/api/incidents/:id/follow-ups", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getIncidentInScope(req, req.params.id))) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
       const followUps = await storage.getIncidentFollowUps(req.params.id);
       res.json(followUps);
     } catch (error) {
@@ -5955,6 +6994,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/incidents/:id/follow-ups", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getIncidentInScope(req, req.params.id))) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
       const validatedData = insertIncidentFollowUpSchema.parse({
         ...req.body,
         incidentId: req.params.id,
@@ -5969,8 +7011,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/follow-ups/:id", isAuthenticated, async (req, res) => {
+  app.patch("/api/follow-ups/:id", isAuthenticated, async (req: any, res) => {
     try {
+      const existing = await storage.getIncidentFollowUp(req.params.id);
+      if (!existing || !(await getIncidentInScope(req, existing.incidentId))) {
+        return res.status(404).json({ message: "Follow-up not found" });
+      }
       const validatedData = insertIncidentFollowUpSchema.partial().parse({
         ...req.body,
         dueDate: coerceDate(req.body.dueDate),
@@ -5989,6 +7035,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!userId) {
         return res.status(401).json({ message: "Not authenticated" });
       }
+      const existing = await storage.getIncidentFollowUp(req.params.id);
+      if (!existing || !(await getIncidentInScope(req, existing.incidentId))) {
+        return res.status(404).json({ message: "Follow-up not found" });
+      }
       const followUp = await storage.completeFollowUp(req.params.id, userId);
       res.json(followUp);
     } catch (error) {
@@ -5997,10 +7047,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/follow-ups/overdue", isAuthenticated, async (req, res) => {
+  app.get("/api/follow-ups/overdue", isAuthenticated, async (req: any, res) => {
     try {
       const overdueFollowUps = await storage.getOverdueFollowUps();
-      res.json(overdueFollowUps);
+      const result = [];
+      for (const f of overdueFollowUps) {
+        if (await getIncidentInScope(req, f.incidentId)) result.push(f);
+      }
+      res.json(result);
     } catch (error) {
       console.error("Error fetching overdue follow-ups:", error);
       res.status(500).json({ message: "Failed to fetch overdue follow-ups" });
@@ -6247,14 +7301,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const userId = req.session?.user?.id;
       const user = await storage.getUser(userId);
-      
+
       // Only admin, supervisor roles can view all family updates
       if (!["admin", "supervisor", "super_admin"].includes(user?.role || "")) {
         return res.status(403).json({ message: "Access denied. Admin role required." });
       }
-      
+
       const updates = await storage.getFamilyUpdates();
-      res.json(updates);
+      const result = [];
+      for (const u of updates) {
+        if (u.clientId && (await getClientInScope(req, u.clientId))) result.push(u);
+      }
+      res.json(result);
     } catch (error) {
       console.error("Error fetching family updates:", error);
       res.status(500).json({ message: "Failed to fetch family updates" });
@@ -6267,12 +7325,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const user = await storage.getUser(userId);
       const { id } = req.params;
       const { status, reviewNotes } = req.body;
-      
+
       // Only admin, supervisor roles can review family updates
       if (!["admin", "supervisor", "super_admin"].includes(user?.role || "")) {
         return res.status(403).json({ message: "Access denied. Admin role required." });
       }
-      
+
+      const existing = await storage.getFamilyUpdate(id);
+      if (!existing || !existing.clientId || !(await getClientInScope(req, existing.clientId))) {
+        return res.status(404).json({ message: "Family update not found" });
+      }
+
       const update = await storage.reviewFamilyUpdate(id, userId, status, reviewNotes);
       res.json(update);
     } catch (error) {
@@ -6827,8 +7890,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // ==================== CLIENT AUTHORIZATION ROUTES ====================
   // Get all authorizations for a client
-  app.get("/api/clients/:clientId/authorizations", isAuthenticated, async (req, res) => {
+  app.get("/api/clients/:clientId/authorizations", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getClientInScope(req, req.params.clientId))) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
       const authorizations = await db.select()
         .from(clientAuthorizations)
         .where(eq(clientAuthorizations.clientId, req.params.clientId))
@@ -6841,8 +7907,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Create a new authorization
-  app.post("/api/clients/:clientId/authorizations", isAuthenticated, async (req, res) => {
+  app.post("/api/clients/:clientId/authorizations", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getClientInScope(req, req.params.clientId))) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
       const { clientId: _, ...userBody } = req.body;
       const coercedData = {
         ...userBody,
@@ -6851,6 +7920,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         renewalDate: coerceDate(userBody.renewalDate),
       };
       const validatedBody = insertClientAuthorizationSchema.omit({ clientId: true }).parse(coercedData);
+      if (validatedBody.carePlanId) {
+        const linkedPlan = await storage.getCarePlan(validatedBody.carePlanId);
+        if (!linkedPlan || linkedPlan.clientId !== req.params.clientId) {
+          return res.status(400).json({ message: "Care plan does not belong to this client" });
+        }
+      }
       const [authorization] = await db.insert(clientAuthorizations)
         .values({
           ...validatedBody,
@@ -6864,9 +7939,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // An authorization carries no officeId of its own; it resolves through its client.
+  const getAuthorizationInScope = async (req: any, id: string) => {
+    const [authorization] = await db.select().from(clientAuthorizations).where(eq(clientAuthorizations.id, id));
+    if (!authorization || !(await getClientInScope(req, authorization.clientId))) return undefined;
+    return authorization;
+  };
+
   // Update an authorization
-  app.put("/api/authorizations/:id", isAuthenticated, async (req, res) => {
+  app.put("/api/authorizations/:id", isAuthenticated, async (req: any, res) => {
     try {
+      const existing = await getAuthorizationInScope(req, req.params.id);
+      if (!existing) {
+        return res.status(404).json({ message: "Authorization not found" });
+      }
       const { clientId, ...updateData } = req.body;
       const coercedData = {
         ...updateData,
@@ -6875,6 +7961,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         renewalDate: coerceDate(updateData.renewalDate),
       };
       const validatedData = insertClientAuthorizationSchema.partial().parse(coercedData);
+      if (validatedData.carePlanId) {
+        const linkedPlan = await storage.getCarePlan(validatedData.carePlanId);
+        if (!linkedPlan || linkedPlan.clientId !== existing.clientId) {
+          return res.status(400).json({ message: "Care plan does not belong to this client" });
+        }
+      }
       const [authorization] = await db.update(clientAuthorizations)
         .set({ ...validatedData, updatedAt: new Date() })
         .where(eq(clientAuthorizations.id, req.params.id))
@@ -6890,8 +7982,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Delete an authorization
-  app.delete("/api/authorizations/:id", isAuthenticated, async (req, res) => {
+  app.delete("/api/authorizations/:id", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getAuthorizationInScope(req, req.params.id))) {
+        return res.status(404).json({ message: "Authorization not found" });
+      }
       const [deleted] = await db.delete(clientAuthorizations)
         .where(eq(clientAuthorizations.id, req.params.id))
         .returning();
@@ -6906,7 +8001,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Bulk import authorizations from Excel data
-  app.post("/api/authorizations/bulk-import", isAuthenticated, async (req, res) => {
+  app.post("/api/authorizations/bulk-import", isAuthenticated, requireAdminRole, async (req: any, res) => {
     try {
       const { data: authorizationsData, authorizations: legacyData, rows: excelRows } = req.body;
       const dataToProcess = authorizationsData || legacyData || excelRows;
@@ -6957,7 +8052,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
             });
             continue;
           }
-          
+
+          const scopedClient = await getClientInScope(req, clientId);
+          if (!scopedClient) {
+            results.errors.push({
+              row: i + 2,
+              error: "Client not found or outside your organization",
+            });
+            continue;
+          }
+
           const coercedData = {
             clientId,
             authorizationNumber: authData.authorizationNumber,
@@ -6969,7 +8073,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             renewalDate: coerceDate(authData.renewalDate),
             status: authData.status || "active",
             notes: authData.notes,
-            officeId: authData.officeId,
+            officeId: scopedClient.officeId,
             mcoId: authData.mcoId,
           };
           
@@ -6992,8 +8096,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ==================== ELIGIBILITY CHECK ROUTES ====================
-  app.get("/api/clients/:clientId/eligibility-checks", isAuthenticated, async (req, res) => {
+  // Eligibility checks carry no officeId of their own; they resolve through their client.
+  const getEligibilityCheckInScope = async (req: any, id: string) => {
+    const check = await storage.getEligibilityCheck(id);
+    if (!check || !(await getClientInScope(req, check.clientId))) return undefined;
+    return check;
+  };
+
+  app.get("/api/clients/:clientId/eligibility-checks", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getClientInScope(req, req.params.clientId))) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
       const checks = await storage.getEligibilityChecksByClient(req.params.clientId);
       res.json(checks);
     } catch (error) {
@@ -7002,9 +8116,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/eligibility-checks/:id", isAuthenticated, async (req, res) => {
+  app.get("/api/eligibility-checks/:id", isAuthenticated, async (req: any, res) => {
     try {
-      const check = await storage.getEligibilityCheck(req.params.id);
+      const check = await getEligibilityCheckInScope(req, req.params.id);
       if (!check) {
         return res.status(404).json({ message: "Eligibility check not found" });
       }
@@ -7017,6 +8131,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/clients/:clientId/eligibility-checks", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getClientInScope(req, req.params.clientId))) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
       const { clientId: _, verifiedBy: __, ...userBody } = req.body;
       const coercedData = {
         ...userBody,
@@ -7040,6 +8157,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.put("/api/eligibility-checks/:id", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getEligibilityCheckInScope(req, req.params.id))) {
+        return res.status(404).json({ message: "Eligibility check not found" });
+      }
       const { clientId, verifiedBy, ...updateData } = req.body;
       const coercedData = {
         ...updateData,
@@ -7060,8 +8180,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/eligibility-checks/:id", isAuthenticated, async (req, res) => {
+  app.delete("/api/eligibility-checks/:id", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getEligibilityCheckInScope(req, req.params.id))) {
+        return res.status(404).json({ message: "Eligibility check not found" });
+      }
       await storage.deleteEligibilityCheck(req.params.id);
       res.status(204).send();
     } catch (error) {
@@ -7071,8 +8194,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get eligibility history for a client (alias)
-  app.get("/api/clients/:id/eligibility", isAuthenticated, async (req, res) => {
+  app.get("/api/clients/:id/eligibility", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getClientInScope(req, req.params.id))) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
       const checks = await storage.getEligibilityChecksByClient(req.params.id);
       res.json(checks);
     } catch (error) {
@@ -7082,8 +8208,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get latest eligibility check for a client
-  app.get("/api/clients/:id/eligibility/latest", isAuthenticated, async (req, res) => {
+  app.get("/api/clients/:id/eligibility/latest", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getClientInScope(req, req.params.id))) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
       const check = await storage.getLatestEligibilityCheck(req.params.id);
       res.json(check || null);
     } catch (error) {
@@ -7096,11 +8225,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/clients/:id/eligibility/check", isAuthenticated, async (req: any, res) => {
     try {
       const { checkType, payerId, memberId } = req.body;
-      const client = await storage.getClient(req.params.id);
+      const client = await getClientInScope(req, req.params.id);
       if (!client) {
         return res.status(404).json({ message: "Client not found" });
       }
-      
+
       // Create the eligibility check record
       const check = await storage.createEligibilityCheck({
         clientId: req.params.id,
@@ -7123,8 +8252,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get eligibility schedule for a client
-  app.get("/api/clients/:id/eligibility/schedule", isAuthenticated, async (req, res) => {
+  app.get("/api/clients/:id/eligibility/schedule", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getClientInScope(req, req.params.id))) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
       const schedule = await storage.getEligibilitySchedule(req.params.id);
       res.json(schedule || null);
     } catch (error) {
@@ -7136,8 +8268,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Create or update eligibility schedule for a client
   app.post("/api/clients/:id/eligibility/schedule", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getClientInScope(req, req.params.id))) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
       const { checkFrequency, isActive, checkType, payerId, notes } = req.body;
-      
+
       // Check if schedule exists
       const existing = await storage.getEligibilitySchedule(req.params.id);
       
@@ -7286,6 +8421,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Update client eligibility status based on check result
   app.put("/api/clients/:id/eligibility/status", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getClientInScope(req, req.params.id))) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
       const { medicaidStatus, snapStatus } = req.body;
       const client = await storage.updateClientEligibilityStatus(
         req.params.id,
@@ -7300,9 +8438,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Caregiver Compliance Routes
-  app.get("/api/caregiver-compliance/:id", isAuthenticated, requireFeature('compliance_monitoring'), async (req, res) => {
+  // A caregiver-compliance item carries no officeId of its own; it resolves
+  // through its caregiver.
+  const getCaregiverComplianceInScope = async (req: any, id: string) => {
+    const item = await storage.getCaregiverCompliance(id);
+    if (!item || !(await getCaregiverInScope(req, item.caregiverId))) return undefined;
+    return item;
+  };
+
+  app.get("/api/caregiver-compliance/:id", isAuthenticated, requireFeature('compliance_monitoring'), async (req: any, res) => {
     try {
-      const item = await storage.getCaregiverCompliance(req.params.id);
+      const item = await getCaregiverComplianceInScope(req, req.params.id);
       if (!item) {
         return res.status(404).json({ message: "Compliance item not found" });
       }
@@ -7315,6 +8461,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/caregivers/:caregiverId/compliance", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getCaregiverInScope(req, req.params.caregiverId))) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
       const { caregiverId: _, ...userBody } = req.body;
       const coercedData = {
         ...userBody,
@@ -7338,6 +8487,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.put("/api/caregiver-compliance/:id", isAuthenticated, requireFeature('compliance_monitoring'), async (req: any, res) => {
     try {
+      if (!(await getCaregiverComplianceInScope(req, req.params.id))) {
+        return res.status(404).json({ message: "Compliance item not found" });
+      }
       const { caregiverId, createdBy, ...updateData } = req.body;
       const coercedData = {
         ...updateData,
@@ -7355,8 +8507,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/caregiver-compliance/:id", isAuthenticated, requireFeature('compliance_monitoring'), async (req, res) => {
+  app.delete("/api/caregiver-compliance/:id", isAuthenticated, requireFeature('compliance_monitoring'), async (req: any, res) => {
     try {
+      if (!(await getCaregiverComplianceInScope(req, req.params.id))) {
+        return res.status(404).json({ message: "Compliance item not found" });
+      }
       await storage.deleteCaregiverCompliance(req.params.id);
       res.status(204).send();
     } catch (error) {
@@ -7438,6 +8593,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error deleting AI issue:", error);
       res.status(500).json({ message: "Failed to delete AI issue" });
+    }
+  });
+
+  // Client-side render errors reported by the frontend ErrorBoundary. Stored
+  // in the same in-memory error log the AI issues panel reads, so blank-page
+  // crashes become visible in /error-log instead of vanishing.
+  app.post("/api/client-errors", isAuthenticated, async (req: any, res) => {
+    try {
+      const { errorLogStorage } = await import("./storage");
+      const { message, stack, componentStack, url } = req.body || {};
+      if (!message) return res.status(400).json({ message: "message is required" });
+      errorLogStorage.logError({
+        endpoint: String(url || "client").slice(0, 500),
+        method: "RENDER",
+        errorMessage: `${String(message).slice(0, 1000)}\n${String(stack || "").slice(0, 2000)}\n${String(componentStack || "").slice(0, 1000)}`,
+        statusCode: 0,
+        userId: req.session?.user?.id,
+      });
+      res.json({ ok: true });
+    } catch (error) {
+      console.error("Error logging client error:", error);
+      res.status(500).json({ message: "Failed to log client error" });
     }
   });
 
@@ -7693,22 +8870,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // EVV Data routes
-  app.get("/api/evv-data", isAuthenticated, requireFeature('evv_tracking'), async (req, res) => {
+  app.get("/api/evv-data", isAuthenticated, requireFeature('evv_tracking'), async (req: any, res) => {
     try {
-      const { month, year, officeId } = req.query;
+      const { month, year } = req.query;
+      const officeFilter = parseOfficeId(req);
       let evvDataItems;
-      
+
       if (month && year) {
         evvDataItems = await storage.getEvvDataByMonthYear(
           parseInt(month as string, 10),
           parseInt(year as string, 10)
         );
-        // Filter by officeId if provided
-        if (officeId) {
-          evvDataItems = evvDataItems.filter(item => item.officeId === officeId);
+        if (officeFilter) {
+          evvDataItems = evvDataItems.filter(item => item.officeId === officeFilter);
         }
       } else {
-        evvDataItems = await storage.getAllEvvData(officeId as string | undefined);
+        evvDataItems = await storage.getAllEvvData(officeFilter);
       }
       res.json(evvDataItems);
     } catch (error) {
@@ -7717,10 +8894,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/evv-data/:id", isAuthenticated, requireFeature('evv_tracking'), async (req, res) => {
+  app.get("/api/evv-data/:id", isAuthenticated, requireFeature('evv_tracking'), async (req: any, res) => {
     try {
       const evvDataItem = await storage.getEvvData(req.params.id);
-      if (!evvDataItem) {
+      if (!evvDataItem || !(await canAccessOffice(req, evvDataItem.officeId))) {
         return res.status(404).json({ message: "EVV data not found" });
       }
       res.json(evvDataItem);
@@ -7739,6 +8916,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         percentage: req.body.percentage != null ? String(req.body.percentage) : undefined,
       };
       const validatedData = insertEvvDataSchema.parse(requestData);
+      if (validatedData.officeId && !(await canAccessOffice(req, validatedData.officeId))) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
       const evvDataItem = await storage.createEvvData(validatedData);
       
       await storage.createAuditLog({
@@ -7761,10 +8941,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put("/api/evv-data/:id", isAuthenticated, requireFeature('evv_tracking'), async (req: any, res) => {
     try {
       const oldEvvData = await storage.getEvvData(req.params.id);
-      if (!oldEvvData) {
+      if (!oldEvvData || !(await canAccessOffice(req, oldEvvData.officeId))) {
         return res.status(404).json({ message: "EVV data not found" });
       }
-      
+
       // Convert numeric fields to strings for Drizzle's numeric type
       const requestData = {
         ...req.body,
@@ -7794,10 +8974,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.delete("/api/evv-data/:id", isAuthenticated, requireFeature('evv_tracking'), async (req: any, res) => {
     try {
       const evvDataItem = await storage.getEvvData(req.params.id);
-      if (!evvDataItem) {
+      if (!evvDataItem || !(await canAccessOffice(req, evvDataItem.officeId))) {
         return res.status(404).json({ message: "EVV data not found" });
       }
-      
+
       await storage.deleteEvvData(req.params.id);
       
       await storage.createAuditLog({
@@ -8007,6 +9187,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Office-specific MCO routes
   app.get("/api/offices/:officeId/mcos", isAuthenticated, async (req, res) => {
     try {
+      if (!(await canAccessOffice(req, req.params.officeId))) {
+        return res.status(403).json({ message: "Office is outside your scope" });
+      }
       const mcos = await storage.getMcosByOffice(req.params.officeId);
       res.json(mcos);
     } catch (error) {
@@ -8017,6 +9200,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/offices/:officeId/mcos", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await canAccessOffice(req, req.params.officeId))) {
+        return res.status(403).json({ message: "Office is outside your scope" });
+      }
       const validatedData = insertMcoSchema.parse({
         ...req.body,
         officeId: req.params.officeId,
@@ -8042,6 +9228,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.put("/api/offices/:officeId/mcos/:id", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await canAccessOffice(req, req.params.officeId))) {
+        return res.status(403).json({ message: "Office is outside your scope" });
+      }
       const oldMco = await storage.getMco(req.params.id);
       const validatedData = insertMcoSchema.partial().parse(req.body);
       const mco = await storage.updateMco(req.params.id, validatedData);
@@ -8066,6 +9255,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/offices/:officeId/mcos/:id", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await canAccessOffice(req, req.params.officeId))) {
+        return res.status(403).json({ message: "Office is outside your scope" });
+      }
       const mco = await storage.getMco(req.params.id);
       if (!mco) {
         return res.status(404).json({ message: "MCO not found" });
@@ -8093,6 +9285,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Office Licenses routes
   app.get("/api/offices/:officeId/licenses", isAuthenticated, async (req, res) => {
     try {
+      if (!(await canAccessOffice(req, req.params.officeId))) {
+        return res.status(403).json({ message: "Office is outside your scope" });
+      }
       const licenses = await storage.getOfficeLicenses(req.params.officeId);
       res.json(licenses);
     } catch (error) {
@@ -8103,6 +9298,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/offices/:officeId/licenses/:id", isAuthenticated, async (req, res) => {
     try {
+      if (!(await canAccessOffice(req, req.params.officeId))) {
+        return res.status(403).json({ message: "Office is outside your scope" });
+      }
       const license = await storage.getOfficeLicense(req.params.id);
       if (!license) {
         return res.status(404).json({ message: "License not found" });
@@ -8116,6 +9314,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/offices/:officeId/licenses", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await canAccessOffice(req, req.params.officeId))) {
+        return res.status(403).json({ message: "Office is outside your scope" });
+      }
       const requestData = {
         ...req.body,
         officeId: req.params.officeId,
@@ -8145,6 +9346,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.put("/api/offices/:officeId/licenses/:id", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await canAccessOffice(req, req.params.officeId))) {
+        return res.status(403).json({ message: "Office is outside your scope" });
+      }
       const oldLicense = await storage.getOfficeLicense(req.params.id);
       const coercedBody = {
         ...req.body,
@@ -8174,6 +9378,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/offices/:officeId/licenses/:id", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await canAccessOffice(req, req.params.officeId))) {
+        return res.status(403).json({ message: "Office is outside your scope" });
+      }
       const license = await storage.getOfficeLicense(req.params.id);
       if (!license) {
         return res.status(404).json({ message: "License not found" });
@@ -8356,6 +9563,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Office Expenses routes
   app.get("/api/offices/:officeId/expenses", isAuthenticated, async (req, res) => {
     try {
+      if (!(await canAccessOffice(req, req.params.officeId))) {
+        return res.status(403).json({ message: "Office is outside your scope" });
+      }
       const expenses = await storage.getOfficeExpenses(req.params.officeId);
       res.json(expenses);
     } catch (error) {
@@ -8366,6 +9576,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/offices/:officeId/expenses", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await canAccessOffice(req, req.params.officeId))) {
+        return res.status(403).json({ message: "Office is outside your scope" });
+      }
       const requestData = {
         ...req.body,
         officeId: req.params.officeId,
@@ -8394,6 +9607,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.put("/api/offices/:officeId/expenses/:id", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await canAccessOffice(req, req.params.officeId))) {
+        return res.status(403).json({ message: "Office is outside your scope" });
+      }
       const oldExpense = await storage.getOfficeExpense(req.params.id);
       const requestData = {
         ...req.body,
@@ -8422,6 +9638,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/offices/:officeId/expenses/:id", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await canAccessOffice(req, req.params.officeId))) {
+        return res.status(403).json({ message: "Office is outside your scope" });
+      }
       const expense = await storage.getOfficeExpense(req.params.id);
       if (!expense) {
         return res.status(404).json({ message: "Expense not found" });
@@ -8449,6 +9668,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Office Dashboard Links routes
   app.get("/api/offices/:officeId/dashboard-links", isAuthenticated, async (req, res) => {
     try {
+      if (!(await canAccessOffice(req, req.params.officeId))) {
+        return res.status(403).json({ message: "Office is outside your scope" });
+      }
       const links = await storage.getOfficeDashboardLinks(req.params.officeId);
       res.json(links);
     } catch (error) {
@@ -8459,9 +9681,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/offices/:officeId/dashboard-links", isAuthenticated, async (req, res) => {
     try {
-      const user = req.user as any;
+      const user = (req.session as any)?.user as any;
       if (!user || (user.role !== "admin" && user.role !== "office_admin" && user.role !== "super_admin")) {
         return res.status(403).json({ message: "Only office managers can add dashboard links" });
+      }
+      if (!(await canAccessOffice(req, req.params.officeId))) {
+        return res.status(403).json({ message: "Office is outside your scope" });
       }
       const link = await storage.createOfficeDashboardLink({
         ...req.body,
@@ -8476,9 +9701,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.patch("/api/dashboard-links/:id", isAuthenticated, async (req, res) => {
     try {
-      const user = req.user as any;
+      const user = (req.session as any)?.user as any;
       if (!user || (user.role !== "admin" && user.role !== "office_admin" && user.role !== "super_admin")) {
         return res.status(403).json({ message: "Only office managers can edit dashboard links" });
+      }
+      const existingLink = await storage.getOfficeDashboardLink(req.params.id);
+      if (!existingLink || !(await canAccessOffice(req, existingLink.officeId))) {
+        return res.status(404).json({ message: "Dashboard link not found" });
       }
       const link = await storage.updateOfficeDashboardLink(req.params.id, req.body);
       res.json(link);
@@ -8490,9 +9719,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/dashboard-links/:id", isAuthenticated, async (req, res) => {
     try {
-      const user = req.user as any;
+      const user = (req.session as any)?.user as any;
       if (!user || (user.role !== "admin" && user.role !== "office_admin" && user.role !== "super_admin")) {
         return res.status(403).json({ message: "Only office managers can delete dashboard links" });
+      }
+      const existingLink = await storage.getOfficeDashboardLink(req.params.id);
+      if (!existingLink || !(await canAccessOffice(req, existingLink.officeId))) {
+        return res.status(404).json({ message: "Dashboard link not found" });
       }
       await storage.deleteOfficeDashboardLink(req.params.id);
       res.status(204).send();
@@ -8505,13 +9738,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // MCOs routes - admin endpoint
   app.get("/api/admin/mcos", isAuthenticated, requireAdminRole, async (req: any, res) => {
     try {
-      const currentUser = req.session?.user;
-      if (currentUser?.role === "super_admin") {
+      const officeId = parseOfficeId(req);
+      if (!officeId) {
         return res.json(await storage.getAllMcos());
       }
-      const scope = currentUser?.primaryOfficeId;
-      if (!scope) return res.json([]);
-      res.json(await storage.getMcosByOffice(scope));
+      if (officeId === "__no_office_scope__") return res.json([]);
+      res.json(await storage.getMcosByOffice(officeId));
     } catch (error) {
       console.error("Error fetching MCOs:", error);
       res.status(500).json({ message: "Failed to fetch MCOs" });
@@ -8609,26 +9841,896 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Seed the real PA Community HealthChoices MCOs for an office. Idempotent —
+  // matches by name so repeat calls (or calls after an admin has already
+  // added one of these manually) don't create duplicates. Contact/payer
+  // fields are left blank for the admin to fill in; this only solves the
+  // "no MCO is configured at all" gap, not per-office billing details.
+  const PA_CHC_MCO_TYPE_NAME = "PA Community HealthChoices (CHC)";
+  const PA_CHC_MCOS = [
+    "AmeriHealth Caritas / Keystone First CHC",
+    "PA Health & Wellness",
+    "UPMC Community HealthChoices",
+  ];
+  app.post("/api/admin/mcos/seed-pa-chc", isAuthenticated, requireAdminRole, async (req: any, res) => {
+    try {
+      const officeId = req.body.officeId;
+      if (!officeId || !(await canAccessOffice(req, officeId))) {
+        return res.status(403).json({ message: "Office is outside your scope" });
+      }
+
+      let chcType = (await storage.getAllMcoTypes()).find((t) => t.name === PA_CHC_MCO_TYPE_NAME);
+      if (!chcType) {
+        chcType = await storage.createMcoType({
+          name: PA_CHC_MCO_TYPE_NAME,
+          description: "PA Medicaid managed-care organizations administering the Community HealthChoices (CHC) LTSS waiver.",
+          isActive: true,
+        });
+      }
+
+      const existing = await storage.getMcosByOffice(officeId);
+      const existingNames = new Set(existing.map((m) => m.name));
+
+      const created: string[] = [];
+      const skipped: string[] = [];
+      for (const name of PA_CHC_MCOS) {
+        if (existingNames.has(name)) {
+          skipped.push(name);
+          continue;
+        }
+        const mco = await storage.createMco({
+          name,
+          officeId,
+          typeId: chcType.id,
+          isActive: true,
+          notes: "Seeded default PA CHC MCO — update payer ID and contact info before billing.",
+        });
+        await storage.createAuditLog({
+          userId: req.session?.user?.id,
+          action: "create",
+          entityType: "mco",
+          entityId: mco.id,
+          newValues: mco,
+          ipAddress: req.ip,
+          userAgent: req.get("User-Agent"),
+        });
+        created.push(name);
+      }
+
+      res.status(201).json({ created, skipped });
+    } catch (error) {
+      console.error("Error seeding PA CHC MCOs:", error);
+      res.status(500).json({ message: "Failed to seed PA CHC MCOs" });
+    }
+  });
+
+  // ─── Office Credentials (agency-level licensure/enrollment tracking) ────────
+  // Tracks each office's OWN credentials — PA DOH home care license renewal,
+  // PA Medicaid PROMISe (OLTL) revalidation, CMS/Medicare enrollment,
+  // per-MCO recredentialing, annual FWA training attestation, insurance.
+
+  const getOfficeCredentialInScope = async (req: any, id: string) => {
+    const credential = await storage.getOfficeCredential(id);
+    if (!credential || !(await canAccessOffice(req, credential.officeId))) return undefined;
+    return credential;
+  };
+
+  app.get("/api/office-credentials", isAuthenticated, requireAdminRole, async (req: any, res) => {
+    try {
+      const officeId = parseOfficeId(req);
+      if (officeId === "__no_office_scope__") return res.json([]);
+      res.json(await storage.getOfficeCredentials(officeId));
+    } catch (error) {
+      console.error("Error fetching office credentials:", error);
+      res.status(500).json({ message: "Failed to fetch office credentials" });
+    }
+  });
+
+  app.post("/api/office-credentials", isAuthenticated, requireAdminRole, async (req: any, res) => {
+    try {
+      const coerced = {
+        ...req.body,
+        effectiveDate: coerceDate(req.body.effectiveDate),
+        expirationDate: coerceDate(req.body.expirationDate),
+        lastRenewedAt: coerceDate(req.body.lastRenewedAt),
+        createdBy: req.session?.user?.id,
+      };
+      const validatedData = insertOfficeCredentialSchema.parse(coerced);
+      if (!(await canAccessOffice(req, validatedData.officeId))) {
+        return res.status(403).json({ message: "Office is outside your scope" });
+      }
+      const credential = await storage.createOfficeCredential(validatedData);
+      res.status(201).json(credential);
+    } catch (error: any) {
+      console.error("Error creating office credential:", error);
+      // Surface the specific reason (e.g. which field failed validation) so
+      // the UI toast tells the user what to fix instead of a generic failure.
+      const detail = error?.issues?.length
+        ? error.issues.map((i: any) => `${i.path?.join(".") || "field"}: ${i.message}`).join("; ")
+        : error?.message;
+      res.status(400).json({ message: `Failed to create office credential${detail ? ` — ${detail}` : ""}` });
+    }
+  });
+
+  app.put("/api/office-credentials/:id", isAuthenticated, requireAdminRole, async (req: any, res) => {
+    try {
+      if (!(await getOfficeCredentialInScope(req, req.params.id))) {
+        return res.status(404).json({ message: "Credential not found" });
+      }
+      const coerced = {
+        ...req.body,
+        effectiveDate: coerceDate(req.body.effectiveDate),
+        expirationDate: coerceDate(req.body.expirationDate),
+        lastRenewedAt: coerceDate(req.body.lastRenewedAt),
+      };
+      const validatedData = insertOfficeCredentialSchema.partial().omit({ officeId: true, createdBy: true }).parse(coerced);
+      const credential = await storage.updateOfficeCredential(req.params.id, validatedData);
+      res.json(credential);
+    } catch (error) {
+      console.error("Error updating office credential:", error);
+      res.status(400).json({ message: "Failed to update office credential" });
+    }
+  });
+
+  app.delete("/api/office-credentials/:id", isAuthenticated, requireAdminRole, async (req: any, res) => {
+    try {
+      if (!(await getOfficeCredentialInScope(req, req.params.id))) {
+        return res.status(404).json({ message: "Credential not found" });
+      }
+      await storage.deleteOfficeCredential(req.params.id);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting office credential:", error);
+      res.status(500).json({ message: "Failed to delete office credential" });
+    }
+  });
+
+  // Mark a credential renewed: stamps lastRenewedAt and advances the
+  // expiration by the credential's renewal cadence.
+  app.post("/api/office-credentials/:id/renew", isAuthenticated, requireAdminRole, async (req: any, res) => {
+    try {
+      const credential = await getOfficeCredentialInScope(req, req.params.id);
+      if (!credential) {
+        return res.status(404).json({ message: "Credential not found" });
+      }
+      const now = new Date();
+      // Advance from the current expiration when it's still in the future
+      // (renewing early shouldn't shorten the cycle); otherwise from today.
+      const base = credential.expirationDate && credential.expirationDate > now
+        ? new Date(credential.expirationDate)
+        : now;
+      const months = credential.renewalCadenceMonths ?? 12;
+      const nextExpiration = new Date(base);
+      nextExpiration.setMonth(nextExpiration.getMonth() + months);
+      const updated = await storage.updateOfficeCredential(req.params.id, {
+        lastRenewedAt: now,
+        expirationDate: nextExpiration,
+        status: "active",
+      });
+      res.json(updated);
+    } catch (error) {
+      console.error("Error renewing office credential:", error);
+      res.status(400).json({ message: "Failed to renew office credential" });
+    }
+  });
+
+  // Seed the recommended PA credential set for an office. Idempotent —
+  // matched by (credentialType, mcoId), so repeat calls only fill gaps.
+  // Cadences reflect the compliance research; expiration dates are left
+  // null for the admin to fill in with the real dates (a wrong seeded date
+  // would be worse than a visible blank).
+  app.post("/api/office-credentials/seed-pa-defaults", isAuthenticated, requireAdminRole, async (req: any, res) => {
+    try {
+      const officeId = req.body.officeId;
+      if (!officeId || !(await canAccessOffice(req, officeId))) {
+        return res.status(403).json({ message: "Office is outside your scope" });
+      }
+
+      const existing = await storage.getOfficeCredentials(officeId);
+      const existingKeys = new Set(existing.map((c) => `${c.credentialType}::${c.mcoId ?? ""}`));
+
+      const defaults: Array<{ credentialType: any; mcoId?: string; name: string; issuedBy: string; renewalCadenceMonths: number; renewalLeadTimeDays: number; notes: string }> = [
+        {
+          credentialType: "pa_doh_license",
+          name: "PA DOH Home Care Agency License",
+          issuedBy: "PA Department of Health",
+          renewalCadenceMonths: 12,
+          renewalLeadTimeDays: 60,
+          notes: "28 Pa. Code Ch. 611 — renewal form due at least 60 days before license expiration. Verify the license term on your actual license certificate.",
+        },
+        {
+          credentialType: "promise_revalidation",
+          name: "PA Medicaid PROMISe Enrollment Revalidation",
+          issuedBy: "PA DHS / OLTL",
+          renewalCadenceMonths: 60,
+          renewalLeadTimeDays: 60,
+          notes: "Federal 5-year Medicaid revalidation cycle; submit at least 60 days before the due date. Failure to revalidate risks program exclusion and claim recoupment.",
+        },
+        {
+          credentialType: "fwa_training",
+          name: "FWA Training & Attestation (all staff, annual)",
+          issuedBy: "CHC-MCO requirement",
+          renewalCadenceMonths: 12,
+          renewalLeadTimeDays: 30,
+          notes: "Fraud/Waste/Abuse training with attestation, required by CHC-MCO provider agreements. Confirm exact cadence per MCO provider manual.",
+        },
+        {
+          credentialType: "liability_insurance",
+          name: "General/Professional Liability Insurance",
+          issuedBy: "Insurance carrier",
+          renewalCadenceMonths: 12,
+          renewalLeadTimeDays: 30,
+          notes: "Recommended tracking — most MCO provider agreements require proof of coverage.",
+        },
+        {
+          credentialType: "workers_comp",
+          name: "Workers' Compensation Policy",
+          issuedBy: "Insurance carrier",
+          renewalCadenceMonths: 12,
+          renewalLeadTimeDays: 30,
+          notes: "Required for PA employers; MCO credentialing typically requests the certificate.",
+        },
+      ];
+
+      // One recredentialing row per MCO configured for this office. ~3-year
+      // NCQA-aligned default; the audit doc flags this cadence as unverified
+      // for the specific PA CHC MCOs — confirm in each provider manual.
+      const officeMcos = await storage.getMcosByOffice(officeId);
+      for (const mco of officeMcos.filter((m) => m.isActive)) {
+        defaults.push({
+          credentialType: "mco_credentialing",
+          mcoId: mco.id,
+          name: `MCO Recredentialing — ${mco.name}`,
+          issuedBy: mco.name,
+          renewalCadenceMonths: 36,
+          renewalLeadTimeDays: 120,
+          notes: "NCQA-aligned ~3-year default (42 CFR § 438.214). Verify the exact cycle in this MCO's provider manual, Credentialing chapter.",
+        });
+      }
+
+      const created: string[] = [];
+      const skipped: string[] = [];
+      for (const def of defaults) {
+        const key = `${def.credentialType}::${def.mcoId ?? ""}`;
+        if (existingKeys.has(key)) {
+          skipped.push(def.name);
+          continue;
+        }
+        await storage.createOfficeCredential({
+          officeId,
+          credentialType: def.credentialType,
+          mcoId: def.mcoId,
+          name: def.name,
+          issuedBy: def.issuedBy,
+          renewalCadenceMonths: def.renewalCadenceMonths,
+          renewalLeadTimeDays: def.renewalLeadTimeDays,
+          status: "active",
+          notes: def.notes,
+          createdBy: req.session?.user?.id,
+        });
+        created.push(def.name);
+      }
+
+      res.status(201).json({ created, skipped });
+    } catch (error) {
+      console.error("Error seeding PA default credentials:", error);
+      res.status(500).json({ message: "Failed to seed PA default credentials" });
+    }
+  });
+
+  // ─── Caregiver Competency Reviews (28 Pa. Code § 611.55) ────────────────────
+  // PA requires direct care worker competency to be reviewed at least
+  // annually. Scoped through the caregiver's office like other caregiver
+  // sub-resources (compliance items, certifications, notes).
+  const getCompetencyReviewInScope = async (req: any, id: string) => {
+    const review = await storage.getCaregiverCompetencyReview(id);
+    if (!review) return undefined;
+    const caregiver = await getCaregiverInScope(req, review.caregiverId);
+    if (!caregiver) return undefined;
+    return review;
+  };
+
+  app.get("/api/caregivers/:caregiverId/competency-reviews", isAuthenticated, async (req: any, res) => {
+    try {
+      if (!(await getCaregiverInScope(req, req.params.caregiverId))) {
+        return res.status(404).json({ message: "Caregiver not found" });
+      }
+      res.json(await storage.getCaregiverCompetencyReviews(req.params.caregiverId));
+    } catch (error) {
+      console.error("Error fetching competency reviews:", error);
+      res.status(500).json({ message: "Failed to fetch competency reviews" });
+    }
+  });
+
+  app.post("/api/caregivers/:caregiverId/competency-reviews", isAuthenticated, requireAdminRole, async (req: any, res) => {
+    try {
+      const caregiver = await getCaregiverInScope(req, req.params.caregiverId);
+      if (!caregiver) {
+        return res.status(404).json({ message: "Caregiver not found" });
+      }
+      const coerced = {
+        ...req.body,
+        caregiverId: req.params.caregiverId,
+        officeId: caregiver.officeId,
+        reviewerId: req.body.reviewerId || req.session?.user?.id,
+        reviewDate: coerceDate(req.body.reviewDate),
+        nextReviewDue: coerceDate(req.body.nextReviewDue),
+      };
+      const validatedData = insertCaregiverCompetencyReviewSchema.parse(coerced);
+      const review = await storage.createCaregiverCompetencyReview(validatedData);
+      res.status(201).json(review);
+    } catch (error) {
+      console.error("Error creating competency review:", error);
+      res.status(400).json({ message: "Failed to create competency review" });
+    }
+  });
+
+  app.put("/api/competency-reviews/:id", isAuthenticated, requireAdminRole, async (req: any, res) => {
+    try {
+      if (!(await getCompetencyReviewInScope(req, req.params.id))) {
+        return res.status(404).json({ message: "Competency review not found" });
+      }
+      const coerced = {
+        ...req.body,
+        reviewDate: coerceDate(req.body.reviewDate),
+        nextReviewDue: coerceDate(req.body.nextReviewDue),
+      };
+      const validatedData = insertCaregiverCompetencyReviewSchema.partial().omit({ caregiverId: true, officeId: true }).parse(coerced);
+      const review = await storage.updateCaregiverCompetencyReview(req.params.id, validatedData);
+      res.json(review);
+    } catch (error) {
+      console.error("Error updating competency review:", error);
+      res.status(400).json({ message: "Failed to update competency review" });
+    }
+  });
+
+  app.delete("/api/competency-reviews/:id", isAuthenticated, requireAdminRole, async (req: any, res) => {
+    try {
+      if (!(await getCompetencyReviewInScope(req, req.params.id))) {
+        return res.status(404).json({ message: "Competency review not found" });
+      }
+      await storage.deleteCaregiverCompetencyReview(req.params.id);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting competency review:", error);
+      res.status(500).json({ message: "Failed to delete competency review" });
+    }
+  });
+
+  // ─── Client Rights & Notices (28 Pa. Code § 611.57) ─────────────────────────
+  // Tracks delivery of the required consumer-protection notices: pre-service
+  // information packet, Consumer Notice of Direct Care Worker Status, and the
+  // 10-calendar-day advance written service-termination notice.
+  const getClientNoticeInScope = async (req: any, id: string) => {
+    const notice = await storage.getClientNotice(id);
+    if (!notice) return undefined;
+    const client = await getClientInScope(req, notice.clientId);
+    if (!client) return undefined;
+    return notice;
+  };
+
+  app.get("/api/clients/:clientId/notices", isAuthenticated, async (req: any, res) => {
+    try {
+      if (!(await getClientInScope(req, req.params.clientId))) {
+        return res.status(404).json({ message: "Client not found" });
+      }
+      res.json(await storage.getClientNotices(req.params.clientId));
+    } catch (error) {
+      console.error("Error fetching client notices:", error);
+      res.status(500).json({ message: "Failed to fetch client notices" });
+    }
+  });
+
+  app.post("/api/clients/:clientId/notices", isAuthenticated, requireAdminRole, async (req: any, res) => {
+    try {
+      const client = await getClientInScope(req, req.params.clientId);
+      if (!client) {
+        return res.status(404).json({ message: "Client not found" });
+      }
+      const coerced = {
+        ...req.body,
+        clientId: req.params.clientId,
+        officeId: client.officeId,
+        createdBy: req.session?.user?.id,
+        providedAt: coerceDate(req.body.providedAt),
+        effectiveDate: coerceDate(req.body.effectiveDate),
+      };
+      const validatedData = insertClientNoticeSchema.parse(coerced);
+      const notice = await storage.createClientNotice(validatedData);
+      res.status(201).json(notice);
+    } catch (error) {
+      console.error("Error creating client notice:", error);
+      res.status(400).json({ message: "Failed to create client notice" });
+    }
+  });
+
+  app.put("/api/client-notices/:id", isAuthenticated, requireAdminRole, async (req: any, res) => {
+    try {
+      if (!(await getClientNoticeInScope(req, req.params.id))) {
+        return res.status(404).json({ message: "Notice not found" });
+      }
+      const coerced = {
+        ...req.body,
+        providedAt: coerceDate(req.body.providedAt),
+        effectiveDate: coerceDate(req.body.effectiveDate),
+      };
+      const validatedData = insertClientNoticeSchema.partial().omit({ clientId: true, officeId: true, createdBy: true }).parse(coerced);
+      const notice = await storage.updateClientNotice(req.params.id, validatedData);
+      res.json(notice);
+    } catch (error) {
+      console.error("Error updating client notice:", error);
+      res.status(400).json({ message: "Failed to update client notice" });
+    }
+  });
+
+  app.delete("/api/client-notices/:id", isAuthenticated, requireAdminRole, async (req: any, res) => {
+    try {
+      if (!(await getClientNoticeInScope(req, req.params.id))) {
+        return res.status(404).json({ message: "Notice not found" });
+      }
+      await storage.deleteClientNotice(req.params.id);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting client notice:", error);
+      res.status(500).json({ message: "Failed to delete client notice" });
+    }
+  });
+
+  // ─── Client Special Requests ────────────────────────────────────────────────
+  const getSpecialRequestInScope = async (req: any, id: string) => {
+    const request = await storage.getClientSpecialRequest(id);
+    if (!request) return undefined;
+    const client = await getClientInScope(req, request.clientId);
+    if (!client) return undefined;
+    return request;
+  };
+
+  app.get("/api/clients/:clientId/special-requests", isAuthenticated, async (req: any, res) => {
+    try {
+      if (!(await getClientInScope(req, req.params.clientId))) {
+        return res.status(404).json({ message: "Client not found" });
+      }
+      res.json(await storage.getClientSpecialRequests(req.params.clientId));
+    } catch (error) {
+      console.error("Error fetching client special requests:", error);
+      res.status(500).json({ message: "Failed to fetch client special requests" });
+    }
+  });
+
+  app.post("/api/clients/:clientId/special-requests", isAuthenticated, async (req: any, res) => {
+    try {
+      const client = await getClientInScope(req, req.params.clientId);
+      if (!client) {
+        return res.status(404).json({ message: "Client not found" });
+      }
+      const coerced = {
+        ...req.body,
+        clientId: req.params.clientId,
+        officeId: client.officeId,
+        createdBy: req.session?.user?.id,
+        requestedDate: coerceDate(req.body.requestedDate) || new Date(),
+        resolvedAt: coerceDate(req.body.resolvedAt),
+      };
+      const validatedData = insertClientSpecialRequestSchema.parse(coerced);
+      const request = await storage.createClientSpecialRequest(validatedData);
+      res.status(201).json(request);
+    } catch (error) {
+      console.error("Error creating client special request:", error);
+      res.status(400).json({ message: "Failed to create client special request" });
+    }
+  });
+
+  app.put("/api/client-special-requests/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      if (!(await getSpecialRequestInScope(req, req.params.id))) {
+        return res.status(404).json({ message: "Special request not found" });
+      }
+      const coerced = {
+        ...req.body,
+        requestedDate: coerceDate(req.body.requestedDate),
+        resolvedAt: coerceDate(req.body.resolvedAt),
+        resolvedBy: req.body.status === "completed" || req.body.status === "declined" ? (req.body.resolvedBy || req.session?.user?.id) : req.body.resolvedBy,
+      };
+      const validatedData = insertClientSpecialRequestSchema.partial().omit({ clientId: true, officeId: true, createdBy: true }).parse(coerced);
+      const request = await storage.updateClientSpecialRequest(req.params.id, validatedData);
+      res.json(request);
+    } catch (error) {
+      console.error("Error updating client special request:", error);
+      res.status(400).json({ message: "Failed to update client special request" });
+    }
+  });
+
+  app.delete("/api/client-special-requests/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      if (!(await getSpecialRequestInScope(req, req.params.id))) {
+        return res.status(404).json({ message: "Special request not found" });
+      }
+      await storage.deleteClientSpecialRequest(req.params.id);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting client special request:", error);
+      res.status(500).json({ message: "Failed to delete client special request" });
+    }
+  });
+
+  // ─── Client Spend Down (PA Medicaid excess-income program) ──────────────────
+  const getSpendDownInScope = async (req: any, id: string) => {
+    const spendDown = await storage.getClientSpendDown(id);
+    if (!spendDown) return undefined;
+    const client = await getClientInScope(req, spendDown.clientId);
+    if (!client) return undefined;
+    return spendDown;
+  };
+
+  app.get("/api/clients/:clientId/spend-downs", isAuthenticated, async (req: any, res) => {
+    try {
+      if (!(await getClientInScope(req, req.params.clientId))) {
+        return res.status(404).json({ message: "Client not found" });
+      }
+      res.json(await storage.getClientSpendDowns(req.params.clientId));
+    } catch (error) {
+      console.error("Error fetching client spend-downs:", error);
+      res.status(500).json({ message: "Failed to fetch client spend-downs" });
+    }
+  });
+
+  app.post("/api/clients/:clientId/spend-downs", isAuthenticated, async (req: any, res) => {
+    try {
+      const client = await getClientInScope(req, req.params.clientId);
+      if (!client) {
+        return res.status(404).json({ message: "Client not found" });
+      }
+      const coerced = {
+        ...req.body,
+        clientId: req.params.clientId,
+        officeId: client.officeId,
+        createdBy: req.session?.user?.id,
+        periodStart: coerceDate(req.body.periodStart),
+        periodEnd: coerceDate(req.body.periodEnd),
+        metDate: coerceDate(req.body.metDate),
+      };
+      const validatedData = insertClientSpendDownSchema.parse(coerced);
+      const spendDown = await storage.createClientSpendDown(validatedData);
+      res.status(201).json(spendDown);
+    } catch (error) {
+      console.error("Error creating client spend-down:", error);
+      res.status(400).json({ message: "Failed to create client spend-down" });
+    }
+  });
+
+  app.put("/api/client-spend-downs/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      if (!(await getSpendDownInScope(req, req.params.id))) {
+        return res.status(404).json({ message: "Spend-down record not found" });
+      }
+      const coerced = {
+        ...req.body,
+        periodStart: coerceDate(req.body.periodStart),
+        periodEnd: coerceDate(req.body.periodEnd),
+        metDate: coerceDate(req.body.metDate),
+      };
+      const validatedData = insertClientSpendDownSchema.partial().omit({ clientId: true, officeId: true, createdBy: true }).parse(coerced);
+      const spendDown = await storage.updateClientSpendDown(req.params.id, validatedData);
+      res.json(spendDown);
+    } catch (error) {
+      console.error("Error updating client spend-down:", error);
+      res.status(400).json({ message: "Failed to update client spend-down" });
+    }
+  });
+
+  app.delete("/api/client-spend-downs/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      if (!(await getSpendDownInScope(req, req.params.id))) {
+        return res.status(404).json({ message: "Spend-down record not found" });
+      }
+      await storage.deleteClientSpendDown(req.params.id);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting client spend-down:", error);
+      res.status(500).json({ message: "Failed to delete client spend-down" });
+    }
+  });
+
+  // ─── OIG "Seven Elements" Compliance Program: Officer/Committee ─────────────
+  const getComplianceOfficerInScope = async (req: any, id: string) => {
+    const designation = await storage.getComplianceOfficerDesignation(id);
+    if (!designation || !(await canAccessOffice(req, designation.officeId))) return undefined;
+    return designation;
+  };
+
+  app.get("/api/compliance-officers", isAuthenticated, requireAdminRole, async (req: any, res) => {
+    try {
+      const officeId = parseOfficeId(req);
+      if (!officeId || officeId === "__no_office_scope__") return res.json([]);
+      res.json(await storage.getComplianceOfficerDesignations(officeId));
+    } catch (error) {
+      console.error("Error fetching compliance officer designations:", error);
+      res.status(500).json({ message: "Failed to fetch compliance officer designations" });
+    }
+  });
+
+  app.post("/api/compliance-officers", isAuthenticated, requireAdminRole, async (req: any, res) => {
+    try {
+      const coerced = {
+        ...req.body,
+        effectiveDate: coerceDate(req.body.effectiveDate),
+        endDate: coerceDate(req.body.endDate),
+        createdBy: req.session?.user?.id,
+      };
+      const validatedData = insertComplianceOfficerDesignationSchema.parse(coerced);
+      if (!(await canAccessOffice(req, validatedData.officeId))) {
+        return res.status(403).json({ message: "Office is outside your scope" });
+      }
+      const designation = await storage.createComplianceOfficerDesignation(validatedData);
+      res.status(201).json(designation);
+    } catch (error) {
+      console.error("Error creating compliance officer designation:", error);
+      res.status(400).json({ message: "Failed to create compliance officer designation" });
+    }
+  });
+
+  app.put("/api/compliance-officers/:id", isAuthenticated, requireAdminRole, async (req: any, res) => {
+    try {
+      if (!(await getComplianceOfficerInScope(req, req.params.id))) {
+        return res.status(404).json({ message: "Designation not found" });
+      }
+      const coerced = {
+        ...req.body,
+        effectiveDate: coerceDate(req.body.effectiveDate),
+        endDate: coerceDate(req.body.endDate),
+      };
+      const validatedData = insertComplianceOfficerDesignationSchema.partial().omit({ officeId: true, createdBy: true }).parse(coerced);
+      const designation = await storage.updateComplianceOfficerDesignation(req.params.id, validatedData);
+      res.json(designation);
+    } catch (error) {
+      console.error("Error updating compliance officer designation:", error);
+      res.status(400).json({ message: "Failed to update compliance officer designation" });
+    }
+  });
+
+  app.delete("/api/compliance-officers/:id", isAuthenticated, requireAdminRole, async (req: any, res) => {
+    try {
+      if (!(await getComplianceOfficerInScope(req, req.params.id))) {
+        return res.status(404).json({ message: "Designation not found" });
+      }
+      await storage.deleteComplianceOfficerDesignation(req.params.id);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting compliance officer designation:", error);
+      res.status(500).json({ message: "Failed to delete compliance officer designation" });
+    }
+  });
+
+  // ─── OIG "Seven Elements" Compliance Program: Hotline Reports ───────────────
+  // Submission requires only isAuthenticated (any logged-in staff member can
+  // file a report) — reporterName/reporterContact are optional so leaving
+  // them blank keeps the record anonymous; no createdBy is stored on this
+  // table at all, so there's no server-side identity trail for an anonymous
+  // report to protect or leak. Managing/resolving a report is admin-only.
+  const getComplianceHotlineReportInScope = async (req: any, id: string) => {
+    const report = await storage.getComplianceHotlineReport(id);
+    if (!report || !(await canAccessOffice(req, report.officeId))) return undefined;
+    return report;
+  };
+
+  app.get("/api/compliance-hotline-reports", isAuthenticated, requireAdminRole, async (req: any, res) => {
+    try {
+      const officeId = parseOfficeId(req);
+      if (!officeId || officeId === "__no_office_scope__") return res.json([]);
+      res.json(await storage.getComplianceHotlineReports(officeId));
+    } catch (error) {
+      console.error("Error fetching compliance hotline reports:", error);
+      res.status(500).json({ message: "Failed to fetch compliance hotline reports" });
+    }
+  });
+
+  app.post("/api/compliance-hotline-reports", isAuthenticated, async (req: any, res) => {
+    try {
+      const officeId = req.body.officeId || req.session?.user?.primaryOfficeId;
+      if (!officeId || !(await canAccessOffice(req, officeId))) {
+        return res.status(403).json({ message: "Office is outside your scope" });
+      }
+      const existing = await storage.getComplianceHotlineReports(officeId);
+      const year = new Date().getFullYear();
+      const seq = existing.filter((r) => r.reportNumber?.includes(`-${year}-`)).length + 1;
+      const reportNumber = `CHR-${year}-${String(seq).padStart(3, "0")}`;
+      const coerced = {
+        ...req.body,
+        officeId,
+        reportNumber,
+        receivedAt: coerceDate(req.body.receivedAt) || new Date(),
+        reporterName: req.body.isAnonymous ? undefined : req.body.reporterName,
+        reporterContact: req.body.isAnonymous ? undefined : req.body.reporterContact,
+      };
+      const validatedData = insertComplianceHotlineReportSchema.parse(coerced);
+      const report = await storage.createComplianceHotlineReport(validatedData);
+      res.status(201).json(report);
+    } catch (error) {
+      console.error("Error creating compliance hotline report:", error);
+      res.status(400).json({ message: "Failed to create compliance hotline report" });
+    }
+  });
+
+  app.put("/api/compliance-hotline-reports/:id", isAuthenticated, requireAdminRole, async (req: any, res) => {
+    try {
+      if (!(await getComplianceHotlineReportInScope(req, req.params.id))) {
+        return res.status(404).json({ message: "Report not found" });
+      }
+      const coerced = {
+        ...req.body,
+        receivedAt: coerceDate(req.body.receivedAt),
+        resolvedAt: coerceDate(req.body.resolvedAt),
+        resolvedBy: req.body.status === "resolved" || req.body.status === "closed" ? (req.body.resolvedBy || req.session?.user?.id) : req.body.resolvedBy,
+      };
+      const validatedData = insertComplianceHotlineReportSchema.partial().omit({ officeId: true, reportNumber: true }).parse(coerced);
+      const report = await storage.updateComplianceHotlineReport(req.params.id, validatedData);
+      res.json(report);
+    } catch (error) {
+      console.error("Error updating compliance hotline report:", error);
+      res.status(400).json({ message: "Failed to update compliance hotline report" });
+    }
+  });
+
+  app.delete("/api/compliance-hotline-reports/:id", isAuthenticated, requireAdminRole, async (req: any, res) => {
+    try {
+      if (!(await getComplianceHotlineReportInScope(req, req.params.id))) {
+        return res.status(404).json({ message: "Report not found" });
+      }
+      await storage.deleteComplianceHotlineReport(req.params.id);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting compliance hotline report:", error);
+      res.status(500).json({ message: "Failed to delete compliance hotline report" });
+    }
+  });
+
+  // OIG "Seven Elements" program-overview aggregator: maps each element to a
+  // status computed from the trackers that already exist, plus the two new
+  // ones above. Read-only, no new abstraction — just count/exists queries.
+  app.get("/api/compliance/program-overview", isAuthenticated, requireAdminRole, async (req: any, res) => {
+    try {
+      const officeId = parseOfficeId(req);
+      if (!officeId || officeId === "__no_office_scope__") {
+        return res.json({ officeId: null, elements: [] });
+      }
+      const { policyAcknowledgments, dohAuditAssessments, employeeNotes: employeeNotesTable } = await import("@shared/schema");
+
+      const oneYearAgo = new Date();
+      oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
+
+      const [officeUserIds, credentials, hotlineReports, officers, qmLogs, audits, notes] = await Promise.all([
+        db.select({ id: users.id }).from(users).where(eq(users.primaryOfficeId, officeId)),
+        storage.getOfficeCredentials(officeId),
+        storage.getComplianceHotlineReports(officeId),
+        storage.getComplianceOfficerDesignations(officeId),
+        db.select().from(qualityManagementLogs).where(eq(qualityManagementLogs.officeId, officeId)),
+        db.select().from(dohAuditAssessments).where(eq(dohAuditAssessments.officeId, officeId)),
+        db.select().from(employeeNotesTable).where(eq(employeeNotesTable.officeId, officeId)),
+      ]);
+
+      const userIds = new Set(officeUserIds.map((u) => u.id));
+      const policyAcks = userIds.size
+        ? await db.select().from(policyAcknowledgments)
+        : [];
+      const officeAckCount = policyAcks.filter((a: any) => userIds.has(a.userId)).length;
+
+      const activeOfficer = officers.find((o) => !o.endDate);
+      const activeFwaTraining = credentials.some((c) => c.credentialType === "fwa_training" && c.status === "active");
+      const recentMonitoring = [...qmLogs, ...audits].some((r: any) => r.createdAt && new Date(r.createdAt) >= oneYearAgo);
+      const overdueHotline = hotlineReports.filter((r) => {
+        if (r.status !== "received" && r.status !== "under_investigation") return false;
+        const ageMs = Date.now() - new Date(r.receivedAt).getTime();
+        return ageMs > 30 * 24 * 60 * 60 * 1000;
+      });
+
+      const elements = [
+        {
+          element: 1,
+          title: "Written policies & standards of conduct",
+          status: officeAckCount > 0 ? "built_in" : "needs_attention",
+          detail: officeAckCount > 0 ? `${officeAckCount} policy acknowledgment(s) on file.` : "No policy acknowledgments on file yet.",
+          linkHref: "/policy-management",
+        },
+        {
+          element: 2,
+          title: "Designated compliance officer/committee",
+          status: activeOfficer ? "built_in" : "gap",
+          detail: activeOfficer ? `${activeOfficer.personName} (${activeOfficer.role === "compliance_officer" ? "Compliance Officer" : "Committee Member"})` : "No active compliance officer or committee member designated.",
+          linkHref: "/compliance-program",
+        },
+        {
+          element: 3,
+          title: "Training and education",
+          status: activeFwaTraining ? "built_in" : "needs_attention",
+          detail: activeFwaTraining ? "FWA training tracked as an active agency credential." : "No active FWA training credential on file.",
+          linkHref: "/office-credentials",
+        },
+        {
+          element: 4,
+          title: "Effective communication (anonymous hotline)",
+          status: "built_in",
+          detail: `${hotlineReports.length} report(s) logged to date.`,
+          linkHref: "/compliance-program",
+        },
+        {
+          element: 5,
+          title: "Internal monitoring and auditing",
+          status: recentMonitoring ? "built_in" : "needs_attention",
+          detail: recentMonitoring ? "QAPI logs or a DOH audit assessment on file within the last 12 months." : "No QAPI log or DOH audit assessment within the last 12 months.",
+          linkHref: "/quality-management",
+        },
+        {
+          element: 6,
+          title: "Enforcing standards via discipline",
+          status: notes.length > 0 ? "built_in" : "needs_attention",
+          detail: notes.length > 0 ? `${notes.length} write-up(s)/coaching note(s) on file.` : "No write-ups or coaching notes on file.",
+          linkHref: "/write-ups",
+        },
+        {
+          element: 7,
+          title: "Prompt response & corrective action",
+          status: overdueHotline.length > 0 ? "needs_attention" : "built_in",
+          detail: overdueHotline.length > 0 ? `${overdueHotline.length} hotline report(s) open past 30 days.` : "No hotline reports open past 30 days.",
+          linkHref: "/compliance-program",
+        },
+      ];
+
+      res.json({ officeId, elements });
+    } catch (error) {
+      console.error("Error generating compliance program overview:", error);
+      res.status(500).json({ message: "Failed to generate compliance program overview" });
+    }
+  });
+
+  // AI-prioritized daily compliance action plan. Aggregates everything the
+  // expiration/incident trackers know about and asks the AI to turn it into
+  // a worked plan; degrades to a deterministic rule-based list when no AI
+  // key is configured (response carries source: "ai" | "rules").
+  app.get("/api/compliance/ai-insights", isAuthenticated, requireAdminRole, async (req: any, res) => {
+    try {
+      const officeId = parseOfficeId(req);
+      if (officeId === "__no_office_scope__") {
+        return res.json({ source: "rules", generatedAt: new Date().toISOString(), summary: "No office scope.", actions: [] });
+      }
+      const { getComplianceInsights } = await import("./compliance-insights-service");
+      const insights = await getComplianceInsights(officeId);
+      res.json(insights);
+    } catch (error) {
+      console.error("Error generating compliance insights:", error);
+      res.status(500).json({ message: "Failed to generate compliance insights" });
+    }
+  });
+
   // Financial Reports endpoint
   app.get("/api/admin/financial-reports", isAuthenticated, async (req: any, res) => {
     try {
-      const user = req.user;
+      const user = (req.session as any)?.user;
       if (!user || !["admin", "office_admin", "super_admin", "supervisor"].includes(user.role)) {
         return res.status(403).json({ message: "Access denied. Admin role required." });
       }
-      const { officeId, startDate, endDate, mcoId } = req.query;
-      
+      const { startDate, endDate, mcoId } = req.query;
+
+      // Lock non-super-admins to their own office regardless of the query param;
+      // otherwise this leaks cross-org billing/AR data when officeId is omitted.
+      let officeId: string | undefined;
+      if (user.role === "super_admin") {
+        officeId = req.query.officeId as string | undefined;
+      } else {
+        officeId = req.session?.user?.primaryOfficeId;
+        if (!officeId) return res.status(403).json({ message: "No office in scope" });
+      }
+
       const start = startDate ? new Date(startDate as string) : new Date(new Date().getFullYear(), new Date().getMonth(), 1);
       const end = endDate ? new Date(endDate as string) : new Date();
-      
+
       // Get all relevant data
-      const billingRecords = await storage.getBillingRecords(officeId as string | undefined);
-      const allClaims = await storage.getClaimsByDateRange(start, end, officeId as string | undefined);
-      const agingReport = await storage.getClaimsAgingReport(officeId as string | undefined);
-      const claimsSummary = await storage.getClaimsSummary(officeId as string | undefined, start, end);
+      const billingRecords = await storage.getBillingRecords(officeId);
+      const allClaims = await storage.getClaimsByDateRange(start, end, officeId);
+      const agingReport = await storage.getClaimsAgingReport(officeId);
+      const claimsSummary = await storage.getClaimsSummary(officeId, start, end);
       const offices = await storage.getAllOffices();
       const mcos = await storage.getAllMcos();
-      const caregivers = await storage.getAllCaregivers(officeId as string | undefined);
+      const caregivers = await storage.getAllCaregivers(officeId);
       
       // Filter by MCO if specified
       const filteredClaims = mcoId 
@@ -9139,6 +11241,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ==================== PAYROLL CONFIG ROUTES ====================
   app.get("/api/offices/:officeId/payroll-config", isAuthenticated, async (req, res) => {
     try {
+      if (!(await canAccessOffice(req, req.params.officeId))) {
+        return res.status(403).json({ message: "Office is outside your scope" });
+      }
       const config = await storage.getOfficePayrollConfig(req.params.officeId);
       res.json(config || null);
     } catch (error) {
@@ -9149,6 +11254,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/offices/:officeId/payroll-config", isAuthenticated, async (req, res) => {
     try {
+      if (!(await canAccessOffice(req, req.params.officeId))) {
+        return res.status(403).json({ message: "Office is outside your scope" });
+      }
       const config = await storage.upsertOfficePayrollConfig({
         ...req.body,
         officeId: req.params.officeId,
@@ -9163,6 +11271,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ==================== OFFICE MCO BILLING RATES ROUTES ====================
   app.get("/api/offices/:officeId/mco-rates", isAuthenticated, async (req, res) => {
     try {
+      if (!(await canAccessOffice(req, req.params.officeId))) {
+        return res.status(403).json({ message: "Office is outside your scope" });
+      }
       const mcoId = req.query.mcoId as string | undefined;
       const rates = await storage.getOfficeMcoBillingRates(req.params.officeId, mcoId);
       res.json(rates);
@@ -9174,6 +11285,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/offices/:officeId/mco-rates", isAuthenticated, async (req, res) => {
     try {
+      if (!(await canAccessOffice(req, req.params.officeId))) {
+        return res.status(403).json({ message: "Office is outside your scope" });
+      }
       const data = {
         ...req.body,
         officeId: req.params.officeId,
@@ -9190,6 +11304,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.put("/api/offices/:officeId/mco-rates/:id", isAuthenticated, async (req, res) => {
     try {
+      if (!(await canAccessOffice(req, req.params.officeId))) {
+        return res.status(403).json({ message: "Office is outside your scope" });
+      }
       const data = {
         ...req.body,
         effectiveFrom: req.body.effectiveFrom ? new Date(req.body.effectiveFrom) : undefined,
@@ -9205,6 +11322,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/offices/:officeId/mco-rates/:id", isAuthenticated, async (req, res) => {
     try {
+      if (!(await canAccessOffice(req, req.params.officeId))) {
+        return res.status(403).json({ message: "Office is outside your scope" });
+      }
       await storage.deleteOfficeMcoBillingRate(req.params.id);
       res.status(204).send();
     } catch (error) {
@@ -9400,8 +11520,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const payPeriodEnd = new Date(payrollRun.payPeriodEnd);
       const midpoint = new Date(payPeriodStart.getTime() + (payPeriodEnd.getTime() - payPeriodStart.getTime()) / 2);
 
-      // Delete existing entries for this payroll run (re-import replaces old data)
-      await storage.deleteTimeEntriesByPayrollRun(runId);
+      // Re-import replaces previously *uploaded* hours only — entries pulled
+      // from the caregiver schedule ("schedule_" batches) are left intact so
+      // the two sources can be combined in one run.
+      await storage.deleteTimeEntriesBySourcePrefix(runId, "import_");
 
       const entriesToCreate: any[] = [];
 
@@ -9490,9 +11612,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       });
 
-      // Process entries - match caregivers and clients
+      // Process entries — match the caregiver by Assignment ID first, then by
+      // their HHAX caregiver code (the "HHA ID" on HHAeXchange exports), so a
+      // plain HHA hours export imports without any ADP identifiers.
       for (const entry of entriesToCreate) {
-        const caregiver = await storage.getCaregiverByAssignmentId(entry.caregiverAssignmentId);
+        const caregiver =
+          (await storage.getCaregiverByAssignmentId(entry.caregiverAssignmentId)) ??
+          (await storage.getCaregiverByHhaxCode(entry.caregiverAssignmentId));
         const client = await storage.getClientByHhaxId(entry.clientHhaxId);
 
         if (!caregiver) {
@@ -9503,31 +11629,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
             caregiverAssignmentId: entry.caregiverAssignmentId,
             hours: entry.hours,
             week: entry.weekNumber,
-            error: `Caregiver not found for Assignment ID: ${entry.caregiverAssignmentId}`,
+            error: `Caregiver not found for Assignment ID / HHA ID: ${entry.caregiverAssignmentId}`,
           });
           unmatched++;
           continue;
         }
 
-        if (!client) {
-          resultsList.push({
-            row: entry.rowNumber,
-            status: "unmatched",
-            clientHhaxId: entry.clientHhaxId,
-            caregiverAssignmentId: entry.caregiverAssignmentId,
-            hours: entry.hours,
-            week: entry.weekNumber,
-            caregiverName: `${caregiver.firstName || ""} ${caregiver.lastName || ""}`.trim(),
-            error: `Client not found for HHAX ID: ${entry.clientHhaxId}`,
-          });
-          unmatched++;
-          continue;
-        }
-
+        // A missing client match no longer blocks the hours — payroll pays the
+        // caregiver either way. The row is imported and flagged so the client
+        // link can be fixed later.
         await storage.createTimeEntry({
           payrollRunId: runId,
           caregiverId: caregiver.id,
-          clientId: client.id,
+          clientId: client?.id ?? null,
           entryDate: entry.entryDate,
           hoursWorked: entry.hours.toFixed(2),
           weekNumber: entry.weekNumber,
@@ -9536,9 +11650,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
 
         const caregiverName = `${caregiver.firstName || ""} ${caregiver.lastName || ""}`.trim();
-        const clientName = client.firstName && client.lastName 
-          ? `${client.firstName} ${client.lastName}` 
-          : client.hhaxAdmissionId || "";
+        const clientName = client
+          ? (client.firstName && client.lastName
+              ? `${client.firstName} ${client.lastName}`
+              : client.hhaxAdmissionId || "")
+          : `(no client match: ${entry.clientHhaxId})`;
 
         resultsList.push({
           row: entry.rowNumber,
@@ -9566,6 +11682,100 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error importing billing hours:", error);
       res.status(500).json({ message: "Failed to import billing hours" });
+    }
+  });
+
+  // Pull payroll hours straight from the caregiver schedule — no ADP or
+  // spreadsheet needed. Counts confirmed (and completed) client visits inside
+  // the run's pay period and turns them into time entries, replacing any
+  // previous schedule pull but leaving uploaded HHA hours untouched.
+  app.post("/api/payroll/:runId/pull-schedule-hours", isAuthenticated, requireFeature('billing_payroll'), async (req: any, res) => {
+    try {
+      const { runId } = req.params;
+      const payrollRun = await storage.getPayrollRun(runId);
+      if (!payrollRun || !(await canAccessOffice(req, payrollRun.officeId))) {
+        return res.status(404).json({ message: "Payroll run not found" });
+      }
+
+      const statuses: string[] = Array.isArray(req.body?.statuses) && req.body.statuses.length
+        ? req.body.statuses.map(String)
+        : ["confirmed", "completed"];
+
+      const payPeriodStart = new Date(payrollRun.payPeriodStart);
+      const payPeriodEnd = new Date(payrollRun.payPeriodEnd);
+      const midpoint = new Date(payPeriodStart.getTime() + (payPeriodEnd.getTime() - payPeriodStart.getTime()) / 2);
+
+      const schedules = await storage.getSchedulesForPayrollPull(
+        payrollRun.officeId, payPeriodStart, payPeriodEnd, statuses,
+      );
+
+      // Visit length from the scheduled start/end times ("HH:MM"); a shift
+      // ending past midnight rolls into the next day.
+      const shiftHours = (start: string | null, end: string | null): number | null => {
+        if (!start || !end) return null;
+        const m1 = /^(\d{1,2}):(\d{2})/.exec(start.trim());
+        const m2 = /^(\d{1,2}):(\d{2})/.exec(end.trim());
+        if (!m1 || !m2) return null;
+        const startMin = Number(m1[1]) * 60 + Number(m1[2]);
+        let endMin = Number(m2[1]) * 60 + Number(m2[2]);
+        if (endMin <= startMin) endMin += 24 * 60;
+        return (endMin - startMin) / 60;
+      };
+
+      const importBatchId = `schedule_${Date.now()}`;
+      await storage.deleteTimeEntriesBySourcePrefix(runId, "schedule_");
+
+      let created = 0;
+      let skipped = 0;
+      let totalHours = 0;
+      const caregiverIds = new Set<string>();
+      const skippedDetails: Array<{ scheduleId: string; caregiver: string; date: string; reason: string }> = [];
+
+      for (const s of schedules) {
+        const hours = shiftHours(s.startTime, s.endTime);
+        const caregiverName = `${s.caregiverFirstName || ""} ${s.caregiverLastName || ""}`.trim();
+        const dateStr = new Date(s.scheduledDate).toISOString().slice(0, 10);
+        if (hours === null || hours <= 0) {
+          skipped++;
+          skippedDetails.push({
+            scheduleId: s.id,
+            caregiver: caregiverName,
+            date: dateStr,
+            reason: `Invalid start/end time (${s.startTime || "—"}–${s.endTime || "—"})`,
+          });
+          continue;
+        }
+        const entryDate = new Date(s.scheduledDate);
+        await storage.createTimeEntry({
+          payrollRunId: runId,
+          caregiverId: s.caregiverId,
+          clientId: s.clientId ?? null,
+          entryDate,
+          hoursWorked: hours.toFixed(2),
+          weekNumber: entryDate <= midpoint ? 1 : 2,
+          importBatchId,
+          notes: `Pulled from schedule (${s.status})`,
+        });
+        created++;
+        totalHours += hours;
+        caregiverIds.add(s.caregiverId);
+      }
+
+      res.json({
+        summary: {
+          visitsFound: schedules.length,
+          entriesCreated: created,
+          skipped,
+          caregivers: caregiverIds.size,
+          totalHours: Number(totalHours.toFixed(2)),
+          statuses,
+        },
+        skippedDetails,
+        importBatchId,
+      });
+    } catch (error) {
+      console.error("Error pulling schedule hours:", error);
+      res.status(500).json({ message: "Failed to pull hours from schedule" });
     }
   });
 
@@ -9968,8 +12178,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Office PA Survey Status routes
-  app.get("/api/offices/:officeId/pa-survey", isAuthenticated, async (req, res) => {
+  app.get("/api/offices/:officeId/pa-survey", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await canAccessOffice(req, req.params.officeId))) {
+        return res.status(403).json({ message: "Office is outside your scope" });
+      }
       await storage.seedDefaultPaSurveyChecklistItems();
       const statuses = await storage.initializeOfficePaSurveyStatuses(req.params.officeId);
       const items = await storage.getPaSurveyChecklistItems();
@@ -9996,6 +12209,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.put("/api/offices/:officeId/pa-survey/:checklistItemId", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await canAccessOffice(req, req.params.officeId))) {
+        return res.status(403).json({ message: "Office is outside your scope" });
+      }
       const updateData: any = {
         officeId: req.params.officeId,
         checklistItemId: req.params.checklistItemId,
@@ -10019,8 +12235,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ==================== CAREGIVER PROFILE ROUTES ====================
 
   // Caregiver Notes
-  app.get("/api/caregivers/:caregiverId/notes", isAuthenticated, async (req, res) => {
+  app.get("/api/caregivers/:caregiverId/notes", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getCaregiverInScope(req, req.params.caregiverId))) {
+        return res.status(404).json({ message: "Caregiver not found" });
+      }
       const notes = await storage.getCaregiverNotes(req.params.caregiverId);
       res.json(notes);
     } catch (error) {
@@ -10031,6 +12250,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/caregivers/:caregiverId/notes", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getCaregiverInScope(req, req.params.caregiverId))) {
+        return res.status(404).json({ message: "Caregiver not found" });
+      }
       const { caregiverId: _, authorId: __, ...userBody } = req.body;
       const validatedBody = insertCaregiverNoteSchema.omit({ caregiverId: true, authorId: true }).parse(userBody);
       const note = await storage.createCaregiverNote({
@@ -10045,8 +12267,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/caregiver-notes/:id", isAuthenticated, async (req, res) => {
+  app.put("/api/caregiver-notes/:id", isAuthenticated, async (req: any, res) => {
     try {
+      const existing = await storage.getCaregiverNote(req.params.id);
+      if (!existing || !(await getCaregiverInScope(req, existing.caregiverId))) {
+        return res.status(404).json({ message: "Note not found" });
+      }
       const { caregiverId, authorId, ...updateData } = req.body;
       const validatedData = insertCaregiverNoteSchema.partial().parse(updateData);
       const note = await storage.updateCaregiverNote(req.params.id, validatedData);
@@ -10057,8 +12283,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/caregiver-notes/:id", isAuthenticated, async (req, res) => {
+  app.delete("/api/caregiver-notes/:id", isAuthenticated, async (req: any, res) => {
     try {
+      const existing = await storage.getCaregiverNote(req.params.id);
+      if (!existing || !(await getCaregiverInScope(req, existing.caregiverId))) {
+        return res.status(404).json({ message: "Note not found" });
+      }
       await storage.deleteCaregiverNote(req.params.id);
       res.status(204).send();
     } catch (error) {
@@ -10505,8 +12735,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Caregiver Preferences
-  app.get("/api/caregivers/:caregiverId/preferences", isAuthenticated, async (req, res) => {
+  app.get("/api/caregivers/:caregiverId/preferences", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getCaregiverInScope(req, req.params.caregiverId))) {
+        return res.status(404).json({ message: "Caregiver not found" });
+      }
       const preferences = await storage.getCaregiverPreferences(req.params.caregiverId);
       res.json(preferences);
     } catch (error) {
@@ -10515,8 +12748,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/caregivers/:caregiverId/preferences", isAuthenticated, async (req, res) => {
+  app.post("/api/caregivers/:caregiverId/preferences", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getCaregiverInScope(req, req.params.caregiverId))) {
+        return res.status(404).json({ message: "Caregiver not found" });
+      }
       const { caregiverId: _, ...userBody } = req.body;
       const validatedBody = insertCaregiverPreferenceSchema.omit({ caregiverId: true }).parse(userBody);
       const preference = await storage.createCaregiverPreference({
@@ -10530,8 +12766,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/caregiver-preferences/:id", isAuthenticated, async (req, res) => {
+  app.put("/api/caregiver-preferences/:id", isAuthenticated, async (req: any, res) => {
     try {
+      const existing = await storage.getCaregiverPreference(req.params.id);
+      if (!existing || !(await getCaregiverInScope(req, existing.caregiverId))) {
+        return res.status(404).json({ message: "Preference not found" });
+      }
       const { caregiverId, ...updateData } = req.body;
       const validatedData = insertCaregiverPreferenceSchema.partial().parse(updateData);
       const preference = await storage.updateCaregiverPreference(req.params.id, validatedData);
@@ -10542,8 +12782,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/caregiver-preferences/:id", isAuthenticated, async (req, res) => {
+  app.delete("/api/caregiver-preferences/:id", isAuthenticated, async (req: any, res) => {
     try {
+      const existing = await storage.getCaregiverPreference(req.params.id);
+      if (!existing || !(await getCaregiverInScope(req, existing.caregiverId))) {
+        return res.status(404).json({ message: "Preference not found" });
+      }
       await storage.deleteCaregiverPreference(req.params.id);
       res.status(204).send();
     } catch (error) {
@@ -10553,8 +12797,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Caregiver Absences
-  app.get("/api/caregivers/:caregiverId/absences", isAuthenticated, async (req, res) => {
+  app.get("/api/caregivers/:caregiverId/absences", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getCaregiverInScope(req, req.params.caregiverId))) {
+        return res.status(404).json({ message: "Caregiver not found" });
+      }
       const absences = await storage.getCaregiverAbsences(req.params.caregiverId);
       res.json(absences);
     } catch (error) {
@@ -10563,8 +12810,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/caregivers/:caregiverId/absences", isAuthenticated, async (req, res) => {
+  app.post("/api/caregivers/:caregiverId/absences", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getCaregiverInScope(req, req.params.caregiverId))) {
+        return res.status(404).json({ message: "Caregiver not found" });
+      }
       const { caregiverId: _, ...userBody } = req.body;
       const coercedData = {
         ...userBody,
@@ -10584,8 +12834,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/caregiver-absences/:id", isAuthenticated, async (req, res) => {
+  app.put("/api/caregiver-absences/:id", isAuthenticated, async (req: any, res) => {
     try {
+      const existing = await storage.getCaregiverAbsence(req.params.id);
+      if (!existing || !(await getCaregiverInScope(req, existing.caregiverId))) {
+        return res.status(404).json({ message: "Absence not found" });
+      }
       const { caregiverId, ...updateData } = req.body;
       const coercedData = {
         ...updateData,
@@ -10602,8 +12856,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/caregiver-absences/:id", isAuthenticated, async (req, res) => {
+  app.delete("/api/caregiver-absences/:id", isAuthenticated, async (req: any, res) => {
     try {
+      const existing = await storage.getCaregiverAbsence(req.params.id);
+      if (!existing || !(await getCaregiverInScope(req, existing.caregiverId))) {
+        return res.status(404).json({ message: "Absence not found" });
+      }
       await storage.deleteCaregiverAbsence(req.params.id);
       res.status(204).send();
     } catch (error) {
@@ -10613,8 +12871,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Caregiver Availability
-  app.get("/api/caregivers/:caregiverId/availability", isAuthenticated, async (req, res) => {
+  app.get("/api/caregivers/:caregiverId/availability", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getCaregiverInScope(req, req.params.caregiverId))) {
+        return res.status(404).json({ message: "Caregiver not found" });
+      }
       const availability = await storage.getCaregiverAvailability(req.params.caregiverId);
       res.json(availability);
     } catch (error) {
@@ -10623,8 +12884,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/caregivers/:caregiverId/availability", isAuthenticated, async (req, res) => {
+  app.post("/api/caregivers/:caregiverId/availability", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getCaregiverInScope(req, req.params.caregiverId))) {
+        return res.status(404).json({ message: "Caregiver not found" });
+      }
       const { caregiverId: _, ...userBody } = req.body;
       const validatedBody = insertCaregiverAvailabilitySchema.omit({ caregiverId: true }).parse(userBody);
       const availability = await storage.createCaregiverAvailability({
@@ -10638,8 +12902,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/caregiver-availability/:id", isAuthenticated, async (req, res) => {
+  app.put("/api/caregiver-availability/:id", isAuthenticated, async (req: any, res) => {
     try {
+      const existing = await storage.getCaregiverAvailabilityById(req.params.id);
+      if (!existing || !(await getCaregiverInScope(req, existing.caregiverId))) {
+        return res.status(404).json({ message: "Availability not found" });
+      }
       const { caregiverId, ...updateData } = req.body;
       const validatedData = insertCaregiverAvailabilitySchema.partial().parse(updateData);
       const availability = await storage.updateCaregiverAvailability(req.params.id, validatedData);
@@ -10650,8 +12918,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/caregiver-availability/:id", isAuthenticated, async (req, res) => {
+  app.delete("/api/caregiver-availability/:id", isAuthenticated, async (req: any, res) => {
     try {
+      const existing = await storage.getCaregiverAvailabilityById(req.params.id);
+      if (!existing || !(await getCaregiverInScope(req, existing.caregiverId))) {
+        return res.status(404).json({ message: "Availability not found" });
+      }
       await storage.deleteCaregiverAvailability(req.params.id);
       res.status(204).send();
     } catch (error) {
@@ -10661,8 +12933,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Weekly Availability - GET/PUT bulk operations
-  app.get("/api/caregivers/:id/weekly-availability", isAuthenticated, async (req, res) => {
+  app.get("/api/caregivers/:id/weekly-availability", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getCaregiverInScope(req, req.params.id))) {
+        return res.status(404).json({ message: "Caregiver not found" });
+      }
       const availability = await storage.getCaregiverAvailability(req.params.id);
       res.json(availability);
     } catch (error) {
@@ -10671,8 +12946,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/caregivers/:id/weekly-availability", isAuthenticated, async (req, res) => {
+  app.put("/api/caregivers/:id/weekly-availability", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getCaregiverInScope(req, req.params.id))) {
+        return res.status(404).json({ message: "Caregiver not found" });
+      }
       const { availability } = req.body;
       if (!Array.isArray(availability)) {
         return res.status(400).json({ message: "availability must be an array" });
@@ -10686,8 +12964,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Availability Exceptions
-  app.get("/api/caregivers/:id/availability-exceptions", isAuthenticated, async (req, res) => {
+  app.get("/api/caregivers/:id/availability-exceptions", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getCaregiverInScope(req, req.params.id))) {
+        return res.status(404).json({ message: "Caregiver not found" });
+      }
       const { startDate, endDate } = req.query;
       const exceptions = await storage.getAvailabilityExceptions(
         req.params.id,
@@ -10701,8 +12982,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/caregivers/:id/availability-exceptions", isAuthenticated, async (req, res) => {
+  app.post("/api/caregivers/:id/availability-exceptions", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getCaregiverInScope(req, req.params.id))) {
+        return res.status(404).json({ message: "Caregiver not found" });
+      }
       const { caregiverId: _, ...userBody } = req.body;
       const coercedData = {
         ...userBody,
@@ -10721,8 +13005,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/caregivers/:id/availability-exceptions/:exceptionId", isAuthenticated, async (req, res) => {
+  app.delete("/api/caregivers/:id/availability-exceptions/:exceptionId", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getCaregiverInScope(req, req.params.id))) {
+        return res.status(404).json({ message: "Caregiver not found" });
+      }
       await storage.deleteAvailabilityException(req.params.exceptionId);
       res.status(204).send();
     } catch (error) {
@@ -10772,8 +13059,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Caregiver Payroll Info
-  app.get("/api/caregivers/:caregiverId/payroll-info", isAuthenticated, async (req, res) => {
+  app.get("/api/caregivers/:caregiverId/payroll-info", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getCaregiverInScope(req, req.params.caregiverId))) {
+        return res.status(404).json({ message: "Caregiver not found" });
+      }
       const info = await storage.getCaregiverPayrollInfo(req.params.caregiverId);
       res.json(info || null);
     } catch (error) {
@@ -10782,8 +13072,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/caregivers/:caregiverId/payroll-info", isAuthenticated, async (req, res) => {
+  app.post("/api/caregivers/:caregiverId/payroll-info", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getCaregiverInScope(req, req.params.caregiverId))) {
+        return res.status(404).json({ message: "Caregiver not found" });
+      }
       const { caregiverId: _, ...userBody } = req.body;
       const validatedBody = insertCaregiverPayrollInfoSchema.omit({ caregiverId: true }).parse(userBody);
       const info = await storage.upsertCaregiverPayrollInfo({
@@ -10798,8 +13091,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Caregiver Expenses
-  app.get("/api/caregivers/:caregiverId/expenses", isAuthenticated, async (req, res) => {
+  app.get("/api/caregivers/:caregiverId/expenses", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getCaregiverInScope(req, req.params.caregiverId))) {
+        return res.status(404).json({ message: "Caregiver not found" });
+      }
       const expenses = await storage.getCaregiverExpenses(req.params.caregiverId);
       res.json(expenses);
     } catch (error) {
@@ -10808,8 +13104,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/caregivers/:caregiverId/expenses", isAuthenticated, async (req, res) => {
+  app.post("/api/caregivers/:caregiverId/expenses", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getCaregiverInScope(req, req.params.caregiverId))) {
+        return res.status(404).json({ message: "Caregiver not found" });
+      }
       const { caregiverId: _, ...userBody } = req.body;
       const coercedData = {
         ...userBody,
@@ -10829,8 +13128,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/caregiver-expenses/:id", isAuthenticated, async (req, res) => {
+  app.put("/api/caregiver-expenses/:id", isAuthenticated, async (req: any, res) => {
     try {
+      const existing = await storage.getCaregiverExpense(req.params.id);
+      if (!existing || !(await getCaregiverInScope(req, existing.caregiverId))) {
+        return res.status(404).json({ message: "Expense not found" });
+      }
       const { caregiverId, ...updateData } = req.body;
       const coercedData = {
         ...updateData,
@@ -10847,8 +13150,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/caregiver-expenses/:id", isAuthenticated, async (req, res) => {
+  app.delete("/api/caregiver-expenses/:id", isAuthenticated, async (req: any, res) => {
     try {
+      const existing = await storage.getCaregiverExpense(req.params.id);
+      if (!existing || !(await getCaregiverInScope(req, existing.caregiverId))) {
+        return res.status(404).json({ message: "Expense not found" });
+      }
       await storage.deleteCaregiverExpense(req.params.id);
       res.status(204).send();
     } catch (error) {
@@ -10858,8 +13165,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Caregiver Paychecks
-  app.get("/api/caregivers/:caregiverId/paychecks", isAuthenticated, async (req, res) => {
+  app.get("/api/caregivers/:caregiverId/paychecks", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getCaregiverInScope(req, req.params.caregiverId))) {
+        return res.status(404).json({ message: "Caregiver not found" });
+      }
       const paychecks = await storage.getCaregiverPaychecks(req.params.caregiverId);
       res.json(paychecks);
     } catch (error) {
@@ -10868,8 +13178,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/caregivers/:caregiverId/paychecks", isAuthenticated, async (req, res) => {
+  app.post("/api/caregivers/:caregiverId/paychecks", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getCaregiverInScope(req, req.params.caregiverId))) {
+        return res.status(404).json({ message: "Caregiver not found" });
+      }
       const { caregiverId: _, ...userBody } = req.body;
       const coercedData = {
         ...userBody,
@@ -10889,8 +13202,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/caregiver-paychecks/:id", isAuthenticated, async (req, res) => {
+  app.put("/api/caregiver-paychecks/:id", isAuthenticated, async (req: any, res) => {
     try {
+      const existing = await storage.getCaregiverPaycheck(req.params.id);
+      if (!existing || !(await getCaregiverInScope(req, existing.caregiverId))) {
+        return res.status(404).json({ message: "Paycheck not found" });
+      }
       const { caregiverId, ...updateData } = req.body;
       const coercedData = {
         ...updateData,
@@ -10908,8 +13225,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Caregiver Rates
-  app.get("/api/caregivers/:caregiverId/rates", isAuthenticated, async (req, res) => {
+  app.get("/api/caregivers/:caregiverId/rates", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getCaregiverInScope(req, req.params.caregiverId))) {
+        return res.status(404).json({ message: "Caregiver not found" });
+      }
       const rates = await storage.getCaregiverRates(req.params.caregiverId);
       res.json(rates);
     } catch (error) {
@@ -10918,8 +13238,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/caregivers/:caregiverId/rates", isAuthenticated, async (req, res) => {
+  app.post("/api/caregivers/:caregiverId/rates", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getCaregiverInScope(req, req.params.caregiverId))) {
+        return res.status(404).json({ message: "Caregiver not found" });
+      }
       const { caregiverId: _, ...userBody } = req.body;
       const coercedData = {
         ...userBody,
@@ -10938,8 +13261,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/caregiver-rates/:id", isAuthenticated, async (req, res) => {
+  app.put("/api/caregiver-rates/:id", isAuthenticated, async (req: any, res) => {
     try {
+      const existing = await storage.getCaregiverRate(req.params.id);
+      if (!existing || !(await getCaregiverInScope(req, existing.caregiverId))) {
+        return res.status(404).json({ message: "Rate not found" });
+      }
       const { caregiverId, ...updateData } = req.body;
       const coercedData = {
         ...updateData,
@@ -10955,8 +13282,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/caregiver-rates/:id", isAuthenticated, async (req, res) => {
+  app.delete("/api/caregiver-rates/:id", isAuthenticated, async (req: any, res) => {
     try {
+      const existing = await storage.getCaregiverRate(req.params.id);
+      if (!existing || !(await getCaregiverInScope(req, existing.caregiverId))) {
+        return res.status(404).json({ message: "Rate not found" });
+      }
       await storage.deleteCaregiverRate(req.params.id);
       res.status(204).send();
     } catch (error) {
@@ -10966,8 +13297,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Caregiver In-Services
-  app.get("/api/caregivers/:caregiverId/in-services", isAuthenticated, async (req, res) => {
+  app.get("/api/caregivers/:caregiverId/in-services", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getCaregiverInScope(req, req.params.caregiverId))) {
+        return res.status(404).json({ message: "Caregiver not found" });
+      }
       const inServices = await storage.getCaregiverInServices(req.params.caregiverId);
       res.json(inServices);
     } catch (error) {
@@ -10976,8 +13310,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/caregivers/:caregiverId/in-services", isAuthenticated, async (req, res) => {
+  app.post("/api/caregivers/:caregiverId/in-services", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getCaregiverInScope(req, req.params.caregiverId))) {
+        return res.status(404).json({ message: "Caregiver not found" });
+      }
       const { caregiverId: _, ...userBody } = req.body;
       const coercedData = {
         ...userBody,
@@ -10996,8 +13333,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/caregiver-in-services/:id", isAuthenticated, async (req, res) => {
+  app.put("/api/caregiver-in-services/:id", isAuthenticated, async (req: any, res) => {
     try {
+      const existing = await storage.getCaregiverInService(req.params.id);
+      if (!existing || !(await getCaregiverInScope(req, existing.caregiverId))) {
+        return res.status(404).json({ message: "In-service not found" });
+      }
       const { caregiverId, ...updateData } = req.body;
       const coercedData = {
         ...updateData,
@@ -11013,8 +13354,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/caregiver-in-services/:id", isAuthenticated, async (req, res) => {
+  app.delete("/api/caregiver-in-services/:id", isAuthenticated, async (req: any, res) => {
     try {
+      const existing = await storage.getCaregiverInService(req.params.id);
+      if (!existing || !(await getCaregiverInScope(req, existing.caregiverId))) {
+        return res.status(404).json({ message: "In-service not found" });
+      }
       await storage.deleteCaregiverInService(req.params.id);
       res.status(204).send();
     } catch (error) {
@@ -11024,8 +13369,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Caregiver Office Moves
-  app.get("/api/caregivers/:caregiverId/office-moves", isAuthenticated, async (req, res) => {
+  app.get("/api/caregivers/:caregiverId/office-moves", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getCaregiverInScope(req, req.params.caregiverId))) {
+        return res.status(404).json({ message: "Caregiver not found" });
+      }
       const moves = await storage.getCaregiverOfficeMoves(req.params.caregiverId);
       res.json(moves);
     } catch (error) {
@@ -11036,6 +13384,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/caregivers/:caregiverId/office-moves", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getCaregiverInScope(req, req.params.caregiverId))) {
+        return res.status(404).json({ message: "Caregiver not found" });
+      }
       const { caregiverId: _, approvedBy: __, ...userBody } = req.body;
       const coercedData = {
         ...userBody,
@@ -11054,8 +13405,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/caregiver-office-moves/:id", isAuthenticated, async (req, res) => {
+  app.put("/api/caregiver-office-moves/:id", isAuthenticated, async (req: any, res) => {
     try {
+      const existing = await storage.getCaregiverOfficeMove(req.params.id);
+      if (!existing || !(await getCaregiverInScope(req, existing.caregiverId))) {
+        return res.status(404).json({ message: "Office move not found" });
+      }
       const { caregiverId, approvedBy, ...updateData } = req.body;
       const coercedData = {
         ...updateData,
@@ -11070,9 +13425,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Caregiver Schedules
-  app.get("/api/caregivers/:caregiverId/schedules", isAuthenticated, async (req, res) => {
+  app.delete("/api/caregiver-office-moves/:id", isAuthenticated, async (req: any, res) => {
     try {
+      const existing = await storage.getCaregiverOfficeMove(req.params.id);
+      if (!existing || !(await getCaregiverInScope(req, existing.caregiverId))) {
+        return res.status(404).json({ message: "Office move not found" });
+      }
+      await storage.deleteCaregiverOfficeMove(req.params.id);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting caregiver office move:", error);
+      res.status(500).json({ message: "Failed to delete caregiver office move" });
+    }
+  });
+
+  // Caregiver Schedules
+  app.get("/api/caregivers/:caregiverId/schedules", isAuthenticated, async (req: any, res) => {
+    try {
+      if (!(await getCaregiverInScope(req, req.params.caregiverId))) {
+        return res.status(404).json({ message: "Caregiver not found" });
+      }
       const { startDate, endDate } = req.query;
       const schedules = await storage.getCaregiverSchedules(
         req.params.caregiverId,
@@ -11100,6 +13472,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/caregivers/:caregiverId/schedules", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getCaregiverInScope(req, req.params.caregiverId))) {
+        return res.status(404).json({ message: "Caregiver not found" });
+      }
       const { caregiverId: _, createdBy: __, ...userBody } = req.body;
       const coercedData = {
         ...userBody,
@@ -11120,8 +13495,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/caregiver-schedules/:id", isAuthenticated, async (req, res) => {
+  app.put("/api/caregiver-schedules/:id", isAuthenticated, async (req: any, res) => {
     try {
+      const existing = await storage.getCaregiverSchedule(req.params.id);
+      if (!existing || !(await getCaregiverInScope(req, existing.caregiverId))) {
+        return res.status(404).json({ message: "Schedule not found" });
+      }
       const { caregiverId, createdBy, ...updateData } = req.body;
       const coercedData = {
         ...updateData,
@@ -11138,8 +13517,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/caregiver-schedules/:id", isAuthenticated, async (req, res) => {
+  app.delete("/api/caregiver-schedules/:id", isAuthenticated, async (req: any, res) => {
     try {
+      const existing = await storage.getCaregiverSchedule(req.params.id);
+      if (!existing || !(await getCaregiverInScope(req, existing.caregiverId))) {
+        return res.status(404).json({ message: "Schedule not found" });
+      }
       await storage.deleteCaregiverSchedule(req.params.id);
       res.status(204).send();
     } catch (error) {
@@ -11160,12 +13543,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Latitude and longitude are required" });
       }
       
-      // Verify the schedule exists
+      // Verify the schedule exists and belongs to the requester (either the
+      // caregiver themselves clocking in, or office staff in their scope —
+      // clock-in is a self-service action, so this can't be a flat
+      // office-staff-only check).
       const existingSchedule = await storage.getCaregiverSchedule(id);
       if (!existingSchedule) {
         return res.status(404).json({ message: "Schedule not found" });
       }
-      
+      const scheduleCaregiver = await storage.getCaregiver(existingSchedule.caregiverId);
+      const isOwnSchedule = scheduleCaregiver?.userId && scheduleCaregiver.userId === req.session?.user?.id;
+      if (!scheduleCaregiver || (!isOwnSchedule && !(await canAccessOffice(req, scheduleCaregiver.officeId)))) {
+        return res.status(404).json({ message: "Schedule not found" });
+      }
+
       // Check if already clocked in
       if (existingSchedule.clockInTime) {
         return res.status(400).json({ message: "Already clocked in for this schedule" });
@@ -11206,12 +13597,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Latitude and longitude are required" });
       }
       
-      // Verify the schedule exists
+      // Verify the schedule exists and belongs to the requester (either the
+      // caregiver themselves clocking out, or office staff in their scope).
       const existingSchedule = await storage.getCaregiverSchedule(id);
       if (!existingSchedule) {
         return res.status(404).json({ message: "Schedule not found" });
       }
-      
+      const scheduleCaregiver = await storage.getCaregiver(existingSchedule.caregiverId);
+      const isOwnSchedule = scheduleCaregiver?.userId && scheduleCaregiver.userId === req.session?.user?.id;
+      if (!scheduleCaregiver || (!isOwnSchedule && !(await canAccessOffice(req, scheduleCaregiver.officeId)))) {
+        return res.status(404).json({ message: "Schedule not found" });
+      }
+
       // Check if not clocked in yet
       if (!existingSchedule.clockInTime) {
         return res.status(400).json({ message: "Must clock in before clocking out" });
@@ -11782,9 +14179,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Notification History routes
-  app.get("/api/notifications/history", isAuthenticated, async (req, res) => {
+  app.get("/api/notifications/history", isAuthenticated, async (req: any, res) => {
     try {
       const { recipientId, recipientType, limit } = req.query;
+      const currentUser = req.session?.user;
+
+      // No specific recipient requested: this would return every org's
+      // notification history (subject/body may carry PHI). Restrict the
+      // unscoped view to super_admin.
+      if (!recipientId || !recipientType) {
+        if (currentUser?.role !== "super_admin") {
+          return res.status(403).json({ message: "recipientId and recipientType are required" });
+        }
+      } else {
+        let inScope = false;
+        if (recipientType === "client") {
+          inScope = !!(await getClientInScope(req, recipientId as string));
+        } else if (recipientType === "caregiver") {
+          inScope = !!(await getCaregiverInScope(req, recipientId as string));
+        } else if (recipientType === "user") {
+          const target = await storage.getUser(recipientId as string);
+          inScope = !!target && (await canAccessOffice(req, target.primaryOfficeId));
+        }
+        if (!inScope) {
+          return res.status(403).json({ message: "Forbidden" });
+        }
+      }
+
       const history = await storage.getNotificationHistory(
         recipientId as string | undefined,
         recipientType as string | undefined,
@@ -11937,11 +14358,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Birthday notification routes
-  app.get("/api/birthday-notifications", isAuthenticated, async (req, res) => {
+  app.get("/api/birthday-notifications", isAuthenticated, async (req: any, res) => {
     try {
-      const { officeId, limit } = req.query;
+      const { limit } = req.query;
       const notifications = await getBirthdayNotificationHistory(
-        officeId as string | undefined,
+        parseOfficeId(req),
         limit ? parseInt(limit as string) : undefined
       );
       res.json(notifications);
@@ -11951,11 +14372,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/birthday-notifications/upcoming", isAuthenticated, async (req, res) => {
+  app.get("/api/birthday-notifications/upcoming", isAuthenticated, async (req: any, res) => {
     try {
-      const { days, officeId } = req.query;
+      const { days } = req.query;
       const daysAhead = days ? parseInt(days as string) : 7;
-      const upcoming = await getUpcomingBirthdays(daysAhead, officeId as string | undefined);
+      const upcoming = await getUpcomingBirthdays(daysAhead, parseOfficeId(req));
       res.json(upcoming);
     } catch (error) {
       console.error("Error fetching upcoming birthdays:", error);
@@ -11963,10 +14384,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/birthday-notifications/today", isAuthenticated, async (req, res) => {
+  app.get("/api/birthday-notifications/today", isAuthenticated, async (req: any, res) => {
     try {
-      const { officeId } = req.query;
-      const today = await storage.getTodaysBirthdays(officeId as string | undefined);
+      const today = await storage.getTodaysBirthdays(parseOfficeId(req));
       res.json(today);
     } catch (error) {
       console.error("Error fetching today's birthdays:", error);
@@ -11976,12 +14396,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/birthday-notifications/send", isAuthenticated, async (req: any, res) => {
     try {
-      const userRole = req.user?.role;
+      const userRole = req.session?.user?.role;
       if (!['super_admin', 'admin', 'office_admin'].includes(userRole)) {
         return res.status(403).json({ message: "Insufficient permissions to send birthday notifications" });
       }
 
-      const { officeId } = req.body;
+      const requestedOfficeId = req.body.officeId;
+      if (requestedOfficeId && !(await canAccessOffice(req, requestedOfficeId))) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+      const officeId = requestedOfficeId || parseOfficeId(req);
       const results = await sendTodaysBirthdayNotifications(officeId);
       res.json({
         success: true,
@@ -11997,7 +14421,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get birthday message settings
   app.get("/api/birthday-notifications/settings", isAuthenticated, async (req: any, res) => {
     try {
-      const userRole = req.user?.role;
+      const userRole = req.session?.user?.role;
       if (!['super_admin', 'admin', 'office_admin'].includes(userRole)) {
         return res.status(403).json({ message: "Insufficient permissions" });
       }
@@ -12032,7 +14456,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Update birthday message settings
   app.post("/api/birthday-notifications/settings", isAuthenticated, async (req: any, res) => {
     try {
-      const userRole = req.user?.role;
+      const userRole = req.session?.user?.role;
       if (!['super_admin', 'admin', 'office_admin'].includes(userRole)) {
         return res.status(403).json({ message: "Insufficient permissions" });
       }
@@ -12059,7 +14483,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Preview birthday email template
   app.get("/api/birthday-notifications/preview", isAuthenticated, async (req: any, res) => {
     try {
-      const userRole = req.user?.role;
+      const userRole = req.session?.user?.role;
       if (!['super_admin', 'admin', 'office_admin'].includes(userRole)) {
         return res.status(403).json({ message: "Insufficient permissions" });
       }
@@ -12129,14 +14553,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Shift Matching routes
-  app.get("/api/shift-matching/suggest", isAuthenticated, async (req, res) => {
+  app.get("/api/shift-matching/suggest", isAuthenticated, async (req: any, res) => {
     try {
       const { clientId, date, startTime, endTime, skills } = req.query;
-      
+
       if (!clientId || !date || !startTime || !endTime) {
-        return res.status(400).json({ 
-          message: "Missing required parameters: clientId, date, startTime, endTime" 
+        return res.status(400).json({
+          message: "Missing required parameters: clientId, date, startTime, endTime"
         });
+      }
+      if (!(await getClientInScope(req, clientId as string))) {
+        return res.status(404).json({ message: "Client not found" });
       }
 
       const parsedDate = new Date(date as string);
@@ -12169,22 +14596,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/shift-matching/calculate-score", isAuthenticated, async (req, res) => {
+  app.post("/api/shift-matching/calculate-score", isAuthenticated, async (req: any, res) => {
     try {
       const { caregiverId, clientId, date, startTime, endTime, requiredSkills } = req.body;
-      
+
       if (!caregiverId || !clientId || !date || !startTime || !endTime) {
-        return res.status(400).json({ 
-          message: "Missing required fields: caregiverId, clientId, date, startTime, endTime" 
+        return res.status(400).json({
+          message: "Missing required fields: caregiverId, clientId, date, startTime, endTime"
         });
       }
 
-      const caregiver = await storage.getCaregiver(caregiverId);
+      const caregiver = await getCaregiverInScope(req, caregiverId);
       if (!caregiver) {
         return res.status(404).json({ message: "Caregiver not found" });
       }
 
-      const client = await storage.getClient(clientId);
+      const client = await getClientInScope(req, clientId);
       if (!client) {
         return res.status(404).json({ message: "Client not found" });
       }
@@ -12206,14 +14633,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/shift-matching/check-conflict", isAuthenticated, async (req, res) => {
+  app.get("/api/shift-matching/check-conflict", isAuthenticated, async (req: any, res) => {
     try {
       const { caregiverId, date, startTime, endTime } = req.query;
-      
+
       if (!caregiverId || !date || !startTime || !endTime) {
-        return res.status(400).json({ 
-          message: "Missing required parameters: caregiverId, date, startTime, endTime" 
+        return res.status(400).json({
+          message: "Missing required parameters: caregiverId, date, startTime, endTime"
         });
+      }
+      if (!(await getCaregiverInScope(req, caregiverId as string))) {
+        return res.status(404).json({ message: "Caregiver not found" });
       }
 
       const parsedDate = new Date(date as string);
@@ -12236,8 +14666,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Mileage Tracking Routes
-  app.get("/api/caregivers/:id/mileage", isAuthenticated, async (req, res) => {
+  app.get("/api/caregivers/:id/mileage", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getCaregiverInScope(req, req.params.id))) {
+        return res.status(404).json({ message: "Caregiver not found" });
+      }
       const { startDate, endDate } = req.query;
       const logs = await storage.getMileageLogsByCaregiver(
         req.params.id,
@@ -12253,6 +14686,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/caregivers/:id/mileage", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getCaregiverInScope(req, req.params.id))) {
+        return res.status(404).json({ message: "Caregiver not found" });
+      }
       const validatedData = insertMileageLogSchema.parse({
         ...req.body,
         caregiverId: req.params.id,
@@ -12280,7 +14716,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.patch("/api/mileage/:id", isAuthenticated, async (req: any, res) => {
     try {
       const oldLog = await storage.getMileageLog(req.params.id);
-      if (!oldLog) {
+      if (!oldLog || !(await getCaregiverInScope(req, oldLog.caregiverId))) {
         return res.status(404).json({ message: "Mileage log not found" });
       }
 
@@ -12316,7 +14752,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const oldLog = await storage.getMileageLog(req.params.id);
-      if (!oldLog) {
+      if (!oldLog || !(await getCaregiverInScope(req, oldLog.caregiverId))) {
         return res.status(404).json({ message: "Mileage log not found" });
       }
 
@@ -12348,7 +14784,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const logs = await storage.getMileageLogsByStatus('pending');
-      res.json(logs);
+      const allowed = await allowedCaregiverIds(req);
+      const scoped = allowed === "ALL" ? logs : logs.filter(l => allowed.has(l.caregiverId));
+      res.json(scoped);
     } catch (error) {
       console.error("Error fetching pending mileage logs:", error);
       res.status(500).json({ message: "Failed to fetch pending mileage logs" });
@@ -12376,10 +14814,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Applicant Routes (Recruitment Portal)
-  app.get("/api/applicants", isAuthenticated, async (req, res) => {
+  // Applicants carry their own officeId (see getApplicantInScope below, used
+  // by the notes/interviews/background-check sub-resources).
+  const getApplicantInScope = async (req: any, applicantId: string) => {
+    const applicant = await storage.getApplicant(applicantId);
+    if (!applicant || !(await canAccessOffice(req, applicant.officeId))) return undefined;
+    return applicant;
+  };
+
+  app.get("/api/applicants", isAuthenticated, async (req: any, res) => {
     try {
-      const { officeId } = req.query;
-      const officeFilter = officeId && officeId !== 'all' ? String(officeId) : undefined;
+      const officeFilter = parseOfficeId(req);
       const applicants = await storage.getAllApplicants(officeFilter);
       res.json(applicants);
     } catch (error) {
@@ -12388,10 +14833,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/applicants/pipeline", isAuthenticated, async (req, res) => {
+  app.get("/api/applicants/pipeline", isAuthenticated, async (req: any, res) => {
     try {
-      const { officeId } = req.query;
-      const officeFilter = officeId && officeId !== 'all' ? String(officeId) : undefined;
+      const officeFilter = parseOfficeId(req);
       const pipeline = await storage.getApplicantPipelineCounts(officeFilter);
       res.json(pipeline);
     } catch (error) {
@@ -12400,10 +14844,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/applicants/by-status/:status", isAuthenticated, async (req, res) => {
+  app.get("/api/applicants/by-status/:status", isAuthenticated, async (req: any, res) => {
     try {
-      const { officeId } = req.query;
-      const officeFilter = officeId && officeId !== 'all' ? String(officeId) : undefined;
+      const officeFilter = parseOfficeId(req);
       const applicants = await storage.getApplicantsByStatus(req.params.status, officeFilter);
       res.json(applicants);
     } catch (error) {
@@ -12412,9 +14855,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/applicants/:id", isAuthenticated, async (req, res) => {
+  app.get("/api/applicants/:id", isAuthenticated, async (req: any, res) => {
     try {
-      const applicant = await storage.getApplicant(req.params.id);
+      const applicant = await getApplicantInScope(req, req.params.id);
       if (!applicant) {
         return res.status(404).json({ message: "Applicant not found" });
       }
@@ -12435,6 +14878,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         expectedStartDate: coerceDate(req.body.expectedStartDate),
       };
       const validatedData = insertApplicantSchema.parse(processedBody);
+      if (validatedData.officeId && !(await canAccessOffice(req, validatedData.officeId))) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
       const applicant = await storage.createApplicant(validatedData);
 
       await storage.createAuditLog({
@@ -12456,7 +14902,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.patch("/api/applicants/:id", isAuthenticated, async (req: any, res) => {
     try {
-      const oldApplicant = await storage.getApplicant(req.params.id);
+      const oldApplicant = await getApplicantInScope(req, req.params.id);
       if (!oldApplicant) {
         return res.status(404).json({ message: "Applicant not found" });
       }
@@ -12496,7 +14942,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Status is required" });
       }
 
-      const oldApplicant = await storage.getApplicant(req.params.id);
+      const oldApplicant = await getApplicantInScope(req, req.params.id);
       if (!oldApplicant) {
         return res.status(404).json({ message: "Applicant not found" });
       }
@@ -12523,7 +14969,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/applicants/:id/convert-to-caregiver", isAuthenticated, async (req: any, res) => {
     try {
-      const applicant = await storage.getApplicant(req.params.id);
+      const applicant = await getApplicantInScope(req, req.params.id);
       if (!applicant) {
         return res.status(404).json({ message: "Applicant not found" });
       }
@@ -12549,8 +14995,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Applicant Notes Routes
-  app.get("/api/applicants/:id/notes", isAuthenticated, async (req, res) => {
+  app.get("/api/applicants/:id/notes", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getApplicantInScope(req, req.params.id))) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
       const notes = await storage.getApplicantNotes(req.params.id);
       res.json(notes);
     } catch (error) {
@@ -12561,6 +15010,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/applicants/:id/notes", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getApplicantInScope(req, req.params.id))) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
       const validatedData = insertApplicantNoteSchema.parse({
         ...req.body,
         applicantId: req.params.id,
@@ -12586,8 +15038,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Applicant Interviews Routes
-  app.get("/api/applicants/:id/interviews", isAuthenticated, async (req, res) => {
+  app.get("/api/applicants/:id/interviews", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getApplicantInScope(req, req.params.id))) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
       const interviews = await storage.getApplicantInterviews(req.params.id);
       res.json(interviews);
     } catch (error) {
@@ -12598,6 +15053,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/applicants/:id/interviews", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getApplicantInScope(req, req.params.id))) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
       const processedBody = {
         ...req.body,
         applicantId: req.params.id,
@@ -12628,8 +15086,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.patch("/api/applicants/:id/interviews/:interviewId", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getApplicantInScope(req, req.params.id))) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
       const oldInterview = await storage.getApplicantInterview(req.params.interviewId);
-      if (!oldInterview) {
+      if (!oldInterview || oldInterview.applicantId !== req.params.id) {
         return res.status(404).json({ message: "Interview not found" });
       }
 
@@ -12905,10 +15366,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ==================== SHIFT DIFFERENTIALS ROUTES ====================
 
   // Shift Differentials routes
-  app.get("/api/shift-differentials", isAuthenticated, async (req, res) => {
+  app.get("/api/shift-differentials", isAuthenticated, async (req: any, res) => {
     try {
-      const { officeId, mcoId } = req.query;
-      const officeFilter = officeId && officeId !== 'all' ? String(officeId) : undefined;
+      const { mcoId } = req.query;
+      const officeFilter = parseOfficeId(req);
       const mcoFilter = mcoId && mcoId !== 'all' ? String(mcoId) : undefined;
       const differentials = await storage.getShiftDifferentials(officeFilter, mcoFilter);
       res.json(differentials);
@@ -12918,14 +15379,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/shift-differentials/calculate", isAuthenticated, async (req, res) => {
+  app.get("/api/shift-differentials/calculate", isAuthenticated, async (req: any, res) => {
     try {
       const { caregiverId, date, startTime, endTime, baseRate } = req.query;
-      
+
       if (!caregiverId || !date || !startTime || !endTime || !baseRate) {
         return res.status(400).json({ message: "caregiverId, date, startTime, endTime, and baseRate are required" });
       }
-      
+      if (!(await getCaregiverInScope(req, caregiverId as string))) {
+        return res.status(404).json({ message: "Caregiver not found" });
+      }
+
       const result = await storage.calculateShiftDifferential(
         String(caregiverId),
         new Date(String(date)),
@@ -12941,10 +15405,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/shift-differentials/:id", isAuthenticated, async (req, res) => {
+  app.get("/api/shift-differentials/:id", isAuthenticated, async (req: any, res) => {
     try {
       const differential = await storage.getShiftDifferential(req.params.id);
-      if (!differential) {
+      if (!differential || (differential.officeId && !(await canAccessOffice(req, differential.officeId)))) {
         return res.status(404).json({ message: "Shift differential not found" });
       }
       res.json(differential);
@@ -12954,7 +15418,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/shift-differentials", isAuthenticated, async (req: any, res) => {
+  app.post("/api/shift-differentials", isAuthenticated, requireAdminRole, async (req: any, res) => {
     try {
       const processedBody = {
         ...req.body,
@@ -12962,6 +15426,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         endDate: coerceDate(req.body.endDate),
       };
       const validatedData = insertShiftDifferentialSchema.parse(processedBody);
+      if (validatedData.officeId && !(await canAccessOffice(req, validatedData.officeId))) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
       const differential = await storage.createShiftDifferential(validatedData);
       
       await storage.createAuditLog({
@@ -12981,13 +15448,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/shift-differentials/:id", isAuthenticated, async (req: any, res) => {
+  app.patch("/api/shift-differentials/:id", isAuthenticated, requireAdminRole, async (req: any, res) => {
     try {
       const oldDifferential = await storage.getShiftDifferential(req.params.id);
-      if (!oldDifferential) {
+      if (!oldDifferential || (oldDifferential.officeId && !(await canAccessOffice(req, oldDifferential.officeId)))) {
         return res.status(404).json({ message: "Shift differential not found" });
       }
-      
+
       const processedBody = {
         ...req.body,
         effectiveDate: coerceDate(req.body.effectiveDate),
@@ -13014,13 +15481,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/shift-differentials/:id", isAuthenticated, async (req: any, res) => {
+  app.delete("/api/shift-differentials/:id", isAuthenticated, requireAdminRole, async (req: any, res) => {
     try {
       const differential = await storage.getShiftDifferential(req.params.id);
-      if (!differential) {
+      if (!differential || (differential.officeId && !(await canAccessOffice(req, differential.officeId)))) {
         return res.status(404).json({ message: "Shift differential not found" });
       }
-      
+
       await storage.deleteShiftDifferential(req.params.id);
       
       await storage.createAuditLog({
@@ -13042,10 +15509,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // ==================== HOLIDAYS ROUTES ====================
 
-  app.get("/api/holidays", isAuthenticated, async (req, res) => {
+  app.get("/api/holidays", isAuthenticated, async (req: any, res) => {
     try {
-      const { officeId } = req.query;
-      const officeFilter = officeId && officeId !== 'all' ? String(officeId) : undefined;
+      const officeFilter = parseOfficeId(req);
       const holidays = await storage.getHolidays(officeFilter);
       res.json(holidays);
     } catch (error) {
@@ -13054,19 +15520,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/holidays/check", isAuthenticated, async (req, res) => {
+  app.get("/api/holidays/check", isAuthenticated, async (req: any, res) => {
     try {
-      const { date, officeId } = req.query;
-      
+      const { date } = req.query;
+
       if (!date) {
         return res.status(400).json({ message: "date is required" });
       }
-      
+
       const isHoliday = await storage.isHolidayDate(
         new Date(String(date)),
-        officeId && officeId !== 'all' ? String(officeId) : undefined
+        parseOfficeId(req)
       );
-      
+
       res.json({ isHoliday });
     } catch (error) {
       console.error("Error checking holiday date:", error);
@@ -13074,10 +15540,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/holidays/:id", isAuthenticated, async (req, res) => {
+  app.get("/api/holidays/:id", isAuthenticated, async (req: any, res) => {
     try {
       const holiday = await storage.getHoliday(req.params.id);
-      if (!holiday) {
+      if (!holiday || (holiday.officeId && !(await canAccessOffice(req, holiday.officeId)))) {
         return res.status(404).json({ message: "Holiday not found" });
       }
       res.json(holiday);
@@ -13087,7 +15553,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/holidays", isAuthenticated, async (req: any, res) => {
+  app.post("/api/holidays", isAuthenticated, requireAdminRole, async (req: any, res) => {
     try {
       const processedBody = {
         ...req.body,
@@ -13095,6 +15561,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         observedDate: coerceDate(req.body.observedDate),
       };
       const validatedData = insertHolidaySchema.parse(processedBody);
+      if (validatedData.officeId && !(await canAccessOffice(req, validatedData.officeId))) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
       const holiday = await storage.createHoliday(validatedData);
       
       await storage.createAuditLog({
@@ -13114,13 +15583,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/holidays/:id", isAuthenticated, async (req: any, res) => {
+  app.patch("/api/holidays/:id", isAuthenticated, requireAdminRole, async (req: any, res) => {
     try {
       const oldHoliday = await storage.getHoliday(req.params.id);
-      if (!oldHoliday) {
+      if (!oldHoliday || (oldHoliday.officeId && !(await canAccessOffice(req, oldHoliday.officeId)))) {
         return res.status(404).json({ message: "Holiday not found" });
       }
-      
+
       const processedBody = {
         ...req.body,
         date: coerceDate(req.body.date),
@@ -13147,13 +15616,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/holidays/:id", isAuthenticated, async (req: any, res) => {
+  app.delete("/api/holidays/:id", isAuthenticated, requireAdminRole, async (req: any, res) => {
     try {
       const holiday = await storage.getHoliday(req.params.id);
-      if (!holiday) {
+      if (!holiday || (holiday.officeId && !(await canAccessOffice(req, holiday.officeId)))) {
         return res.status(404).json({ message: "Holiday not found" });
       }
-      
+
       await storage.deleteHoliday(req.params.id);
       
       await storage.createAuditLog({
@@ -13194,7 +15663,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Non-admins can only see reviews they conduct or are the subject of.
         const myCaregiver = await storage.getCaregiverByUserId(user.id).catch(() => null);
         const myCgId = myCaregiver?.id;
-        reviews = reviews.filter(r => r.reviewerId === user.id || (myCgId && r.caregiverId === myCgId));
+        reviews = reviews.filter(r => r.reviewerId === user.id || (myCgId && r.caregiverId === myCgId) || r.userId === user.id);
       }
       if (status) {
         const statuses = status.split(",");
@@ -13275,8 +15744,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const adminRoles = ["super_admin", "admin", "office_admin", "manager"];
       const isAdmin = adminRoles.includes(user.role);
       if (!isAdmin && review.reviewerId !== user.id) {
-        const myCaregiver = await storage.getCaregiverByUserId(user.id).catch(() => null);
-        if (!myCaregiver || myCaregiver.id !== review.caregiverId) {
+        const isReviewedUser = review.userId === user.id;
+        let isReviewedCaregiver = false;
+        if (!isReviewedUser && review.caregiverId) {
+          const myCaregiver = await storage.getCaregiverByUserId(user.id).catch(() => null);
+          isReviewedCaregiver = !!myCaregiver && myCaregiver.id === review.caregiverId;
+        }
+        if (!isReviewedUser && !isReviewedCaregiver) {
           return res.status(403).json({ message: "Access denied" });
         }
       }
@@ -13284,6 +15758,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error fetching performance review:", error);
       res.status(500).json({ message: "Failed to fetch performance review" });
+    }
+  });
+
+  // Performance reviews for a specific staff member (used by the Staff Profile page)
+  app.get("/api/users/:userId/performance-reviews", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      if (!user) return res.status(401).json({ message: "Unauthorized" });
+      const adminRoles = ["super_admin", "admin", "office_admin", "manager"];
+      const isAdmin = adminRoles.includes(user.role);
+      if (!isAdmin && user.id !== req.params.userId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      const reviews = await storage.getPerformanceReviewsByUser(req.params.userId);
+      res.json(reviews);
+    } catch (error) {
+      console.error("Error fetching staff performance reviews:", error);
+      res.status(500).json({ message: "Failed to fetch performance reviews" });
     }
   });
 
@@ -13350,8 +15842,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/performance-reviews/:id/metrics", isAuthenticated, async (req, res) => {
+  // Read-scope check for a performance review: the assigned reviewer,
+  // privileged staff in the caregiver's office, or the caregiver themselves.
+  const canReadPerformanceReview = async (req: any, reviewId: string) => {
+    const user = req.session?.user;
+    if (!user) return false;
+    const review = await storage.getPerformanceReview(reviewId);
+    if (!review) return false;
+    if (review.reviewerId === user.id) return true;
+    if (review.userId) {
+      if (review.userId === user.id) return true;
+      const reviewedUser = await storage.getUser(review.userId);
+      return canAccessOffice(req, reviewedUser?.primaryOfficeId);
+    }
+    if (!review.caregiverId) return false;
+    const caregiver = await storage.getCaregiver(review.caregiverId);
+    if (caregiver?.userId && caregiver.userId === user.id) return true;
+    return canAccessOffice(req, caregiver?.officeId);
+  };
+
+  app.get("/api/performance-reviews/:id/metrics", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await canReadPerformanceReview(req, req.params.id))) {
+        return res.status(404).json({ message: "Performance review not found" });
+      }
       const metrics = await storage.getPerformanceMetrics(req.params.id);
       res.json(metrics);
     } catch (error) {
@@ -13389,8 +15903,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/performance-reviews/:id/calculate-rating", isAuthenticated, async (req, res) => {
+  app.get("/api/performance-reviews/:id/calculate-rating", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await canReadPerformanceReview(req, req.params.id))) {
+        return res.status(404).json({ message: "Performance review not found" });
+      }
       const overallRating = await storage.calculateOverallRating(req.params.id);
       res.json({ overallRating });
     } catch (error) {
@@ -13405,9 +15922,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!review) {
         return res.status(404).json({ message: "Performance review not found" });
       }
-      
-      const caregiverId = req.body.caregiverId || req.session?.user?.id;
-      const updatedReview = await storage.acknowledgeReview(req.params.id, caregiverId);
+      // Only the person the review is about may acknowledge it. Ignore any
+      // client-supplied id (that let a caller acknowledge as someone else);
+      // use the review's own caregiverId/userId.
+      let acknowledgerId: string;
+      if (review.userId) {
+        if (review.userId !== req.session?.user?.id) {
+          return res.status(403).json({ message: "Only the reviewed staff member may acknowledge this review" });
+        }
+        acknowledgerId = review.userId;
+      } else {
+        if (!review.caregiverId) {
+          return res.status(400).json({ message: "Review is not associated with a caregiver or staff member" });
+        }
+        const reviewCaregiver = await storage.getCaregiver(review.caregiverId);
+        if (!reviewCaregiver || reviewCaregiver.userId !== req.session?.user?.id) {
+          return res.status(403).json({ message: "Only the reviewed caregiver may acknowledge this review" });
+        }
+        acknowledgerId = review.caregiverId;
+      }
+      const updatedReview = await storage.acknowledgeReview(req.params.id, acknowledgerId);
       
       await storage.createAuditLog({
         userId: req.session?.user?.id,
@@ -13479,20 +16013,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!ctx) return;
       const { user, review } = ctx;
 
-      const caregiver = await storage.getCaregiver(review.caregiverId);
-      if (!caregiver) return res.status(404).json({ message: "Caregiver not found" });
+      let recipientEmail: string | null = null;
+      let recipientName = "";
+      let recipientType: "caregiver" | "user" = "caregiver";
+      let recipientId: string;
 
-      let recipientEmail = caregiver.email || null;
-      let recipientName = `${caregiver.firstName || ""} ${caregiver.lastName || ""}`.trim();
-      if (!recipientEmail && caregiver.userId) {
-        const cgUser = await storage.getUser(caregiver.userId);
-        if (cgUser) {
-          recipientEmail = recipientEmail || cgUser.email || null;
-          if (!recipientName) recipientName = `${cgUser.firstName || ""} ${cgUser.lastName || ""}`.trim();
+      if (review.userId) {
+        const reviewedUser = await storage.getUser(review.userId);
+        if (!reviewedUser) return res.status(404).json({ message: "Staff member not found" });
+        recipientEmail = reviewedUser.email || null;
+        recipientName = `${reviewedUser.firstName || ""} ${reviewedUser.lastName || ""}`.trim();
+        recipientType = "user";
+        recipientId = reviewedUser.id;
+      } else {
+        if (!review.caregiverId) return res.status(400).json({ message: "Review is not associated with a caregiver or staff member" });
+        const caregiver = await storage.getCaregiver(review.caregiverId);
+        if (!caregiver) return res.status(404).json({ message: "Caregiver not found" });
+
+        recipientEmail = caregiver.email || null;
+        recipientName = `${caregiver.firstName || ""} ${caregiver.lastName || ""}`.trim();
+        if (!recipientEmail && caregiver.userId) {
+          const cgUser = await storage.getUser(caregiver.userId);
+          if (cgUser) {
+            recipientEmail = recipientEmail || cgUser.email || null;
+            if (!recipientName) recipientName = `${cgUser.firstName || ""} ${cgUser.lastName || ""}`.trim();
+          }
         }
+        recipientId = caregiver.id;
       }
       if (!recipientEmail) {
-        return res.status(400).json({ message: "Caregiver has no email on file. Cannot send for acknowledgement." });
+        return res.status(400).json({ message: "Employee has no email on file. Cannot send for acknowledgement." });
       }
 
       const metrics = await storage.getPerformanceMetrics(review.id);
@@ -13523,8 +16073,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         documentContent,
         recipientEmail,
         recipientName: recipientName || "Employee",
-        recipientType: "caregiver",
-        recipientId: caregiver.id,
+        recipientType,
+        recipientId,
         accessToken,
         expiresAt,
         sentBy: user.id,
@@ -13610,10 +16160,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ==================== TIME-OFF REQUESTS & PTO MANAGEMENT ====================
 
   // Get all time-off requests
-  app.get("/api/time-off-requests", isAuthenticated, async (req, res) => {
+  app.get("/api/time-off-requests", isAuthenticated, async (req: any, res) => {
     try {
       const requests = await storage.getAllTimeOffRequests();
-      res.json(requests);
+      const allowed = await allowedCaregiverIds(req);
+      const scoped = allowed === "ALL" ? requests : requests.filter(r => allowed.has(r.caregiverId));
+      res.json(scoped);
     } catch (error) {
       console.error("Error fetching time-off requests:", error);
       res.status(500).json({ message: "Failed to fetch time-off requests" });
@@ -13621,10 +16173,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get all pending time-off requests (for approval workflow)
-  app.get("/api/time-off-requests/pending", isAuthenticated, async (req, res) => {
+  app.get("/api/time-off-requests/pending", isAuthenticated, async (req: any, res) => {
     try {
       const requests = await storage.getTimeOffRequestsByStatus("pending");
-      res.json(requests);
+      const allowed = await allowedCaregiverIds(req);
+      const scoped = allowed === "ALL" ? requests : requests.filter(r => allowed.has(r.caregiverId));
+      res.json(scoped);
     } catch (error) {
       console.error("Error fetching pending time-off requests:", error);
       res.status(500).json({ message: "Failed to fetch pending time-off requests" });
@@ -13659,11 +16213,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Returns the caregiver for a time-off request if the caller can access it
+  // (either the caregiver themselves, or office staff in scope).
+  const canAccessTimeOffRequest = async (req: any, request: { caregiverId: string }) => {
+    const caregiver = await storage.getCaregiver(request.caregiverId);
+    if (!caregiver) return false;
+    const isOwn = caregiver.userId && caregiver.userId === req.session?.user?.id;
+    return isOwn || (await canAccessOffice(req, caregiver.officeId));
+  };
+
   // Get a specific time-off request
-  app.get("/api/time-off-requests/:id", isAuthenticated, async (req, res) => {
+  app.get("/api/time-off-requests/:id", isAuthenticated, async (req: any, res) => {
     try {
       const request = await storage.getTimeOffRequest(req.params.id);
-      if (!request) {
+      if (!request || !(await canAccessTimeOffRequest(req, request))) {
         return res.status(404).json({ message: "Time-off request not found" });
       }
       res.json(request);
@@ -13677,10 +16240,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.patch("/api/time-off-requests/:id", isAuthenticated, async (req: any, res) => {
     try {
       const oldRequest = await storage.getTimeOffRequest(req.params.id);
-      if (!oldRequest) {
+      if (!oldRequest || !(await canAccessTimeOffRequest(req, oldRequest))) {
         return res.status(404).json({ message: "Time-off request not found" });
       }
-      
+
       const processedBody = {
         ...req.body,
         startDate: req.body.startDate ? coerceDate(req.body.startDate) : undefined,
@@ -13842,10 +16405,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/time-off-requests/:id/cancel", isAuthenticated, async (req: any, res) => {
     try {
       const oldRequest = await storage.getTimeOffRequest(req.params.id);
-      if (!oldRequest) {
+      if (!oldRequest || !(await canAccessTimeOffRequest(req, oldRequest))) {
         return res.status(404).json({ message: "Time-off request not found" });
       }
-      
+
       const request = await storage.cancelTimeOffRequest(req.params.id);
 
       // If we previously debited the ledger on approval, post a reversing credit.
@@ -13885,8 +16448,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get time-off requests for a specific caregiver
-  app.get("/api/caregivers/:id/time-off-requests", isAuthenticated, async (req, res) => {
+  app.get("/api/caregivers/:id/time-off-requests", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getCaregiverInScope(req, req.params.id))) {
+        return res.status(404).json({ message: "Caregiver not found" });
+      }
       const requests = await storage.getTimeOffRequestsByCaregiver(req.params.id);
       res.json(requests);
     } catch (error) {
@@ -13896,8 +16462,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get PTO balance for a specific caregiver
-  app.get("/api/caregivers/:id/pto-balance", isAuthenticated, async (req, res) => {
+  app.get("/api/caregivers/:id/pto-balance", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getCaregiverInScope(req, req.params.id))) {
+        return res.status(404).json({ message: "Caregiver not found" });
+      }
       const year = parseInt(req.query.year as string) || new Date().getFullYear();
       const balances = await storage.getPtoBalance(req.params.id, year);
       
@@ -13967,6 +16536,78 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Get PTO balance for a specific staff member (basic CRUD, no accrual ledger)
+  app.get("/api/users/:id/pto-balance", isAuthenticated, async (req: any, res) => {
+    try {
+      const requester = req.session?.user;
+      if (!requester) return res.status(401).json({ message: "Unauthorized" });
+      const targetUser = await storage.getUser(req.params.id);
+      if (!targetUser) return res.status(404).json({ message: "Staff member not found" });
+      const adminRoles = ["super_admin", "admin", "office_admin", "manager", "supervisor"];
+      const isAdmin = adminRoles.includes(requester.role);
+      if (!isAdmin && requester.id !== req.params.id) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      if (isAdmin && !(await canAccessOffice(req, targetUser.primaryOfficeId))) {
+        return res.status(404).json({ message: "Staff member not found" });
+      }
+      const year = parseInt(req.query.year as string) || new Date().getFullYear();
+      const balances = await storage.getPtoBalanceByUser(req.params.id, year);
+      res.json(balances);
+    } catch (error) {
+      console.error("Error fetching staff PTO balance:", error);
+      res.status(500).json({ message: "Failed to fetch staff PTO balance" });
+    }
+  });
+
+  // Create or update PTO balance for a staff member
+  app.post("/api/users/:id/pto-balance", isAuthenticated, async (req: any, res) => {
+    try {
+      const actorRole = req.session?.user?.role;
+      if (!["super_admin", "admin", "office_admin", "supervisor"].includes(actorRole || "")) {
+        return res.status(403).json({ message: "You do not have permission to modify PTO balances" });
+      }
+      const targetUser = await storage.getUser(req.params.id);
+      if (!targetUser || !(await canAccessOffice(req, targetUser.primaryOfficeId))) {
+        return res.status(404).json({ message: "Staff member not found" });
+      }
+
+      const year = req.body.year || new Date().getFullYear();
+      const ptoType = req.body.ptoType;
+
+      const existingBalance = await storage.getPtoBalanceByTypeForUser(req.params.id, year, ptoType);
+
+      let balance;
+      if (existingBalance) {
+        balance = await storage.updatePtoBalance(existingBalance.id, req.body);
+      } else {
+        const validatedData = insertPtoBalanceSchema.parse({
+          ...req.body,
+          caregiverId: null,
+          userId: req.params.id,
+          year,
+        });
+        balance = await storage.createPtoBalance(validatedData);
+      }
+
+      await storage.createAuditLog({
+        userId: req.session?.user?.id,
+        action: existingBalance ? "update" : "create",
+        entityType: "pto_balance",
+        entityId: balance.id,
+        oldValues: existingBalance,
+        newValues: balance,
+        ipAddress: req.ip,
+        userAgent: req.get("User-Agent"),
+      });
+
+      res.status(existingBalance ? 200 : 201).json(balance);
+    } catch (error) {
+      console.error("Error creating/updating staff PTO balance:", error);
+      res.status(400).json({ message: "Failed to create/update staff PTO balance" });
+    }
+  });
+
   // ==================== PTO POLICIES, LEDGER & DASHBOARD ====================
 
   const isAdminRole = (role?: string | null) =>
@@ -13975,7 +16616,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // List PTO policies
   app.get("/api/pto-policies", isAuthenticated, async (req: any, res) => {
     try {
-      const { officeId, role, ptoType } = req.query as any;
+      const user = req.session?.user;
+      if (!isAdminRole(user?.role)) return res.status(403).json({ message: "Admin access required" });
+      const { role, ptoType } = req.query as any;
+      const officeId = parseOfficeId(req);
       const policies = await storage.getAllPtoPolicies({ officeId, role, ptoType });
       res.json(policies);
     } catch (error: any) {
@@ -14031,7 +16675,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const user = req.session?.user;
       if (!isAdminRole(user?.role)) return res.status(403).json({ message: "Admin access required" });
-      const { officeId, lowBalanceThreshold } = req.query as any;
+      const { lowBalanceThreshold } = req.query as any;
+      const officeId = parseOfficeId(req);
       const rows = await storage.getAllPtoBalancesFromLedger({ officeId });
       const threshold = lowBalanceThreshold ? parseFloat(lowBalanceThreshold) : null;
       const filtered = threshold !== null
@@ -14049,7 +16694,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const user = req.session?.user;
       if (!isAdminRole(user?.role)) return res.status(403).json({ message: "Admin access required" });
-      const { officeId } = req.query as any;
+      const officeId = parseOfficeId(req);
       const rows = await storage.getAllPtoBalancesFromLedger({ officeId });
       const header = "Caregiver,Office ID,Vacation (h),Sick (h),Personal (h)\n";
       const body = rows.map(r =>
@@ -14743,10 +17388,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Survey Response routes
-  app.get("/api/surveys", isAuthenticated, async (req, res) => {
+  app.get("/api/surveys", isAuthenticated, async (req: any, res) => {
     try {
-      const { officeId } = req.query;
-      const officeFilter = officeId && officeId !== 'all' ? String(officeId) : undefined;
+      const officeFilter = parseOfficeId(req);
       const surveys = await storage.getSurveyResponses(officeFilter);
       res.json(surveys);
     } catch (error) {
@@ -14755,13 +17399,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/surveys/stats", isAuthenticated, async (req, res) => {
+  app.get("/api/surveys/stats", isAuthenticated, async (req: any, res) => {
     try {
-      const { officeId, startDate, endDate } = req.query;
-      const officeFilter = officeId && officeId !== 'all' ? String(officeId) : undefined;
+      const { startDate, endDate } = req.query;
+      const officeFilter = parseOfficeId(req);
       const start = startDate ? new Date(String(startDate)) : undefined;
       const end = endDate ? new Date(String(endDate)) : undefined;
-      
+
       const stats = await storage.getSatisfactionStats(officeFilter, start, end);
       res.json(stats);
     } catch (error) {
@@ -14770,8 +17414,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/surveys/by-client/:clientId", isAuthenticated, async (req, res) => {
+  app.get("/api/surveys/by-client/:clientId", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getClientInScope(req, req.params.clientId))) {
+        return res.status(404).json({ message: "Client not found" });
+      }
       const surveys = await storage.getSurveyResponsesByClient(req.params.clientId);
       res.json(surveys);
     } catch (error) {
@@ -14780,8 +17427,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/surveys/by-caregiver/:caregiverId", isAuthenticated, async (req, res) => {
+  app.get("/api/surveys/by-caregiver/:caregiverId", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await getCaregiverInScope(req, req.params.caregiverId))) {
+        return res.status(404).json({ message: "Caregiver not found" });
+      }
       const surveys = await storage.getSurveyResponsesByCaregiver(req.params.caregiverId);
       res.json(surveys);
     } catch (error) {
@@ -14916,12 +17566,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       for (const clientId of clientIds) {
         try {
-          const client = await storage.getClient(clientId);
+          const client = await getClientInScope(req, clientId);
           if (!client) {
             results.push({ clientId, success: false, error: "Client not found" });
             continue;
           }
-          
+
           const accessToken = crypto.randomBytes(32).toString('hex');
           
           const surveyData = {
@@ -14978,10 +17628,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.patch("/api/surveys/:id", isAuthenticated, async (req: any, res) => {
     try {
       const oldSurvey = await storage.getSurveyResponse(req.params.id);
-      if (!oldSurvey) {
+      if (!oldSurvey || !(await canAccessOffice(req, oldSurvey.officeId))) {
         return res.status(404).json({ message: "Survey not found" });
       }
-      
+
       const validatedData = insertSurveyResponseSchema.partial().parse(req.body);
       const survey = await storage.updateSurveyResponse(req.params.id, validatedData);
       
@@ -15378,9 +18028,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
     };
   }
 
+  // Scope-aware: super_admin may query any office (or all when omitted);
+  // everyone else is forced to their own primaryOfficeId regardless of the
+  // query param. A non-super-admin with no office gets a sentinel that
+  // matches no rows, so analytics return empty rather than leaking org-wide.
   function parseOfficeId(req: any): string | undefined {
-    const { officeId } = req.query;
-    return officeId && officeId !== 'all' ? String(officeId) : undefined;
+    const currentUser = req.session?.user;
+    const requested = req.query.officeId && req.query.officeId !== 'all' ? String(req.query.officeId) : undefined;
+    if (currentUser?.role === "super_admin") return requested;
+    return currentUser?.primaryOfficeId || "__no_office_scope__";
   }
 
   // Get all KPIs combined
@@ -15504,10 +18160,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ==================== REFERRAL SOURCE TRACKING ROUTES ====================
 
   // Get all referral sources
-  app.get("/api/referral-sources", isAuthenticated, async (req, res) => {
+  app.get("/api/referral-sources", isAuthenticated, async (req: any, res) => {
     try {
-      const { officeId } = req.query;
-      const officeFilter = officeId && officeId !== 'all' ? String(officeId) : undefined;
+      const officeFilter = parseOfficeId(req);
       const sources = await storage.getReferralSources(officeFilter);
       res.json(sources);
     } catch (error) {
@@ -15517,10 +18172,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get top performing referral sources
-  app.get("/api/referral-sources/top", isAuthenticated, async (req, res) => {
+  app.get("/api/referral-sources/top", isAuthenticated, async (req: any, res) => {
     try {
-      const { officeId, limit } = req.query;
-      const officeFilter = officeId && officeId !== 'all' ? String(officeId) : undefined;
+      const { limit } = req.query;
+      const officeFilter = parseOfficeId(req);
       const limitNum = limit ? parseInt(String(limit)) : 10;
       const topSources = await storage.getTopReferralSources(officeFilter, limitNum);
       res.json(topSources);
@@ -15531,10 +18186,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get single referral source
-  app.get("/api/referral-sources/:id", isAuthenticated, async (req, res) => {
+  app.get("/api/referral-sources/:id", isAuthenticated, async (req: any, res) => {
     try {
       const source = await storage.getReferralSource(req.params.id);
-      if (!source) {
+      if (!source || !(await canAccessOffice(req, source.officeId))) {
         return res.status(404).json({ message: "Referral source not found" });
       }
       res.json(source);
@@ -15545,10 +18200,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get referrals for a specific source
-  app.get("/api/referral-sources/:id/referrals", isAuthenticated, async (req, res) => {
+  app.get("/api/referral-sources/:id/referrals", isAuthenticated, async (req: any, res) => {
     try {
       const source = await storage.getReferralSource(req.params.id);
-      if (!source) {
+      if (!source || !(await canAccessOffice(req, source.officeId))) {
         return res.status(404).json({ message: "Referral source not found" });
       }
       const referrals = await storage.getReferralsBySource(req.params.id);
@@ -15586,10 +18241,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.patch("/api/referral-sources/:id", isAuthenticated, async (req: any, res) => {
     try {
       const oldSource = await storage.getReferralSource(req.params.id);
-      if (!oldSource) {
+      if (!oldSource || !(await canAccessOffice(req, oldSource.officeId))) {
         return res.status(404).json({ message: "Referral source not found" });
       }
-      
+
       const validatedData = insertReferralSourceSchema.partial().parse(req.body);
       const source = await storage.updateReferralSource(req.params.id, validatedData);
       
@@ -15615,10 +18270,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.delete("/api/referral-sources/:id", isAuthenticated, async (req: any, res) => {
     try {
       const source = await storage.getReferralSource(req.params.id);
-      if (!source) {
+      if (!source || !(await canAccessOffice(req, source.officeId))) {
         return res.status(404).json({ message: "Referral source not found" });
       }
-      
+
       await storage.deleteReferralSource(req.params.id);
       
       await storage.createAuditLog({
@@ -15638,11 +18293,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Get all client referrals
-  app.get("/api/client-referrals", isAuthenticated, async (req, res) => {
+  // Get the referral that led to a given client (if any) — used on the
+  // client profile's Referral Member Info section.
+  app.get("/api/clients/:clientId/referral", isAuthenticated, async (req: any, res) => {
     try {
-      const { officeId } = req.query;
-      const officeFilter = officeId && officeId !== 'all' ? String(officeId) : undefined;
+      if (!(await getClientInScope(req, req.params.clientId))) {
+        return res.status(404).json({ message: "Client not found" });
+      }
+      const referral = await storage.getClientReferralByClientId(req.params.clientId);
+      res.json(referral || null);
+    } catch (error) {
+      console.error("Error fetching client's referral:", error);
+      res.status(500).json({ message: "Failed to fetch client's referral" });
+    }
+  });
+
+  // Get all client referrals
+  app.get("/api/client-referrals", isAuthenticated, async (req: any, res) => {
+    try {
+      const officeFilter = parseOfficeId(req);
       const referrals = await storage.getClientReferrals(officeFilter);
       res.json(referrals);
     } catch (error) {
@@ -15652,9 +18321,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get single client referral
-  app.get("/api/client-referrals/:id", isAuthenticated, async (req, res) => {
+  app.get("/api/client-referrals/:id", isAuthenticated, async (req: any, res) => {
     try {
-      const referral = await storage.getClientReferral(req.params.id);
+      const referral = await getClientReferralInScope(req, req.params.id);
       if (!referral) {
         return res.status(404).json({ message: "Client referral not found" });
       }
@@ -15697,17 +18366,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Update client referral
   app.patch("/api/client-referrals/:id", isAuthenticated, async (req: any, res) => {
     try {
-      const oldReferral = await storage.getClientReferral(req.params.id);
+      const oldReferral = await getClientReferralInScope(req, req.params.id);
       if (!oldReferral) {
         return res.status(404).json({ message: "Client referral not found" });
       }
-      
+
       const processedBody = {
         ...req.body,
         referralDate: req.body.referralDate ? new Date(req.body.referralDate) : undefined,
         conversionDate: req.body.conversionDate ? new Date(req.body.conversionDate) : undefined,
       };
-      
+
       const validatedData = insertClientReferralSchema.partial().parse(processedBody);
       const referral = await storage.updateClientReferral(req.params.id, validatedData);
       
@@ -15732,11 +18401,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Convert client referral
   app.post("/api/client-referrals/:id/convert", isAuthenticated, async (req: any, res) => {
     try {
-      const oldReferral = await storage.getClientReferral(req.params.id);
+      const oldReferral = await getClientReferralInScope(req, req.params.id);
       if (!oldReferral) {
         return res.status(404).json({ message: "Client referral not found" });
       }
-      
+
       if (oldReferral.status === 'converted') {
         return res.status(400).json({ message: "Referral is already converted" });
       }
@@ -15762,13 +18431,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get referral statistics
-  app.get("/api/referral-stats", isAuthenticated, async (req, res) => {
+  app.get("/api/referral-stats", isAuthenticated, async (req: any, res) => {
     try {
-      const { officeId, startDate, endDate } = req.query;
-      const officeFilter = officeId && officeId !== 'all' ? String(officeId) : undefined;
+      const { startDate, endDate } = req.query;
+      const officeFilter = parseOfficeId(req);
       const start = startDate ? new Date(String(startDate)) : undefined;
       const end = endDate ? new Date(String(endDate)) : undefined;
-      
+
       const stats = await storage.getReferralStats(officeFilter, start, end);
       res.json(stats);
     } catch (error) {
@@ -16156,9 +18825,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "No worksheet found in the Excel file" });
       }
 
-      // Get all clients and caregivers for matching
-      const allClients = await storage.getAllClients();
-      const allCaregivers = await storage.getAllCaregivers();
+      // Get clients and caregivers for matching, scoped to the uploader's own
+      // organization (a cross-org admission/assignment ID match would let an
+      // upload silently mutate another org's schedules).
+      const allowedOffices = await resolveAllowedOfficeIds(req);
+      const allClients = allowedOffices === "ALL"
+        ? await storage.getAllClients()
+        : (await Promise.all(allowedOffices.map((officeId) => storage.getAllClients(officeId)))).flat();
+      const allCaregivers = allowedOffices === "ALL"
+        ? await storage.getAllCaregivers()
+        : (await Promise.all(allowedOffices.map((officeId) => storage.getAllCaregivers(officeId)))).flat();
 
       // Create lookup maps
       const clientByAdmissionId = new Map<string, any>();
@@ -16883,7 +19559,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!user || !hasExclusionAdminRole(user.role)) {
         return res.status(403).json({ message: "Unauthorized: Admin role required" });
       }
-      const caregiver = await storage.getCaregiver(req.params.id);
+      const caregiver = await getCaregiverInScope(req, req.params.id);
       if (!caregiver) {
         return res.status(404).json({ message: "Caregiver not found" });
       }
@@ -16901,9 +19577,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ message: "Unauthorized: Admin role required" });
       }
       const { caregiverId, status } = req.query;
-      const rawChecks = status
+      if (caregiverId && !(await getCaregiverInScope(req, caregiverId as string))) {
+        return res.status(404).json({ message: "Caregiver not found" });
+      }
+      let rawChecks = status
         ? await storage.getCaregiverExclusionChecksByStatus(status as any)
         : await storage.getCaregiverExclusionChecks(caregiverId as string | undefined);
+
+      if (!caregiverId) {
+        const allowedIds = await allowedCaregiverIds(req);
+        if (allowedIds !== "ALL") {
+          rawChecks = rawChecks.filter((c) => allowedIds.has(c.caregiverId));
+        }
+      }
 
       // Enrich with caregiverName, source short-name, matchedName, matchedRecord
       // identifier fields so the UI can render "Match reason" badges without
@@ -16998,6 +19684,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!user || (user.role !== "admin" && user.role !== "supervisor" && user.role !== "super_admin")) {
         return res.status(403).json({ message: "Unauthorized: Admin role required" });
       }
+      if (!(await getCaregiverInScope(req, req.params.caregiverId))) {
+        return res.status(404).json({ message: "Caregiver not found" });
+      }
       const checks = await storage.getCaregiverExclusionChecks(req.params.caregiverId);
       res.json(checks);
     } catch (error: any) {
@@ -17010,6 +19699,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const user = req.session?.user;
       if (!user || (user.role !== "admin" && user.role !== "supervisor" && user.role !== "super_admin")) {
         return res.status(403).json({ message: "Unauthorized: Admin role required" });
+      }
+      const existingCheck = await storage.getCaregiverExclusionCheck(req.params.checkId);
+      if (!existingCheck || !(await getCaregiverInScope(req, existingCheck.caregiverId))) {
+        return res.status(404).json({ message: "Exclusion check not found" });
       }
       const { status, reviewNotes } = req.body;
       const updated = await storage.updateCaregiverExclusionCheck(req.params.checkId, {
@@ -17030,6 +19723,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { caregiverId, sourceId, exclusionRecordId, matchSignature, reason } = req.body;
       if (!caregiverId || !sourceId || !matchSignature) {
         return res.status(400).json({ message: "Missing required fields" });
+      }
+      if (!(await getCaregiverInScope(req, caregiverId))) {
+        return res.status(404).json({ message: "Caregiver not found" });
       }
       const fp = await storage.createCaregiverFalsePositive({
         caregiverId, sourceId, exclusionRecordId, matchSignature, reason, createdBy: user.id,
@@ -17053,7 +19749,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!user || (user.role !== "admin" && user.role !== "supervisor" && user.role !== "super_admin")) {
         return res.status(403).json({ message: "Unauthorized: Admin role required" });
       }
-      const fps = await storage.getCaregiverFalsePositives(req.query.caregiverId as string | undefined);
+      const caregiverIdFilter = req.query.caregiverId as string | undefined;
+      if (caregiverIdFilter && !(await getCaregiverInScope(req, caregiverIdFilter))) {
+        return res.status(404).json({ message: "Caregiver not found" });
+      }
+      let fps = await storage.getCaregiverFalsePositives(caregiverIdFilter);
+      if (!caregiverIdFilter) {
+        const allowedIds = await allowedCaregiverIds(req);
+        if (allowedIds !== "ALL") {
+          fps = fps.filter((fp) => allowedIds.has(fp.caregiverId));
+        }
+      }
       res.json(fps);
     } catch (error: any) {
       res.status(500).json({ message: error.message || "Failed to fetch false positives" });
@@ -17065,6 +19771,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const user = req.session?.user;
       if (!user || (user.role !== "admin" && user.role !== "supervisor" && user.role !== "super_admin")) {
         return res.status(403).json({ message: "Unauthorized: Admin role required" });
+      }
+      const existingFp = await storage.getCaregiverFalsePositive(req.params.id);
+      if (!existingFp || !(await getCaregiverInScope(req, existingFp.caregiverId))) {
+        return res.status(404).json({ message: "False positive not found" });
       }
       await storage.deleteCaregiverFalsePositive(req.params.id);
       res.json({ success: true });
@@ -17955,7 +20665,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/custom-integrations", isAuthenticated, requireFeature('custom_integrations'), async (req: any, res) => {
     try {
-      const user = req.user;
+      const user = (req.session as any)?.user;
       if (!user.organizationId) {
         return res.status(400).json({ message: "No organization associated with user" });
       }
@@ -17968,7 +20678,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/custom-integrations", isAuthenticated, requireFeature('custom_integrations'), async (req: any, res) => {
     try {
-      const user = req.user;
+      const user = (req.session as any)?.user;
       if (!user.organizationId) {
         return res.status(400).json({ message: "No organization associated with user" });
       }
@@ -17986,7 +20696,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.put("/api/custom-integrations/:id", isAuthenticated, requireFeature('custom_integrations'), async (req: any, res) => {
     try {
-      const user = req.user;
+      const user = (req.session as any)?.user;
       if (!user.organizationId) {
         return res.status(400).json({ message: "No organization associated with user" });
       }
@@ -18006,7 +20716,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/custom-integrations/:id", isAuthenticated, requireFeature('custom_integrations'), async (req: any, res) => {
     try {
-      const user = req.user;
+      const user = (req.session as any)?.user;
       if (!user.organizationId) {
         return res.status(400).json({ message: "No organization associated with user" });
       }
@@ -18026,7 +20736,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/custom-integrations/:id/test", isAuthenticated, requireFeature('custom_integrations'), async (req: any, res) => {
     try {
-      const user = req.user;
+      const user = (req.session as any)?.user;
       if (!user.organizationId) {
         return res.status(400).json({ message: "No organization associated with user" });
       }
@@ -18054,10 +20764,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ============================================
 
   // Get all letter templates for the user's office
+  // A letter template is accessible if it is shared (no officeId), or the
+  // caller can access its office. Templates with a null office are org-wide
+  // library entries, not tenant data.
+  const canAccessLetterTemplate = async (req: any, template: { officeId: string | null }) => {
+    if (!template.officeId) return true;
+    return canAccessOffice(req, template.officeId);
+  };
+
   app.get("/api/letter-templates", isAuthenticated, async (req: any, res) => {
     try {
-      const user = req.user;
-      const officeId = req.query.officeId || user.primaryOfficeId || undefined;
+      const officeId = parseOfficeId(req);
       const templates = await storage.getLetterTemplates(officeId);
       res.json(templates);
     } catch (error: any) {
@@ -18090,7 +20807,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/letter-templates/:id", isAuthenticated, async (req: any, res) => {
     try {
       const template = await storage.getLetterTemplate(req.params.id);
-      if (!template) {
+      if (!template || !(await canAccessLetterTemplate(req, template))) {
         return res.status(404).json({ message: "Template not found" });
       }
       res.json(template);
@@ -18133,6 +20850,116 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Seed the standard letter set for an office. Idempotent — matched by
+  // name, so repeat calls only fill gaps and never overwrite an admin's
+  // edited copy of a letter.
+  const DEFAULT_LETTER_TEMPLATES: Array<{ name: string; description: string; scope: string; category: string; htmlContent: string }> = [
+    {
+      name: "Employment Verification Letter",
+      description: "Confirms a caregiver's employment for landlords, lenders, and agencies.",
+      scope: "caregiver",
+      category: "employment_verification",
+      htmlContent: `<p>To Whom It May Concern,</p>
+<p>This letter is to verify that <strong>{{caregiverFullName}}</strong> is employed by {{officeName}} as a Direct Care Worker.</p>
+<p>Date of hire: {{caregiverHireDate}}<br>Current employment status: {{caregiverStatus}}</p>
+<p>If you require any additional information regarding this employee, please contact our office at {{officePhone}}.</p>
+<p>Sincerely,</p>
+<p>{{officeName}}<br>{{officeAddress}}<br>{{officePhone}}</p>`,
+    },
+    {
+      name: "Employee Warning Letter",
+      description: "Formal written warning documenting a policy violation or performance issue.",
+      scope: "caregiver",
+      category: "warning",
+      htmlContent: `<p>Dear {{caregiverFullName}},</p>
+<p>This letter serves as a formal written warning regarding your employment with {{officeName}}.</p>
+<p><strong>Description of issue:</strong></p>
+<p>[Describe the specific incident, policy violation, or performance concern, including dates.]</p>
+<p><strong>Expected corrective action:</strong></p>
+<p>[Describe what must change and by when.]</p>
+<p>Please be advised that further occurrences may result in additional disciplinary action, up to and including termination of employment. A copy of this letter will be placed in your personnel file.</p>
+<p>If you have questions or wish to discuss this matter, please contact our office at {{officePhone}}.</p>
+<p>Sincerely,</p>
+<p>{{officeName}}<br>{{officePhone}}</p>`,
+    },
+    {
+      name: "Employment Termination Letter",
+      description: "Notifies a caregiver that their employment is ending.",
+      scope: "caregiver",
+      category: "termination",
+      htmlContent: `<p>Dear {{caregiverFullName}},</p>
+<p>This letter is to inform you that your employment with {{officeName}} will end effective <strong>[termination date]</strong>.</p>
+<p>[State the reason for termination if company policy requires it, and any information about final pay, benefits, and return of company property.]</p>
+<p>Your final paycheck will be issued in accordance with Pennsylvania wage payment requirements. Please return any agency property, documentation, or equipment in your possession to the office.</p>
+<p>If you have questions regarding this decision or your final pay, please contact our office at {{officePhone}}.</p>
+<p>Sincerely,</p>
+<p>{{officeName}}<br>{{officeAddress}}<br>{{officePhone}}</p>`,
+    },
+    {
+      name: "Client Service Termination Notice",
+      description: "Advance written notice ending home care services (28 Pa. Code § 611.57 requires at least 10 calendar days' notice in most cases).",
+      scope: "client",
+      category: "termination",
+      htmlContent: `<p>Dear {{clientFullName}},</p>
+<p>This letter is to provide you with formal written notice that {{officeName}} will discontinue home care services effective <strong>[end date — at least 10 calendar days from the date of this notice]</strong>.</p>
+<p>[State the reason for the termination of services.]</p>
+<p>We are committed to supporting a safe transition of your care. Upon request, we can provide information to assist you in locating another provider.</p>
+<p>If you have questions or concerns about this notice, please contact our office at {{officePhone}}. You may also contact the Pennsylvania Department of Health complaint hotline at 1-866-826-3644 or your local Area Agency on Aging Ombudsman.</p>
+<p>Sincerely,</p>
+<p>{{officeName}}<br>{{officeAddress}}<br>{{officePhone}}</p>`,
+    },
+    {
+      name: "General Letter",
+      description: "Blank general-purpose letter on office letterhead.",
+      scope: "general",
+      category: "general",
+      htmlContent: `<p>Dear [Recipient],</p>
+<p>[Letter body]</p>
+<p>Sincerely,</p>
+<p>{{officeName}}<br>{{officeAddress}}<br>{{officePhone}}</p>`,
+    },
+  ];
+
+  app.post("/api/letter-templates/seed-defaults", isAuthenticated, requireAdminRole, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      const officeId = req.body.officeId || user?.primaryOfficeId;
+      if (!officeId || !(await canAccessOffice(req, officeId))) {
+        return res.status(403).json({ message: "Office is outside your scope" });
+      }
+
+      const existing = await storage.getLetterTemplates(officeId);
+      const existingNames = new Set(existing.map((t) => t.name));
+
+      const created: string[] = [];
+      const skipped: string[] = [];
+      for (const def of DEFAULT_LETTER_TEMPLATES) {
+        if (existingNames.has(def.name)) {
+          skipped.push(def.name);
+          continue;
+        }
+        await storage.createLetterTemplate({
+          name: def.name,
+          description: def.description,
+          scope: def.scope as any,
+          category: def.category,
+          status: "published",
+          htmlContent: def.htmlContent,
+          isDefault: true,
+          officeId,
+          createdBy: user.id,
+          updatedBy: user.id,
+        });
+        created.push(def.name);
+      }
+
+      res.status(201).json({ created, skipped });
+    } catch (error: any) {
+      console.error("Error seeding default letter templates:", error);
+      res.status(500).json({ message: error.message || "Failed to seed default letter templates" });
+    }
+  });
+
   // Update a letter template (admin only)
   app.patch("/api/letter-templates/:id", isAuthenticated, async (req: any, res) => {
     try {
@@ -18141,10 +20968,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ message: "Only administrators can update letter templates" });
       }
       const existing = await storage.getLetterTemplate(req.params.id);
-      if (!existing) {
+      if (!existing || !(await canAccessLetterTemplate(req, existing))) {
         return res.status(404).json({ message: "Template not found" });
       }
-      
+
       // Create a version before updating (for audit trail)
       if (existing.htmlContent !== req.body.htmlContent) {
         const versions = await storage.getLetterTemplateVersions(req.params.id);
@@ -18177,6 +21004,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!user || !['super_admin', 'admin', 'office_admin', 'manager'].includes(user.role)) {
         return res.status(403).json({ message: "Only administrators can delete letter templates" });
       }
+      const existing = await storage.getLetterTemplate(req.params.id);
+      if (!existing || !(await canAccessLetterTemplate(req, existing))) {
+        return res.status(404).json({ message: "Template not found" });
+      }
       await storage.deleteLetterTemplate(req.params.id);
       res.status(204).send();
     } catch (error: any) {
@@ -18187,6 +21018,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get template versions (for version history)
   app.get("/api/letter-templates/:id/versions", isAuthenticated, async (req: any, res) => {
     try {
+      const template = await storage.getLetterTemplate(req.params.id);
+      if (!template || !(await canAccessLetterTemplate(req, template))) {
+        return res.status(404).json({ message: "Template not found" });
+      }
       const versions = await storage.getLetterTemplateVersions(req.params.id);
       res.json(versions);
     } catch (error: any) {
@@ -18252,19 +21087,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Generate a document from a letter template
   app.post("/api/letter-templates/:id/generate", isAuthenticated, async (req: any, res) => {
     try {
-      const user = req.user;
-      const { scope, targetId, saveToDocuments = true } = req.body;
-      
+      const user = req.session?.user;
+      if (!user || !['super_admin', 'admin', 'office_admin', 'manager', 'supervisor'].includes(user.role)) {
+        return res.status(403).json({ message: "You do not have permission to generate letters" });
+      }
+      const { scope, targetId, saveToDocuments = true, emailTo, emailSubject, emailMessage } = req.body;
+
       if (!scope || !targetId) {
         return res.status(400).json({ message: "scope and targetId are required" });
       }
-      
+      if (emailTo) {
+        const { isValidEmail } = await import('./communication-services');
+        if (!isValidEmail(String(emailTo))) {
+          return res.status(400).json({ message: "Invalid recipient email address" });
+        }
+      }
+
       // Get the template
       const template = await storage.getLetterTemplate(req.params.id);
-      if (!template) {
+      if (!template || !(await canAccessLetterTemplate(req, template))) {
         return res.status(404).json({ message: "Template not found" });
       }
-      
+
       if (template.status !== 'published') {
         return res.status(400).json({ message: "Only published templates can be used to generate documents" });
       }
@@ -18281,7 +21125,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       entityData.officePhone = office?.phone || '';
       
       if (scope === 'caregiver') {
-        const caregiver = await storage.getCaregiver(targetId);
+        const caregiver = await getCaregiverInScope(req, targetId);
         if (!caregiver) {
           return res.status(404).json({ message: "Caregiver not found" });
         }
@@ -18295,7 +21139,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         entityData.caregiverHireDate = caregiver.hireDate ? new Date(caregiver.hireDate).toLocaleDateString() : '';
         entityData.caregiverStatus = caregiver.isActive ? 'Active' : 'Inactive';
       } else if (scope === 'client') {
-        const client = await storage.getClient(targetId);
+        const client = await getClientInScope(req, targetId);
         if (!client) {
           return res.status(404).json({ message: "Client not found" });
         }
@@ -18306,10 +21150,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
         entityData.clientEmail = client.email || '';
         entityData.clientPhone = client.phone || '';
         entityData.clientAddress = `${client.address || ''}, ${client.city || ''}, ${client.state || ''} ${client.zipCode || ''}`.replace(/^,\s*/, '').trim();
-        entityData.clientDateOfBirth = client.dateOfBirth ? new Date(client.dateOfBirth).toLocaleDateString() : '';
+        // Date-only value: read the calendar date via UTC getters so the
+        // server's timezone can't shift it back a day (same fix as the
+        // client-side dateOnly helpers).
+        if (client.dateOfBirth) {
+          const dob = new Date(client.dateOfBirth);
+          entityData.clientDateOfBirth = `${dob.getUTCMonth() + 1}/${dob.getUTCDate()}/${dob.getUTCFullYear()}`;
+        } else {
+          entityData.clientDateOfBirth = '';
+        }
       } else if (scope === 'staff') {
         const staffUser = await storage.getUser(targetId);
-        if (!staffUser) {
+        if (!staffUser || !(await canAccessOffice(req, staffUser.primaryOfficeId))) {
           return res.status(404).json({ message: "Staff member not found" });
         }
         entityName = `${staffUser.firstName} ${staffUser.lastName}`;
@@ -18404,8 +21256,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         writeStream.on('error', reject);
       });
 
-      // Read file size before potentially uploading to S3
-      const stats = { size: fs.statSync(filePath).size };
+      // Read the finished PDF into memory before the local copy may be
+      // removed (needed both for the file size and for email attachment).
+      const pdfBuffer = fs.readFileSync(filePath);
+      const stats = { size: pdfBuffer.length };
 
       // Upload to S3 if configured, then remove local temp file
       if (isS3Enabled()) {
@@ -18452,16 +21306,116 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
       
+      // Optionally email the letter as a PDF attachment
+      let emailResult: { success: boolean; error?: string } | null = null;
+      if (emailTo) {
+        try {
+          const { sendEmailWithAttachments } = await import('./agentmail');
+          const subject = emailSubject || `${template.name} — ${entityName}`;
+          const bodyHtml = `<p>${emailMessage ? String(emailMessage).replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>') : `Please find the attached letter: <strong>${template.name}</strong>.`}</p>`;
+          await sendEmailWithAttachments({
+            to: String(emailTo),
+            subject,
+            html: bodyHtml,
+            attachments: [{
+              filename: `${template.name} - ${entityName}.pdf`,
+              contentType: 'application/pdf',
+              content: pdfBuffer.toString('base64'),
+            }],
+          });
+          emailResult = { success: true };
+        } catch (emailErr: any) {
+          console.error("Error emailing generated letter (letter itself was generated):", emailErr);
+          emailResult = { success: false, error: emailErr?.message || 'Failed to send email' };
+        }
+      }
+
       res.json({
         success: true,
-        message: "Document generated successfully",
+        message: emailResult?.success
+          ? "Document generated and emailed successfully"
+          : emailResult
+            ? "Document generated, but the email failed to send"
+            : "Document generated successfully",
         fileName,
         filePath: `/uploads/${fileName}`,
         document: documentRecord,
+        emailResult,
       });
     } catch (error: any) {
       console.error("Error generating document from template:", error);
       res.status(500).json({ message: error.message || "Failed to generate document" });
+    }
+  });
+
+  // Email an existing document (e.g. a previously generated letter) as an
+  // attachment. Restricted to the same roles that can generate letters, and
+  // scope-checked through the document's resolved office.
+  app.post("/api/documents/:id/email", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.session?.user;
+      if (!user || !['super_admin', 'admin', 'office_admin', 'manager', 'supervisor'].includes(user.role)) {
+        return res.status(403).json({ message: "You do not have permission to email documents" });
+      }
+      const { recipientEmail, subject, message } = req.body;
+      const { isValidEmail } = await import('./communication-services');
+      if (!recipientEmail || !isValidEmail(String(recipientEmail))) {
+        return res.status(400).json({ message: "A valid recipientEmail is required" });
+      }
+
+      const document = await storage.getDocument(req.params.id);
+      if (!document || !(await canAccessDocument(req, document))) {
+        return res.status(404).json({ message: "Document not found" });
+      }
+
+      // Load the file bytes from local uploads or S3
+      const localPath = path.join("uploads", document.fileName);
+      let fileBuffer: Buffer;
+      if (fs.existsSync(localPath)) {
+        fileBuffer = fs.readFileSync(localPath);
+      } else if (isS3Enabled()) {
+        const s3Key = getS3KeyForFile(document.fileName, "uploads");
+        const tmpPath = path.join("uploads", `tmp_email_${Date.now()}_${document.fileName}`);
+        if (!fs.existsSync("uploads")) fs.mkdirSync("uploads", { recursive: true });
+        const downloaded = await downloadFileFromS3(s3Key, tmpPath);
+        if (!downloaded) {
+          return res.status(404).json({ message: "Document file not found in storage" });
+        }
+        fileBuffer = fs.readFileSync(tmpPath);
+        fs.unlinkSync(tmpPath);
+      } else {
+        return res.status(404).json({ message: "Document file not found in storage" });
+      }
+
+      const { sendEmailWithAttachments } = await import('./agentmail');
+      const safeMessage = message
+        ? String(message).replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>')
+        : `Please find the attached document: <strong>${document.originalName || document.fileName}</strong>.`;
+      await sendEmailWithAttachments({
+        to: String(recipientEmail),
+        subject: subject || `Document: ${document.originalName || document.fileName}`,
+        html: `<p>${safeMessage}</p>`,
+        attachments: [{
+          filename: document.originalName || document.fileName,
+          contentType: document.fileType || 'application/octet-stream',
+          content: fileBuffer.toString('base64'),
+        }],
+      });
+
+      await storage.createAuditLog({
+        userId: user.id,
+        action: "email_document",
+        entityType: "document",
+        entityId: document.id,
+        newValues: { recipientEmail, subject: subject || null },
+        ipAddress: req.ip,
+        userAgent: req.get("User-Agent"),
+      });
+
+      res.json({ success: true, message: `Document emailed to ${recipientEmail}` });
+    } catch (error: any) {
+      console.error("Error emailing document:", error);
+      res.status(500).json({ message: error.message || "Failed to email document" });
     }
   });
 
@@ -18470,11 +21424,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ===========================================
 
   // Get all coordinator pay records with optional filters
+  // Salary data — restrict the read endpoints to manager-tier roles, matching
+  // the create/update/delete siblings, and scope by office.
+  const coordinatorPayRoles = ["admin", "office_admin", "super_admin", "supervisor"];
+
   app.get("/api/coordinator-pay-records", isAuthenticated, async (req: any, res) => {
     try {
-      const { officeId, year, quarter } = req.query;
+      if (!coordinatorPayRoles.includes(req.session?.user?.role || "")) {
+        return res.status(403).json({ message: "Unauthorized" });
+      }
+      const { year, quarter } = req.query;
+      const officeFilter = parseOfficeId(req);
       const records = await storage.getCoordinatorPayRecords(
-        officeId as string,
+        officeFilter as string,
         year ? parseInt(year as string) : undefined,
         quarter ? parseInt(quarter as string) : undefined
       );
@@ -18488,9 +21450,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get coordinator pay records for a specific coordinator
   app.get("/api/coordinator-pay-records/coordinator/:coordinatorId", isAuthenticated, async (req: any, res) => {
     try {
+      if (!coordinatorPayRoles.includes(req.session?.user?.role || "")) {
+        return res.status(403).json({ message: "Unauthorized" });
+      }
       const { coordinatorId } = req.params;
       const records = await storage.getCoordinatorPayRecordsByCoordinator(coordinatorId);
-      res.json(records);
+      // Only return records for offices the caller can access.
+      const scoped = [] as typeof records;
+      for (const rec of records) {
+        if (await canAccessOffice(req, rec.officeId)) scoped.push(rec);
+      }
+      res.json(scoped);
     } catch (error: any) {
       console.error("Error fetching coordinator pay records:", error);
       res.status(500).json({ message: error.message || "Failed to fetch pay records" });
@@ -18500,8 +21470,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get a single coordinator pay record
   app.get("/api/coordinator-pay-records/:id", isAuthenticated, async (req: any, res) => {
     try {
+      if (!coordinatorPayRoles.includes(req.session?.user?.role || "")) {
+        return res.status(403).json({ message: "Unauthorized" });
+      }
       const record = await storage.getCoordinatorPayRecord(req.params.id);
-      if (!record) {
+      if (!record || !(await canAccessOffice(req, record.officeId))) {
         return res.status(404).json({ message: "Pay record not found" });
       }
       res.json(record);
@@ -18514,7 +21487,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Create a new coordinator pay record
   app.post("/api/coordinator-pay-records", isAuthenticated, async (req: any, res) => {
     try {
-      const user = req.user;
+      const user = (req.session as any)?.user;
       if (!user || !["admin", "office_admin", "super_admin", "supervisor"].includes(user.role)) {
         return res.status(403).json({ message: "Unauthorized" });
       }
@@ -18535,11 +21508,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Update a coordinator pay record
   app.patch("/api/coordinator-pay-records/:id", isAuthenticated, async (req: any, res) => {
     try {
-      const user = req.user;
+      const user = (req.session as any)?.user;
       if (!user || !["admin", "office_admin", "super_admin", "supervisor"].includes(user.role)) {
         return res.status(403).json({ message: "Unauthorized" });
       }
-      
+      const existing = await storage.getCoordinatorPayRecord(req.params.id);
+      if (!existing || !(await canAccessOffice(req, existing.officeId))) {
+        return res.status(404).json({ message: "Pay record not found" });
+      }
+
       const validatedData = insertCoordinatorPayRecordSchema.partial().parse(req.body);
       const record = await storage.updateCoordinatorPayRecord(req.params.id, validatedData);
       res.json(record);
@@ -18552,11 +21529,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Delete a coordinator pay record
   app.delete("/api/coordinator-pay-records/:id", isAuthenticated, async (req: any, res) => {
     try {
-      const user = req.user;
+      const user = (req.session as any)?.user;
       if (!user || !["admin", "office_admin", "super_admin", "supervisor"].includes(user.role)) {
         return res.status(403).json({ message: "Unauthorized" });
       }
-      
+      const existing = await storage.getCoordinatorPayRecord(req.params.id);
+      if (!existing || !(await canAccessOffice(req, existing.officeId))) {
+        return res.status(404).json({ message: "Pay record not found" });
+      }
+
       await storage.deleteCoordinatorPayRecord(req.params.id);
       res.json({ success: true });
     } catch (error: any) {
@@ -18572,7 +21553,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get all email templates
   app.get("/api/email-templates", isAuthenticated, async (req: any, res) => {
     try {
-      const user = req.user;
+      const user = (req.session as any)?.user;
       if (!user || user.role !== "super_admin") {
         return res.status(403).json({ message: "Only super admins can manage email templates" });
       }
@@ -18587,7 +21568,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get a single email template
   app.get("/api/email-templates/:id", isAuthenticated, async (req: any, res) => {
     try {
-      const user = req.user;
+      const user = (req.session as any)?.user;
       if (user.role !== "super_admin") {
         return res.status(403).json({ message: "Only super admins can manage email templates" });
       }
@@ -18616,7 +21597,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Create a new email template
   app.post("/api/email-templates", isAuthenticated, async (req: any, res) => {
     try {
-      const user = req.user;
+      const user = (req.session as any)?.user;
       if (user.role !== "super_admin") {
         return res.status(403).json({ message: "Only super admins can manage email templates" });
       }
@@ -18638,7 +21619,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Update an email template
   app.patch("/api/email-templates/:id", isAuthenticated, async (req: any, res) => {
     try {
-      const user = req.user;
+      const user = (req.session as any)?.user;
       if (user.role !== "super_admin") {
         return res.status(403).json({ message: "Only super admins can manage email templates" });
       }
@@ -18659,7 +21640,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Delete an email template
   app.delete("/api/email-templates/:id", isAuthenticated, async (req: any, res) => {
     try {
-      const user = req.user;
+      const user = (req.session as any)?.user;
       if (user.role !== "super_admin") {
         return res.status(403).json({ message: "Only super admins can manage email templates" });
       }
@@ -18675,7 +21656,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Send test email using a template
   app.post("/api/email-templates/:id/test", isAuthenticated, async (req: any, res) => {
     try {
-      const user = req.user;
+      const user = (req.session as any)?.user;
       if (user.role !== "super_admin") {
         return res.status(403).json({ message: "Only super admins can test email templates" });
       }
@@ -18846,7 +21827,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get all payroll runs
   app.get("/api/payroll-runs", isAuthenticated, async (req: any, res) => {
     try {
-      const user = req.user;
+      const user = (req.session as any)?.user;
       if (!user || !["admin", "office_admin", "super_admin", "supervisor"].includes(user.role)) {
         return res.status(403).json({ message: "Unauthorized" });
       }
@@ -18864,7 +21845,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/payroll-runs/:id", isAuthenticated, async (req: any, res) => {
     try {
       const run = await storage.getPayrollRun(req.params.id);
-      if (!run) {
+      if (!run || !(await canAccessOffice(req, run.officeId))) {
         return res.status(404).json({ message: "Payroll run not found" });
       }
       res.json(run);
@@ -18877,7 +21858,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Create a new payroll run
   app.post("/api/payroll-runs", isAuthenticated, async (req: any, res) => {
     try {
-      const user = req.user;
+      const user = (req.session as any)?.user;
       if (!user || !["admin", "office_admin", "super_admin"].includes(user.role)) {
         return res.status(403).json({ message: "Unauthorized" });
       }
@@ -18929,7 +21910,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Update a payroll run
   app.patch("/api/payroll-runs/:id", isAuthenticated, async (req: any, res) => {
     try {
-      const user = req.user;
+      const user = (req.session as any)?.user;
       if (!user || !["admin", "office_admin", "super_admin"].includes(user.role)) {
         return res.status(403).json({ message: "Unauthorized" });
       }
@@ -18977,7 +21958,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Delete a payroll run
   app.delete("/api/payroll-runs/:id", isAuthenticated, async (req: any, res) => {
     try {
-      const user = req.user;
+      const user = (req.session as any)?.user;
       if (!user || !["admin", "office_admin", "super_admin"].includes(user.role)) {
         return res.status(403).json({ message: "Unauthorized" });
       }
@@ -19007,7 +21988,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get ADP configuration status
   app.get("/api/adp/config", isAuthenticated, async (req: any, res) => {
     try {
-      const user = req.user;
+      const user = (req.session as any)?.user;
       if (!user || !["admin", "office_admin", "super_admin"].includes(user.role)) {
         return res.status(403).json({ message: "Unauthorized" });
       }
@@ -19043,7 +22024,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Sync with ADP (placeholder - requires actual ADP API integration)
   app.post("/api/adp/sync", isAuthenticated, async (req: any, res) => {
     try {
-      const user = req.user;
+      const user = (req.session as any)?.user;
       if (!user || !["admin", "office_admin", "super_admin"].includes(user.role)) {
         return res.status(403).json({ message: "Unauthorized" });
       }
@@ -19092,7 +22073,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Test ADP connection
   app.post("/api/adp/test-connection", isAuthenticated, async (req: any, res) => {
     try {
-      const user = req.user;
+      const user = (req.session as any)?.user;
       if (!user || !["admin", "office_admin", "super_admin"].includes(user.role)) {
         return res.status(403).json({ message: "Unauthorized" });
       }
@@ -19130,7 +22111,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get upcoming expirations
   app.get("/api/admin/expiration-alerts", isAuthenticated, async (req: any, res) => {
     try {
-      const user = req.user;
+      const user = (req.session as any)?.user;
       if (!user || !["admin", "office_admin", "super_admin"].includes(user.role)) {
         return res.status(403).json({ message: "Unauthorized" });
       }
@@ -19147,7 +22128,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Trigger manual alert sending
   app.post("/api/admin/expiration-alerts/send", isAuthenticated, async (req: any, res) => {
     try {
-      const user = req.user;
+      const user = (req.session as any)?.user;
       if (!user || !["admin", "office_admin", "super_admin"].includes(user.role)) {
         return res.status(403).json({ message: "Unauthorized" });
       }
@@ -19178,7 +22159,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get alert settings
   app.get("/api/admin/expiration-alerts/settings", isAuthenticated, async (req: any, res) => {
     try {
-      const user = req.user;
+      const user = (req.session as any)?.user;
       if (!user || !["admin", "office_admin", "super_admin"].includes(user.role)) {
         return res.status(403).json({ message: "Unauthorized" });
       }
@@ -19194,7 +22175,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Update alert settings
   app.put("/api/admin/expiration-alerts/settings", isAuthenticated, async (req: any, res) => {
     try {
-      const user = req.user;
+      const user = (req.session as any)?.user;
       if (!user || !["admin", "office_admin", "super_admin"].includes(user.role)) {
         return res.status(403).json({ message: "Unauthorized" });
       }
@@ -19235,11 +22216,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { status, officeId, caregiverId } = req.query;
       const filters: { status?: string; officeId?: string; caregiverId?: string } = {};
-      
+
       if (status) filters.status = status as string;
-      if (officeId) filters.officeId = officeId as string;
       if (caregiverId) filters.caregiverId = caregiverId as string;
-      
+
+      // Lock non-super-admins to their own office; ignore any client-supplied
+      // officeId that isn't theirs.
+      const currentUser = req.session?.user;
+      if (currentUser?.role === "super_admin") {
+        if (officeId) filters.officeId = officeId as string;
+      } else {
+        if (!currentUser?.primaryOfficeId) return res.json([]);
+        filters.officeId = currentUser.primaryOfficeId;
+      }
+
       const requests = await storage.getShiftSwapRequests(filters);
       
       const enrichedRequests = await Promise.all(requests.map(async (request) => {
@@ -19275,10 +22265,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/shift-swap-requests/:id", isAuthenticated, async (req: any, res) => {
     try {
       const request = await storage.getShiftSwapRequest(req.params.id);
-      if (!request) {
+      if (!request || !(await canAccessOffice(req, request.officeId))) {
         return res.status(404).json({ message: "Shift swap request not found" });
       }
-      
+
       const [schedule, requestingCaregiver, targetCaregiver, reviewer] = await Promise.all([
         storage.getCaregiverSchedule(request.scheduleId),
         storage.getCaregiver(request.requestingCaregiverId),
@@ -19311,7 +22301,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const request = await storage.createShiftSwapRequest(validatedData);
       
       await storage.createAuditLog({
-        userId: req.user?.id,
+        userId: (req.session as any)?.user?.id,
         action: "create",
         entityType: "shift_swap_request",
         entityId: request.id,
@@ -19329,7 +22319,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.put("/api/shift-swap-requests/:id/approve", isAuthenticated, async (req: any, res) => {
     try {
-      const user = req.user;
+      const user = (req.session as any)?.user;
       if (!user || !["admin", "office_admin", "super_admin", "supervisor"].includes(user.role)) {
         return res.status(403).json({ message: "Unauthorized - Manager role required" });
       }
@@ -19356,7 +22346,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.put("/api/shift-swap-requests/:id/reject", isAuthenticated, async (req: any, res) => {
     try {
-      const user = req.user;
+      const user = (req.session as any)?.user;
       if (!user || !["admin", "office_admin", "super_admin", "supervisor"].includes(user.role)) {
         return res.status(403).json({ message: "Unauthorized - Manager role required" });
       }
@@ -19383,7 +22373,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.put("/api/shift-swap-requests/:id/cancel", isAuthenticated, async (req: any, res) => {
     try {
-      const user = req.user;
+      const user = (req.session as any)?.user;
       if (!user) {
         return res.status(401).json({ message: "Unauthorized" });
       }
@@ -19520,17 +22510,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // QuickBooks Billing Export
   app.get("/api/admin/export/quickbooks/billing", isAuthenticated, requireFeature('billing_payroll'), async (req: any, res) => {
     try {
-      const user = req.user;
+      const user = (req.session as any)?.user;
       if (!user || !["admin", "office_admin", "super_admin"].includes(user.role)) {
         return res.status(403).json({ message: "Unauthorized - Admin role required" });
       }
       
       const { officeId, startDate, endDate, format = 'csv' } = req.query;
-      
+
       if (!officeId || !startDate || !endDate) {
         return res.status(400).json({ message: "officeId, startDate, and endDate are required" });
       }
-      
+      if (!(await canAccessOffice(req, officeId as string))) {
+        return res.status(403).json({ message: "Office is outside your scope" });
+      }
+
       // Get billing records for the office and date range
       const allRecords = await storage.getBillingRecords(officeId as string);
       const start = new Date(startDate as string);
@@ -19571,17 +22564,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // QuickBooks Payroll Export
   app.get("/api/admin/export/quickbooks/payroll", isAuthenticated, requireFeature('billing_payroll'), async (req: any, res) => {
     try {
-      const user = req.user;
+      const user = (req.session as any)?.user;
       if (!user || !["admin", "office_admin", "super_admin"].includes(user.role)) {
         return res.status(403).json({ message: "Unauthorized - Admin role required" });
       }
       
       const { officeId, payPeriodStart, payPeriodEnd, format = 'csv' } = req.query;
-      
+
       if (!officeId || !payPeriodStart || !payPeriodEnd) {
         return res.status(400).json({ message: "officeId, payPeriodStart, and payPeriodEnd are required" });
       }
-      
+      if (!(await canAccessOffice(req, officeId as string))) {
+        return res.status(403).json({ message: "Office is outside your scope" });
+      }
+
       // Get payroll runs for the office and date range
       const allRuns = await storage.getPayrollRuns(officeId as string);
       const start = new Date(payPeriodStart as string);
@@ -19676,14 +22672,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get all e-signature templates
   app.get("/api/esignature/templates", isAuthenticated, async (req: any, res) => {
     try {
-      const user = req.user;
+      const user = (req.session as any)?.user;
       if (!user || !["admin", "office_admin", "super_admin"].includes(user.role)) {
         return res.status(403).json({ message: "Access denied. Admin role required." });
       }
-      const { officeId, status } = req.query;
-      const templates = await storage.getESignatureTemplates({ 
-        officeId: officeId as string, 
-        status: status as string 
+      const { status } = req.query;
+      const templates = await storage.getESignatureTemplates({
+        officeId: parseOfficeId(req),
+        status: status as string
       });
       res.json(templates);
     } catch (error: any) {
@@ -19694,12 +22690,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get single e-signature template
   app.get("/api/esignature/templates/:id", isAuthenticated, async (req: any, res) => {
     try {
-      const user = req.user;
+      const user = (req.session as any)?.user;
       if (!user || !["admin", "office_admin", "super_admin"].includes(user.role)) {
         return res.status(403).json({ message: "Access denied. Admin role required." });
       }
       const template = await storage.getESignatureTemplate(req.params.id);
-      if (!template) {
+      if (!template || !(await canAccessOffice(req, template.officeId))) {
         return res.status(404).json({ message: "Template not found" });
       }
       res.json(template);
@@ -19711,7 +22707,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Create e-signature template
   app.post("/api/esignature/templates", isAuthenticated, async (req: any, res) => {
     try {
-      const user = req.user;
+      const user = (req.session as any)?.user;
       if (!user || !["admin", "office_admin", "super_admin"].includes(user.role)) {
         return res.status(403).json({ message: "Access denied. Admin role required." });
       }
@@ -19729,12 +22725,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Update e-signature template
   app.put("/api/esignature/templates/:id", isAuthenticated, async (req: any, res) => {
     try {
-      const user = req.user;
+      const user = (req.session as any)?.user;
       if (!user || !["admin", "office_admin", "super_admin"].includes(user.role)) {
         return res.status(403).json({ message: "Access denied. Admin role required." });
       }
       const existing = await storage.getESignatureTemplate(req.params.id);
-      if (!existing) {
+      if (!existing || !(await canAccessOffice(req, existing.officeId))) {
         return res.status(404).json({ message: "Template not found" });
       }
       const template = await storage.updateESignatureTemplate(req.params.id, req.body);
@@ -19747,9 +22743,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Delete e-signature template
   app.delete("/api/esignature/templates/:id", isAuthenticated, async (req: any, res) => {
     try {
-      const user = req.user;
+      const user = (req.session as any)?.user;
       if (!user || !["admin", "office_admin", "super_admin"].includes(user.role)) {
         return res.status(403).json({ message: "Access denied. Admin role required." });
+      }
+      const existing = await storage.getESignatureTemplate(req.params.id);
+      if (!existing || !(await canAccessOffice(req, existing.officeId))) {
+        return res.status(404).json({ message: "Template not found" });
       }
       await storage.deleteESignatureTemplate(req.params.id);
       res.status(204).send();
@@ -19765,7 +22765,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get all e-signature requests
   app.get("/api/esignature/requests", isAuthenticated, async (req: any, res) => {
     try {
-      const user = req.user;
+      const user = (req.session as any)?.user;
       if (!user || !["admin", "office_admin", "super_admin"].includes(user.role)) {
         return res.status(403).json({ message: "Access denied. Admin role required." });
       }
@@ -19783,12 +22783,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get single e-signature request
   app.get("/api/esignature/requests/:id", isAuthenticated, async (req: any, res) => {
     try {
-      const user = req.user;
+      const user = (req.session as any)?.user;
       if (!user || !["admin", "office_admin", "super_admin"].includes(user.role)) {
         return res.status(403).json({ message: "Access denied. Admin role required." });
       }
       const request = await storage.getESignatureRequest(req.params.id);
       if (!request) {
+        return res.status(404).json({ message: "Request not found" });
+      }
+      // Requests carry no officeId of their own; scope by the sender (the user
+      // who created it) or, failing that, the linked template's office. This
+      // leaks recipientEmail/documentContent/signatureData otherwise.
+      const isSender = request.sentBy && request.sentBy === req.session?.user?.id;
+      const template = request.templateId ? await storage.getESignatureTemplate(request.templateId) : undefined;
+      const templateInScope = template ? await canAccessOffice(req, template.officeId) : false;
+      if (!isSender && !templateInScope && req.session?.user?.role !== "super_admin") {
         return res.status(404).json({ message: "Request not found" });
       }
       res.json(request);
@@ -19800,7 +22809,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Create and send e-signature request
   app.post("/api/esignature/requests", isAuthenticated, async (req: any, res) => {
     try {
-      const user = req.user;
+      const user = (req.session as any)?.user;
       if (!user || !["admin", "office_admin", "super_admin"].includes(user.role)) {
         return res.status(403).json({ message: "Access denied. Admin role required." });
       }
@@ -20100,7 +23109,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
               fs.writeFileSync(path.join(dir, fileBase), pdfBuf);
             }
 
-            const caregiver = await storage.getCaregiver(review.caregiverId);
+            const caregiver = review.caregiverId ? await storage.getCaregiver(review.caregiverId) : null;
+            const reviewedUser = review.userId ? await storage.getUser(review.userId) : null;
+            const signerUserId = review.userId || caregiver?.userId || null;
             const doc = await storage.createDocument({
               fileName: fileBase,
               originalName: `Performance Review (${review.reviewType}) - signed.pdf`,
@@ -20108,19 +23119,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
               fileSize: pdfBuf.length,
               documentType: "performance_review",
               documentCategory: "performance_review",
-              caregiverId: review.caregiverId,
-              officeId: caregiver?.officeId ?? null,
+              caregiverId: review.caregiverId ?? null,
+              officeId: caregiver?.officeId ?? reviewedUser?.primaryOfficeId ?? null,
               uploadedBy: request.sentBy || review.reviewerId,
               isSignatureRequired: true,
               isSigned: true,
-              signedBy: caregiver?.userId ?? null,
+              signedBy: signerUserId,
               signedAt,
             } as any);
             signedDocumentId = doc.id;
             await storage.updatePerformanceReview(review.id, {
               status: "completed",
               acknowledgedAt: signedAt,
-              acknowledgedBy: caregiver?.userId ?? null,
+              acknowledgedBy: signerUserId,
               completedDate: signedAt,
             } as any);
           }
@@ -20234,8 +23245,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const conditions: any[] = [];
       if (!isManagerRole(sessionUser.role)) {
         conditions.push(eq(staffTimeRecords.userId, sessionUser.id));
-      } else if (req.query.userId) {
-        conditions.push(eq(staffTimeRecords.userId, req.query.userId as string));
+      } else {
+        const allowedOffices = await resolveAllowedOfficeIds(req);
+        if (Array.isArray(allowedOffices)) {
+          if (allowedOffices.length === 0) return res.json([]);
+          conditions.push(inArray(staffTimeRecords.officeId, allowedOffices));
+        }
+        if (req.query.userId) {
+          conditions.push(eq(staffTimeRecords.userId, req.query.userId as string));
+        }
       }
       if (startDate) conditions.push(gte(staffTimeRecords.clockInTime, new Date(startDate + "T00:00:00.000Z")));
       if (endDate) conditions.push(lte(staffTimeRecords.clockInTime, new Date(endDate + "T23:59:59.999Z")));
@@ -20496,7 +23514,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const [existing] = await db.select().from(staffTimeRecords)
         .where(eq(staffTimeRecords.id, req.params.id)).limit(1);
 
-      if (!existing) return res.status(404).json({ message: "Record not found" });
+      if (!existing || !(await canAccessOffice(req, existing.officeId))) {
+        return res.status(404).json({ message: "Record not found" });
+      }
       if (existing.payrollLocked) return res.status(400).json({ message: "Record is locked for payroll. Cannot edit." });
       if (!req.body.editReason) return res.status(400).json({ message: "Edit reason is required." });
 
@@ -20539,6 +23559,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!isManagerRole(sessionUser.role)) {
         return res.status(403).json({ message: "Only managers can approve records." });
       }
+      const [existing] = await db.select().from(staffTimeRecords)
+        .where(eq(staffTimeRecords.id, req.params.id)).limit(1);
+      if (!existing || !(await canAccessOffice(req, existing.officeId))) {
+        return res.status(404).json({ message: "Record not found" });
+      }
       const [updated] = await db.update(staffTimeRecords)
         .set({ approvedBy: sessionUser.id, approvedAt: new Date(), isFlagged: false, flagReason: null, updatedAt: new Date() })
         .where(eq(staffTimeRecords.id, req.params.id))
@@ -20558,6 +23583,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const sessionUser = req.session.user;
       if (!isManagerRole(sessionUser.role)) return res.status(403).json({ message: "Managers only." });
+      const [existingRecord] = await db.select().from(staffTimeRecords)
+        .where(eq(staffTimeRecords.id, req.params.id)).limit(1);
+      if (!existingRecord || !(await canAccessOffice(req, existingRecord.officeId))) {
+        return res.status(404).json({ message: "Record not found" });
+      }
       const { reason } = req.body;
       const [updated] = await db.update(staffTimeRecords)
         .set({ isFlagged: true, flagReason: reason || 'Flagged for review', updatedAt: new Date() })
@@ -20586,6 +23616,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         lte(staffTimeRecords.clockInTime, new Date(endDate + "T23:59:59.999Z")),
       ];
       if (userIds?.length) conditions.push(eq(staffTimeRecords.userId, userIds[0]));
+      const allowedOffices = await resolveAllowedOfficeIds(req);
+      if (Array.isArray(allowedOffices)) {
+        if (allowedOffices.length === 0) return res.json({ locked: 0, message: "0 records locked for payroll." });
+        conditions.push(inArray(staffTimeRecords.officeId, allowedOffices));
+      }
 
       const updated = await db.update(staffTimeRecords)
         .set({ payrollLocked: true, payrollLockedAt: new Date(), payrollLockedBy: sessionUser.id, updatedAt: new Date() })
@@ -20612,9 +23647,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const sessionUser = req.session.user;
       if (!isManagerRole(sessionUser.role)) return res.status(403).json({ message: "Managers only." });
 
+      if (req.query.timeRecordId) {
+        const [record] = await db.select().from(staffTimeRecords)
+          .where(eq(staffTimeRecords.id, req.query.timeRecordId as string)).limit(1);
+        if (!record || !(await canAccessOffice(req, record.officeId))) {
+          return res.status(404).json({ message: "Record not found" });
+        }
+      }
+
       const conditions: any[] = [];
       if (req.query.timeRecordId) conditions.push(eq(staffTimeAuditLogs.timeRecordId, req.query.timeRecordId as string));
       if (req.query.performedBy) conditions.push(eq(staffTimeAuditLogs.performedBy, req.query.performedBy as string));
+
+      const allowedOffices = await resolveAllowedOfficeIds(req);
+      if (Array.isArray(allowedOffices)) {
+        if (allowedOffices.length === 0) return res.json([]);
+        conditions.push(inArray(staffTimeRecords.officeId, allowedOffices));
+      }
 
       const logs = await db.select({
         id: staffTimeAuditLogs.id,
@@ -20630,6 +23679,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       })
       .from(staffTimeAuditLogs)
       .leftJoin(users, eq(staffTimeAuditLogs.performedBy, users.id))
+      .leftJoin(staffTimeRecords, eq(staffTimeAuditLogs.timeRecordId, staffTimeRecords.id))
       .where(conditions.length > 0 ? and(...conditions) : undefined)
       .orderBy(desc(staffTimeAuditLogs.performedAt))
       .limit(500);
@@ -20654,8 +23704,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       ];
       if (!isManagerRole(sessionUser.role)) {
         conditions.push(eq(staffTimeRecords.userId, sessionUser.id));
-      } else if (targetUserId) {
-        conditions.push(eq(staffTimeRecords.userId, targetUserId));
+      } else {
+        const allowedOffices = await resolveAllowedOfficeIds(req);
+        if (Array.isArray(allowedOffices)) {
+          if (allowedOffices.length === 0) return res.json([]);
+          conditions.push(inArray(staffTimeRecords.officeId, allowedOffices));
+        }
+        if (targetUserId) {
+          conditions.push(eq(staffTimeRecords.userId, targetUserId));
+        }
       }
 
       const records = await db.select({
@@ -21364,6 +24421,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const sessionUser = req.session.user;
       if (!isManagerRole(sessionUser.role)) return res.status(403).json({ message: "Insufficient permissions" });
+      const targetUser = await storage.getUser(req.params.userId);
+      if (!targetUser || !(await canAccessOffice(req, targetUser.primaryOfficeId))) {
+        return res.status(404).json({ message: "User not found" });
+      }
       const { pin } = req.body;
       if (!pin || !/^\d{4,8}$/.test(pin)) return res.status(400).json({ message: "PIN must be 4-8 digits" });
       const { hashPassword } = await import("./localAuth");
@@ -21384,6 +24445,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const sessionUser = req.session.user;
       if (!isManagerRole(sessionUser.role)) return res.status(403).json({ message: "Insufficient permissions" });
+      const targetUser = await storage.getUser(req.params.userId);
+      if (!targetUser || !(await canAccessOffice(req, targetUser.primaryOfficeId))) {
+        return res.status(404).json({ message: "User not found" });
+      }
       await db.update(users).set({
         kioskPin: null,
         kioskEnabled: false,
@@ -21999,7 +25064,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!(await canAccessOffice(req, req.body.officeId))) {
         return res.status(403).json({ message: "Office is outside your scope" });
       }
-      const survey = await storage.createClientSatisfactionSurvey({ ...req.body, createdBy: req.session.user?.id });
+      const accessToken = crypto.randomBytes(32).toString('hex');
+      const survey = await storage.createClientSatisfactionSurvey({ ...req.body, accessToken, createdBy: req.session.user?.id });
       res.status(201).json(survey);
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
@@ -22026,11 +25092,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ success: true });
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
-  app.post("/api/client-surveys/:id/responses", async (req: any, res) => {
+  // Public routes — family/client respondents have no account, so these
+  // resolve the survey through an unguessable accessToken rather than
+  // trusting a client-supplied survey id (the old `/:id/responses` route
+  // let anyone who found/guessed a survey UUID post arbitrary responses).
+  app.get("/api/public/client-surveys/:token", async (req, res) => {
     try {
-      const response = await storage.createClientSurveyResponse({ ...req.body, surveyId: req.params.id });
-      res.status(201).json(response);
+      const survey = await storage.getClientSatisfactionSurveyByToken(req.params.token);
+      if (!survey || survey.status !== "active") {
+        return res.status(404).json({ message: "Survey not found" });
+      }
+      res.json({
+        id: survey.id,
+        title: survey.title,
+        description: survey.description,
+        questions: survey.questions,
+      });
     } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  app.post("/api/public/client-surveys/:token/responses", async (req: any, res) => {
+    try {
+      const survey = await storage.getClientSatisfactionSurveyByToken(req.params.token);
+      if (!survey || survey.status !== "active") {
+        return res.status(404).json({ message: "Survey not found" });
+      }
+      const { surveyId, ...body } = req.body;
+      const validatedData = insertClientSurveyResponseSchema
+        .omit({ surveyId: true })
+        .parse(body);
+      if (validatedData.clientId) {
+        const client = await storage.getClient(validatedData.clientId);
+        if (!client || client.officeId !== survey.officeId) {
+          return res.status(400).json({ message: "Invalid client" });
+        }
+      }
+      const response = await storage.createClientSurveyResponse({ ...validatedData, surveyId: survey.id });
+      res.status(201).json(response);
+    } catch (e: any) { res.status(400).json({ message: e.message || "Failed to submit response" }); }
   });
 
   // ─── Survey Readiness API ────────────────────────────────────────────────────
@@ -22113,6 +25212,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const dueDate = incAny.dohReportDue ? new Date(incAny.dohReportDue) : null;
           if (dueDate && dueDate < now) {
             cirGaps.push({ type: "cir_class2_overdue", incidentId: inc.id, name: incName, incidentType, incidentDate: incDate, severity: "high", dueDate });
+          }
+        }
+        if (incAny.scNotificationRequired && incAny.scNotificationStatus === "pending") {
+          const scDueDate = incAny.scNotificationDue ? new Date(incAny.scNotificationDue) : null;
+          if (scDueDate && scDueDate < now) {
+            cirGaps.push({ type: "sc_notification_overdue", incidentId: inc.id, name: incName, incidentType, incidentDate: incDate, severity: "critical", dueDate: scDueDate });
           }
         }
       }
@@ -22765,7 +25870,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/quality-management-plans", isAuthenticated, async (req: any, res) => {
     try {
       const user = req.session?.user;
-      const officeId = req.query.officeId || user?.officeId;
+      const officeId = parseOfficeId(req);
       const plans = await storage.getQualityManagementPlans(officeId);
       res.json(plans);
     } catch (e: any) { res.status(500).json({ message: e.message }); }
@@ -22775,7 +25880,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const user = req.session?.user;
       const plan = await storage.getQualityManagementPlan(req.params.id);
       if (!plan) return res.status(404).json({ message: "Plan not found" });
-      if (plan.officeId && plan.officeId !== user?.officeId) return res.status(403).json({ message: "Forbidden" });
+      if (!(await canAccessOffice(req, plan.officeId))) return res.status(404).json({ message: "Not found" });
       res.json(plan);
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
@@ -22785,7 +25890,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const parsed = insertQualityManagementPlanSchema.parse(req.body);
       const plan = await storage.createQualityManagementPlan({
         ...parsed,
-        officeId: parsed.officeId || user?.officeId,
+        officeId: user?.role === "super_admin" ? (parsed.officeId ?? null) : user?.primaryOfficeId,
         organizationId: parsed.organizationId || user?.organizationId,
       });
       res.status(201).json(plan);
@@ -22799,7 +25904,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const user = req.session?.user;
       const existing = await storage.getQualityManagementPlan(req.params.id);
       if (!existing) return res.status(404).json({ message: "Plan not found" });
-      if (existing.officeId && existing.officeId !== user?.officeId) return res.status(403).json({ message: "Forbidden" });
+      if (!(await canAccessOffice(req, existing.officeId))) return res.status(404).json({ message: "Not found" });
       const validated = insertQualityManagementPlanSchema.partial().parse(req.body);
       const plan = await storage.updateQualityManagementPlan(req.params.id, validated);
       res.json(plan);
@@ -22813,7 +25918,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const user = req.session?.user;
       const existing = await storage.getQualityManagementPlan(req.params.id);
       if (!existing) return res.status(404).json({ message: "Plan not found" });
-      if (existing.officeId && existing.officeId !== user?.officeId) return res.status(403).json({ message: "Forbidden" });
+      if (!(await canAccessOffice(req, existing.officeId))) return res.status(404).json({ message: "Not found" });
       await storage.deleteQualityManagementPlan(req.params.id);
       res.json({ success: true });
     } catch (e: any) { res.status(500).json({ message: e.message }); }
@@ -22822,7 +25927,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // QMP Measurable Outcomes
   app.get("/api/qmp-measurable-outcomes", isAuthenticated, async (req: any, res) => {
     try {
-      const outcomes = await storage.getQmpMeasurableOutcomes(req.query.planId, req.query.officeId);
+      const outcomes = await storage.getQmpMeasurableOutcomes(req.query.planId, parseOfficeId(req));
       res.json(outcomes);
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
@@ -22831,7 +25936,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const user = req.session?.user;
       const outcome = await storage.getQmpMeasurableOutcome(req.params.id);
       if (!outcome) return res.status(404).json({ message: "Outcome not found" });
-      if (outcome.officeId && outcome.officeId !== user?.officeId) return res.status(403).json({ message: "Forbidden" });
+      if (!(await canAccessOffice(req, outcome.officeId))) return res.status(404).json({ message: "Not found" });
       res.json(outcome);
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
@@ -22850,7 +25955,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const user = req.session?.user;
       const existing = await storage.getQmpMeasurableOutcome(req.params.id);
       if (!existing) return res.status(404).json({ message: "Outcome not found" });
-      if (existing.officeId && existing.officeId !== user?.officeId) return res.status(403).json({ message: "Forbidden" });
+      if (!(await canAccessOffice(req, existing.officeId))) return res.status(404).json({ message: "Not found" });
       const validated = insertQmpMeasurableOutcomeSchema.partial().parse(req.body);
       const outcome = await storage.updateQmpMeasurableOutcome(req.params.id, validated);
       res.json(outcome);
@@ -22864,7 +25969,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const user = req.session?.user;
       const existing = await storage.getQmpMeasurableOutcome(req.params.id);
       if (!existing) return res.status(404).json({ message: "Outcome not found" });
-      if (existing.officeId && existing.officeId !== user?.officeId) return res.status(403).json({ message: "Forbidden" });
+      if (!(await canAccessOffice(req, existing.officeId))) return res.status(404).json({ message: "Not found" });
       await storage.deleteQmpMeasurableOutcome(req.params.id);
       res.json({ success: true });
     } catch (e: any) { res.status(500).json({ message: e.message }); }
@@ -22873,7 +25978,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // QMP Quarterly Reviews
   app.get("/api/qmp-quarterly-reviews", isAuthenticated, async (req: any, res) => {
     try {
-      const reviews = await storage.getQmpQuarterlyReviews(req.query.planId, req.query.officeId);
+      const reviews = await storage.getQmpQuarterlyReviews(req.query.planId, parseOfficeId(req));
       res.json(reviews);
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
@@ -22882,7 +25987,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const user = req.session?.user;
       const review = await storage.getQmpQuarterlyReview(req.params.id);
       if (!review) return res.status(404).json({ message: "Review not found" });
-      if (review.officeId && review.officeId !== user?.officeId) return res.status(403).json({ message: "Forbidden" });
+      if (!(await canAccessOffice(req, review.officeId))) return res.status(404).json({ message: "Not found" });
       res.json(review);
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
@@ -22890,7 +25995,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const user = req.session?.user;
       let planId = req.body.planId;
-      const officeId = req.body.officeId || user?.officeId;
+      const officeId = user?.role === "super_admin" ? req.body.officeId : user?.primaryOfficeId;
       if (!planId && officeId) {
         const plans = await storage.getQualityManagementPlans(officeId);
         const activePlan = plans.find((p: any) => p.status === "active");
@@ -22910,7 +26015,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const user = req.session?.user;
       const existing = await storage.getQmpQuarterlyReview(req.params.id);
       if (!existing) return res.status(404).json({ message: "Review not found" });
-      if (existing.officeId && existing.officeId !== user?.officeId) return res.status(403).json({ message: "Forbidden" });
+      if (!(await canAccessOffice(req, existing.officeId))) return res.status(404).json({ message: "Not found" });
       const validated = insertQmpQuarterlyReviewSchema.partial().parse(req.body);
       const review = await storage.updateQmpQuarterlyReview(req.params.id, validated);
       res.json(review);
@@ -22924,7 +26029,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const user = req.session?.user;
       const existing = await storage.getQmpQuarterlyReview(req.params.id);
       if (!existing) return res.status(404).json({ message: "Review not found" });
-      if (existing.officeId && existing.officeId !== user?.officeId) return res.status(403).json({ message: "Forbidden" });
+      if (!(await canAccessOffice(req, existing.officeId))) return res.status(404).json({ message: "Not found" });
       await storage.deleteQmpQuarterlyReview(req.params.id);
       res.json({ success: true });
     } catch (e: any) { res.status(500).json({ message: e.message }); }
@@ -22933,7 +26038,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // QMP OADRI Cycles
   app.get("/api/qmp-oadri-cycles", isAuthenticated, async (req: any, res) => {
     try {
-      const cycles = await storage.getQmpOadriCycles(req.query.planId, req.query.officeId);
+      const cycles = await storage.getQmpOadriCycles(req.query.planId, parseOfficeId(req));
       res.json(cycles);
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
@@ -22942,7 +26047,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const user = req.session?.user;
       const cycle = await storage.getQmpOadriCycle(req.params.id);
       if (!cycle) return res.status(404).json({ message: "Cycle not found" });
-      if (cycle.officeId && cycle.officeId !== user?.officeId) return res.status(403).json({ message: "Forbidden" });
+      if (!(await canAccessOffice(req, cycle.officeId))) return res.status(404).json({ message: "Not found" });
       res.json(cycle);
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
@@ -22950,7 +26055,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const user = req.session?.user;
       let planId = req.body.planId;
-      const officeId = req.body.officeId || user?.officeId;
+      const officeId = user?.role === "super_admin" ? req.body.officeId : user?.primaryOfficeId;
       if (!planId && officeId) {
         const plans = await storage.getQualityManagementPlans(officeId);
         const activePlan = plans.find((p: any) => p.status === "active");
@@ -22970,7 +26075,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const user = req.session?.user;
       const existing = await storage.getQmpOadriCycle(req.params.id);
       if (!existing) return res.status(404).json({ message: "Cycle not found" });
-      if (existing.officeId && existing.officeId !== user?.officeId) return res.status(403).json({ message: "Forbidden" });
+      if (!(await canAccessOffice(req, existing.officeId))) return res.status(404).json({ message: "Not found" });
       const validated = insertQmpOadriCycleSchema.partial().parse(req.body);
       const cycle = await storage.updateQmpOadriCycle(req.params.id, validated);
       res.json(cycle);
@@ -22984,7 +26089,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const user = req.session?.user;
       const existing = await storage.getQmpOadriCycle(req.params.id);
       if (!existing) return res.status(404).json({ message: "Cycle not found" });
-      if (existing.officeId && existing.officeId !== user?.officeId) return res.status(403).json({ message: "Forbidden" });
+      if (!(await canAccessOffice(req, existing.officeId))) return res.status(404).json({ message: "Not found" });
       await storage.deleteQmpOadriCycle(req.params.id);
       res.json({ success: true });
     } catch (e: any) { res.status(500).json({ message: e.message }); }
@@ -22994,7 +26099,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/patient-complaints", isAuthenticated, async (req: any, res) => {
     try {
       const user = req.session?.user;
-      const officeId = req.query.officeId || user?.officeId;
+      const officeId = parseOfficeId(req);
       const complaints = await storage.getPatientComplaints(officeId);
       res.json(complaints);
     } catch (e: any) { res.status(500).json({ message: e.message }); }
@@ -23004,14 +26109,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const user = req.session?.user;
       const complaint = await storage.getPatientComplaint(req.params.id);
       if (!complaint) return res.status(404).json({ message: "Complaint not found" });
-      if (complaint.officeId !== user?.officeId) return res.status(403).json({ message: "Forbidden" });
+      if (!(await canAccessOffice(req, complaint.officeId))) return res.status(404).json({ message: "Not found" });
       res.json(complaint);
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
   app.get("/api/patient-complaints-stats", isAuthenticated, async (req: any, res) => {
     try {
       const user = req.session?.user;
-      const officeId = req.query.officeId || user?.officeId;
+      const officeId = parseOfficeId(req);
       if (!officeId) return res.status(400).json({ message: "officeId required" });
       const stats = await storage.getPatientComplaintStats(officeId);
       res.json(stats);
@@ -23023,7 +26128,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const parsed = insertPatientComplaintSchema.parse(req.body);
       const complaint = await storage.createPatientComplaint({
         ...parsed,
-        officeId: parsed.officeId || user?.officeId,
+        officeId: user?.role === "super_admin" ? (parsed.officeId ?? null) : user?.primaryOfficeId,
         receivedBy: parsed.receivedBy || user?.id,
       });
       res.status(201).json(complaint);
@@ -23037,7 +26142,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const user = req.session?.user;
       const existing = await storage.getPatientComplaint(req.params.id);
       if (!existing) return res.status(404).json({ message: "Complaint not found" });
-      if (existing.officeId !== user?.officeId) return res.status(403).json({ message: "Forbidden" });
+      if (!(await canAccessOffice(req, existing.officeId))) return res.status(404).json({ message: "Not found" });
       const validated = insertPatientComplaintSchema.partial().parse(req.body);
       const complaint = await storage.updatePatientComplaint(req.params.id, validated);
       res.json(complaint);
@@ -23051,7 +26156,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const user = req.session?.user;
       const existing = await storage.getPatientComplaint(req.params.id);
       if (!existing) return res.status(404).json({ message: "Complaint not found" });
-      if (existing.officeId !== user?.officeId) return res.status(403).json({ message: "Forbidden" });
+      if (!(await canAccessOffice(req, existing.officeId))) return res.status(404).json({ message: "Not found" });
       await storage.deletePatientComplaint(req.params.id);
       res.json({ success: true });
     } catch (e: any) { res.status(500).json({ message: e.message }); }
@@ -23061,7 +26166,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/quality-management-logs", isAuthenticated, async (req: any, res) => {
     try {
       const user = req.session?.user;
-      const officeId = req.query.officeId || user?.officeId;
+      const officeId = parseOfficeId(req);
       const logs = await storage.getQualityManagementLogs(officeId);
       res.json(logs);
     } catch (e: any) { res.status(500).json({ message: e.message }); }
@@ -23071,7 +26176,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const user = req.session?.user;
       const log = await storage.getQualityManagementLog(req.params.id);
       if (!log) return res.status(404).json({ message: "Log not found" });
-      if (log.officeId && log.officeId !== user?.officeId) return res.status(403).json({ message: "Forbidden" });
+      if (!(await canAccessOffice(req, log.officeId))) return res.status(404).json({ message: "Not found" });
       res.json(log);
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
@@ -23081,7 +26186,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const parsed = insertQualityManagementLogSchema.parse(req.body);
       const log = await storage.createQualityManagementLog({
         ...parsed,
-        officeId: parsed.officeId || user?.officeId,
+        officeId: user?.role === "super_admin" ? (parsed.officeId ?? null) : user?.primaryOfficeId,
         loggedBy: parsed.loggedBy || user?.id,
       });
       res.status(201).json(log);
@@ -23095,7 +26200,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const user = req.session?.user;
       const existing = await storage.getQualityManagementLog(req.params.id);
       if (!existing) return res.status(404).json({ message: "Log not found" });
-      if (existing.officeId && existing.officeId !== user?.officeId) return res.status(403).json({ message: "Forbidden" });
+      if (!(await canAccessOffice(req, existing.officeId))) return res.status(404).json({ message: "Not found" });
       const validated = insertQualityManagementLogSchema.partial().parse(req.body);
       const log = await storage.updateQualityManagementLog(req.params.id, validated);
       res.json(log);
@@ -23109,7 +26214,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const user = req.session?.user;
       const existing = await storage.getQualityManagementLog(req.params.id);
       if (!existing) return res.status(404).json({ message: "Log not found" });
-      if (existing.officeId && existing.officeId !== user?.officeId) return res.status(403).json({ message: "Forbidden" });
+      if (!(await canAccessOffice(req, existing.officeId))) return res.status(404).json({ message: "Not found" });
       await storage.deleteQualityManagementLog(req.params.id);
       res.json({ success: true });
     } catch (e: any) { res.status(500).json({ message: e.message }); }
@@ -23119,7 +26224,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/qmp-dashboard", isAuthenticated, async (req: any, res) => {
     try {
       const user = req.session?.user;
-      const officeId = req.query.officeId || user?.officeId;
+      const officeId = parseOfficeId(req);
       if (!officeId) return res.status(400).json({ message: "officeId required" });
 
       // Fetch real data for each measurable outcome

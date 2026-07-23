@@ -9,6 +9,13 @@ export default {
         lg: "var(--radius)",
         md: "calc(var(--radius) - 2px)",
         sm: "calc(var(--radius) - 4px)",
+        xl: "calc(var(--radius) + 4px)",
+        "2xl": "calc(var(--radius) + 10px)",
+      },
+      boxShadow: {
+        soft: "0 1px 2px hsl(220 20% 10% / 0.04), 0 2px 8px hsl(220 20% 10% / 0.04)",
+        "soft-md": "0 2px 4px hsl(220 20% 10% / 0.04), 0 8px 16px hsl(220 20% 10% / 0.06)",
+        "soft-lg": "0 4px 8px hsl(220 20% 10% / 0.05), 0 16px 32px hsl(220 20% 10% / 0.08)",
       },
       colors: {
         background: "var(--background)",
@@ -84,10 +91,24 @@ export default {
             height: "0",
           },
         },
+        "fade-in": {
+          from: { opacity: "0" },
+          to: { opacity: "1" },
+        },
+        "fade-in-up": {
+          from: { opacity: "0", transform: "translateY(6px)" },
+          to: { opacity: "1", transform: "translateY(0)" },
+        },
+        shimmer: {
+          "100%": { transform: "translateX(100%)" },
+        },
       },
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
         "accordion-up": "accordion-up 0.2s ease-out",
+        "fade-in": "fade-in 0.2s ease-out",
+        "fade-in-up": "fade-in-up 0.25s ease-out",
+        shimmer: "shimmer 1.6s infinite",
       },
     },
   },

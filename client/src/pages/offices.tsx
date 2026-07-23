@@ -35,6 +35,8 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { insertOfficeSchema, type Office, type InsertOffice } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
 import { Sidebar } from "@/components/sidebar";
+import { TopBar } from "@/components/topbar";
+import { StaggerContainer, StaggerItem } from "@/components/ui/motion";
 import { Plus, Building2, MapPin, Phone, Mail, Edit, Trash2 } from "lucide-react";
 
 export default function Offices() {
@@ -170,7 +172,9 @@ export default function Offices() {
     return (
       <div className="flex h-screen overflow-hidden">
         <Sidebar />
-        <main className="flex-1 overflow-auto p-6">
+        <main className="flex-1 flex flex-col overflow-hidden">
+        <TopBar title="Office Management" />
+        <div className="flex-1 overflow-auto p-6">
           <div className="flex items-center space-x-2 mb-6">
             <Building2 className="w-6 h-6" />
             <h1 className="text-2xl font-bold">Office Management</h1>
@@ -188,6 +192,7 @@ export default function Offices() {
               </Card>
             ))}
           </div>
+        </div>
         </main>
       </div>
     );
@@ -196,7 +201,9 @@ export default function Offices() {
   return (
     <div className="flex h-screen overflow-hidden">
       <Sidebar />
-      <main className="flex-1 overflow-auto p-6">
+      <main className="flex-1 flex flex-col overflow-hidden">
+      <TopBar title="Office Management" subtitle="Manage office locations and settings" />
+      <div className="flex-1 overflow-auto p-6">
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center space-x-2">
           <Building2 className="w-6 h-6" />
@@ -319,11 +326,11 @@ export default function Offices() {
         </Dialog>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+      <StaggerContainer className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {offices?.map((office: Office) => (
-          <Card 
-            key={office.id} 
-            className="relative cursor-pointer hover:shadow-md transition-shadow"
+          <StaggerItem key={office.id}>
+          <Card
+            className="relative cursor-pointer hover:shadow-soft-md transition-shadow"
             onClick={() => handleOfficeClick(office)}
             data-testid={`card-office-${office.id}`}
           >
@@ -391,8 +398,9 @@ export default function Offices() {
               </div>
             </CardContent>
           </Card>
+          </StaggerItem>
         ))}
-        
+
         {offices?.length === 0 && (
           <Card className="col-span-full">
             <CardContent className="p-12 text-center">
@@ -408,7 +416,7 @@ export default function Offices() {
             </CardContent>
           </Card>
         )}
-      </div>
+      </StaggerContainer>
 
       {/* Edit Office Dialog */}
       <Dialog open={!!editingOffice} onOpenChange={() => setEditingOffice(null)}>
@@ -520,6 +528,7 @@ export default function Offices() {
         </DialogContent>
       </Dialog>
 
+      </div>
       </main>
     </div>
   );

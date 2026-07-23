@@ -1,10 +1,12 @@
 import { useMemo, useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Sidebar } from "@/components/sidebar";
+import { TopBar } from "@/components/topbar";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { FadeIn } from "@/components/ui/motion";
 import {
   Table,
   TableBody,
@@ -30,16 +32,14 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { PersonCombobox } from "@/components/ui/person-combobox";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { EmployeeDocumentsTab } from "@/components/employee-documents-tab";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { Search, Users, Network, UserCog, ArrowUpDown, ArrowUp, ArrowDown, Mail, Phone, MapPin, Calendar } from "lucide-react";
+import { Search, Users, Network, UserCog, ArrowUpDown, ArrowUp, ArrowDown, AlertCircle } from "lucide-react";
 import { Link } from "wouter";
 import { format } from "date-fns";
 
 type EmployeeRow = {
-  kind: "user" | "caregiver";
+  kind: "user" | "caregiver" | "coordinator";
   id: string;
   firstName: string | null;
   lastName: string | null;
@@ -71,13 +71,12 @@ export default function EmployeesPage() {
   const { toast } = useToast();
   const [search, setSearch] = useState("");
   const [officeFilter, setOfficeFilter] = useState<string>("all");
-  const [kindFilter, setKindFilter] = useState<"all" | "user" | "caregiver">("all");
+  const [kindFilter, setKindFilter] = useState<"all" | "user" | "caregiver" | "coordinator">("all");
   const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive">("active");
   const [sortKey, setSortKey] = useState<SortKey>("name");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [editing, setEditing] = useState<EmployeeRow | null>(null);
   const [pendingManagerId, setPendingManagerId] = useState<string>("__none__");
-  const [profileTarget, setProfileTarget] = useState<EmployeeRow | null>(null);
 
   const officeParam =
     officeFilter !== "all" ? `?officeId=${encodeURIComponent(officeFilter)}` : "";
@@ -150,7 +149,7 @@ export default function EmployeesPage() {
 
   const setManagerMutation = useMutation({
     mutationFn: async (vars: {
-      kind: "user" | "caregiver";
+      kind: "user" | "caregiver" | "coordinator";
       id: string;
       managerId: string | null;
     }) => {
@@ -195,71 +194,56 @@ export default function EmployeesPage() {
     }
   };
 
-  const SortHeader = ({ k, label }: { k: SortKey; label: string }) => (
-    <TableHead>
-      <button
-        type="button"
-        onClick={() => toggleSort(k)}
-        className="inline-flex items-center gap-1 hover:text-foreground"
-        data-testid={`sort-${k}`}
-      >
-        {label}
-        {sortKey !== k ? (
-          <ArrowUpDown className="h-3 w-3 opacity-40" />
-        ) : sortDir === "asc" ? (
-          <ArrowUp className="h-3 w-3" />
-        ) : (
-          <ArrowDown className="h-3 w-3" />
-        )}
-      </button>
-    </TableHead>
-  );
 
   return (
-    <div className="flex min-h-screen">
+    <div className="flex h-screen overflow-hidden">
       <Sidebar />
-      <div
-        className="flex-1 space-y-4 p-4 md:p-6 overflow-auto"
-        data-testid="page-employees"
-      >
-        <div className="flex items-center justify-between flex-wrap gap-2">
-          <div className="flex items-center gap-2">
-            <Users className="h-6 w-6" />
-            <h1 className="text-2xl font-semibold">Employees</h1>
+      <main className="flex-1 flex flex-col overflow-hidden">
+        <TopBar title="Employee Directory" subtitle="Staff, caregivers, and coordinators in one directory" />
+        <div
+          className="flex-1 overflow-auto p-4 md:p-6 bg-background space-y-6"
+          data-testid="page-employees"
+        >
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <div>
+            <div className="flex items-center gap-3 mb-1">
+              <div className="w-10 h-10 bg-blue-100 dark:bg-blue-900/30 rounded-xl flex items-center justify-center">
+                <Users className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+              </div>
+              <h1 className="text-3xl font-bold text-foreground">Employee Directory</h1>
+            </div>
+            <p className="text-sm text-muted-foreground ml-0.5">
+              {filtered.length} displayed · {employees.length} total
+            </p>
           </div>
-          <div className="flex items-center gap-2">
-            <Link href="/org-chart">
-              <Button variant="outline" size="sm" data-testid="button-open-org-chart">
-                <Network className="h-4 w-4 mr-2" />
-                Org Chart
-              </Button>
-            </Link>
-            <span
-              className="text-sm text-muted-foreground"
-              data-testid="text-employee-totals"
-            >
-              {filtered.length} shown · {employees.length} total
-            </span>
-          </div>
+          <Link href="/org-chart">
+            <Button variant="outline" size="sm" data-testid="button-open-org-chart" className="gap-2">
+              <Network className="h-4 w-4" />
+              Org Chart
+            </Button>
+          </Link>
         </div>
 
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base">Filters</CardTitle>
+        <Card className="bg-card border border-border/50 shadow-soft">
+          <CardHeader className="pb-3 border-b border-border/50">
+            <CardTitle className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+              Search & Filter
+            </CardTitle>
           </CardHeader>
-          <CardContent className="grid grid-cols-1 md:grid-cols-4 gap-3">
-            <div className="relative">
-              <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+          <CardContent className="pt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            <div className="relative lg:col-span-2">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
-                placeholder="Search name, email, role"
+                placeholder="Search name, email, phone, role..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                className="pl-8"
+                className="pl-9 bg-background/50 border-muted-foreground/20"
                 data-testid="input-employee-search"
+                aria-label="Search employees"
               />
             </div>
             <Select value={officeFilter} onValueChange={setOfficeFilter}>
-              <SelectTrigger data-testid="select-employee-office">
+              <SelectTrigger data-testid="select-employee-office" className="bg-background/50 border-muted-foreground/20">
                 <SelectValue placeholder="Office" />
               </SelectTrigger>
               <SelectContent>
@@ -272,131 +256,239 @@ export default function EmployeesPage() {
               </SelectContent>
             </Select>
             <Select value={kindFilter} onValueChange={(v) => setKindFilter(v as any)}>
-              <SelectTrigger data-testid="select-employee-kind">
+              <SelectTrigger data-testid="select-employee-kind" className="bg-background/50 border-muted-foreground/20">
                 <SelectValue placeholder="Type" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All employees</SelectItem>
                 <SelectItem value="user">Office staff</SelectItem>
                 <SelectItem value="caregiver">Caregivers</SelectItem>
+                <SelectItem value="coordinator">Coordinators</SelectItem>
               </SelectContent>
             </Select>
             <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as any)}>
-              <SelectTrigger data-testid="select-employee-status">
+              <SelectTrigger data-testid="select-employee-status" className="bg-background/50 border-muted-foreground/20">
                 <SelectValue placeholder="Status" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="active">Active</SelectItem>
-                <SelectItem value="inactive">Inactive</SelectItem>
-                <SelectItem value="all">All</SelectItem>
+                <SelectItem value="active">Active only</SelectItem>
+                <SelectItem value="inactive">Inactive only</SelectItem>
+                <SelectItem value="all">All statuses</SelectItem>
               </SelectContent>
             </Select>
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="bg-card border border-border/50 shadow-sm hover:shadow-md transition-shadow">
           <CardContent className="p-0">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <SortHeader k="name" label="Name" />
-                  <TableHead>Type</TableHead>
-                  <SortHeader k="role" label="Role / Title" />
-                  <SortHeader k="office" label="Office" />
-                  <TableHead>Email</TableHead>
-                  <SortHeader k="manager" label="Reports to" />
-                  <SortHeader k="hireDate" label="Hire date" />
-                  <SortHeader k="status" label="Status" />
-                  <TableHead className="text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {isLoading ? (
-                  Array.from({ length: 6 }).map((_, i) => (
-                    <TableRow key={i}>
-                      {Array.from({ length: 9 }).map((__, j) => (
-                        <TableCell key={j}>
-                          <Skeleton className="h-4 w-full" />
-                        </TableCell>
-                      ))}
-                    </TableRow>
-                  ))
-                ) : filtered.length === 0 ? (
-                  <TableRow>
-                    <TableCell
-                      colSpan={9}
-                      className="text-center text-muted-foreground py-10"
-                      data-testid="text-employees-empty"
-                    >
-                      No employees match the current filters.
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  filtered.map((e) => (
-                    <TableRow
-                      key={`${e.kind}-${e.id}`}
-                      data-testid={`row-employee-${e.kind}-${e.id}`}
-                    >
-                      <TableCell className="font-medium">
-                        {e.kind === "caregiver" ? (
-                          <Link
-                            href={`/caregivers/${e.id}`}
-                            className="hover:underline text-primary"
-                            data-testid={`link-employee-${e.id}`}
-                          >
-                            {formatName(e.firstName, e.lastName)}
-                          </Link>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => setProfileTarget(e)}
-                            className="hover:underline text-primary text-left"
-                            data-testid={`link-employee-${e.id}`}
-                          >
-                            {formatName(e.firstName, e.lastName)}
-                          </button>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="outline">
-                          {e.kind === "caregiver" ? "Caregiver" : "Office staff"}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>{e.title || e.role || "—"}</TableCell>
-                      <TableCell>{e.officeName || "—"}</TableCell>
-                      <TableCell>{e.email || "—"}</TableCell>
-                      <TableCell data-testid={`text-employee-manager-${e.id}`}>
-                        {e.managerName || (
-                          <span className="text-muted-foreground">Unassigned</span>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        {e.hireDate ? format(new Date(e.hireDate), "MMM d, yyyy") : "—"}
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant={e.isActive === false ? "secondary" : "default"}>
-                          {e.isActive === false ? "Inactive" : "Active"}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => openEditor(e)}
-                          data-testid={`button-edit-manager-${e.id}`}
+            {isLoading ? (
+              <div className="space-y-2 p-6">
+                {Array.from({ length: 6 }).map((_, i) => (
+                  <Skeleton key={i} className="h-12 w-full rounded" />
+                ))}
+              </div>
+            ) : filtered.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-12 px-6">
+                <div className="w-16 h-16 bg-amber-100 dark:bg-amber-900/20 rounded-full flex items-center justify-center mb-4">
+                  <AlertCircle className="h-8 w-8 text-amber-600 dark:text-amber-400" />
+                </div>
+                <h3 className="text-lg font-semibold text-foreground mb-1" data-testid="text-employees-empty">
+                  No employees found
+                </h3>
+                <p className="text-sm text-muted-foreground text-center max-w-sm">
+                  No employees match your current filter criteria. Try adjusting your search or filters.
+                </p>
+              </div>
+            ) : (
+              <div className="max-h-[65vh] overflow-auto">
+                <Table>
+                  <TableHeader sticky>
+                    <TableRow className="hover:bg-transparent">
+                      <TableHead className="px-6">
+                        <button
+                          type="button"
+                          onClick={() => toggleSort("name")}
+                          className="inline-flex items-center gap-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider hover:text-foreground transition-colors"
+                          data-testid="sort-name"
                         >
-                          <UserCog className="h-4 w-4 mr-1" />
+                          Name
+                          {sortKey !== "name" ? (
+                            <ArrowUpDown className="h-3 w-3 opacity-40" />
+                          ) : sortDir === "asc" ? (
+                            <ArrowUp className="h-3 w-3 text-primary" />
+                          ) : (
+                            <ArrowDown className="h-3 w-3 text-primary" />
+                          )}
+                        </button>
+                      </TableHead>
+                      <TableHead className="px-6">Type</TableHead>
+                      <TableHead className="px-6">
+                        <button
+                          type="button"
+                          onClick={() => toggleSort("role")}
+                          className="inline-flex items-center gap-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider hover:text-foreground transition-colors"
+                          data-testid="sort-role"
+                        >
+                          Role
+                          {sortKey !== "role" ? (
+                            <ArrowUpDown className="h-3 w-3 opacity-40" />
+                          ) : sortDir === "asc" ? (
+                            <ArrowUp className="h-3 w-3 text-primary" />
+                          ) : (
+                            <ArrowDown className="h-3 w-3 text-primary" />
+                          )}
+                        </button>
+                      </TableHead>
+                      <TableHead className="px-6 hidden sm:table-cell">
+                        <button
+                          type="button"
+                          onClick={() => toggleSort("office")}
+                          className="inline-flex items-center gap-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider hover:text-foreground transition-colors"
+                          data-testid="sort-office"
+                        >
+                          Office
+                          {sortKey !== "office" ? (
+                            <ArrowUpDown className="h-3 w-3 opacity-40" />
+                          ) : sortDir === "asc" ? (
+                            <ArrowUp className="h-3 w-3 text-primary" />
+                          ) : (
+                            <ArrowDown className="h-3 w-3 text-primary" />
+                          )}
+                        </button>
+                      </TableHead>
+                      <TableHead className="px-6 hidden md:table-cell">
+                        <button
+                          type="button"
+                          onClick={() => toggleSort("manager")}
+                          className="inline-flex items-center gap-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider hover:text-foreground transition-colors"
+                          data-testid="sort-manager"
+                        >
                           Manager
-                        </Button>
-                      </TableCell>
+                          {sortKey !== "manager" ? (
+                            <ArrowUpDown className="h-3 w-3 opacity-40" />
+                          ) : sortDir === "asc" ? (
+                            <ArrowUp className="h-3 w-3 text-primary" />
+                          ) : (
+                            <ArrowDown className="h-3 w-3 text-primary" />
+                          )}
+                        </button>
+                      </TableHead>
+                      <TableHead className="px-6">
+                        <button
+                          type="button"
+                          onClick={() => toggleSort("status")}
+                          className="inline-flex items-center gap-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider hover:text-foreground transition-colors"
+                          data-testid="sort-status"
+                        >
+                          Status
+                          {sortKey !== "status" ? (
+                            <ArrowUpDown className="h-3 w-3 opacity-40" />
+                          ) : sortDir === "asc" ? (
+                            <ArrowUp className="h-3 w-3 text-primary" />
+                          ) : (
+                            <ArrowDown className="h-3 w-3 text-primary" />
+                          )}
+                        </button>
+                      </TableHead>
+                      <TableHead className="px-6 text-center">Actions</TableHead>
                     </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
+                  </TableHeader>
+                  <TableBody>
+                    {filtered.map((e) => (
+                      <TableRow
+                        key={`${e.kind}-${e.id}`}
+                        data-testid={`row-employee-${e.kind}-${e.id}`}
+                      >
+                        <TableCell className="px-6">
+                          <div className="flex items-center gap-3">
+                            <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold flex-shrink-0 ${
+                              e.kind === "caregiver"
+                                ? "bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400"
+                                : e.kind === "coordinator"
+                                ? "bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400"
+                                : "bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400"
+                            }`}>
+                              {e.firstName?.[0]}{e.lastName?.[0]}
+                            </div>
+                            <Link
+                              href={
+                                e.kind === "caregiver"
+                                  ? `/caregivers/${e.id}`
+                                  : e.kind === "coordinator"
+                                  ? `/coordinators/${e.id}`
+                                  : `/staff/${e.id}`
+                              }
+                              className="font-medium text-primary hover:underline truncate"
+                              data-testid={`link-employee-${e.id}`}
+                              title={formatName(e.firstName, e.lastName)}
+                            >
+                              {formatName(e.firstName, e.lastName)}
+                            </Link>
+                          </div>
+                        </TableCell>
+                        <TableCell className="px-6">
+                          <Badge
+                            className="text-xs"
+                            variant={e.kind === "user" ? "secondary" : "default"}
+                          >
+                            {e.kind === "caregiver"
+                              ? "Caregiver"
+                              : e.kind === "coordinator"
+                              ? "Coordinator"
+                              : "Staff"}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="px-6">
+                          <span className="text-sm">{e.title || e.role || "—"}</span>
+                        </TableCell>
+                        <TableCell className="px-6 hidden sm:table-cell">
+                          <span className="text-sm text-muted-foreground">{e.officeName || "—"}</span>
+                        </TableCell>
+                        <TableCell className="px-6 hidden md:table-cell">
+                          <span
+                            className="text-sm"
+                            data-testid={`text-employee-manager-${e.id}`}
+                          >
+                            {e.managerName ? (
+                              <span className="font-medium text-foreground">{e.managerName}</span>
+                            ) : (
+                              <span className="text-amber-600 dark:text-amber-400 font-medium">Unassigned</span>
+                            )}
+                          </span>
+                        </TableCell>
+                        <TableCell className="px-6">
+                          <Badge
+                            className="text-xs"
+                            variant={e.isActive === false ? "secondary" : "default"}
+                          >
+                            {e.isActive === false ? "Inactive" : "Active"}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="px-6">
+                          <div className="flex justify-center">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => openEditor(e)}
+                              data-testid={`button-edit-manager-${e.id}`}
+                              className="text-xs"
+                              title="Assign or change manager"
+                            >
+                              <UserCog className="h-4 w-4 mr-1" />
+                              <span className="hidden sm:inline">Manager</span>
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
           </CardContent>
         </Card>
-      </div>
+        </div>
+      </main>
 
       <Dialog
         open={!!editing}
@@ -404,26 +496,44 @@ export default function EmployeesPage() {
           if (!o) setEditing(null);
         }}
       >
-        <DialogContent>
+        <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Reports to</DialogTitle>
-            <DialogDescription>
-              {editing &&
-                `Choose a manager for ${formatName(editing.firstName, editing.lastName)}.`}
+            <DialogTitle className="text-lg">Assign Manager</DialogTitle>
+            <DialogDescription className="text-sm mt-2">
+              {editing && (
+                <>
+                  <span className="font-semibold text-foreground">
+                    {formatName(editing.firstName, editing.lastName)}
+                  </span>
+                  <span className="text-muted-foreground">
+                    {' '}will report to the selected manager
+                  </span>
+                </>
+              )}
             </DialogDescription>
           </DialogHeader>
-          <div className="py-2">
-            <PersonCombobox
-              people={candidates.filter((c) => !editing || c.id !== editing.id)}
-              value={pendingManagerId}
-              onValueChange={setPendingManagerId}
-              placeholder="Select a manager…"
-              emptyOption={{ value: "__none__", label: "No manager" }}
-              testId="combobox-employee-manager"
-              renderExtra={(p) => p.role || ""}
-            />
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-foreground">Manager</label>
+              <PersonCombobox
+                people={candidates.filter((c) => !editing || c.id !== editing.id)}
+                value={pendingManagerId}
+                onValueChange={setPendingManagerId}
+                placeholder="Search and select a manager..."
+                emptyOption={{ value: "__none__", label: "No manager (unassigned)" }}
+                testId="combobox-employee-manager"
+                renderExtra={(p) => p.role || ""}
+              />
+            </div>
+            {candidates.length === 0 && (
+              <div className="p-3 bg-amber-50 dark:bg-amber-900/20 rounded-lg border border-amber-200 dark:border-amber-800">
+                <p className="text-xs text-amber-800 dark:text-amber-200">
+                  No managers available. Create office staff first to assign as managers.
+                </p>
+              </div>
+            )}
           </div>
-          <DialogFooter>
+          <DialogFooter className="gap-2">
             <Button variant="outline" onClick={() => setEditing(null)}>
               Cancel
             </Button>
@@ -432,100 +542,12 @@ export default function EmployeesPage() {
               disabled={setManagerMutation.isPending}
               data-testid="button-save-manager"
             >
-              {setManagerMutation.isPending ? "Saving…" : "Save"}
+              {setManagerMutation.isPending ? "Saving..." : "Save"}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Lightweight unified profile dialog for office staff (caregivers
-          have their own dedicated page). */}
-      <Dialog
-        open={!!profileTarget}
-        onOpenChange={(o) => {
-          if (!o) setProfileTarget(null);
-        }}
-      >
-        <DialogContent data-testid="dialog-employee-profile" className="max-w-3xl max-h-[85vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>
-              {profileTarget && formatName(profileTarget.firstName, profileTarget.lastName)}
-            </DialogTitle>
-            <DialogDescription>
-              {profileTarget?.title || profileTarget?.role || "Office staff"}
-            </DialogDescription>
-          </DialogHeader>
-          {profileTarget && (
-            <Tabs defaultValue="overview" className="w-full">
-              <TabsList>
-                <TabsTrigger value="overview" data-testid="tab-employee-overview">Overview</TabsTrigger>
-                <TabsTrigger value="documents" data-testid="tab-employee-documents">Documents</TabsTrigger>
-              </TabsList>
-              <TabsContent value="overview">
-                <div className="space-y-3 text-sm">
-                  <div className="flex items-center gap-2">
-                    <Badge variant={profileTarget.isActive === false ? "secondary" : "default"}>
-                      {profileTarget.isActive === false ? "Inactive" : "Active"}
-                    </Badge>
-                    <Badge variant="outline">{profileTarget.role || "staff"}</Badge>
-                  </div>
-                  {profileTarget.email && (
-                    <div className="flex items-center gap-2">
-                      <Mail className="h-4 w-4 text-muted-foreground" />
-                      <a href={`mailto:${profileTarget.email}`} className="hover:underline">
-                        {profileTarget.email}
-                      </a>
-                    </div>
-                  )}
-                  {profileTarget.phone && (
-                    <div className="flex items-center gap-2">
-                      <Phone className="h-4 w-4 text-muted-foreground" />
-                      {profileTarget.phone}
-                    </div>
-                  )}
-                  {profileTarget.officeName && (
-                    <div className="flex items-center gap-2">
-                      <MapPin className="h-4 w-4 text-muted-foreground" />
-                      {profileTarget.officeName}
-                    </div>
-                  )}
-                  {profileTarget.hireDate && (
-                    <div className="flex items-center gap-2">
-                      <Calendar className="h-4 w-4 text-muted-foreground" />
-                      Hired {format(new Date(profileTarget.hireDate), "MMM d, yyyy")}
-                    </div>
-                  )}
-                  <div className="pt-2">
-                    <span className="text-muted-foreground">Reports to: </span>
-                    {profileTarget.managerName || (
-                      <span className="text-muted-foreground">Unassigned</span>
-                    )}
-                  </div>
-                </div>
-              </TabsContent>
-              <TabsContent value="documents">
-                <EmployeeDocumentsTab kind="user" employeeId={profileTarget.id} />
-              </TabsContent>
-            </Tabs>
-          )}
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => {
-                if (profileTarget) openEditor(profileTarget);
-                setProfileTarget(null);
-              }}
-              data-testid="button-edit-manager-from-profile"
-            >
-              <UserCog className="h-4 w-4 mr-2" />
-              Change manager
-            </Button>
-            <Link href="/user-management">
-              <Button data-testid="button-manage-user">Manage account</Button>
-            </Link>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

@@ -2,6 +2,8 @@ import { Switch, Route } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
+import { ErrorBoundary } from "@/components/error-boundary";
+import { ThemeProvider } from "@/components/theme-provider";
 import ErrorLog from "@/pages/error-log";
 import WriteUps from "@/pages/write-ups";
 import HelpCenterAdmin from "@/pages/help-center-admin";
@@ -16,6 +18,7 @@ import Clients from "@/pages/clients";
 import ClientProfile from "@/pages/client-profile";
 import Caregivers from "@/pages/caregivers";
 import CaregiverProfile from "@/pages/caregiver-profile";
+import StaffProfile from "@/pages/staff-profile";
 import Offices from "@/pages/offices";
 import OfficeProfile from "@/pages/office-profile";
 import Compliance from "@/pages/compliance";
@@ -56,6 +59,9 @@ import CustomIntegrations from "@/pages/custom-integrations";
 import ApiKeys from "@/pages/api-keys";
 import LetterTemplates from "@/pages/letter-templates";
 import CoordinatorPayRecords from "@/pages/coordinator-pay-records";
+import Coordinators from "@/pages/coordinators";
+import CoordinatorProfile from "@/pages/coordinator-profile";
+import CoordinatorCompensation from "@/pages/coordinator-compensation";
 import PayrollHub from "@/pages/payroll-hub";
 import EmailTemplates from "@/pages/email-templates";
 import ExpirationAlerts from "@/pages/expiration-alerts";
@@ -89,6 +95,8 @@ import MySupportTickets from "@/pages/my-support-tickets";
 import CaregiverLogin from "@/pages/caregiver-login";
 import SurveyReadiness from "@/pages/survey-readiness";
 import SurveyReadinessPrint from "@/pages/survey-readiness-print";
+import OfficeCredentials from "@/pages/office-credentials";
+import ComplianceProgram from "@/pages/compliance-program";
 import SupervisoryVisits from "@/pages/supervisory-visits";
 import PolicyManagement from "@/pages/policy-management";
 import Qapi from "@/pages/qapi";
@@ -208,6 +216,9 @@ function Router() {
           <Route path="/custom-integrations" component={CustomIntegrations} />
           <Route path="/letter-templates" component={LetterTemplates} />
           <Route path="/coordinator-pay-records" component={CoordinatorPayRecords} />
+          <Route path="/coordinators" component={Coordinators} />
+          <Route path="/coordinators/:id" component={CoordinatorProfile} />
+          <Route path="/coordinator-compensation" component={CoordinatorCompensation} />
           <Route path="/email-templates" component={EmailTemplates} />
           <Route path="/expiration-alerts" component={ExpirationAlerts} />
           <Route path="/payroll" component={PayrollHub} />
@@ -222,6 +233,7 @@ function Router() {
           <Route path="/write-ups" component={WriteUps} />
           <Route path="/staff" component={Staff} />
           <Route path="/employees" component={Employees} />
+          <Route path="/staff/:id" component={StaffProfile} />
           <Route path="/performance-reviews" component={PerformanceReviews} />
           <Route path="/org-chart" component={OrgChart} />
           <Route path="/kiosk-setup" component={KioskSetup} />
@@ -244,11 +256,13 @@ function Router() {
           <Route path="/audit-assessment" component={AuditAssessment} />
           <Route path="/survey-readiness" component={SurveyReadiness} />
           <Route path="/survey-readiness/print" component={SurveyReadinessPrint} />
+          <Route path="/office-credentials" component={OfficeCredentials} />
           <Route path="/supervisory-visits" component={SupervisoryVisits} />
           <Route path="/policy-management" component={PolicyManagement} />
           <Route path="/qapi" component={Qapi} />
           <Route path="/quality-management" component={QualityManagement} />
           <Route path="/patient-complaints" component={PatientComplaints} />
+          <Route path="/compliance-program" component={ComplianceProgram} />
           <Route path="/quality-management-logs" component={QualityManagementLogs} />
           <Route path="/oadri-cycle" component={OadriCycle} />
           <Route path="/infection-control" component={InfectionControl} />
@@ -268,14 +282,20 @@ function Router() {
 
 function App() {
   return (
-    <QueryClientProvider client={queryClient}>
-      <OfficeProvider>
-        <TooltipProvider>
-          <Toaster />
-          <Router />
-        </TooltipProvider>
-      </OfficeProvider>
-    </QueryClientProvider>
+    <ErrorBoundary>
+      <ThemeProvider>
+        <QueryClientProvider client={queryClient}>
+          <OfficeProvider>
+            <TooltipProvider>
+              <Toaster />
+              <ErrorBoundary>
+                <Router />
+              </ErrorBoundary>
+            </TooltipProvider>
+          </OfficeProvider>
+        </QueryClientProvider>
+      </ThemeProvider>
+    </ErrorBoundary>
   );
 }
 

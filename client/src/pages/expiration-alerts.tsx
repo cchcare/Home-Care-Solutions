@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Sidebar } from "@/components/sidebar";
 import { TopBar } from "@/components/topbar";
 import { apiRequest } from "@/lib/queryClient";
+import { ListSkeleton } from "@/components/ui/loading-states";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -27,7 +28,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { format } from "date-fns";
 import {
   AlertTriangle,
   Send,
@@ -43,11 +43,15 @@ import {
   Shield,
   CreditCard,
   FileCheck,
+  FileText,
+  ClipboardList,
+  GraduationCap,
 } from "lucide-react";
+import { formatDateOnly } from "@/lib/dateOnly";
 
 interface ExpiringItem {
   id: string;
-  type: "caregiver_compliance" | "client_snap" | "client_medicaid";
+  type: "caregiver_compliance" | "client_snap" | "client_medicaid" | "document_expiration" | "claim_timely_filing" | "authorization_renewal" | "care_plan_reassessment" | "office_credential" | "competency_review";
   entityId: string;
   entityName: string;
   entityEmail?: string;
@@ -197,6 +201,18 @@ export default function ExpirationAlerts() {
         return <Badge className="bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-300 flex items-center gap-1"><CreditCard className="w-3 h-3" />SNAP</Badge>;
       case "client_medicaid":
         return <Badge className="bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300 flex items-center gap-1"><Shield className="w-3 h-3" />Medicaid</Badge>;
+      case "document_expiration":
+        return <Badge variant="secondary" className="flex items-center gap-1"><FileText className="w-3 h-3" />Document</Badge>;
+      case "claim_timely_filing":
+        return <Badge className="bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-300 flex items-center gap-1"><FileText className="w-3 h-3" />Claim Filing</Badge>;
+      case "authorization_renewal":
+        return <Badge className="bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-300 flex items-center gap-1"><ClipboardList className="w-3 h-3" />Authorization</Badge>;
+      case "care_plan_reassessment":
+        return <Badge className="bg-teal-100 text-teal-800 dark:bg-teal-900 dark:text-teal-300 flex items-center gap-1"><ClipboardList className="w-3 h-3" />Care Plan</Badge>;
+      case "office_credential":
+        return <Badge className="bg-rose-100 text-rose-800 dark:bg-rose-900 dark:text-rose-300 flex items-center gap-1"><Shield className="w-3 h-3" />Agency Credential</Badge>;
+      case "competency_review":
+        return <Badge className="bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-300 flex items-center gap-1"><GraduationCap className="w-3 h-3" />Competency Review</Badge>;
       default:
         return <Badge variant="secondary">{type}</Badge>;
     }
@@ -230,7 +246,7 @@ export default function ExpirationAlerts() {
               <TableCell>{getTypeBadge(item.type)}</TableCell>
               <TableCell className="font-medium">{item.entityName}</TableCell>
               <TableCell>{item.itemDescription}</TableCell>
-              <TableCell>{format(new Date(item.expirationDate), "MMM d, yyyy")}</TableCell>
+              <TableCell>{formatDateOnly(item.expirationDate)}</TableCell>
               <TableCell>{getUrgencyBadge(item.daysUntilExpiration)}</TableCell>
               <TableCell>
                 <div className="flex items-center gap-2">
@@ -278,6 +294,11 @@ export default function ExpirationAlerts() {
                     <SelectItem value="client_snap">Client SNAP</SelectItem>
                     <SelectItem value="client_medicaid">Client Medicaid</SelectItem>
                     <SelectItem value="document_expiration">Document Expiration</SelectItem>
+                    <SelectItem value="claim_timely_filing">Claim Timely Filing</SelectItem>
+                    <SelectItem value="authorization_renewal">Authorization Renewal</SelectItem>
+                    <SelectItem value="care_plan_reassessment">Care Plan Reassessment</SelectItem>
+                    <SelectItem value="office_credential">Agency Credential</SelectItem>
+                    <SelectItem value="competency_review">Competency Review</SelectItem>
                   </SelectContent>
                 </Select>
                 <Button
@@ -360,7 +381,7 @@ export default function ExpirationAlerts() {
 
               <TabsContent value="upcoming">
                 {expirationsLoading ? (
-                  <div className="text-center py-8 text-gray-500">Loading...</div>
+                  <ListSkeleton rows={4} rowHeight="h-20" />
                 ) : (
                   <div className="space-y-6">
                     {expiringToday.length > 0 && (

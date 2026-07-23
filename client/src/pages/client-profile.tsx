@@ -41,6 +41,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { apiRequest } from "@/lib/queryClient";
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameMonth, isToday, addMonths, subMonths } from "date-fns";
+import { parseDateOnlyInput, toDateOnlyInputValue, formatDateOnly } from "@/lib/dateOnly";
 import { 
   ArrowLeft, 
   User, 
@@ -85,11 +86,20 @@ import {
   FileSignature,
   Mail,
   AlertTriangle,
-  ShieldAlert
+  ShieldAlert,
+  ShieldCheck
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import type { Client, Document, Office, Mco, User as UserType, ClientCommunication, OfficeMcoBillingRate, ClientSchedule, MasterWeekTemplate, MasterWeekSlot, Caregiver, ClientMco, Coordinator, EligibilityCheck, LetterTemplate } from "@shared/schema";
+import { EmailDocumentDialog } from "@/components/email-document-dialog";
 import { AddressInput } from "@/components/address-input";
+import { ClientNoticesSection } from "@/components/client-notices-section";
+import { ClientAuthorizationsSection } from "@/components/client-authorizations-section";
+import { ClientSpecialRequestsSection } from "@/components/client-special-requests-section";
+import { ClientSpendDownSection } from "@/components/client-spend-down-section";
+import { ClientReferralSection } from "@/components/client-referral-section";
+import { ClientVisitsSection } from "@/components/client-visits-section";
+import { ClientPocSection } from "@/components/client-poc-section";
 
 const DOCUMENT_CATEGORIES = [
   { value: "id_card", label: "ID Card" },
@@ -120,6 +130,7 @@ const CLIENT_MENU_ITEMS = [
   { id: "poc", label: "POC", icon: FileText },
   { id: "caregiver-history", label: "Caregiver History", icon: History },
   { id: "emergency-plan", label: "Emergency Plan", icon: ShieldAlert },
+  { id: "notices", label: "Rights & Notices", icon: ShieldCheck },
   { id: "others", label: "Others", icon: MoreHorizontal },
 ];
 
@@ -184,6 +195,9 @@ export default function ClientProfile() {
   // Template generation state
   const [showTemplateDialog, setShowTemplateDialog] = useState(false);
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
+  const [emailAfterGenerate, setEmailAfterGenerate] = useState(false);
+  const [generateEmailRecipient, setGenerateEmailRecipient] = useState("");
+  const [emailDocTarget, setEmailDocTarget] = useState<Document | null>(null);
 
   // Master week template state
   const [showMasterWeekModal, setShowMasterWeekModal] = useState(false);
@@ -629,19 +643,25 @@ export default function ClientProfile() {
   });
 
   const generateFromTemplateMutation = useMutation({
-    mutationFn: async (templateId: string) => {
+    mutationFn: async ({ templateId, emailTo }: { templateId: string; emailTo?: string }) => {
       const response = await apiRequest("POST", `/api/letter-templates/${templateId}/generate`, {
         scope: "client",
         targetId: clientId,
         saveToDocuments: true,
+        ...(emailTo ? { emailTo } : {}),
       });
       return response.json();
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/clients", clientId, "documents"] });
-      toast({ title: "Success", description: "Document generated successfully from template" });
+      if (data.emailResult && !data.emailResult.success) {
+        toast({ title: "Letter generated, but email failed", description: data.emailResult.error, variant: "destructive" });
+      } else {
+        toast({ title: "Success", description: data.message || "Document generated successfully from template" });
+      }
       setShowTemplateDialog(false);
       setSelectedTemplateId(null);
+      setEmailAfterGenerate(false);
     },
     onError: (error: any) => {
       toast({ title: "Error", description: error.message || "Failed to generate document", variant: "destructive" });
@@ -1122,13 +1142,13 @@ export default function ClientProfile() {
                         {isEditing ? (
                           <Input
                             type="date"
-                            value={editFormData.dateOfBirth ? new Date(editFormData.dateOfBirth).toISOString().split('T')[0] : ""}
-                            onChange={(e) => setEditFormData({ ...editFormData, dateOfBirth: e.target.value ? new Date(e.target.value) : undefined })}
+                            value={toDateOnlyInputValue(editFormData.dateOfBirth)}
+                            onChange={(e) => setEditFormData({ ...editFormData, dateOfBirth: parseDateOnlyInput(e.target.value) ?? undefined })}
                             data-testid="input-date-of-birth"
                           />
                         ) : (
                           <p className="font-medium" data-testid="text-client-dob">
-                            {client.dateOfBirth ? format(new Date(client.dateOfBirth), "MMM d, yyyy") : "N/A"}
+                            {formatDateOnly(client.dateOfBirth, (d) => format(d, "MMM d, yyyy")) || "N/A"}
                           </p>
                         )}
                       </div>
@@ -2089,33 +2109,23 @@ export default function ClientProfile() {
               </Dialog>
 
               {/* Visits Section */}
-              {activeSection === "visits" && (
+              {activeSection === "visits" && clientId && (
                 <div className="space-y-6">
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="flex items-center gap-2">
-                        <Clock className="w-5 h-5" />
-                        Visits
-                      </CardTitle>
-                      <CardDescription>View and manage client visits</CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                      <p className="text-muted-foreground text-center py-8">Visits tracking coming soon</p>
-                    </CardContent>
-                  </Card>
+                  <ClientVisitsSection clientId={clientId} />
                 </div>
               )}
 
               {/* POC Section */}
               {activeSection === "poc" && (
                 <div className="space-y-6">
+                  {clientId && <ClientPocSection clientId={clientId} />}
                   <Card>
                     <CardHeader>
                       <CardTitle className="flex items-center gap-2">
                         <FileText className="w-5 h-5" />
-                        Plan of Care (POC)
+                        Plan of Care Documents
                       </CardTitle>
-                      <CardDescription>Manage client's plan of care documents</CardDescription>
+                      <CardDescription>Signed POC forms, physician orders, and related documents.</CardDescription>
                     </CardHeader>
                     <CardContent>
                       <div className="mb-6 p-4 border rounded-lg bg-muted/50">
@@ -2183,6 +2193,7 @@ export default function ClientProfile() {
                                   key={doc.id} 
                                   document={doc} 
                                   onDelete={() => deleteMutation.mutate(doc.id)} 
+                                  onEmail={() => setEmailDocTarget(doc)}
                                 />
                               ))}
                             </div>
@@ -2200,6 +2211,7 @@ export default function ClientProfile() {
                                     key={doc.id} 
                                     document={doc} 
                                     onDelete={() => deleteMutation.mutate(doc.id)} 
+                                    onEmail={() => setEmailDocTarget(doc)}
                                   />
                                 ))}
                               </div>
@@ -2213,38 +2225,16 @@ export default function ClientProfile() {
               )}
 
               {/* Spend Down Section */}
-              {activeSection === "spend-down" && (
+              {activeSection === "spend-down" && clientId && (
                 <div className="space-y-6">
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="flex items-center gap-2">
-                        <Wallet className="w-5 h-5" />
-                        Spend Down
-                      </CardTitle>
-                      <CardDescription>Track client spend down information</CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                      <p className="text-muted-foreground text-center py-8">Spend down tracking coming soon</p>
-                    </CardContent>
-                  </Card>
+                  <ClientSpendDownSection clientId={clientId} />
                 </div>
               )}
 
               {/* Referral Member Info Section */}
-              {activeSection === "referral" && (
+              {activeSection === "referral" && clientId && (
                 <div className="space-y-6">
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="flex items-center gap-2">
-                        <UserPlus className="w-5 h-5" />
-                        Referral Member Info
-                      </CardTitle>
-                      <CardDescription>Manage referral and member information</CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                      <p className="text-muted-foreground text-center py-8">Referral member information coming soon</p>
-                    </CardContent>
-                  </Card>
+                  <ClientReferralSection clientId={clientId} />
                 </div>
               )}
 
@@ -2281,9 +2271,9 @@ export default function ClientProfile() {
                         <div className="space-y-1">
                           <Label className="text-muted-foreground text-sm">Date of Birth</Label>
                           {isEditing ? (
-                            <Input type="date" value={editFormData.dateOfBirth ? new Date(editFormData.dateOfBirth).toISOString().split('T')[0] : ""} onChange={(e) => setEditFormData({ ...editFormData, dateOfBirth: e.target.value ? new Date(e.target.value) : undefined })} />
+                            <Input type="date" value={toDateOnlyInputValue(editFormData.dateOfBirth)} onChange={(e) => setEditFormData({ ...editFormData, dateOfBirth: parseDateOnlyInput(e.target.value) ?? undefined })} />
                           ) : (
-                            <p className="font-medium">{client?.dateOfBirth ? format(new Date(client.dateOfBirth), "MMM d, yyyy") : "N/A"}</p>
+                            <p className="font-medium">{formatDateOnly(client?.dateOfBirth, (d) => format(d, "MMM d, yyyy")) || "N/A"}</p>
                           )}
                         </div>
                         <div className="space-y-1">
@@ -2822,38 +2812,15 @@ export default function ClientProfile() {
               )}
 
               {/* Auth/Orders Section */}
-              {activeSection === "auth-orders" && (
+              {activeSection === "auth-orders" && clientId && (
                 <div className="space-y-6">
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="flex items-center gap-2">
-                        <ClipboardList className="w-5 h-5" />
-                        Authorizations & Orders
-                      </CardTitle>
-                      <CardDescription>Manage client authorizations and orders</CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                      <p className="text-muted-foreground text-center py-8">Authorizations and orders management coming soon</p>
-                    </CardContent>
-                  </Card>
+                  <ClientAuthorizationsSection clientId={clientId} officeId={client?.officeId} />
                 </div>
               )}
 
-              {/* Special Requests Section */}
-              {activeSection === "special-requests" && (
+              {activeSection === "special-requests" && clientId && (
                 <div className="space-y-6">
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="flex items-center gap-2">
-                        <Star className="w-5 h-5" />
-                        Special Requests
-                      </CardTitle>
-                      <CardDescription>Manage special requests for this client</CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                      <p className="text-muted-foreground text-center py-8">Special requests management coming soon</p>
-                    </CardContent>
-                  </Card>
+                  <ClientSpecialRequestsSection clientId={clientId} />
                 </div>
               )}
 
@@ -3076,6 +3043,12 @@ export default function ClientProfile() {
                       </div>
                     </CardContent>
                   </Card>
+                </div>
+              )}
+
+              {activeSection === "notices" && clientId && (
+                <div className="space-y-6">
+                  <ClientNoticesSection clientId={clientId} />
                 </div>
               )}
 
@@ -3583,6 +3556,31 @@ export default function ClientProfile() {
                 ))}
               </div>
             )}
+            <div className="border rounded-lg p-3 space-y-2">
+              <label className="flex items-center gap-2 text-sm font-medium cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={emailAfterGenerate}
+                  onChange={(e) => {
+                    setEmailAfterGenerate(e.target.checked);
+                    if (e.target.checked && !generateEmailRecipient) {
+                      setGenerateEmailRecipient(client?.email || "");
+                    }
+                  }}
+                  data-testid="checkbox-email-after-generate"
+                />
+                Email the letter as a PDF attachment
+              </label>
+              {emailAfterGenerate && (
+                <Input
+                  type="email"
+                  placeholder="Recipient email"
+                  value={generateEmailRecipient}
+                  onChange={(e) => setGenerateEmailRecipient(e.target.value)}
+                  data-testid="input-generate-email-recipient"
+                />
+              )}
+            </div>
           </div>
           <div className="flex justify-end gap-2">
             <Button
@@ -3598,17 +3596,31 @@ export default function ClientProfile() {
             <Button
               onClick={() => {
                 if (selectedTemplateId) {
-                  generateFromTemplateMutation.mutate(selectedTemplateId);
+                  generateFromTemplateMutation.mutate({
+                    templateId: selectedTemplateId,
+                    emailTo: emailAfterGenerate && generateEmailRecipient ? generateEmailRecipient : undefined,
+                  });
                 }
               }}
-              disabled={!selectedTemplateId || generateFromTemplateMutation.isPending}
+              disabled={!selectedTemplateId || generateFromTemplateMutation.isPending || (emailAfterGenerate && !generateEmailRecipient)}
               data-testid="button-confirm-generate"
             >
-              {generateFromTemplateMutation.isPending ? "Generating..." : "Generate Document"}
+              {generateFromTemplateMutation.isPending
+                ? "Generating..."
+                : emailAfterGenerate
+                  ? "Generate & Email"
+                  : "Generate Document"}
             </Button>
           </div>
         </DialogContent>
       </Dialog>
+
+      <EmailDocumentDialog
+        document={emailDocTarget}
+        defaultRecipient={client?.email || ""}
+        open={!!emailDocTarget}
+        onOpenChange={(open) => !open && setEmailDocTarget(null)}
+      />
 
       {/* Master Week Template Modal */}
       {client && (
@@ -3650,7 +3662,7 @@ export default function ClientProfile() {
   );
 }
 
-function DocumentCard({ document, onDelete }: { document: Document; onDelete: () => void }) {
+function DocumentCard({ document, onDelete, onEmail }: { document: Document; onDelete: () => void; onEmail?: () => void }) {
   const [showViewer, setShowViewer] = useState(false);
   const categoryLabel = DOCUMENT_CATEGORIES.find(c => c.value === document.documentType)?.label || document.documentType;
   const isPdf = document.fileName?.toLowerCase().endsWith('.pdf') || document.originalName?.toLowerCase().endsWith('.pdf');
@@ -3689,6 +3701,18 @@ function DocumentCard({ document, onDelete }: { document: Document; onDelete: ()
             >
               <Download className="w-4 h-4" />
             </Button>
+            {onEmail && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8"
+                onClick={onEmail}
+                title="Email this document as an attachment"
+                data-testid={`button-email-${document.id}`}
+              >
+                <Mail className="w-4 h-4" />
+              </Button>
+            )}
             <Button 
               variant="ghost" 
               size="icon" 

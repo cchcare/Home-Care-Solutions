@@ -29,6 +29,8 @@ import {
 } from "@/components/ui/table";
 import { useAuth } from "@/hooks/useAuth";
 import { AlertOctagon, Plus, Search } from "lucide-react";
+import { EmptyState } from "@/components/ui/empty-state";
+import { ListSkeleton } from "@/components/ui/loading-states";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { PersonCombobox } from "@/components/ui/person-combobox";
@@ -279,11 +281,13 @@ export default function WriteUpsPage() {
               </div>
 
               {isLoading ? (
-                <div className="text-sm text-muted-foreground">Loading…</div>
+                <ListSkeleton rows={5} rowHeight="h-10" />
               ) : filtered.length === 0 ? (
-                <div className="text-sm text-muted-foreground">
-                  No write-ups match your filters.
-                </div>
+                <EmptyState
+                  icon={AlertOctagon}
+                  title="No write-ups found"
+                  description="No write-ups match your current filters. Try broadening the type, severity, or status filters."
+                />
               ) : (
                 <Table>
                   <TableHeader>

@@ -8,6 +8,8 @@ import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Sidebar } from "@/components/sidebar";
 import { TopBar } from "@/components/topbar";
+import { StatCard } from "@/components/ui/stat-card";
+import { StaggerContainer, StaggerItem } from "@/components/ui/motion";
 import { AddClientModal } from "@/components/add-client-modal";
 import { ClientProfileModal } from "@/components/client-profile-modal";
 import { OcrUploadDialog } from "@/components/ocr-upload-dialog";
@@ -56,6 +58,7 @@ import {
 } from "@/components/filters/active-filter-chips";
 import { ColumnsMenu, type ColumnDef } from "@/components/filters/columns-menu";
 import { SavedViewsMenu } from "@/components/filters/saved-views-menu";
+import { formatDateOnly } from "@/lib/dateOnly";
 
 const CLIENT_COLUMN_DEFS: ColumnDef[] = [
   { key: "info", label: "Client Information" },
@@ -445,7 +448,7 @@ export default function Clients() {
     ageMin, ageMax, createdWithinDays, sortOption,
   ]);
 
-  const { data: clients = [], isLoading } = useQuery<Client[]>({
+  const { data: clients = [], isLoading, error: clientsError, refetch: refetchClients } = useQuery<Client[]>({
     queryKey: ["/api/clients", queryParams],
     queryFn: async () => {
       const r = await fetch(`/api/clients?${queryParams}`, { credentials: "include" });
@@ -1091,55 +1094,58 @@ export default function Clients() {
             </Card>
 
             {/* Client Statistics */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <Card>
-                <CardContent className="p-6">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm font-medium text-muted-foreground">Total Clients</p>
-                      <p className="text-2xl font-bold text-foreground" data-testid="text-total-clients">
-                        {clients?.length || 0}
-                      </p>
-                    </div>
-                    <Users className="w-8 h-8 text-primary" />
-                  </div>
-                </CardContent>
-              </Card>
+            <StaggerContainer className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <StaggerItem>
+                <StatCard
+                  icon={Users}
+                  tone="blue"
+                  label="Total Clients"
+                  value={clients?.length || 0}
+                  loading={isLoading}
+                  valueTestId="text-total-clients"
+                />
+              </StaggerItem>
+              <StaggerItem>
+                <StatCard
+                  icon={Users}
+                  tone="green"
+                  label="Active Clients"
+                  value={clients?.filter((c: Client) => c.status === "active").length || 0}
+                  loading={isLoading}
+                  valueTestId="text-active-clients-count"
+                />
+              </StaggerItem>
+              <StaggerItem>
+                <StatCard
+                  icon={Calendar}
+                  tone="red"
+                  label="New This Month"
+                  value={
+                    clients?.filter((c: Client) => {
+                      const createdAt = new Date(c.createdAt!);
+                      const now = new Date();
+                      return createdAt.getMonth() === now.getMonth() && createdAt.getFullYear() === now.getFullYear();
+                    }).length || 0
+                  }
+                  loading={isLoading}
+                  valueTestId="text-new-clients-month"
+                />
+              </StaggerItem>
+            </StaggerContainer>
 
-              <Card>
-                <CardContent className="p-6">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm font-medium text-muted-foreground">Active Clients</p>
-                      <p className="text-2xl font-bold text-foreground" data-testid="text-active-clients-count">
-                        {clients?.filter((c: Client) => c.status === "active").length || 0}
-                      </p>
-                    </div>
-                    <div className="w-8 h-8 bg-accent rounded-full flex items-center justify-center">
-                      <Users className="w-5 h-5 text-accent-foreground" />
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardContent className="p-6">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm font-medium text-muted-foreground">New This Month</p>
-                      <p className="text-2xl font-bold text-foreground" data-testid="text-new-clients-month">
-                        {clients?.filter((c: Client) => {
-                          const createdAt = new Date(c.createdAt!);
-                          const now = new Date();
-                          return createdAt.getMonth() === now.getMonth() && createdAt.getFullYear() === now.getFullYear();
-                        }).length || 0}
-                      </p>
-                    </div>
-                    <Calendar className="w-8 h-8 text-destructive" />
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
+            {clientsError && (
+              <div
+                className="flex items-center justify-between gap-3 p-4 rounded-lg border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20"
+                data-testid="banner-clients-error"
+              >
+                <p className="text-sm text-red-800 dark:text-red-200">
+                  Couldn't load clients: {(clientsError as Error).message}
+                </p>
+                <Button variant="outline" size="sm" onClick={() => refetchClients()}>
+                  Retry
+                </Button>
+              </div>
+            )}
 
             {/* Clients Table */}
             <Card>
@@ -1185,11 +1191,15 @@ export default function Clients() {
                     </thead>
                     <tbody className="divide-y divide-border">
                       {isLoading ? (
-                        <tr>
-                          <td colSpan={8} className="p-8 text-center text-muted-foreground">
-                            Loading clients...
-                          </td>
-                        </tr>
+                        Array.from({ length: 6 }).map((_, i) => (
+                          <tr key={i}>
+                            {Array.from({ length: 8 }).map((__, j) => (
+                              <td key={j} className="p-4">
+                                <div className="h-4 bg-muted rounded animate-pulse" />
+                              </td>
+                            ))}
+                          </tr>
+                        ))
                       ) : clients.length > 0 ? (
                         clients.map((client: Client) => {
                           const mcoName = client.mcoId ? mcos.find((m) => m.id === client.mcoId)?.name : null;
@@ -1226,7 +1236,7 @@ export default function Clients() {
                                         {client.firstName} {client.lastName}
                                       </p>
                                       <p className="text-sm text-muted-foreground" data-testid={`text-client-dob-${client.id}`}>
-                                        DOB: {client.dateOfBirth ? new Date(client.dateOfBirth).toLocaleDateString() : "Not provided"}
+                                        DOB: {formatDateOnly(client.dateOfBirth) || "Not provided"}
                                       </p>
                                       <p className="text-xs text-muted-foreground" data-testid={`text-client-member-id-${client.id}`}>
                                         Member ID: {client.memberId || "Not provided"}
@@ -1303,10 +1313,22 @@ export default function Clients() {
                         })
                       ) : (
                         <tr>
-                          <td colSpan={8} className="p-8 text-center text-muted-foreground">
-                            {chips.length > 0
-                              ? "No clients match your filters"
-                              : "No clients found"}
+                          <td colSpan={8} className="p-8">
+                            <div className="flex flex-col items-center text-center">
+                              <div className="w-14 h-14 bg-muted rounded-full flex items-center justify-center mb-3">
+                                <Users className="h-7 w-7 text-muted-foreground/60" />
+                              </div>
+                              <p className="text-sm font-semibold text-foreground">
+                                {chips.length > 0
+                                  ? "No clients match your filters"
+                                  : "No clients yet"}
+                              </p>
+                              <p className="text-sm text-muted-foreground mt-1">
+                                {chips.length > 0
+                                  ? "Try clearing or adjusting the active filters above."
+                                  : "Add your first client to get started."}
+                              </p>
+                            </div>
                           </td>
                         </tr>
                       )}

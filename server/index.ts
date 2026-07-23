@@ -2,7 +2,7 @@ import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import { startScheduledJobs } from "./scheduler";
-import { runProductionInit, seedEmailTemplates, ensureEmployeeNotesSchema, ensureOnboardingSchema, ensureOffboardingSchema, ensureSelfServiceSchema } from "./initDb";
+import { runProductionInit, seedEmailTemplates, ensureEmployeeNotesSchema, ensureOnboardingSchema, ensureOffboardingSchema, ensureSelfServiceSchema, ensureComplianceBranchSchema, ensureComplianceProgramSchema, ensureClientProfileSchema, ensureStaffPerformancePtoSchema, ensureCoordinatorDirectorySchema, ensureCoordinatorProfileSchema } from "./initDb";
 
 import nodePath from "path";
 import { isS3Enabled, getPresignedUrl, getS3KeyForFile } from "./s3Storage";
@@ -90,14 +90,55 @@ app.use((req, res, next) => {
     console.error("[Init] ensureSelfServiceSchema failed (non-fatal):", err);
   }
 
+  try {
+    await ensureComplianceBranchSchema();
+  } catch (err) {
+    console.error("[Init] ensureComplianceBranchSchema failed (non-fatal):", err);
+  }
+
+  try {
+    await ensureComplianceProgramSchema();
+  } catch (err) {
+    console.error("[Init] ensureComplianceProgramSchema failed (non-fatal):", err);
+  }
+
+  try {
+    await ensureClientProfileSchema();
+  } catch (err) {
+    console.error("[Init] ensureClientProfileSchema failed (non-fatal):", err);
+  }
+
+  try {
+    await ensureStaffPerformancePtoSchema();
+  } catch (err) {
+    console.error("[Init] ensureStaffPerformancePtoSchema failed (non-fatal):", err);
+  }
+
+  try {
+    await ensureCoordinatorDirectorySchema();
+  } catch (err) {
+    console.error("[Init] ensureCoordinatorDirectorySchema failed (non-fatal):", err);
+  }
+
+  try {
+    await ensureCoordinatorProfileSchema();
+  } catch (err) {
+    console.error("[Init] ensureCoordinatorProfileSchema failed (non-fatal):", err);
+  }
+
   const server = await registerRoutes(app);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
     const message = err.message || "Internal Server Error";
 
+    // Already sent headers during a prior pass — avoid double-response
+    if (res.headersSent) {
+      console.error("Unhandled error after headers sent:", err);
+      return;
+    }
+
     res.status(status).json({ message });
-    throw err;
   });
 
   // importantly only setup vite in development and after

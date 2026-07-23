@@ -96,7 +96,7 @@ export default function UserManagementPage() {
       <div className="flex items-center justify-center min-h-[400px]">
         <div className="text-center">
           <Shield className="mx-auto h-12 w-12 text-muted-foreground" />
-          <h3 className="mt-2 text-sm font-semibold text-gray-900">Access Denied</h3>
+          <h3 className="mt-2 text-sm font-semibold text-foreground">Access Denied</h3>
           <p className="mt-1 text-sm text-muted-foreground">
             You don't have permission to access user management. Only administrators, supervisors, and managers can manage users.
           </p>
@@ -902,13 +902,17 @@ export default function UserManagementPage() {
       {/* Users List */}
       <div className="space-y-4">
         {isLoading ? (
-          <div className="text-center py-8">Loading users...</div>
+          <div className="space-y-4">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <div key={i} className="h-24 bg-muted rounded-lg animate-pulse" />
+            ))}
+          </div>
         ) : filteredUsers.length === 0 ? (
           <Card>
             <CardContent className="pt-6">
               <div className="text-center py-8">
                 <Users className="mx-auto h-12 w-12 text-muted-foreground" />
-                <h3 className="mt-2 text-sm font-semibold text-gray-900">No users found</h3>
+                <h3 className="mt-2 text-sm font-semibold text-foreground">No users found</h3>
                 <p className="mt-1 text-sm text-muted-foreground">
                   {searchTerm || roleFilter !== "all" 
                     ? "Try adjusting your filters" 

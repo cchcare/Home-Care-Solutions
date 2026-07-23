@@ -47,8 +47,14 @@ defaultBucketID = "replit-objstore-15f8bc44-5637-4fe7-ad4b-4fe77283eb79"
 
 [userenv]
 
+# NOTE: INIT_PRODUCTION_DB was removed from [userenv.production] on purpose.
+# It made every production boot eligible to TRUNCATE the entire database, with
+# only the production_init_marker row standing between a deploy and total data
+# loss. The one-time bootstrap has already run; never re-add this here. To
+# intentionally reset a database, set INIT_PRODUCTION_DB=true AND
+# INIT_PRODUCTION_DB_FORCE=yes-erase-everything for a single boot, then remove
+# both.
 [userenv.production]
-INIT_PRODUCTION_DB = "true"
 
 [postMerge]
 path = "scripts/post-merge.sh"

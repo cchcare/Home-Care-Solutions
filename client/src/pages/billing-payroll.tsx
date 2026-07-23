@@ -46,7 +46,8 @@ import {
   FileUp,
   AlertCircle,
   Loader2,
-  AlertTriangle
+  AlertTriangle,
+  CalendarCheck
 } from "lucide-react";
 import type { Office, BillingRecord, PayrollRun, OfficePayrollConfig, Mco, OfficeMcoBillingRate, Client, Caregiver, PayrollHoliday } from "@shared/schema";
 import { queryClient } from "@/lib/queryClient";
@@ -737,6 +738,39 @@ export default function BillingPayroll() {
     }
   };
 
+  const [isPullingSchedule, setIsPullingSchedule] = useState<string | null>(null);
+
+  const handlePullScheduleHours = async (runId: string) => {
+    setIsPullingSchedule(runId);
+    try {
+      const response = await fetch(`/api/payroll/${runId}/pull-schedule-hours`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+        credentials: "include",
+      });
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || "Failed to pull schedule hours");
+      }
+      const data = await response.json();
+      const s = data.summary;
+      toast({
+        title: "Schedule hours pulled",
+        description: `${s.entriesCreated} confirmed visit${s.entriesCreated === 1 ? "" : "s"} from ${s.caregivers} caregiver${s.caregivers === 1 ? "" : "s"} — ${s.totalHours} hours total${s.skipped ? ` (${s.skipped} skipped)` : ""}. Run "Calculate overtime" to build line items.`,
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/payroll"] });
+    } catch (error: any) {
+      toast({
+        title: "Pull failed",
+        description: error.message || "Failed to pull schedule hours",
+        variant: "destructive",
+      });
+    } finally {
+      setIsPullingSchedule(null);
+    }
+  };
+
   const handleCalculateOvertime = async (runId: string) => {
     setIsCalculatingOvertime(runId);
     
@@ -1357,9 +1391,12 @@ export default function BillingPayroll() {
                                       <div className="space-y-4">
                                         <Upload className="w-12 h-12 mx-auto text-muted-foreground" />
                                         <div>
-                                          <p className="text-lg font-medium">Upload Excel file</p>
+                                          <p className="text-lg font-medium">Upload Excel file (e.g. HHA hours export)</p>
                                           <p className="text-sm text-muted-foreground">
-                                            Required columns: Client HHAX ID, Caregiver Assignment ID, Date, Hours
+                                            Columns: Client HHAX ID, Caregiver Assignment ID <span className="font-medium">or HHA ID</span>, Date, Hours
+                                          </p>
+                                          <p className="text-xs text-muted-foreground mt-1">
+                                            Caregivers match by Assignment ID or HHAX Caregiver ID. Rows with an unmatched client still import — payroll pays the caregiver either way.
                                           </p>
                                         </div>
                                         <Button
@@ -1616,8 +1653,8 @@ export default function BillingPayroll() {
                                     >
                                       <Edit className="w-3 h-3" />
                                     </Button>
-                                    <Button 
-                                      size="sm" 
+                                    <Button
+                                      size="sm"
                                       variant="outline"
                                       onClick={() => handleOpenImportDialog(run)}
                                       disabled={!canMutate}
@@ -1625,6 +1662,20 @@ export default function BillingPayroll() {
                                       title={!canMutate ? viewOnlyMessage : "Import hours"}
                                     >
                                       <Upload className="w-3 h-3" />
+                                    </Button>
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      onClick={() => handlePullScheduleHours(run.id)}
+                                      disabled={!canMutate || isPullingSchedule === run.id}
+                                      data-testid={`button-pull-schedule-${run.id}`}
+                                      title={!canMutate ? viewOnlyMessage : "Pull confirmed hours from caregiver schedule"}
+                                    >
+                                      {isPullingSchedule === run.id ? (
+                                        <Loader2 className="w-3 h-3 animate-spin" />
+                                      ) : (
+                                        <CalendarCheck className="w-3 h-3" />
+                                      )}
                                     </Button>
                                     <Button 
                                       size="sm" 

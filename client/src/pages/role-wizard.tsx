@@ -420,7 +420,11 @@ export default function RoleWizard() {
                   <Shield className="h-6 w-6" />
                   <h1 className="text-2xl font-bold">Role & Access Control Wizard</h1>
                 </div>
-                <div className="text-center py-8">Loading...</div>
+                <div className="space-y-3">
+                  {Array.from({ length: 4 }).map((_, i) => (
+                    <div key={i} className="h-20 bg-muted rounded-lg animate-pulse" />
+                  ))}
+                </div>
               </div>
             </div>
         </div>

@@ -81,10 +81,13 @@ export default function PerformanceReviewsPage() {
     queryKey: ["/api/users"],
   });
 
-  const caregiverName = (id: string) => {
+  const caregiverName = (id: string | null | undefined) => {
+    if (!id) return "—";
     const c = caregivers.find(x => x.id === id);
-    if (!c) return id;
-    return `${c.firstName || ""} ${c.lastName || ""}`.trim() || id;
+    if (c) return `${c.firstName || ""} ${c.lastName || ""}`.trim() || id;
+    const u = users.find(x => x.id === id);
+    if (u) return `${u.firstName || ""} ${u.lastName || ""}`.trim() || u.email || id;
+    return id;
   };
   const reviewerName = (id: string) => {
     const u = users.find(x => x.id === id);
@@ -245,7 +248,7 @@ function ReviewTable({
   reviews, caregiverName, reviewerName, onOpen,
 }: {
   reviews: PerformanceReview[];
-  caregiverName: (id: string) => string;
+  caregiverName: (id: string | null | undefined) => string;
   reviewerName: (id: string) => string;
   onOpen: (id: string) => void;
 }) {
@@ -266,7 +269,7 @@ function ReviewTable({
       <TableBody>
         {reviews.map(r => (
           <TableRow key={r.id} data-testid={`row-review-${r.id}`}>
-            <TableCell>{caregiverName(r.caregiverId)}</TableCell>
+            <TableCell>{caregiverName(r.caregiverId ?? r.userId)}</TableCell>
             <TableCell>{reviewerName(r.reviewerId)}</TableCell>
             <TableCell className="capitalize">{(r.reviewType || "").replace(/_/g, " ")}</TableCell>
             <TableCell>{r.scheduledDate ? format(new Date(r.scheduledDate), "MMM d, yyyy") : "—"}</TableCell>
@@ -470,7 +473,7 @@ function ReviewFormDialog({
   open: boolean;
   onOpenChange: (v: boolean) => void;
   reviewId: string;
-  caregiverName: (id: string) => string;
+  caregiverName: (id: string | null | undefined) => string;
   toast: ReturnType<typeof useToast>["toast"];
 }) {
   const { data: review } = useQuery<PerformanceReview>({
@@ -581,7 +584,7 @@ function ReviewFormDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Review — {caregiverName(review.caregiverId)}</DialogTitle>
+          <DialogTitle>Review — {caregiverName(review.caregiverId ?? review.userId)}</DialogTitle>
           <DialogDescription>
             {REVIEW_TYPES.find(t => t.value === review.reviewType)?.label} •{" "}
             {review.scheduledDate ? format(new Date(review.scheduledDate), "MMM d, yyyy") : "—"} •{" "}

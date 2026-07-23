@@ -114,6 +114,9 @@ function downloadIncidentsCsv(
     { header: "CIR Class", accessor: (i) => (i as any).cirClass ?? "" },
     { header: "DOH Submission Status", accessor: (i) => (i as any).dohSubmissionStatus ?? "" },
     { header: "DOH Report Due", accessor: (i) => fmtDate((i as any).dohReportDue) },
+    { header: "SC Notification Status", accessor: (i) => (i as any).scNotificationStatus ?? "" },
+    { header: "SC Notification Due", accessor: (i) => fmtDate((i as any).scNotificationDue) },
+    { header: "Service Coordinator", accessor: (i) => (i as any).serviceCoordinatorName ?? "" },
     { header: "Created At", accessor: (i) => fmtDate(i.createdAt) },
   );
 
@@ -242,6 +245,23 @@ export default function IncidentsPage() {
     },
   });
 
+  const markScNotifiedMutation = useMutation({
+    mutationFn: async (incidentId: string) => {
+      const response = await fetch(`/api/incident-reports/${incidentId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ scNotificationStatus: "notified", scNotifiedAt: new Date().toISOString() }),
+      });
+      if (!response.ok) throw new Error("Failed to update");
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/incident-reports"] });
+      toast({ title: "Service Coordinator Notification Recorded" });
+    },
+  });
+
   const createIncidentMutation = useMutation({
     mutationFn: async (data: IncidentFormData) => {
       const payload = {
@@ -306,12 +326,17 @@ export default function IncidentsPage() {
       resolution: "",
       cirClass: "not_applicable",
       dohSubmissionStatus: "not_required",
+      scNotificationRequired: false,
+      serviceCoordinatorName: "",
+      serviceCoordinatorContact: "",
+      scNotificationStatus: "not_required",
     },
   });
 
   const entityType = form.watch("entityType");
   const followUpRequired = form.watch("followUpRequired");
   const cirClass = form.watch("cirClass");
+  const scNotificationRequired = form.watch("scNotificationRequired");
 
   const getCirDeadlineHours = (cls: string | undefined) => {
     if (cls === "class_1") return 24;
@@ -331,6 +356,16 @@ export default function IncidentsPage() {
     return { label: `Due in ${daysLeft} day${daysLeft !== 1 ? "s" : ""}`, variant: "warning" as const };
   };
 
+  const getScDeadlineCountdown = (incident: IncidentReport) => {
+    const inc = incident as any;
+    if (!inc.scNotificationDue || inc.scNotificationStatus === "notified" || inc.scNotificationStatus === "not_required") return null;
+    const due = new Date(inc.scNotificationDue);
+    const now = new Date();
+    const hoursLeft = differenceInHours(due, now);
+    if (hoursLeft < 0) return { label: `SC notification overdue`, variant: "overdue" as const };
+    return { label: `Notify SC in ${hoursLeft}h`, variant: hoursLeft < 6 ? ("urgent" as const) : ("warning" as const) };
+  };
+
   const onSubmit = (data: IncidentFormData) => {
     const deadlineHours = getCirDeadlineHours(data.cirClass);
     const payload: any = { ...data };
@@ -342,6 +377,12 @@ export default function IncidentsPage() {
       incDate.setHours(incDate.getHours() + deadlineHours);
       payload.dohReportDue = incDate.toISOString();
       payload.dohSubmissionStatus = "pending";
+    }
+    if (data.scNotificationRequired && data.incidentDate) {
+      const scDue = new Date(data.incidentDate);
+      scDue.setHours(scDue.getHours() + 24);
+      payload.scNotificationDue = scDue.toISOString();
+      payload.scNotificationStatus = "pending";
     }
     createIncidentMutation.mutate(payload);
   };
@@ -967,6 +1008,73 @@ export default function IncidentsPage() {
                   </div>
                 </div>
 
+                {/* CHC Service Coordinator Notification */}
+                <div className="border rounded-lg p-4 bg-blue-50 dark:bg-blue-950/20 space-y-4">
+                  <div className="flex items-center gap-2">
+                    <FileWarning className="h-4 w-4 text-blue-600" />
+                    <h4 className="font-medium text-sm text-blue-800 dark:text-blue-300">CHC Service Coordinator Notification</h4>
+                  </div>
+                  <p className="text-xs text-muted-foreground -mt-2">
+                    For Community HealthChoices (CHC) waiver participants, notify the participant's Service
+                    Coordinator within 24 hours — the SC/MCO logs it in the state's incident-management system,
+                    separately from any DOH report above.
+                  </p>
+                  <FormField
+                    control={form.control}
+                    name="scNotificationRequired"
+                    render={({ field }) => (
+                      <FormItem className="flex flex-row items-start space-x-3 space-y-0">
+                        <FormControl>
+                          <Checkbox
+                            checked={field.value || false}
+                            onCheckedChange={field.onChange}
+                            data-testid="checkbox-sc-notification-required"
+                          />
+                        </FormControl>
+                        <div className="space-y-1 leading-none">
+                          <FormLabel>Client is a CHC waiver participant — Service Coordinator notification required</FormLabel>
+                        </div>
+                      </FormItem>
+                    )}
+                  />
+                  {scNotificationRequired && (
+                    <>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <FormField
+                          control={form.control}
+                          name="serviceCoordinatorName"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Service Coordinator Name</FormLabel>
+                              <FormControl>
+                                <Input placeholder="SC name" {...field} value={field.value || ""} data-testid="input-sc-name" />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                        <FormField
+                          control={form.control}
+                          name="serviceCoordinatorContact"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Service Coordinator Contact</FormLabel>
+                              <FormControl>
+                                <Input placeholder="Phone or email" {...field} value={field.value || ""} data-testid="input-sc-contact" />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      </div>
+                      <div className="text-sm px-3 py-2 rounded-md w-full bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200">
+                        <div className="font-medium">⚠ Service Coordinator must be notified within 24 hours</div>
+                        <div className="text-xs mt-1 opacity-80">Deadline auto-calculated from incident date/time</div>
+                      </div>
+                    </>
+                  )}
+                </div>
+
                 <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end sm:space-x-4">
                   <Button type="button" variant="outline" onClick={() => setOpen(false)}>
                     Cancel
@@ -1095,13 +1203,17 @@ export default function IncidentsPage() {
       {/* Incidents List */}
       <div className="space-y-4">
         {isLoading ? (
-          <div className="text-center py-8">Loading incidents...</div>
+          <div className="space-y-4">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} className="h-32 bg-muted rounded-lg animate-pulse" />
+            ))}
+          </div>
         ) : filteredIncidents.length === 0 ? (
           <Card>
             <CardContent className="pt-6">
               <div className="text-center py-8">
                 <AlertTriangle className="mx-auto h-12 w-12 text-muted-foreground" />
-                <h3 className="mt-2 text-sm font-semibold text-gray-900">No incidents found</h3>
+                <h3 className="mt-2 text-sm font-semibold text-foreground">No incidents found</h3>
                 <p className="mt-1 text-sm text-muted-foreground">
                   {chips.length > 0
                     ? "Try adjusting your filters"
@@ -1165,6 +1277,29 @@ export default function IncidentsPage() {
                               >
                                 <AlertCircle className="h-3 w-3" />
                                 {countdown.label}
+                              </Badge>
+                            );
+                          })()}
+                          {(incident as any).scNotificationRequired && (() => {
+                            const scCountdown = getScDeadlineCountdown(incident);
+                            if (!scCountdown) {
+                              if ((incident as any).scNotificationStatus === "notified") {
+                                return (
+                                  <Badge variant="outline" className="gap-1 border-green-500 text-green-700">
+                                    <CheckCircle2 className="h-3 w-3" />
+                                    SC Notified
+                                  </Badge>
+                                );
+                              }
+                              return null;
+                            }
+                            return (
+                              <Badge
+                                variant="outline"
+                                className={`gap-1 ${scCountdown.variant === "overdue" ? "border-red-600 text-red-700 bg-red-50" : scCountdown.variant === "urgent" ? "border-orange-500 text-orange-700 bg-orange-50" : "border-blue-500 text-blue-700 bg-blue-50"}`}
+                              >
+                                <AlertCircle className="h-3 w-3" />
+                                {scCountdown.label}
                               </Badge>
                             );
                           })()}
@@ -1243,6 +1378,19 @@ export default function IncidentsPage() {
                         >
                           <CheckCircle2 className="mr-2 h-4 w-4" />
                           Mark DOH Submitted
+                        </Button>
+                      )}
+                      {(incident as any).scNotificationStatus === "pending" && canMutate && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="border-blue-500 text-blue-700 hover:bg-blue-50"
+                          onClick={() => markScNotifiedMutation.mutate(incident.id)}
+                          disabled={markScNotifiedMutation.isPending}
+                          data-testid={`button-sc-notify-${incident.id}`}
+                        >
+                          <CheckCircle2 className="mr-2 h-4 w-4" />
+                          Mark SC Notified
                         </Button>
                       )}
                     </div>

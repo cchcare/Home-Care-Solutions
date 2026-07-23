@@ -51,6 +51,7 @@ import {
 } from "lucide-react";
 import type { Office, Mco, Coordinator, Caregiver, Client } from "@shared/schema";
 import { insertClientSchema } from "@shared/schema";
+import { parseDateOnlyInput, toDateOnlyInputValue, formatDateOnly } from "@/lib/dateOnly";
 
 const DRAFT_STORAGE_KEY = "client-intake-draft";
 
@@ -395,11 +396,11 @@ export default function ClientIntake() {
                 <FormItem>
                   <FormLabel>Date of Birth</FormLabel>
                   <FormControl>
-                    <Input 
+                    <Input
                       type="date"
                       {...field}
-                      value={field.value ? new Date(field.value).toISOString().split('T')[0] : ''}
-                      onChange={(e) => field.onChange(e.target.value ? new Date(e.target.value) : undefined)}
+                      value={toDateOnlyInputValue(field.value)}
+                      onChange={(e) => field.onChange(parseDateOnlyInput(e.target.value) ?? undefined)}
                       data-testid="input-date-of-birth"
                     />
                   </FormControl>
@@ -876,7 +877,7 @@ export default function ClientIntake() {
                 </CardHeader>
                 <CardContent className="space-y-2 text-sm">
                   <div><span className="font-medium">Name:</span> {values.firstName} {values.lastName}</div>
-                  <div><span className="font-medium">DOB:</span> {values.dateOfBirth ? new Date(values.dateOfBirth).toLocaleDateString() : "Not provided"}</div>
+                  <div><span className="font-medium">DOB:</span> {formatDateOnly(values.dateOfBirth) || "Not provided"}</div>
                   <div><span className="font-medium">Phone:</span> {values.phone}</div>
                   <div><span className="font-medium">Email:</span> {values.email || "Not provided"}</div>
                 </CardContent>

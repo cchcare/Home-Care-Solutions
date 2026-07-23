@@ -16,7 +16,7 @@ import { Button } from "@/components/ui/button";
 import { Link } from "wouter";
 
 type OrgNode = {
-  kind: "user" | "caregiver";
+  kind: "user" | "caregiver" | "coordinator";
   id: string;
   firstName: string | null;
   lastName: string | null;
@@ -97,11 +97,22 @@ function NodeView({
           >
             {name}
           </Link>
+        ) : node.kind === "coordinator" ? (
+          <Link
+            href={`/coordinators/${node.id}`}
+            className="font-medium hover:underline text-primary"
+          >
+            {name}
+          </Link>
         ) : (
           <span className="font-medium">{name}</span>
         )}
         <Badge variant="outline" className="text-xs">
-          {node.kind === "caregiver" ? "Caregiver" : node.role || "Staff"}
+          {node.kind === "caregiver"
+            ? "Caregiver"
+            : node.kind === "coordinator"
+            ? "Coordinator"
+            : node.role || "Staff"}
         </Badge>
         {node.title && (
           <span className="text-xs text-muted-foreground">· {node.title}</span>
