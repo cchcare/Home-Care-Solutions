@@ -1121,6 +1121,50 @@ export async function ensureCoordinatorHistorySchema() {
   }
 }
 
+// storage.upsertUser() does ON CONFLICT (email), which Postgres rejects
+// outright — for every call, not just actual conflicts — unless a real
+// unique constraint exists on the column. That constraint was never present
+// in any migration or in this schema, so upsertUser() (used by new-company
+// signup, caregiver creation, etc.) has always errored with "no unique or
+// exclusion constraint matching the ON CONFLICT specification". This adds it.
+let usersEmailUniqueSchemaReady = false;
+export async function ensureUsersEmailUniqueConstraint() {
+  if (usersEmailUniqueSchemaReady) return;
+  const client = await pool.connect();
+  try {
+    const existing = await client.query(`
+      SELECT 1 FROM pg_constraint WHERE conname = 'users_email_unique';
+    `);
+    if ((existing.rowCount ?? 0) > 0) {
+      usersEmailUniqueSchemaReady = true;
+      return;
+    }
+
+    // Postgres treats every NULL as distinct under a UNIQUE constraint, so
+    // only non-null duplicates would block adding it. If any exist, skip for
+    // now (non-fatal) rather than fail the boot — this will self-heal on a
+    // later boot once the duplicates are resolved.
+    const dupes = await client.query(`
+      SELECT email FROM users WHERE email IS NOT NULL GROUP BY email HAVING count(*) > 1;
+    `);
+    if ((dupes.rowCount ?? 0) > 0) {
+      console.error(
+        `[Init] Skipping users.email unique constraint: ${dupes.rowCount} duplicate email(s) found ` +
+        `(${dupes.rows.map(r => r.email).join(', ')}). Resolve the duplicates, then this self-heals on the next boot.`
+      );
+      return;
+    }
+
+    await client.query(`ALTER TABLE users ADD CONSTRAINT users_email_unique UNIQUE (email);`);
+    usersEmailUniqueSchemaReady = true;
+    console.log("[Init] users.email unique constraint ensured.");
+  } catch (err) {
+    console.error("[Init] ensureUsersEmailUniqueConstraint failed (non-fatal):", err);
+  } finally {
+    client.release();
+  }
+}
+
 // Runs every ensure*Schema() self-heal function above. BOTH entry points —
 // server/index.ts (persistent server, used locally/Replit) and api/index.ts
 // (Vercel's serverless function) — must call this on every boot. A new
@@ -1142,6 +1186,7 @@ export async function runAllSchemaSelfHeals() {
     ["ensureCoordinatorProfileSchema", ensureCoordinatorProfileSchema],
     ["ensureVisitLogBilledSchema", ensureVisitLogBilledSchema],
     ["ensureCoordinatorHistorySchema", ensureCoordinatorHistorySchema],
+    ["ensureUsersEmailUniqueConstraint", ensureUsersEmailUniqueConstraint],
   ];
   for (const [name, fn] of heals) {
     try {

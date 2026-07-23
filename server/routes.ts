@@ -457,7 +457,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Agency signup - create pending organization
+  // TEMPORARY: Stripe billing is disabled agency-wide. New organizations are
+  // activated immediately at signup with no payment step. Flip this back to
+  // true (and make sure subscription_plans.stripePriceId is populated via
+  // server/seed-subscription-plans.ts) to re-enable Stripe Checkout.
+  const STRIPE_SIGNUP_ENABLED = false;
+
+  // Agency signup - create organization (and, while Stripe is enabled, hand
+  // off to Stripe Checkout to activate it)
   app.post("/api/public/signup", async (req, res) => {
     try {
       const { organizationName, email, phone, adminFirstName, adminLastName, adminEmail, adminPassword, planId } = req.body;
@@ -480,13 +487,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Invalid plan selected" });
       }
 
-      // Create organization in pending status
+      // Create the organization. While Stripe is disabled it's activated
+      // immediately; otherwise it stays pending until checkout completes.
       const org = await storage.createOrganization({
         name: organizationName,
         slug,
         email,
         phone,
-        status: 'pending',
+        status: STRIPE_SIGNUP_ENABLED ? 'pending' : 'active',
+        subscriptionStatus: STRIPE_SIGNUP_ENABLED ? 'inactive' : 'active',
         subscriptionPlanId: planId,
         clientLimit: plan.clientLimitMax,
         billingEmail: adminEmail,
@@ -512,6 +521,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         email: email,
         phone: phone,
       });
+
+      if (!STRIPE_SIGNUP_ENABLED) {
+        await storage.createSubscriptionHistory({
+          organizationId: org.id,
+          planId: org.subscriptionPlanId,
+          action: 'activated_without_payment',
+          status: 'active',
+          amount: 0,
+        });
+        return res.status(201).json({ organizationId: org.id });
+      }
 
       // Import Stripe client for checkout
       const { getUncachableStripeClient, getStripePublishableKey } = await import('./stripeClient');
@@ -562,7 +582,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
 
       const publishableKey = await getStripePublishableKey();
-      res.json({ 
+      res.json({
         checkoutUrl: session.url,
         publishableKey,
         organizationId: org.id,

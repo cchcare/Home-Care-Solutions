@@ -38,10 +38,15 @@ export default function SignupSuccess() {
 
   useEffect(() => {
     if (sessionId && organizationId) {
+      // Came back from Stripe Checkout — verify the payment before activating.
       verifyMutation.mutate();
+    } else if (organizationId) {
+      // No Stripe session to verify: the account was activated directly at
+      // signup (Stripe payment is currently disabled).
+      setStatus('success');
     } else {
       setStatus('error');
-      setErrorMessage("Missing session information");
+      setErrorMessage("Missing organization information");
     }
   }, [sessionId, organizationId]);
 
@@ -97,7 +102,7 @@ export default function SignupSuccess() {
                   </Link>
                 </div>
                 <p className="text-sm text-muted-foreground">
-                  A confirmation email has been sent to your admin email address.
+                  Use the admin email and password you just created to log in.
                 </p>
               </div>
             )}
