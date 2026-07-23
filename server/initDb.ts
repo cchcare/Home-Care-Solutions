@@ -1,5 +1,13 @@
-import { pool } from "./db";
+import { pool as rawPool } from "./db";
 import { getEmailTemplateSeeds } from "./email-template-seeds";
+
+// db.ts's pool is a union (Neon serverless vs. node-postgres, chosen by
+// DATABASE_URL host) so both drivers can be used interchangeably at
+// runtime — but TypeScript can't unify their .query() overload sets across
+// a union type. Every call site below was written against the Neon pool's
+// shape; both drivers return the same {rows, rowCount} shape at runtime,
+// so a single cast here keeps them all working without touching each one.
+const pool = rawPool as import("@neondatabase/serverless").Pool;
 
 const TABLES_TO_TRUNCATE = [
   "ai_detected_issues", "api_keys", "api_usage_logs",

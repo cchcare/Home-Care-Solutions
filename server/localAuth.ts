@@ -112,7 +112,10 @@ export async function setupAuth(app: Express) {
   
   const sessionSettings: session.SessionOptions = {
     store: new PgSession({
-      pool,
+      // connect-pg-simple's types want a `pg.Pool` specifically, but only
+      // use it for query()/connect() at runtime — both our Neon-serverless
+      // and node-postgres pools satisfy that duck-typed usage.
+      pool: pool as unknown as import("pg").Pool,
       tableName: "sessions",
       createTableIfMissing: false,
     }),
