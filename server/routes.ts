@@ -18893,6 +18893,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const statusCol = getColumnByMapping('status', ['status', 'visit status', 'schedule status']);
       const serviceTypeCol = getColumnByMapping('serviceType', ['service type', 'servicetype', 'service', 'visit type']);
       const notesCol = getColumnByMapping('notes', ['notes', 'comments', 'visit notes']);
+      const billedCol = getColumnByMapping('billed', ['billed', 'is billed', 'billing status', 'bill status']);
 
       if (!admissionIdCol || !assignmentIdCol) {
         return res.status(400).json({ 
@@ -19084,6 +19085,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const status = visitStatus || (statusCol ? String(row.getCell(statusCol).value || '').toLowerCase().trim() : null);
         const serviceType = serviceTypeCol ? String(row.getCell(serviceTypeCol).value || '').trim() : null;
         const notes = notesCol ? String(row.getCell(notesCol).value || '').trim() : null;
+        const billed = billedCol
+          ? /^(yes|y|true|1)$/i.test(String(row.getCell(billedCol).value || '').trim())
+          : false;
 
         // Validate required fields
         if (!scheduledDate) {
@@ -19136,6 +19140,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return statusMap[s] || 'scheduled';
         };
 
+        // Duration in decimal hours between two "HH:MM" strings, handling
+        // shifts that cross midnight (end time earlier than start time).
+        // Returned as a string since totalHours is a numeric column.
+        const computeTotalHours = (start: string, end: string): string => {
+          const [startH, startM] = start.split(':').map(Number);
+          const [endH, endM] = end.split(':').map(Number);
+          let minutes = (endH * 60 + endM) - (startH * 60 + startM);
+          if (minutes < 0) minutes += 24 * 60;
+          return (Math.round((minutes / 60) * 100) / 100).toString();
+        };
+
         try {
           // Check if schedule already exists for this caregiver, client, date
           const existingSchedules = await storage.getCaregiverSchedules(caregiver.id);
@@ -19146,6 +19161,60 @@ export async function registerRoutes(app: Express): Promise<Server> {
                    s.clientId === (client?.id || null) &&
                    s.startTime === startTime;
           });
+
+          let clientVisitNote = '';
+          if (client) {
+            // Also upsert into client_schedules, which is what the client
+            // profile's Visits tab actually reads — caregiver_schedules
+            // alone never shows up there.
+            const existingClientSchedules = await storage.getClientSchedules(client.id);
+            const sameClientDaySchedule = existingClientSchedules.find((s: any) => {
+              if (!s.scheduledDate) return false;
+              const sDate = new Date(s.scheduledDate);
+              return sDate.toDateString() === scheduledDate.toDateString() &&
+                     s.caregiverId === caregiver.id &&
+                     s.startTime === startTime;
+            });
+
+            // Actual clock-in/out times prove the visit already happened,
+            // even when nothing in the sheet explicitly says so — a bare
+            // "scheduled" default would be misleading on the client profile
+            // for what's really a historical visit-log import.
+            const mappedStatus = mapStatus(status);
+            const clientVisitStatus =
+              mappedStatus === 'scheduled' && clockInTime && clockOutTime ? 'completed' : mappedStatus;
+
+            const clientScheduleFields = {
+              endTime,
+              status: clientVisitStatus,
+              serviceType: serviceType || undefined,
+              notes: notes || undefined,
+              totalHours: computeTotalHours(startTime, endTime),
+              billed,
+            };
+
+            if (sameClientDaySchedule) {
+              await storage.updateClientSchedule(sameClientDaySchedule.id, {
+                ...clientScheduleFields,
+                serviceType: serviceType || sameClientDaySchedule.serviceType,
+                notes: notes || sameClientDaySchedule.notes,
+                updatedAt: new Date(),
+              });
+              clientVisitNote = '; visit history updated on client profile';
+            } else {
+              await storage.createClientSchedule({
+                clientId: client.id,
+                caregiverId: caregiver.id,
+                scheduledDate,
+                startTime,
+                ...clientScheduleFields,
+                createdBy: user.id,
+              });
+              clientVisitNote = '; added to client profile visit history';
+            }
+          } else {
+            clientVisitNote = '; no matching client found, so this visit was not added to a patient profile';
+          }
 
           if (sameDaySchedule) {
             // Update existing schedule
@@ -19167,7 +19236,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               assignmentId,
               clientName: client ? `${client.firstName} ${client.lastName}` : undefined,
               caregiverName: `${caregiver.firstName} ${caregiver.lastName}`,
-              message: `Schedule updated for ${scheduledDate.toLocaleDateString()}`
+              message: `Schedule updated for ${scheduledDate.toLocaleDateString()}${clientVisitNote}`
             });
             updated++;
           } else {
@@ -19194,7 +19263,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               assignmentId,
               clientName: client ? `${client.firstName} ${client.lastName}` : undefined,
               caregiverName: `${caregiver.firstName} ${caregiver.lastName}`,
-              message: `New schedule created for ${scheduledDate.toLocaleDateString()}`
+              message: `New schedule created for ${scheduledDate.toLocaleDateString()}${clientVisitNote}`
             });
             created++;
           }
@@ -19241,17 +19310,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
         systemColumns: [
           { key: 'admissionId', name: 'Admission ID', description: 'Client Admission ID for matching', required: true },
           { key: 'patientName', name: 'Patient Name', description: 'Client/Patient name (for display)', required: false },
+          { key: 'coordinator', name: 'Coordinator', description: 'Coordinator name (for display)', required: false },
           { key: 'primaryContract', name: 'Primary Contract', description: 'Primary contract/MCO', required: false },
           { key: 'caregiver', name: 'Caregiver', description: 'Caregiver name (for display)', required: false },
           { key: 'assignmentId', name: 'Assignment ID', description: 'Caregiver Assignment ID for matching', required: true },
           { key: 'visitDate', name: 'Visit Date', description: 'Date of the visit', required: true },
           { key: 'schedule', name: 'Schedule', description: 'Scheduled time range (e.g., 9:00 AM - 5:00 PM)', required: false },
           { key: 'visit', name: 'Visit', description: 'Actual visit time or status', required: false },
+          { key: 'billed', name: 'Billed', description: 'Whether the visit was billed (Yes/No)', required: false },
         ],
         tips: [
           'After uploading, you can map your Excel columns to these system fields',
           'Admission ID and Assignment ID are required for matching records',
           'Visit Date is required to create/update schedules',
+          'When a row matches both a client and a caregiver, the visit is added to that client\'s Visits history as well as the caregiver\'s schedule',
         ],
       });
     } catch (error: any) {
@@ -19311,25 +19383,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Suggest automatic mappings
       const suggestedMappings: { [systemColumn: string]: string | null } = {};
-      const systemColumns = ['admissionId', 'patientName', 'primaryContract', 'caregiver', 'assignmentId', 'visitDate', 'schedule', 'visit'];
-      
+      const systemColumns = ['admissionId', 'patientName', 'coordinator', 'primaryContract', 'caregiver', 'assignmentId', 'visitDate', 'schedule', 'visit', 'billed'];
+
       const autoMappings: { [key: string]: string[] } = {
         admissionId: ['admission id', 'admissionid', 'admission_id', 'client id', 'patient id'],
         patientName: ['patient name', 'patientname', 'patient', 'client name', 'client'],
+        coordinator: ['coordinator', 'coordinatorname', 'care coordinator', 'service coordinator'],
         primaryContract: ['primary contract', 'primarycontract', 'contract', 'mco', 'insurance', 'payer'],
         caregiver: ['caregiver', 'caregiver name', 'worker', 'aide', 'employee'],
         assignmentId: ['assignment id', 'assignmentid', 'assignment_id', 'caregiver id', 'worker id'],
         visitDate: ['visit date', 'visitdate', 'date', 'service date', 'scheduled date'],
         schedule: ['schedule', 'scheduled', 'scheduled time', 'time', 'shift'],
         visit: ['visit', 'actual', 'clock', 'check in', 'status'],
+        billed: ['billed', 'is billed', 'billing status', 'bill status'],
       };
 
+      // Headers already claimed by an earlier system column (e.g. "Visit
+      // Date" matching visitDate) aren't eligible for a later one — without
+      // this, "Visit" ends up auto-mapped to "Visit Date" too, since both
+      // contain the substring "visit" and visitDate is checked first.
+      const claimedHeaders = new Set<string>();
       for (const sysCol of systemColumns) {
         const possibleNames = autoMappings[sysCol] || [];
-        const match = headers.find(h => 
-          possibleNames.some(name => h.toLowerCase().includes(name))
+        const match = headers.find(h =>
+          !claimedHeaders.has(h) && possibleNames.some(name => h.toLowerCase().includes(name))
         );
         suggestedMappings[sysCol] = match || null;
+        if (match) claimedHeaders.add(match);
       }
 
       res.json({
