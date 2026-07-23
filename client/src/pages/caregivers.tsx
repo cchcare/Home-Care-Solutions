@@ -15,6 +15,8 @@ import {
 } from "@/components/ui/select";
 import { Sidebar } from "@/components/sidebar";
 import { TopBar } from "@/components/topbar";
+import { StatCard } from "@/components/ui/stat-card";
+import { StaggerContainer, StaggerItem } from "@/components/ui/motion";
 import { AddCaregiverModal } from "@/components/add-caregiver-modal";
 import { OcrUploadDialog } from "@/components/ocr-upload-dialog";
 import { OfficeSelector } from "@/components/office-selector";
@@ -702,65 +704,44 @@ export default function Caregivers() {
             </Card>
 
             {/* Caregiver Statistics */}
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-              <Card>
-                <CardContent className="p-6">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm font-medium text-muted-foreground">Total Caregivers</p>
-                      <p className="text-2xl font-bold text-foreground" data-testid="text-total-caregivers">
-                        {caregivers.length}
-                      </p>
-                    </div>
-                    <UserCheck className="w-8 h-8 text-primary" />
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardContent className="p-6">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm font-medium text-muted-foreground">Active Staff</p>
-                      <p className="text-2xl font-bold text-foreground" data-testid="text-active-caregivers-count">
-                        {caregivers.filter((c: Caregiver) => c.isActive).length}
-                      </p>
-                    </div>
-                    <div className="w-8 h-8 bg-accent rounded-full flex items-center justify-center">
-                      <UserCheck className="w-5 h-5 text-accent-foreground" />
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardContent className="p-6">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm font-medium text-muted-foreground">Certifications Due</p>
-                      <p className="text-2xl font-bold text-foreground" data-testid="text-certifications-due">
-                        12
-                      </p>
-                    </div>
-                    <AlertCircle className="w-8 h-8 text-destructive" />
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardContent className="p-6">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm font-medium text-muted-foreground">Compliance Rate</p>
-                      <p className="text-2xl font-bold text-foreground" data-testid="text-caregiver-compliance">
-                        94%
-                      </p>
-                    </div>
-                    <Award className="w-8 h-8 text-accent" />
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
+            <StaggerContainer className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <StaggerItem>
+                <StatCard
+                  icon={UserCheck}
+                  tone="blue"
+                  label="Total Caregivers"
+                  value={caregivers.length}
+                  valueTestId="text-total-caregivers"
+                />
+              </StaggerItem>
+              <StaggerItem>
+                <StatCard
+                  icon={UserCheck}
+                  tone="green"
+                  label="Active Staff"
+                  value={caregivers.filter((c: Caregiver) => c.isActive).length}
+                  valueTestId="text-active-caregivers-count"
+                />
+              </StaggerItem>
+              <StaggerItem>
+                <StatCard
+                  icon={AlertCircle}
+                  tone="red"
+                  label="Certifications Due"
+                  value={12}
+                  valueTestId="text-certifications-due"
+                />
+              </StaggerItem>
+              <StaggerItem>
+                <StatCard
+                  icon={Award}
+                  tone="purple"
+                  label="Compliance Rate"
+                  value="94%"
+                  valueTestId="text-caregiver-compliance"
+                />
+              </StaggerItem>
+            </StaggerContainer>
 
             {caregiversError && (
               <div

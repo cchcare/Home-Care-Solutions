@@ -8,6 +8,8 @@ import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Sidebar } from "@/components/sidebar";
 import { TopBar } from "@/components/topbar";
+import { StatCard } from "@/components/ui/stat-card";
+import { StaggerContainer, StaggerItem } from "@/components/ui/motion";
 import { AddClientModal } from "@/components/add-client-modal";
 import { ClientProfileModal } from "@/components/client-profile-modal";
 import { OcrUploadDialog } from "@/components/ocr-upload-dialog";
@@ -1092,55 +1094,44 @@ export default function Clients() {
             </Card>
 
             {/* Client Statistics */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <Card>
-                <CardContent className="p-6">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm font-medium text-muted-foreground">Total Clients</p>
-                      <p className="text-2xl font-bold text-foreground" data-testid="text-total-clients">
-                        {clients?.length || 0}
-                      </p>
-                    </div>
-                    <Users className="w-8 h-8 text-primary" />
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardContent className="p-6">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm font-medium text-muted-foreground">Active Clients</p>
-                      <p className="text-2xl font-bold text-foreground" data-testid="text-active-clients-count">
-                        {clients?.filter((c: Client) => c.status === "active").length || 0}
-                      </p>
-                    </div>
-                    <div className="w-8 h-8 bg-accent rounded-full flex items-center justify-center">
-                      <Users className="w-5 h-5 text-accent-foreground" />
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardContent className="p-6">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm font-medium text-muted-foreground">New This Month</p>
-                      <p className="text-2xl font-bold text-foreground" data-testid="text-new-clients-month">
-                        {clients?.filter((c: Client) => {
-                          const createdAt = new Date(c.createdAt!);
-                          const now = new Date();
-                          return createdAt.getMonth() === now.getMonth() && createdAt.getFullYear() === now.getFullYear();
-                        }).length || 0}
-                      </p>
-                    </div>
-                    <Calendar className="w-8 h-8 text-destructive" />
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
+            <StaggerContainer className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <StaggerItem>
+                <StatCard
+                  icon={Users}
+                  tone="blue"
+                  label="Total Clients"
+                  value={clients?.length || 0}
+                  loading={isLoading}
+                  valueTestId="text-total-clients"
+                />
+              </StaggerItem>
+              <StaggerItem>
+                <StatCard
+                  icon={Users}
+                  tone="green"
+                  label="Active Clients"
+                  value={clients?.filter((c: Client) => c.status === "active").length || 0}
+                  loading={isLoading}
+                  valueTestId="text-active-clients-count"
+                />
+              </StaggerItem>
+              <StaggerItem>
+                <StatCard
+                  icon={Calendar}
+                  tone="red"
+                  label="New This Month"
+                  value={
+                    clients?.filter((c: Client) => {
+                      const createdAt = new Date(c.createdAt!);
+                      const now = new Date();
+                      return createdAt.getMonth() === now.getMonth() && createdAt.getFullYear() === now.getFullYear();
+                    }).length || 0
+                  }
+                  loading={isLoading}
+                  valueTestId="text-new-clients-month"
+                />
+              </StaggerItem>
+            </StaggerContainer>
 
             {clientsError && (
               <div

@@ -117,8 +117,8 @@ export default function Coordinators() {
           <Card>
             <CardContent className="p-0">
               <Table>
-                <TableHeader>
-                  <TableRow>
+                <TableHeader sticky>
+                  <TableRow className="hover:bg-transparent">
                     <TableHead>Name</TableHead>
                     <TableHead>Title</TableHead>
                     <TableHead>Email</TableHead>

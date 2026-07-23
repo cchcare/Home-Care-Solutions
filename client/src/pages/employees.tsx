@@ -1,10 +1,12 @@
 import { useMemo, useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Sidebar } from "@/components/sidebar";
+import { TopBar } from "@/components/topbar";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { FadeIn } from "@/components/ui/motion";
 import {
   Table,
   TableBody,
@@ -194,16 +196,18 @@ export default function EmployeesPage() {
 
 
   return (
-    <div className="flex min-h-screen">
+    <div className="flex h-screen overflow-hidden">
       <Sidebar />
-      <div
-        className="flex-1 space-y-6 p-4 md:p-6 overflow-auto bg-background"
-        data-testid="page-employees"
-      >
+      <main className="flex-1 flex flex-col overflow-hidden">
+        <TopBar title="Employee Directory" subtitle="Staff, caregivers, and coordinators in one directory" />
+        <div
+          className="flex-1 overflow-auto p-4 md:p-6 bg-background space-y-6"
+          data-testid="page-employees"
+        >
         <div className="flex items-center justify-between flex-wrap gap-3">
           <div>
             <div className="flex items-center gap-3 mb-1">
-              <div className="w-10 h-10 bg-blue-100 dark:bg-blue-900/30 rounded-lg flex items-center justify-center">
+              <div className="w-10 h-10 bg-blue-100 dark:bg-blue-900/30 rounded-xl flex items-center justify-center">
                 <Users className="h-5 w-5 text-blue-600 dark:text-blue-400" />
               </div>
               <h1 className="text-3xl font-bold text-foreground">Employee Directory</h1>
@@ -220,7 +224,7 @@ export default function EmployeesPage() {
           </Link>
         </div>
 
-        <Card className="bg-card border border-border/50 shadow-sm">
+        <Card className="bg-card border border-border/50 shadow-soft">
           <CardHeader className="pb-3 border-b border-border/50">
             <CardTitle className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
               Search & Filter
@@ -296,11 +300,11 @@ export default function EmployeesPage() {
                 </p>
               </div>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead className="bg-muted/40 border-b border-border">
-                    <tr>
-                      <th className="px-6 py-3 text-left">
+              <div className="max-h-[65vh] overflow-auto">
+                <Table>
+                  <TableHeader sticky>
+                    <TableRow className="hover:bg-transparent">
+                      <TableHead className="px-6">
                         <button
                           type="button"
                           onClick={() => toggleSort("name")}
@@ -316,9 +320,9 @@ export default function EmployeesPage() {
                             <ArrowDown className="h-3 w-3 text-primary" />
                           )}
                         </button>
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">Type</th>
-                      <th className="px-6 py-3 text-left">
+                      </TableHead>
+                      <TableHead className="px-6">Type</TableHead>
+                      <TableHead className="px-6">
                         <button
                           type="button"
                           onClick={() => toggleSort("role")}
@@ -334,8 +338,8 @@ export default function EmployeesPage() {
                             <ArrowDown className="h-3 w-3 text-primary" />
                           )}
                         </button>
-                      </th>
-                      <th className="px-6 py-3 text-left hidden sm:table-cell">
+                      </TableHead>
+                      <TableHead className="px-6 hidden sm:table-cell">
                         <button
                           type="button"
                           onClick={() => toggleSort("office")}
@@ -351,8 +355,8 @@ export default function EmployeesPage() {
                             <ArrowDown className="h-3 w-3 text-primary" />
                           )}
                         </button>
-                      </th>
-                      <th className="px-6 py-3 text-left hidden md:table-cell">
+                      </TableHead>
+                      <TableHead className="px-6 hidden md:table-cell">
                         <button
                           type="button"
                           onClick={() => toggleSort("manager")}
@@ -368,8 +372,8 @@ export default function EmployeesPage() {
                             <ArrowDown className="h-3 w-3 text-primary" />
                           )}
                         </button>
-                      </th>
-                      <th className="px-6 py-3 text-left">
+                      </TableHead>
+                      <TableHead className="px-6">
                         <button
                           type="button"
                           onClick={() => toggleSort("status")}
@@ -385,18 +389,17 @@ export default function EmployeesPage() {
                             <ArrowDown className="h-3 w-3 text-primary" />
                           )}
                         </button>
-                      </th>
-                      <th className="px-6 py-3 text-center text-xs font-semibold text-muted-foreground uppercase tracking-wider">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-border">
+                      </TableHead>
+                      <TableHead className="px-6 text-center">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
                     {filtered.map((e) => (
-                      <tr
+                      <TableRow
                         key={`${e.kind}-${e.id}`}
-                        className="hover:bg-muted/40 transition-colors"
                         data-testid={`row-employee-${e.kind}-${e.id}`}
                       >
-                        <td className="px-6 py-4">
+                        <TableCell className="px-6">
                           <div className="flex items-center gap-3">
                             <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold flex-shrink-0 ${
                               e.kind === "caregiver"
@@ -422,8 +425,8 @@ export default function EmployeesPage() {
                               {formatName(e.firstName, e.lastName)}
                             </Link>
                           </div>
-                        </td>
-                        <td className="px-6 py-4">
+                        </TableCell>
+                        <TableCell className="px-6">
                           <Badge
                             className="text-xs"
                             variant={e.kind === "user" ? "secondary" : "default"}
@@ -434,14 +437,14 @@ export default function EmployeesPage() {
                               ? "Coordinator"
                               : "Staff"}
                           </Badge>
-                        </td>
-                        <td className="px-6 py-4">
+                        </TableCell>
+                        <TableCell className="px-6">
                           <span className="text-sm">{e.title || e.role || "—"}</span>
-                        </td>
-                        <td className="px-6 py-4 hidden sm:table-cell">
+                        </TableCell>
+                        <TableCell className="px-6 hidden sm:table-cell">
                           <span className="text-sm text-muted-foreground">{e.officeName || "—"}</span>
-                        </td>
-                        <td className="px-6 py-4 hidden md:table-cell">
+                        </TableCell>
+                        <TableCell className="px-6 hidden md:table-cell">
                           <span
                             className="text-sm"
                             data-testid={`text-employee-manager-${e.id}`}
@@ -452,16 +455,16 @@ export default function EmployeesPage() {
                               <span className="text-amber-600 dark:text-amber-400 font-medium">Unassigned</span>
                             )}
                           </span>
-                        </td>
-                        <td className="px-6 py-4">
+                        </TableCell>
+                        <TableCell className="px-6">
                           <Badge
                             className="text-xs"
                             variant={e.isActive === false ? "secondary" : "default"}
                           >
                             {e.isActive === false ? "Inactive" : "Active"}
                           </Badge>
-                        </td>
-                        <td className="px-6 py-4">
+                        </TableCell>
+                        <TableCell className="px-6">
                           <div className="flex justify-center">
                             <Button
                               variant="ghost"
@@ -475,16 +478,17 @@ export default function EmployeesPage() {
                               <span className="hidden sm:inline">Manager</span>
                             </Button>
                           </div>
-                        </td>
-                      </tr>
+                        </TableCell>
+                      </TableRow>
                     ))}
-                  </tbody>
-                </table>
+                  </TableBody>
+                </Table>
               </div>
             )}
           </CardContent>
         </Card>
-      </div>
+        </div>
+      </main>
 
       <Dialog
         open={!!editing}
