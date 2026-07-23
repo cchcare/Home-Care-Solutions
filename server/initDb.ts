@@ -1121,6 +1121,37 @@ export async function ensureCoordinatorHistorySchema() {
   }
 }
 
+// Runs every ensure*Schema() self-heal function above. BOTH entry points —
+// server/index.ts (persistent server, used locally/Replit) and api/index.ts
+// (Vercel's serverless function) — must call this on every boot. A new
+// ensure*Schema() added to only one of them would silently never create its
+// schema wherever the other entry point is what's actually serving requests,
+// exactly as happened when api/index.ts was added for the Vercel migration
+// without picking up any of the ensure*Schema calls already in server/index.ts.
+export async function runAllSchemaSelfHeals() {
+  const heals: Array<[string, () => Promise<void>]> = [
+    ["ensureEmployeeNotesSchema", ensureEmployeeNotesSchema],
+    ["ensureOnboardingSchema", ensureOnboardingSchema],
+    ["ensureOffboardingSchema", ensureOffboardingSchema],
+    ["ensureSelfServiceSchema", ensureSelfServiceSchema],
+    ["ensureComplianceBranchSchema", ensureComplianceBranchSchema],
+    ["ensureComplianceProgramSchema", ensureComplianceProgramSchema],
+    ["ensureClientProfileSchema", ensureClientProfileSchema],
+    ["ensureStaffPerformancePtoSchema", ensureStaffPerformancePtoSchema],
+    ["ensureCoordinatorDirectorySchema", ensureCoordinatorDirectorySchema],
+    ["ensureCoordinatorProfileSchema", ensureCoordinatorProfileSchema],
+    ["ensureVisitLogBilledSchema", ensureVisitLogBilledSchema],
+    ["ensureCoordinatorHistorySchema", ensureCoordinatorHistorySchema],
+  ];
+  for (const [name, fn] of heals) {
+    try {
+      await fn();
+    } catch (err) {
+      console.error(`[Init] ${name} failed (non-fatal):`, err);
+    }
+  }
+}
+
 // Guards runProductionInit() so it can only ever execute once per database,
 // no matter how many times the app restarts with INIT_PRODUCTION_DB=true left
 // set. Without this marker, every reboot/redeploy that inherited the env var

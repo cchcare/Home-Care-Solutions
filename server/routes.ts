@@ -3741,8 +3741,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         hireDate: processedHireDate,
         startDate: processedStartDate,
         terminationDate: processedTerminationDate,
+        // Treat empty string as null to avoid FK violations, matching the
+        // PUT /api/clients/:id route's handling of the same field.
+        ...(("coordinatorId" in req.body) ? { coordinatorId: req.body.coordinatorId || null } : {}),
+        ...(("mcoId" in req.body) ? { mcoId: req.body.mcoId || null } : {}),
       };
-      
+
       const validatedData = insertCaregiverSchema.partial().parse(processedBody);
       const caregiver = await storage.updateCaregiver(req.params.id, validatedData);
 

@@ -723,6 +723,7 @@ export default function CaregiverProfile() {
         hhaxCaregiverCode: caregiver.hhaxCaregiverCode || "",
         npi: caregiver.npi || "",
         adpCode: caregiver.adpCode || "",
+        coordinatorId: caregiver.coordinatorId || null,
       });
       setIsEditing(true);
     }

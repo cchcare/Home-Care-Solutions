@@ -4,6 +4,7 @@ import { registerRoutes } from "../server/routes";
 import { registerCronRoutes } from "../server/cronRoutes";
 import { isS3Enabled, getPresignedUrl, getS3KeyForFile } from "../server/s3Storage";
 import { WebhookHandlers } from "../server/webhookHandlers";
+import { seedEmailTemplates, runAllSchemaSelfHeals } from "../server/initDb";
 
 const app = express();
 
@@ -51,6 +52,19 @@ app.use("/uploads", async (req: Request, res: Response, next: NextFunction) => {
 });
 
 registerCronRoutes(app);
+
+// Boot-time schema self-heal: server/index.ts (the Replit/local persistent
+// server) runs these on every startup, but Vercel invokes THIS file instead —
+// without mirroring the same call here, every table/column added via the
+// ensure*Schema() pattern would silently never exist in the real production
+// database. runAllSchemaSelfHeals() is idempotent per function (a module-level
+// ready flag plus a DB marker-table check), so this is cheap on warm invocations.
+try {
+  await seedEmailTemplates();
+} catch (err) {
+  console.error("[Init] Email template seeding failed (non-fatal):", err);
+}
+await runAllSchemaSelfHeals();
 
 // No server.listen(), no startScheduledJobs(), no setupVite/serveStatic —
 // Vercel invokes this exported app per-request and serves the built static
