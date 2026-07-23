@@ -74,6 +74,8 @@ export const coordinators = pgTable("coordinators", {
   // of the caregivers they manage. Coordinators are NOT paid per hour directly.
   coordinatorRate: numeric("coordinator_rate", { precision: 10, scale: 2 }),
   isActive: boolean("is_active").default(true),
+  // When the coordinator started with the agency (shown on their profile).
+  startDate: timestamp("start_date"),
   // Reporting line for the employee directory / org chart. Coordinators report
   // to an office-staff user, same as caregivers.managerId.
   managerId: varchar("manager_id"),
@@ -330,6 +332,7 @@ export const documents = pgTable("documents", {
   clientId: varchar("client_id").references(() => clients.id),
   caregiverId: varchar("caregiver_id").references(() => caregivers.id),
   userId: varchar("user_id").references(() => users.id), // For staff/user documents
+  coordinatorId: varchar("coordinator_id").references(() => coordinators.id), // For coordinator documents
   uploadedBy: varchar("uploaded_by").references(() => users.id),
   officeId: varchar("office_id").references(() => offices.id),
   fileName: varchar("file_name").notNull(),
@@ -858,7 +861,9 @@ export const trainings = pgTable("trainings", {
 
 export const trainingRecords = pgTable("training_records", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  caregiverId: varchar("caregiver_id").notNull(),
+  // Exactly one of caregiverId / coordinatorId is set per record.
+  caregiverId: varchar("caregiver_id"),
+  coordinatorId: varchar("coordinator_id"),
   trainingId: varchar("training_id").notNull(),
   status: trainingStatusEnum("status").default("not_started"),
   startDate: timestamp("start_date"),
@@ -5558,3 +5563,4 @@ export const complianceProgramInitMarker = initMarker("compliance_program_init_m
 export const clientProfileInitMarker = initMarker("client_profile_init_marker");
 export const staffPerformancePtoInitMarker = initMarker("staff_performance_pto_init_marker");
 export const coordinatorDirectoryInitMarker = initMarker("coordinator_directory_init_marker");
+export const coordinatorProfileInitMarker = initMarker("coordinator_profile_init_marker");

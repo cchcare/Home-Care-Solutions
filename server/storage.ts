@@ -1940,6 +1940,56 @@ export class DatabaseStorage implements IStorage {
     return await db.select().from(caregivers).where(eq(caregivers.coordinatorId, coordinatorId)).orderBy(asc(caregivers.lastName));
   }
 
+  async getClientsByCoordinator(coordinatorId: string): Promise<Client[]> {
+    return await db.select().from(clients).where(eq(clients.coordinatorId, coordinatorId)).orderBy(asc(clients.lastName));
+  }
+
+  async getDocumentsByCoordinator(coordinatorId: string): Promise<Document[]> {
+    return await db.select().from(documents)
+      .where(eq(documents.coordinatorId, coordinatorId))
+      .orderBy(desc(documents.createdAt));
+  }
+
+  async getTrainingRecordsByCoordinator(
+    coordinatorId: string,
+  ): Promise<Array<TrainingRecord & { trainingTitle: string | null; trainingCategory: string | null }>> {
+    const rows = await db
+      .select({
+        record: trainingRecords,
+        trainingTitle: trainings.title,
+        trainingCategory: trainings.trainingType,
+      })
+      .from(trainingRecords)
+      .leftJoin(trainings, eq(trainingRecords.trainingId, trainings.id))
+      .where(eq(trainingRecords.coordinatorId, coordinatorId))
+      .orderBy(desc(trainingRecords.createdAt));
+    return rows.map((r) => ({ ...r.record, trainingTitle: r.trainingTitle, trainingCategory: r.trainingCategory }));
+  }
+
+  async getCompPaymentsByCoordinator(
+    coordinatorId: string,
+  ): Promise<Array<CompCoordinatorPayment & { periodName: string | null; periodStartDate: string | null; periodEndDate: string | null; periodStatus: string | null }>> {
+    const rows = await db
+      .select({
+        payment: compCoordinatorPayments,
+        periodName: compPayrollPeriods.name,
+        periodStartDate: compPayrollPeriods.startDate,
+        periodEndDate: compPayrollPeriods.endDate,
+        periodStatus: compPayrollPeriods.status,
+      })
+      .from(compCoordinatorPayments)
+      .innerJoin(compPayrollPeriods, eq(compCoordinatorPayments.periodId, compPayrollPeriods.id))
+      .where(eq(compCoordinatorPayments.coordinatorId, coordinatorId))
+      .orderBy(desc(compPayrollPeriods.startDate));
+    return rows.map((r) => ({
+      ...r.payment,
+      periodName: r.periodName,
+      periodStartDate: r.periodStartDate,
+      periodEndDate: r.periodEndDate,
+      periodStatus: r.periodStatus,
+    }));
+  }
+
   // ─── Coordinator Compensation Module ───────────────────────────────────────
   async getCompPayrollPeriods(officeId?: string): Promise<CompPayrollPeriod[]> {
     if (officeId) {

@@ -962,6 +962,39 @@ export async function ensureStaffPerformancePtoSchema() {
   }
 }
 
+// Coordinator profile page: start date on coordinators, plus coordinator
+// linkage on documents and training_records (training records previously
+// required a caregiver).
+let coordinatorProfileSchemaReady = false;
+export async function ensureCoordinatorProfileSchema() {
+  if (coordinatorProfileSchemaReady) return;
+  const client = await pool.connect();
+  try {
+    const ready = await client.query(`
+      SELECT EXISTS (
+        SELECT 1 FROM information_schema.tables WHERE table_name = 'coordinator_profile_init_marker'
+      ) AS marker_exists;
+    `);
+    if (ready.rows[0]?.marker_exists) {
+      coordinatorProfileSchemaReady = true;
+      return;
+    }
+
+    await client.query(`ALTER TABLE coordinators ADD COLUMN IF NOT EXISTS start_date timestamp;`);
+    await client.query(`ALTER TABLE documents ADD COLUMN IF NOT EXISTS coordinator_id varchar REFERENCES coordinators(id);`);
+    await client.query(`ALTER TABLE training_records ALTER COLUMN caregiver_id DROP NOT NULL;`);
+    await client.query(`ALTER TABLE training_records ADD COLUMN IF NOT EXISTS coordinator_id varchar REFERENCES coordinators(id);`);
+
+    await client.query(`CREATE TABLE IF NOT EXISTS coordinator_profile_init_marker (initialized_at timestamp DEFAULT NOW());`);
+    coordinatorProfileSchemaReady = true;
+    console.log("[Init] coordinator profile schema (start_date, document/training linkage) ensured.");
+  } catch (err) {
+    console.error("[Init] ensureCoordinatorProfileSchema failed (non-fatal):", err);
+  } finally {
+    client.release();
+  }
+}
+
 // Coordinators join the employee directory / org chart: they gain a
 // manager_id reporting line, mirroring caregivers.manager_id.
 let coordinatorDirectorySchemaReady = false;

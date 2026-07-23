@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
@@ -15,6 +16,7 @@ import { TableSkeletonRows } from "@/components/ui/loading-states";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { Plus, Edit, Trash2, Users, UserCog, X } from "lucide-react";
+import { parseDateOnlyInput, toDateOnlyInputValue } from "@/lib/dateOnly";
 import type { Coordinator, Caregiver, Office } from "@shared/schema";
 
 interface FormState {
@@ -25,9 +27,10 @@ interface FormState {
   title: string;
   coordinatorRate: string;
   officeId: string;
+  startDate: string;
 }
 
-const emptyForm: FormState = { firstName: "", lastName: "", email: "", phone: "", title: "", coordinatorRate: "", officeId: "" };
+const emptyForm: FormState = { firstName: "", lastName: "", email: "", phone: "", title: "", coordinatorRate: "", officeId: "", startDate: "" };
 
 export default function Coordinators() {
   const { user } = useAuth();
@@ -55,6 +58,7 @@ export default function Coordinators() {
         phone: data.phone || null,
         title: data.title || null,
         coordinatorRate: data.coordinatorRate === "" ? null : data.coordinatorRate,
+        startDate: data.startDate ? parseDateOnlyInput(data.startDate) : null,
       };
       if (isSuperAdmin && data.officeId) payload.officeId = data.officeId;
       if (editing) {
@@ -87,6 +91,7 @@ export default function Coordinators() {
       phone: c.phone || "", title: c.title || "",
       coordinatorRate: c.coordinatorRate != null ? String(c.coordinatorRate) : "",
       officeId: c.officeId || "",
+      startDate: toDateOnlyInputValue(c.startDate),
     });
     setDialogOpen(true);
   };
@@ -142,7 +147,11 @@ export default function Coordinators() {
                     </TableRow>
                   ) : coordinators.map((c) => (
                     <TableRow key={c.id} className="hover:bg-muted/40 transition-colors" data-testid={`row-coordinator-${c.id}`}>
-                      <TableCell className="font-medium">{c.firstName} {c.lastName}</TableCell>
+                      <TableCell className="font-medium">
+                        <Link href={`/coordinators/${c.id}`} className="text-primary hover:underline" data-testid={`link-coordinator-${c.id}`}>
+                          {c.firstName} {c.lastName}
+                        </Link>
+                      </TableCell>
                       <TableCell>{c.title || "—"}</TableCell>
                       <TableCell className="text-muted-foreground">{c.email || "—"}</TableCell>
                       <TableCell className="text-muted-foreground">{c.phone || "—"}</TableCell>
@@ -180,6 +189,10 @@ export default function Coordinators() {
             <div>
               <Label>Coordinator rate ($/hr)</Label>
               <Input type="number" step="0.01" min="0" value={form.coordinatorRate} onChange={(e) => setForm({ ...form, coordinatorRate: e.target.value })} data-testid="input-rate" placeholder="e.g. 16.00" />
+            </div>
+            <div>
+              <Label>Start date</Label>
+              <Input type="date" value={form.startDate} onChange={(e) => setForm({ ...form, startDate: e.target.value })} data-testid="input-start-date" />
             </div>
             {isSuperAdmin && (
               <div className="col-span-2">

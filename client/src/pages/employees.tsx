@@ -412,7 +412,7 @@ export default function EmployeesPage() {
                                 e.kind === "caregiver"
                                   ? `/caregivers/${e.id}`
                                   : e.kind === "coordinator"
-                                  ? "/coordinators"
+                                  ? `/coordinators/${e.id}`
                                   : `/staff/${e.id}`
                               }
                               className="font-medium text-primary hover:underline truncate"

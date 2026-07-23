@@ -99,7 +99,7 @@ function NodeView({
           </Link>
         ) : node.kind === "coordinator" ? (
           <Link
-            href="/coordinators"
+            href={`/coordinators/${node.id}`}
             className="font-medium hover:underline text-primary"
           >
             {name}

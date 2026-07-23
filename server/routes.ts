@@ -1697,8 +1697,107 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Scope guard shared by the coordinator profile sub-resources below.
+  const getCoordinatorInScope = async (req: any, id: string) => {
+    const coordinator = await storage.getCoordinator(id);
+    if (!coordinator || !(await canAccessOffice(req, coordinator.officeId))) return null;
+    return coordinator;
+  };
+
+  // Clients assigned to a coordinator (assignment is client.coordinatorId).
+  app.get("/api/coordinators/:id/clients", isAuthenticated, async (req: any, res) => {
+    try {
+      if (!(await getCoordinatorInScope(req, req.params.id))) {
+        return res.status(404).json({ message: "Coordinator not found" });
+      }
+      res.json(await storage.getClientsByCoordinator(req.params.id));
+    } catch (error) {
+      console.error("Error fetching coordinator clients:", error);
+      res.status(500).json({ message: "Failed to fetch coordinator clients" });
+    }
+  });
+
+  app.get("/api/coordinators/:id/documents", isAuthenticated, async (req: any, res) => {
+    try {
+      if (!(await getCoordinatorInScope(req, req.params.id))) {
+        return res.status(404).json({ message: "Coordinator not found" });
+      }
+      res.json(await storage.getDocumentsByCoordinator(req.params.id));
+    } catch (error) {
+      console.error("Error fetching coordinator documents:", error);
+      res.status(500).json({ message: "Failed to fetch coordinator documents" });
+    }
+  });
+
+  app.get("/api/coordinators/:id/trainings", isAuthenticated, async (req: any, res) => {
+    try {
+      if (!(await getCoordinatorInScope(req, req.params.id))) {
+        return res.status(404).json({ message: "Coordinator not found" });
+      }
+      res.json(await storage.getTrainingRecordsByCoordinator(req.params.id));
+    } catch (error) {
+      console.error("Error fetching coordinator trainings:", error);
+      res.status(500).json({ message: "Failed to fetch coordinator trainings" });
+    }
+  });
+
+  // Record a training for a coordinator (mirrors caregiver training records).
+  app.post("/api/coordinators/:id/trainings", isAuthenticated, requireAdminRole, async (req: any, res) => {
+    try {
+      if (!(await getCoordinatorInScope(req, req.params.id))) {
+        return res.status(404).json({ message: "Coordinator not found" });
+      }
+      const validated = insertTrainingRecordSchema.parse({
+        ...req.body,
+        coordinatorId: req.params.id,
+        caregiverId: null,
+        startDate: coerceDate(req.body.startDate),
+        completionDate: coerceDate(req.body.completionDate),
+        expirationDate: coerceDate(req.body.expirationDate),
+      });
+      const record = await storage.createTrainingRecord(validated);
+      res.status(201).json(record);
+    } catch (error: any) {
+      console.error("Error creating coordinator training record:", error);
+      const detail = error?.issues?.length
+        ? error.issues.map((i: any) => `${i.path?.join(".") || "field"}: ${i.message}`).join("; ")
+        : undefined;
+      res.status(400).json({ message: `Failed to record training${detail ? ` — ${detail}` : ""}` });
+    }
+  });
+
+  // Quarterly pay records (accrual, paid, balance) + compensation-module
+  // payments for a coordinator, plus the overall remaining balance.
+  app.get("/api/coordinators/:id/pay-summary", isAuthenticated, async (req: any, res) => {
+    try {
+      if (!(await getCoordinatorInScope(req, req.params.id))) {
+        return res.status(404).json({ message: "Coordinator not found" });
+      }
+      const [payRecords, compPayments] = await Promise.all([
+        storage.getCoordinatorPayRecordsByCoordinator(req.params.id),
+        storage.getCompPaymentsByCoordinator(req.params.id),
+      ]);
+      const totalAccrued = payRecords.reduce((s, r) => s + (Number(r.accrualAmount) || 0) + (Number(r.quarterlyBonus) || 0), 0);
+      const totalPaid = payRecords.reduce((s, r) => s + (Number(r.amountPaid) || 0), 0);
+      const balanceRemaining = payRecords.reduce((s, r) => s + (Number(r.balanceRemaining) || 0), 0);
+      res.json({
+        payRecords,
+        compPayments,
+        totals: {
+          totalAccrued: Number(totalAccrued.toFixed(2)),
+          totalPaid: Number(totalPaid.toFixed(2)),
+          balanceRemaining: Number(balanceRemaining.toFixed(2)),
+        },
+      });
+    } catch (error) {
+      console.error("Error fetching coordinator pay summary:", error);
+      res.status(500).json({ message: "Failed to fetch coordinator pay summary" });
+    }
+  });
+
   app.post("/api/coordinators", isAuthenticated, requireAdminRole, async (req: any, res) => {
     try {
+      if (typeof req.body?.startDate === "string") req.body.startDate = coerceDate(req.body.startDate);
       const validatedData = insertCoordinatorSchema.parse(req.body);
       if (!(await canAccessOffice(req, validatedData.officeId))) {
         return res.status(403).json({ message: "Office is outside your scope" });
@@ -1728,6 +1827,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!oldCoordinator || !(await canAccessOffice(req, oldCoordinator.officeId))) {
         return res.status(404).json({ message: "Coordinator not found" });
       }
+      if (typeof req.body?.startDate === "string") req.body.startDate = coerceDate(req.body.startDate);
       const validatedData = insertCoordinatorSchema.partial().parse(req.body);
       const coordinator = await storage.updateCoordinator(req.params.id, validatedData);
       
@@ -4589,11 +4689,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const clientId = req.body.clientId || null;
       const caregiverId = req.body.caregiverId || null;
       const userId = req.body.userId || null;
+      const coordinatorId = req.body.coordinatorId || null;
       if (clientId && !(await getClientInScope(req, clientId))) {
         return res.status(403).json({ message: "Forbidden" });
       }
       if (caregiverId && !(await getCaregiverInScope(req, caregiverId))) {
         return res.status(403).json({ message: "Forbidden" });
+      }
+      if (coordinatorId) {
+        const coord = await storage.getCoordinator(coordinatorId);
+        if (!coord || !(await canAccessOffice(req, coord.officeId))) {
+          return res.status(403).json({ message: "Forbidden" });
+        }
       }
 
       // Derive officeId: an explicitly passed value must be within the
@@ -4609,6 +4716,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         clientId,
         caregiverId,
         userId,
+        coordinatorId,
         officeId,
         uploadedBy: req.session?.user?.id,
         fileName: req.file.filename,
