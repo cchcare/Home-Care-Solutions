@@ -15,7 +15,8 @@ import { TopBar } from "@/components/topbar";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { Plus, Upload, Trash2, Download } from "lucide-react";
-import type { CompPayrollPeriod, Caregiver, Client } from "@shared/schema";
+import { toDateOnlyInputValue } from "@/lib/dateOnly";
+import type { CompPayrollPeriod, Caregiver, Client, PayrollRun } from "@shared/schema";
 
 const money = (n: number) => `$${Number(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
@@ -26,10 +27,26 @@ export default function CoordinatorCompensation() {
   const [selectedPeriodId, setSelectedPeriodId] = useState<string>("");
   const [periodDialogOpen, setPeriodDialogOpen] = useState(false);
   const [periodForm, setPeriodForm] = useState({ name: "", startDate: "", endDate: "", otWeeklyThreshold: "40" });
+  const [payrollRunId, setPayrollRunId] = useState<string>("");
 
   const isManager = ["super_admin", "admin", "office_admin", "supervisor", "manager"].includes((user as any)?.role || "");
 
   const { data: periods = [] } = useQuery<CompPayrollPeriod[]>({ queryKey: ["/api/comp/periods"] });
+  const { data: payrollRuns = [] } = useQuery<PayrollRun[]>({ queryKey: ["/api/payroll"], enabled: periodDialogOpen });
+
+  const applyPayrollRun = (id: string) => {
+    setPayrollRunId(id);
+    const run = payrollRuns.find((r) => r.id === id);
+    if (!run) return;
+    const startDate = toDateOnlyInputValue(run.payPeriodStart);
+    const endDate = toDateOnlyInputValue(run.payPeriodEnd);
+    setPeriodForm((f) => ({
+      ...f,
+      startDate,
+      endDate,
+      name: f.name || `${startDate} – ${endDate}`,
+    }));
+  };
   const period = periods.find((p) => p.id === selectedPeriodId) || periods[0];
   const activePeriodId = period?.id || "";
 
@@ -46,6 +63,7 @@ export default function CoordinatorCompensation() {
       queryClient.invalidateQueries({ queryKey: ["/api/comp/periods"] });
       setPeriodDialogOpen(false);
       setPeriodForm({ name: "", startDate: "", endDate: "", otWeeklyThreshold: "40" });
+      setPayrollRunId("");
       toast({ title: "Payroll period created" });
     },
     onError: (e: any) => toast({ title: "Create failed", description: e.message, variant: "destructive" }),
@@ -92,10 +110,24 @@ export default function CoordinatorCompensation() {
         </main>
       </div>
 
-      <Dialog open={periodDialogOpen} onOpenChange={setPeriodDialogOpen}>
+      <Dialog open={periodDialogOpen} onOpenChange={(open) => { setPeriodDialogOpen(open); if (!open) setPayrollRunId(""); }}>
         <DialogContent>
           <DialogHeader><DialogTitle>New Payroll Period</DialogTitle></DialogHeader>
           <div className="space-y-3">
+            <div>
+              <Label>Pull dates from Payroll Calendar</Label>
+              <Select value={payrollRunId} onValueChange={applyPayrollRun}>
+                <SelectTrigger data-testid="select-payroll-run"><SelectValue placeholder={payrollRuns.length ? "Select a payroll period…" : "No payroll periods found"} /></SelectTrigger>
+                <SelectContent>
+                  {payrollRuns.map((r) => (
+                    <SelectItem key={r.id} value={r.id}>
+                      {toDateOnlyInputValue(r.payPeriodStart)} → {toDateOnlyInputValue(r.payPeriodEnd)} (paycheck {toDateOnlyInputValue(r.paycheckDate)})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground mt-1">Optional — fills in the dates below from Billing &amp; Payroll's calendar. You can still adjust them, or enter dates manually.</p>
+            </div>
             <div><Label>Name</Label><Input value={periodForm.name} onChange={(e) => setPeriodForm({ ...periodForm, name: e.target.value })} placeholder="e.g. Jan 5–18, 2026" data-testid="input-period-name" /></div>
             <div className="grid grid-cols-2 gap-3">
               <div><Label>Start date</Label><Input type="date" value={periodForm.startDate} onChange={(e) => setPeriodForm({ ...periodForm, startDate: e.target.value })} data-testid="input-period-start" /></div>

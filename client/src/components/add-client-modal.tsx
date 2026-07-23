@@ -274,8 +274,8 @@ export function AddClientModal({ isOpen, onClose, onSubmit, isLoading, initialDa
                       <FormControl>
                         <Input
                           type="date"
-                          value={field.value ? new Date(field.value as any).toISOString().split('T')[0] : ''}
-                          onChange={(e) => field.onChange(e.target.value ? new Date(e.target.value) : null)}
+                          value={toDateOnlyInputValue(field.value as any)}
+                          onChange={(e) => field.onChange(e.target.value ? parseDateOnlyInput(e.target.value) : null)}
                           data-testid="input-service-start-date"
                         />
                       </FormControl>

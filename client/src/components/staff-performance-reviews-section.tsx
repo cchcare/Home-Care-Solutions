@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { format } from "date-fns";
+import { parseDateOnlyInput, formatDateOnly } from "@/lib/dateOnly";
 import { Link } from "wouter";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -77,7 +78,7 @@ export function StaffPerformanceReviewsSection({ userId }: { userId: string }) {
       userId,
       reviewerId: form.reviewerId,
       reviewType: form.reviewType,
-      scheduledDate: new Date(form.scheduledDate).toISOString(),
+      scheduledDate: parseDateOnlyInput(form.scheduledDate)?.toISOString(),
       status: "scheduled",
     }),
     onSuccess: () => {
@@ -119,7 +120,7 @@ export function StaffPerformanceReviewsSection({ userId }: { userId: string }) {
                 <TableRow key={r.id} data-testid={`row-staff-review-${r.id}`}>
                   <TableCell>{reviewerName(r.reviewerId)}</TableCell>
                   <TableCell className="capitalize">{(r.reviewType || "").replace(/_/g, " ")}</TableCell>
-                  <TableCell>{r.scheduledDate ? format(new Date(r.scheduledDate), "MMM d, yyyy") : "—"}</TableCell>
+                  <TableCell>{r.scheduledDate ? formatDateOnly(r.scheduledDate, (d) => format(d, "MMM d, yyyy")) : "—"}</TableCell>
                   <TableCell><Badge className={STATUS_COLORS[r.status || "scheduled"] || "bg-gray-100 text-gray-700"}>{statusLabel(r)}</Badge></TableCell>
                   <TableCell>{r.overallRating ?? "—"}</TableCell>
                 </TableRow>

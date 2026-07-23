@@ -177,12 +177,30 @@ import { expirationAlertService } from './expiration-alert-service';
 import { runExpirationAlertsNow, runHhaxSummaryNow, runPtoAccrualNow } from './scheduler';
 import { runAccruals, requestHours, ledgerTypeForRequest } from './pto-service';
 
-// Helper function to coerce date strings to Date objects
+// Helper function to coerce date strings to Date objects. Defense-in-depth
+// against the "date shows one day earlier" bug: a bare date-only string
+// (no time component) parses as UTC midnight in plain `new Date(...)`,
+// which rolls back a day once rendered in any timezone behind UTC. Any
+// well-formed client that already anchors date-only values to UTC noon
+// (see client/src/lib/dateOnly.ts) is unaffected by this — this only
+// changes behavior for a bare "YYYY-MM-DD"/"MM/DD/YYYY" string that would
+// otherwise have been parsed unsafely.
 function coerceDate(value: string | Date | null | undefined): Date | null | undefined {
   if (value === null) return null;
   if (value === undefined) return undefined;
   if (value instanceof Date) return value;
   if (typeof value === 'string' && value.trim() !== '') {
+    const trimmed = value.trim();
+    const isoDateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(trimmed);
+    if (isoDateOnly) {
+      const [, y, m, d] = isoDateOnly;
+      return new Date(Date.UTC(Number(y), Number(m) - 1, Number(d), 12));
+    }
+    const usDateOnly = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(trimmed);
+    if (usDateOnly) {
+      const [, m, d, y] = usDateOnly;
+      return new Date(Date.UTC(Number(y), Number(m) - 1, Number(d), 12));
+    }
     return new Date(value);
   }
   return undefined;
@@ -3573,10 +3591,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { email, firstName, middleName, lastName, dateOfBirth, clientIds, onboardingTemplateId, ...caregiverData } = req.body;
       
       // Convert date strings to Date objects if they're strings
-      const processedDateOfBirth = dateOfBirth && typeof dateOfBirth === 'string' ? new Date(dateOfBirth) : dateOfBirth;
-      const processedHireDate = caregiverData.hireDate && typeof caregiverData.hireDate === 'string' ? new Date(caregiverData.hireDate) : caregiverData.hireDate;
-      const processedStartDate = caregiverData.startDate && typeof caregiverData.startDate === 'string' ? new Date(caregiverData.startDate) : caregiverData.startDate;
-      const processedTerminationDate = caregiverData.terminationDate && typeof caregiverData.terminationDate === 'string' ? new Date(caregiverData.terminationDate) : caregiverData.terminationDate;
+      const processedDateOfBirth = coerceDate(dateOfBirth);
+      const processedHireDate = coerceDate(caregiverData.hireDate);
+      const processedStartDate = coerceDate(caregiverData.startDate);
+      const processedTerminationDate = coerceDate(caregiverData.terminationDate);
       
       // Convert hourlyWage to string if it's a number (numeric type expects string)
       if (caregiverData.hourlyWage !== undefined && typeof caregiverData.hourlyWage === 'number') {
@@ -3700,9 +3718,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Convert date strings to Date objects if they're strings
-      const processedHireDate = req.body.hireDate && typeof req.body.hireDate === 'string' ? new Date(req.body.hireDate) : req.body.hireDate;
-      const processedStartDate = req.body.startDate && typeof req.body.startDate === 'string' ? new Date(req.body.startDate) : req.body.startDate;
-      const processedTerminationDate = req.body.terminationDate && typeof req.body.terminationDate === 'string' ? new Date(req.body.terminationDate) : req.body.terminationDate;
+      const processedHireDate = coerceDate(req.body.hireDate);
+      const processedStartDate = coerceDate(req.body.startDate);
+      const processedTerminationDate = coerceDate(req.body.terminationDate);
       
       // Convert hourlyWage to string if it's a number (numeric type expects string)
       if (req.body.hourlyWage !== undefined && typeof req.body.hourlyWage === 'number') {
@@ -6162,7 +6180,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Coerce date-string fields the same way the caregiver endpoint does so
       // termination-date offboarding hooks see a real Date.
       if (typeof req.body?.terminationDate === "string") {
-        req.body.terminationDate = new Date(req.body.terminationDate);
+        req.body.terminationDate = coerceDate(req.body.terminationDate);
       }
       const validatedData = insertUserSchema.partial().omit({ id: true, createdAt: true, updatedAt: true }).parse(req.body);
       const user = await storage.updateUser(req.params.id, validatedData);
@@ -18339,8 +18357,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const processedBody = {
         ...req.body,
-        referralDate: req.body.referralDate ? new Date(req.body.referralDate) : undefined,
-        conversionDate: req.body.conversionDate ? new Date(req.body.conversionDate) : undefined,
+        referralDate: coerceDate(req.body.referralDate),
+        conversionDate: coerceDate(req.body.conversionDate),
       };
       
       const validatedData = insertClientReferralSchema.parse(processedBody);
@@ -18373,8 +18391,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const processedBody = {
         ...req.body,
-        referralDate: req.body.referralDate ? new Date(req.body.referralDate) : undefined,
-        conversionDate: req.body.conversionDate ? new Date(req.body.conversionDate) : undefined,
+        referralDate: coerceDate(req.body.referralDate),
+        conversionDate: coerceDate(req.body.conversionDate),
       };
 
       const validatedData = insertClientReferralSchema.partial().parse(processedBody);

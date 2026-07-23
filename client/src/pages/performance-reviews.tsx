@@ -26,6 +26,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Loader2, Plus, Send, Save, Trash2, ClipboardList, CheckCircle2, Clock, FileText } from "lucide-react";
 import type { PerformanceReview, PerformanceMetric, Caregiver, Office, User } from "@shared/schema";
 import { format } from "date-fns";
+import { parseDateOnlyInput, toDateOnlyInputValue, formatDateOnly } from "@/lib/dateOnly";
 
 const REVIEW_TYPES = [
   { value: "annual", label: "Annual" },
@@ -100,7 +101,7 @@ export default function PerformanceReviewsPage() {
     const map = new Map<string, { key: string; reviewType: string; scheduledDate: string; reviews: PerformanceReview[] }>();
     for (const r of reviews) {
       if (!r.scheduledDate) continue;
-      const d = format(new Date(r.scheduledDate), "yyyy-MM-dd");
+      const d = toDateOnlyInputValue(r.scheduledDate);
       const key = `${r.reviewType}__${d}`;
       if (!map.has(key)) map.set(key, { key, reviewType: r.reviewType, scheduledDate: d, reviews: [] });
       map.get(key)!.reviews.push(r);
@@ -154,7 +155,7 @@ export default function PerformanceReviewsPage() {
                   <Card key={c.key} data-testid={`cycle-${c.key}`}>
                     <CardHeader>
                       <CardTitle className="flex items-center justify-between">
-                        <span>{REVIEW_TYPES.find(t => t.value === c.reviewType)?.label || c.reviewType} — {format(new Date(c.scheduledDate), "MMM d, yyyy")}</span>
+                        <span>{REVIEW_TYPES.find(t => t.value === c.reviewType)?.label || c.reviewType} — {formatDateOnly(c.scheduledDate, (d) => format(d, "MMM d, yyyy"))}</span>
                         <Badge variant="outline">{c.reviews.length} reviews</Badge>
                       </CardTitle>
                     </CardHeader>
@@ -272,7 +273,7 @@ function ReviewTable({
             <TableCell>{caregiverName(r.caregiverId ?? r.userId)}</TableCell>
             <TableCell>{reviewerName(r.reviewerId)}</TableCell>
             <TableCell className="capitalize">{(r.reviewType || "").replace(/_/g, " ")}</TableCell>
-            <TableCell>{r.scheduledDate ? format(new Date(r.scheduledDate), "MMM d, yyyy") : "—"}</TableCell>
+            <TableCell>{r.scheduledDate ? formatDateOnly(r.scheduledDate, (d) => format(d, "MMM d, yyyy")) : "—"}</TableCell>
             <TableCell><Badge className={statusBadgeClass(r)}>{statusLabel(r)}</Badge></TableCell>
             <TableCell>{r.overallRating ?? "—"}</TableCell>
             <TableCell className="text-right">
@@ -326,9 +327,9 @@ function LaunchCycleDialog({
     mutationFn: async () => {
       const payload: any = {
         reviewType,
-        scheduledDate,
-        reviewPeriodStart: periodStart || null,
-        reviewPeriodEnd: periodEnd || null,
+        scheduledDate: parseDateOnlyInput(scheduledDate)?.toISOString(),
+        reviewPeriodStart: periodStart ? parseDateOnlyInput(periodStart)?.toISOString() : null,
+        reviewPeriodEnd: periodEnd ? parseDateOnlyInput(periodEnd)?.toISOString() : null,
         officeId: officeId === "all" ? null : officeId,
         targetMode,
       };
@@ -587,7 +588,7 @@ function ReviewFormDialog({
           <DialogTitle>Review — {caregiverName(review.caregiverId ?? review.userId)}</DialogTitle>
           <DialogDescription>
             {REVIEW_TYPES.find(t => t.value === review.reviewType)?.label} •{" "}
-            {review.scheduledDate ? format(new Date(review.scheduledDate), "MMM d, yyyy") : "—"} •{" "}
+            {review.scheduledDate ? formatDateOnly(review.scheduledDate, (d) => format(d, "MMM d, yyyy")) : "—"} •{" "}
             <Badge className={statusBadgeClass(review)}>{statusLabel(review)}</Badge>
           </DialogDescription>
         </DialogHeader>

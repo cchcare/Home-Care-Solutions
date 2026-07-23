@@ -14,6 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { FileText, Plus, Pencil, Trash2, Loader2, Target, ListChecks } from "lucide-react";
+import { parseDateOnlyInput, toDateOnlyInputValue, formatDateOnly } from "@/lib/dateOnly";
 import type { CarePlan, CarePlanGoal, CarePlanIntervention } from "@shared/schema";
 
 const planEmptyForm = {
@@ -48,9 +49,9 @@ export function ClientPocSection({ clientId }: { clientId: string }) {
       const payload = {
         title: planForm.title,
         description: planForm.description || undefined,
-        startDate: planForm.startDate ? new Date(planForm.startDate).toISOString() : undefined,
-        endDate: planForm.endDate ? new Date(planForm.endDate).toISOString() : undefined,
-        nextAssessmentDate: planForm.nextAssessmentDate ? new Date(planForm.nextAssessmentDate).toISOString() : undefined,
+        startDate: planForm.startDate ? parseDateOnlyInput(planForm.startDate)?.toISOString() : undefined,
+        endDate: planForm.endDate ? parseDateOnlyInput(planForm.endDate)?.toISOString() : undefined,
+        nextAssessmentDate: planForm.nextAssessmentDate ? parseDateOnlyInput(planForm.nextAssessmentDate)?.toISOString() : undefined,
         status: planForm.status,
       };
       if (editingPlan) return apiRequest("PUT", `/api/care-plans/${editingPlan.id}`, payload);
@@ -70,9 +71,9 @@ export function ClientPocSection({ clientId }: { clientId: string }) {
     setPlanForm({
       title: plan.title,
       description: plan.description || "",
-      startDate: plan.startDate ? new Date(plan.startDate).toISOString().slice(0, 10) : "",
-      endDate: plan.endDate ? new Date(plan.endDate).toISOString().slice(0, 10) : "",
-      nextAssessmentDate: plan.nextAssessmentDate ? new Date(plan.nextAssessmentDate).toISOString().slice(0, 10) : "",
+      startDate: plan.startDate ? toDateOnlyInputValue(plan.startDate) : "",
+      endDate: plan.endDate ? toDateOnlyInputValue(plan.endDate) : "",
+      nextAssessmentDate: plan.nextAssessmentDate ? toDateOnlyInputValue(plan.nextAssessmentDate) : "",
       status: plan.status || "active",
     });
     setPlanDialogOpen(true);
@@ -192,7 +193,7 @@ function CarePlanCard({ plan, onEdit }: { plan: CarePlan; onEdit: () => void }) 
     mutationFn: () => {
       const payload = {
         goalText: goalForm.goalText,
-        targetDate: goalForm.targetDate ? new Date(goalForm.targetDate).toISOString() : undefined,
+        targetDate: goalForm.targetDate ? parseDateOnlyInput(goalForm.targetDate)?.toISOString() : undefined,
         priority: goalForm.priority,
         status: goalForm.status,
         progressNotes: goalForm.progressNotes || undefined,
@@ -244,7 +245,7 @@ function CarePlanCard({ plan, onEdit }: { plan: CarePlan; onEdit: () => void }) 
     setEditingGoal(goal);
     setGoalForm({
       goalText: goal.goalText,
-      targetDate: goal.targetDate ? new Date(goal.targetDate).toISOString().slice(0, 10) : "",
+      targetDate: goal.targetDate ? toDateOnlyInputValue(goal.targetDate) : "",
       priority: goal.priority || "medium",
       status: goal.status || "active",
       progressNotes: goal.progressNotes || "",
@@ -280,8 +281,8 @@ function CarePlanCard({ plan, onEdit }: { plan: CarePlan; onEdit: () => void }) 
           </div>
         </div>
         <div className="text-xs text-muted-foreground flex gap-4 pt-1">
-          {plan.startDate && <span>Start: {format(new Date(plan.startDate), "MMM d, yyyy")}</span>}
-          {plan.nextAssessmentDate && <span>Next reassessment: {format(new Date(plan.nextAssessmentDate), "MMM d, yyyy")}</span>}
+          {plan.startDate && <span>Start: {formatDateOnly(plan.startDate, (d) => format(d, "MMM d, yyyy"))}</span>}
+          {plan.nextAssessmentDate && <span>Next reassessment: {formatDateOnly(plan.nextAssessmentDate, (d) => format(d, "MMM d, yyyy"))}</span>}
         </div>
       </CardHeader>
       <CardContent className="space-y-6">
@@ -302,7 +303,7 @@ function CarePlanCard({ plan, onEdit }: { plan: CarePlan; onEdit: () => void }) 
                     <div className="flex items-center gap-2">
                       <Badge variant="outline" className="text-xs capitalize">{goal.priority}</Badge>
                       <Badge variant={goal.status === "achieved" ? "default" : "secondary"} className="text-xs capitalize">{goal.status}</Badge>
-                      {goal.targetDate && <span className="text-xs text-muted-foreground">Target: {format(new Date(goal.targetDate), "MMM d, yyyy")}</span>}
+                      {goal.targetDate && <span className="text-xs text-muted-foreground">Target: {formatDateOnly(goal.targetDate, (d) => format(d, "MMM d, yyyy"))}</span>}
                     </div>
                     <p className="text-sm">{goal.goalText}</p>
                     {goal.progressNotes && <p className="text-xs text-muted-foreground">{goal.progressNotes}</p>}
