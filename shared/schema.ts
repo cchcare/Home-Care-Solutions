@@ -2256,6 +2256,44 @@ export type ClientMco = typeof clientMcos.$inferSelect;
 export type InsertClientMco = typeof clientMcos.$inferInsert;
 export const insertClientMcoSchema = createInsertSchema(clientMcos).omit({ id: true, createdAt: true, updatedAt: true });
 
+// Client Coordinator assignments - tracks coordinator history so a client can
+// have more than one coordinator over time (mirrors clientMcos above).
+export const clientCoordinators = pgTable("client_coordinators", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  clientId: varchar("client_id").references(() => clients.id).notNull(),
+  coordinatorId: varchar("coordinator_id").references(() => coordinators.id).notNull(),
+  startDate: timestamp("start_date").notNull(),
+  endDate: timestamp("end_date"),
+  isPrimary: boolean("is_primary").default(false),
+  status: varchar("status").default("active"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export type ClientCoordinator = typeof clientCoordinators.$inferSelect;
+export type InsertClientCoordinator = typeof clientCoordinators.$inferInsert;
+export const insertClientCoordinatorSchema = createInsertSchema(clientCoordinators).omit({ id: true, createdAt: true, updatedAt: true });
+
+// Caregiver Coordinator assignments - tracks coordinator history so a caregiver
+// can have more than one coordinator over time (mirrors clientCoordinators above).
+export const caregiverCoordinators = pgTable("caregiver_coordinators", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  caregiverId: varchar("caregiver_id").references(() => caregivers.id).notNull(),
+  coordinatorId: varchar("coordinator_id").references(() => coordinators.id).notNull(),
+  startDate: timestamp("start_date").notNull(),
+  endDate: timestamp("end_date"),
+  isPrimary: boolean("is_primary").default(false),
+  status: varchar("status").default("active"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export type CaregiverCoordinator = typeof caregiverCoordinators.$inferSelect;
+export type InsertCaregiverCoordinator = typeof caregiverCoordinators.$inferInsert;
+export const insertCaregiverCoordinatorSchema = createInsertSchema(caregiverCoordinators).omit({ id: true, createdAt: true, updatedAt: true });
+
 // Client Authorizations - tracks service authorizations from MCOs
 export const clientAuthorizations = pgTable("client_authorizations", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),

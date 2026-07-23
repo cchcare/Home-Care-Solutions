@@ -72,6 +72,8 @@ import {
   insertCaregiverOfficeMoveSchema,
   insertCaregiverScheduleSchema,
   insertClientMcoSchema,
+  insertClientCoordinatorSchema,
+  insertCaregiverCoordinatorSchema,
   insertClientAuthorizationSchema,
   clientAuthorizations,
   clients,
@@ -2729,7 +2731,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       };
       const validatedData = insertClientSchema.partial().parse(processedBody);
       const client = await storage.updateClient(req.params.id, validatedData);
-      
+
+      // Bidirectional coordinator sync: propagate a coordinator change to
+      // every caregiver currently assigned to this client.
+      if (client.coordinatorId !== oldClient.coordinatorId) {
+        await storage.recordClientCoordinatorChange(client.id, client.coordinatorId ?? null);
+        await storage.cascadeClientCoordinatorToCaregivers(client.id, client.coordinatorId ?? null);
+      }
+
       // Log audit trail
       await storage.createAuditLog({
         userId: req.session?.user?.id,
@@ -2741,7 +2750,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ipAddress: req.ip,
         userAgent: req.get("User-Agent"),
       });
-      
+
       res.json(client);
     } catch (error) {
       console.error("Error updating client:", error);
@@ -3736,7 +3745,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       const validatedData = insertCaregiverSchema.partial().parse(processedBody);
       const caregiver = await storage.updateCaregiver(req.params.id, validatedData);
-      
+
+      // Bidirectional coordinator sync: propagate a coordinator change to
+      // every client currently served by this caregiver.
+      if (caregiver.coordinatorId !== oldCaregiver.coordinatorId) {
+        await storage.recordCaregiverCoordinatorChange(caregiver.id, caregiver.coordinatorId ?? null);
+        await storage.cascadeCaregiverCoordinatorToClients(caregiver.id, caregiver.coordinatorId ?? null);
+      }
+
       // Log audit trail
       await storage.createAuditLog({
         userId: req.session?.user?.id,
@@ -7903,6 +7919,122 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error deleting client MCO:", error);
       res.status(400).json({ message: "Failed to delete client MCO" });
+    }
+  });
+
+  // ==================== CLIENT COORDINATOR HISTORY ROUTES ====================
+  app.get("/api/clients/:clientId/coordinators", isAuthenticated, async (req, res) => {
+    try {
+      const rows = await storage.getClientCoordinatorsByClient(req.params.clientId);
+      res.json(rows);
+    } catch (error) {
+      console.error("Error fetching client coordinators:", error);
+      res.status(500).json({ message: "Failed to fetch client coordinators" });
+    }
+  });
+
+  app.post("/api/clients/:clientId/coordinators", isAuthenticated, async (req, res) => {
+    try {
+      const { clientId: _, ...userBody } = req.body;
+      const coercedData = {
+        ...userBody,
+        startDate: coerceDate(userBody.startDate),
+        endDate: coerceDate(userBody.endDate),
+      };
+      const validatedBody = insertClientCoordinatorSchema.omit({ clientId: true }).parse(coercedData);
+      const row = await storage.createClientCoordinator({
+        ...validatedBody,
+        clientId: req.params.clientId,
+      });
+      res.status(201).json(row);
+    } catch (error) {
+      console.error("Error creating client coordinator:", error);
+      res.status(400).json({ message: "Failed to create client coordinator" });
+    }
+  });
+
+  app.put("/api/client-coordinators/:id", isAuthenticated, async (req, res) => {
+    try {
+      const { clientId, ...updateData } = req.body;
+      const coercedData = {
+        ...updateData,
+        startDate: coerceDate(updateData.startDate),
+        endDate: coerceDate(updateData.endDate),
+      };
+      const validatedData = insertClientCoordinatorSchema.partial().parse(coercedData);
+      const row = await storage.updateClientCoordinator(req.params.id, validatedData);
+      res.json(row);
+    } catch (error) {
+      console.error("Error updating client coordinator:", error);
+      res.status(400).json({ message: "Failed to update client coordinator" });
+    }
+  });
+
+  app.delete("/api/client-coordinators/:id", isAuthenticated, async (req, res) => {
+    try {
+      await storage.deleteClientCoordinator(req.params.id);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting client coordinator:", error);
+      res.status(400).json({ message: "Failed to delete client coordinator" });
+    }
+  });
+
+  // ==================== CAREGIVER COORDINATOR HISTORY ROUTES ====================
+  app.get("/api/caregivers/:caregiverId/coordinators", isAuthenticated, async (req, res) => {
+    try {
+      const rows = await storage.getCaregiverCoordinatorsByCaregiver(req.params.caregiverId);
+      res.json(rows);
+    } catch (error) {
+      console.error("Error fetching caregiver coordinators:", error);
+      res.status(500).json({ message: "Failed to fetch caregiver coordinators" });
+    }
+  });
+
+  app.post("/api/caregivers/:caregiverId/coordinators", isAuthenticated, async (req, res) => {
+    try {
+      const { caregiverId: _, ...userBody } = req.body;
+      const coercedData = {
+        ...userBody,
+        startDate: coerceDate(userBody.startDate),
+        endDate: coerceDate(userBody.endDate),
+      };
+      const validatedBody = insertCaregiverCoordinatorSchema.omit({ caregiverId: true }).parse(coercedData);
+      const row = await storage.createCaregiverCoordinator({
+        ...validatedBody,
+        caregiverId: req.params.caregiverId,
+      });
+      res.status(201).json(row);
+    } catch (error) {
+      console.error("Error creating caregiver coordinator:", error);
+      res.status(400).json({ message: "Failed to create caregiver coordinator" });
+    }
+  });
+
+  app.put("/api/caregiver-coordinators/:id", isAuthenticated, async (req, res) => {
+    try {
+      const { caregiverId, ...updateData } = req.body;
+      const coercedData = {
+        ...updateData,
+        startDate: coerceDate(updateData.startDate),
+        endDate: coerceDate(updateData.endDate),
+      };
+      const validatedData = insertCaregiverCoordinatorSchema.partial().parse(coercedData);
+      const row = await storage.updateCaregiverCoordinator(req.params.id, validatedData);
+      res.json(row);
+    } catch (error) {
+      console.error("Error updating caregiver coordinator:", error);
+      res.status(400).json({ message: "Failed to update caregiver coordinator" });
+    }
+  });
+
+  app.delete("/api/caregiver-coordinators/:id", isAuthenticated, async (req, res) => {
+    try {
+      await storage.deleteCaregiverCoordinator(req.params.id);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting caregiver coordinator:", error);
+      res.status(400).json({ message: "Failed to delete caregiver coordinator" });
     }
   });
 

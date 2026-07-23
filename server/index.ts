@@ -2,7 +2,7 @@ import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import { startScheduledJobs } from "./scheduler";
-import { runProductionInit, seedEmailTemplates, ensureEmployeeNotesSchema, ensureOnboardingSchema, ensureOffboardingSchema, ensureSelfServiceSchema, ensureComplianceBranchSchema, ensureComplianceProgramSchema, ensureClientProfileSchema, ensureStaffPerformancePtoSchema, ensureCoordinatorDirectorySchema, ensureCoordinatorProfileSchema, ensureVisitLogBilledSchema } from "./initDb";
+import { runProductionInit, seedEmailTemplates, ensureEmployeeNotesSchema, ensureOnboardingSchema, ensureOffboardingSchema, ensureSelfServiceSchema, ensureComplianceBranchSchema, ensureComplianceProgramSchema, ensureClientProfileSchema, ensureStaffPerformancePtoSchema, ensureCoordinatorDirectorySchema, ensureCoordinatorProfileSchema, ensureVisitLogBilledSchema, ensureCoordinatorHistorySchema } from "./initDb";
 
 import nodePath from "path";
 import { isS3Enabled, getPresignedUrl, getS3KeyForFile } from "./s3Storage";
@@ -130,6 +130,12 @@ app.use((req, res, next) => {
     await ensureVisitLogBilledSchema();
   } catch (err) {
     console.error("[Init] ensureVisitLogBilledSchema failed (non-fatal):", err);
+  }
+
+  try {
+    await ensureCoordinatorHistorySchema();
+  } catch (err) {
+    console.error("[Init] ensureCoordinatorHistorySchema failed (non-fatal):", err);
   }
 
   const server = await registerRoutes(app);

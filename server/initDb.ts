@@ -1062,6 +1062,65 @@ export async function ensureVisitLogBilledSchema() {
   }
 }
 
+// Client/caregiver coordinator history: lets a client or caregiver have more
+// than one coordinator over time (start/end dates), mirroring client_mcos.
+let coordinatorHistorySchemaReady = false;
+export async function ensureCoordinatorHistorySchema() {
+  if (coordinatorHistorySchemaReady) return;
+  const client = await pool.connect();
+  try {
+    const ready = await client.query(`
+      SELECT EXISTS (
+        SELECT 1 FROM information_schema.tables WHERE table_name = 'coordinator_history_init_marker'
+      ) AS marker_exists;
+    `);
+    if (ready.rows[0]?.marker_exists) {
+      coordinatorHistorySchemaReady = true;
+      return;
+    }
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS client_coordinators (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        client_id varchar NOT NULL REFERENCES clients(id),
+        coordinator_id varchar NOT NULL REFERENCES coordinators(id),
+        start_date timestamp NOT NULL,
+        end_date timestamp,
+        is_primary boolean DEFAULT false,
+        status varchar DEFAULT 'active',
+        notes text,
+        created_at timestamp DEFAULT NOW(),
+        updated_at timestamp DEFAULT NOW()
+      );
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_client_coordinators_client ON client_coordinators (client_id);`);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS caregiver_coordinators (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        caregiver_id varchar NOT NULL REFERENCES caregivers(id),
+        coordinator_id varchar NOT NULL REFERENCES coordinators(id),
+        start_date timestamp NOT NULL,
+        end_date timestamp,
+        is_primary boolean DEFAULT false,
+        status varchar DEFAULT 'active',
+        notes text,
+        created_at timestamp DEFAULT NOW(),
+        updated_at timestamp DEFAULT NOW()
+      );
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_caregiver_coordinators_caregiver ON caregiver_coordinators (caregiver_id);`);
+
+    await client.query(`CREATE TABLE IF NOT EXISTS coordinator_history_init_marker (initialized_at timestamp DEFAULT NOW());`);
+    coordinatorHistorySchemaReady = true;
+    console.log("[Init] coordinator history schema (client_coordinators, caregiver_coordinators) ensured.");
+  } catch (err) {
+    console.error("[Init] ensureCoordinatorHistorySchema failed (non-fatal):", err);
+  } finally {
+    client.release();
+  }
+}
+
 // Guards runProductionInit() so it can only ever execute once per database,
 // no matter how many times the app restarts with INIT_PRODUCTION_DB=true left
 // set. Without this marker, every reboot/redeploy that inherited the env var

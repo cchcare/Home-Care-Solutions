@@ -171,9 +171,11 @@ import { CaregiverExpensesSection } from "@/components/caregiver-expenses-sectio
 import { CaregiverInServicesSection } from "@/components/caregiver-in-services-section";
 import { CaregiverOfficeMovesSection } from "@/components/caregiver-office-moves-section";
 import { CaregiverPayrollInfoSection } from "@/components/caregiver-payroll-info-section";
+import { CoordinatorHistorySection } from "@/components/coordinator-history-section";
 
 const CAREGIVER_MENU_ITEMS = [
   { id: "profile", label: "Profile", icon: User },
+  { id: "coordinators", label: "Coordinators", icon: Users },
   { id: "compliance", label: "Compliance", icon: Shield },
   { id: "exclusion", label: "Exclusion Check", icon: AlertTriangle },
   { id: "calendar", label: "Calendar", icon: Calendar },
@@ -1256,6 +1258,10 @@ export default function CaregiverProfile() {
                     </CardContent>
                   </Card>
                 </div>
+              )}
+
+              {activeSection === "coordinators" && caregiverId && (
+                <CoordinatorHistorySection entityType="caregiver" entityId={caregiverId} />
               )}
 
               {activeSection === "compliance" && (

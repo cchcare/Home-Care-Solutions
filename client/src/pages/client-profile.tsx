@@ -100,6 +100,7 @@ import { ClientSpendDownSection } from "@/components/client-spend-down-section";
 import { ClientReferralSection } from "@/components/client-referral-section";
 import { ClientVisitsSection } from "@/components/client-visits-section";
 import { ClientPocSection } from "@/components/client-poc-section";
+import { CoordinatorHistorySection } from "@/components/coordinator-history-section";
 
 const DOCUMENT_CATEGORIES = [
   { value: "id_card", label: "ID Card" },
@@ -118,6 +119,7 @@ const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const CLIENT_MENU_ITEMS = [
   { id: "general", label: "General", icon: Heart },
   { id: "mcos", label: "MCOs/Insurance", icon: Shield },
+  { id: "coordinators", label: "Coordinators", icon: Users },
   { id: "spend-down", label: "Spend Down", icon: Wallet },
   { id: "referral", label: "Referral Member Info", icon: UserPlus },
   { id: "profile", label: "Profile", icon: User },
@@ -1781,6 +1783,11 @@ export default function ClientProfile() {
                   </CardContent>
                 </Card>
                 </div>
+              )}
+
+              {/* Coordinator Assignments Section */}
+              {activeSection === "coordinators" && clientId && (
+                <CoordinatorHistorySection entityType="client" entityId={clientId} />
               )}
 
               {/* Calendar Section */}
