@@ -60,6 +60,7 @@ export function ClientVisitsSection({ clientId }: { clientId: string }) {
                 <TableHead>Service Type</TableHead>
                 <TableHead>Hours</TableHead>
                 <TableHead>Status</TableHead>
+                <TableHead>Billed</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -72,6 +73,14 @@ export function ClientVisitsSection({ clientId }: { clientId: string }) {
                   <TableCell>{visit.totalHours || "—"}</TableCell>
                   <TableCell>
                     <Badge className={`border-0 ${STATUS_STYLES[visit.status || "scheduled"]}`}>{(visit.status || "scheduled").replace(/_/g, " ")}</Badge>
+                  </TableCell>
+                  <TableCell data-testid={`text-visit-billed-${visit.id}`}>
+                    <Badge
+                      variant={visit.billed ? "default" : "secondary"}
+                      className={visit.billed ? "border-0 bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400" : "border-0"}
+                    >
+                      {visit.billed ? "Yes" : "No"}
+                    </Badge>
                   </TableCell>
                 </TableRow>
               ))}

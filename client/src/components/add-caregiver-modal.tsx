@@ -403,8 +403,8 @@ export function AddCaregiverModal({ isOpen, onClose, onSubmit, isLoading, initia
                         <Input 
                           type="date" 
                           {...field}
-                          value={field.value ? new Date(field.value).toISOString().split('T')[0] : ''}
-                          onChange={(e) => field.onChange(e.target.value ? new Date(e.target.value) : null)}
+                          value={toDateOnlyInputValue(field.value)}
+                          onChange={(e) => field.onChange(e.target.value ? parseDateOnlyInput(e.target.value) : null)}
                           data-testid="input-hire-date"
                         />
                       </FormControl>
@@ -422,8 +422,8 @@ export function AddCaregiverModal({ isOpen, onClose, onSubmit, isLoading, initia
                         <Input 
                           type="date" 
                           {...field}
-                          value={field.value ? new Date(field.value).toISOString().split('T')[0] : ''}
-                          onChange={(e) => field.onChange(e.target.value ? new Date(e.target.value) : null)}
+                          value={toDateOnlyInputValue(field.value)}
+                          onChange={(e) => field.onChange(e.target.value ? parseDateOnlyInput(e.target.value) : null)}
                           data-testid="input-start-date"
                         />
                       </FormControl>
@@ -441,8 +441,8 @@ export function AddCaregiverModal({ isOpen, onClose, onSubmit, isLoading, initia
                         <Input
                           type="date"
                           {...field}
-                          value={field.value ? new Date(field.value).toISOString().split('T')[0] : ''}
-                          onChange={(e) => field.onChange(e.target.value ? new Date(e.target.value) : null)}
+                          value={toDateOnlyInputValue(field.value)}
+                          onChange={(e) => field.onChange(e.target.value ? parseDateOnlyInput(e.target.value) : null)}
                           data-testid="input-termination-date"
                         />
                       </FormControl>

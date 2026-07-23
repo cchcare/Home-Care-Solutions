@@ -1033,6 +1033,35 @@ export async function ensureCoordinatorDirectorySchema() {
   }
 }
 
+// Visit log uploads gain a Billed (Yes/No) column so imported visits can
+// record whether they were billed to the payer, matching the source sheet.
+let visitLogBilledSchemaReady = false;
+export async function ensureVisitLogBilledSchema() {
+  if (visitLogBilledSchemaReady) return;
+  const client = await pool.connect();
+  try {
+    const ready = await client.query(`
+      SELECT EXISTS (
+        SELECT 1 FROM information_schema.tables WHERE table_name = 'visit_log_billed_init_marker'
+      ) AS marker_exists;
+    `);
+    if (ready.rows[0]?.marker_exists) {
+      visitLogBilledSchemaReady = true;
+      return;
+    }
+
+    await client.query(`ALTER TABLE client_schedules ADD COLUMN IF NOT EXISTS billed boolean DEFAULT false;`);
+
+    await client.query(`CREATE TABLE IF NOT EXISTS visit_log_billed_init_marker (initialized_at timestamp DEFAULT NOW());`);
+    visitLogBilledSchemaReady = true;
+    console.log("[Init] visit log billed schema (client_schedules.billed) ensured.");
+  } catch (err) {
+    console.error("[Init] ensureVisitLogBilledSchema failed (non-fatal):", err);
+  } finally {
+    client.release();
+  }
+}
+
 // Guards runProductionInit() so it can only ever execute once per database,
 // no matter how many times the app restarts with INIT_PRODUCTION_DB=true left
 // set. Without this marker, every reboot/redeploy that inherited the env var

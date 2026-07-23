@@ -784,8 +784,8 @@ export default function ClientIntake() {
                     <Input 
                       type="date"
                       {...field}
-                      value={field.value ? new Date(field.value).toISOString().split('T')[0] : ''}
-                      onChange={(e) => field.onChange(e.target.value ? new Date(e.target.value) : undefined)}
+                      value={toDateOnlyInputValue(field.value)}
+                      onChange={(e) => field.onChange(e.target.value ? parseDateOnlyInput(e.target.value) ?? undefined : undefined)}
                       data-testid="input-service-start-date"
                     />
                   </FormControl>
@@ -945,7 +945,7 @@ export default function ClientIntake() {
                 <CardContent className="space-y-2 text-sm">
                   <div><span className="font-medium">Office:</span> {selectedOffice?.name || "Not selected"}</div>
                   <div><span className="font-medium">Coordinator:</span> {selectedCoordinator ? `${selectedCoordinator.firstName} ${selectedCoordinator.lastName}` : "Not assigned"}</div>
-                  <div><span className="font-medium">Start Date:</span> {values.serviceStartDate ? new Date(values.serviceStartDate).toLocaleDateString() : "Not set"}</div>
+                  <div><span className="font-medium">Start Date:</span> {values.serviceStartDate ? formatDateOnly(values.serviceStartDate) : "Not set"}</div>
                   <div><span className="font-medium">Caregiver:</span> {selectedCaregiver ? `${selectedCaregiver.firstName} ${selectedCaregiver.lastName}` : "Not assigned"}</div>
                 </CardContent>
               </Card>

@@ -35,6 +35,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { insertMasterWeekTemplateSchema } from "@shared/schema";
 import type { Client, MasterWeekTemplate, MasterWeekSlot, Caregiver } from "@shared/schema";
 import { z } from "zod";
+import { parseDateOnlyInput, toDateOnlyInputValue } from "@/lib/dateOnly";
 
 const templateFormSchema = insertMasterWeekTemplateSchema.extend({
   startDate: z.string().min(1, "From date is required"),
@@ -176,8 +177,8 @@ export function MasterWeekTemplateModal({
         clientId: template.clientId,
         isActive: template.isActive ?? true,
         autoRollover: template.autoRollover ?? false,
-        startDate: template.startDate ? new Date(template.startDate).toISOString().split('T')[0] : "",
-        endDate: template.endDate ? new Date(template.endDate).toISOString().split('T')[0] : "",
+        startDate: template.startDate ? toDateOnlyInputValue(template.startDate) : "",
+        endDate: template.endDate ? toDateOnlyInputValue(template.endDate) : "",
         recurrenceWeeks: (template as any).recurrenceWeeks || 1,
       });
     } else {
@@ -257,8 +258,8 @@ export function MasterWeekTemplateModal({
     mutationFn: async (data: z.infer<typeof templateFormSchema>) => {
       const templateData = {
         ...data,
-        startDate: data.startDate ? new Date(data.startDate) : undefined,
-        endDate: data.endDate ? new Date(data.endDate) : undefined,
+        startDate: data.startDate ? parseDateOnlyInput(data.startDate) : undefined,
+        endDate: data.endDate ? parseDateOnlyInput(data.endDate) : undefined,
       };
 
       const response = await apiRequest("POST", "/api/master-week-templates", templateData);
@@ -315,8 +316,8 @@ export function MasterWeekTemplateModal({
 
       const templateData = {
         ...data,
-        startDate: data.startDate ? new Date(data.startDate) : undefined,
-        endDate: data.endDate ? new Date(data.endDate) : undefined,
+        startDate: data.startDate ? parseDateOnlyInput(data.startDate) : undefined,
+        endDate: data.endDate ? parseDateOnlyInput(data.endDate) : undefined,
       };
 
       const response = await apiRequest("PUT", `/api/master-week-templates/${template.id}`, templateData);

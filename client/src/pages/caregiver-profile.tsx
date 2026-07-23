@@ -49,6 +49,7 @@ import {
 import { apiRequest, queryClient as qc } from "@/lib/queryClient";
 import { EmployeeDocumentsTab } from "@/components/employee-documents-tab";
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameMonth, isToday, addMonths, subMonths } from "date-fns";
+import { parseDateOnlyInput, toDateOnlyInputValue, formatDateOnly } from "@/lib/dateOnly";
 import { 
   ArrowLeft, 
   User, 
@@ -1150,13 +1151,13 @@ export default function CaregiverProfile() {
                           {isEditing ? (
                             <Input
                               type="date"
-                              value={editFormData.hireDate ? new Date(editFormData.hireDate).toISOString().split('T')[0] : ""}
-                              onChange={(e) => setEditFormData({ ...editFormData, hireDate: e.target.value ? new Date(e.target.value) : undefined })}
+                              value={editFormData.hireDate ? toDateOnlyInputValue(editFormData.hireDate) : ""}
+                              onChange={(e) => setEditFormData({ ...editFormData, hireDate: e.target.value ? parseDateOnlyInput(e.target.value) ?? undefined : undefined })}
                               data-testid="input-hire-date"
                             />
                           ) : (
                             <p className="font-medium" data-testid="text-hire-date">
-                              {caregiver.hireDate ? format(new Date(caregiver.hireDate), "MMM d, yyyy") : "N/A"}
+                              {caregiver.hireDate ? formatDateOnly(caregiver.hireDate, (d) => format(d, "MMM d, yyyy")) : "N/A"}
                             </p>
                           )}
                         </div>
@@ -1165,13 +1166,13 @@ export default function CaregiverProfile() {
                           {isEditing ? (
                             <Input
                               type="date"
-                              value={editFormData.terminationDate ? new Date(editFormData.terminationDate).toISOString().split('T')[0] : ""}
-                              onChange={(e) => setEditFormData({ ...editFormData, terminationDate: e.target.value ? new Date(e.target.value) : null })}
+                              value={editFormData.terminationDate ? toDateOnlyInputValue(editFormData.terminationDate) : ""}
+                              onChange={(e) => setEditFormData({ ...editFormData, terminationDate: e.target.value ? parseDateOnlyInput(e.target.value) : null })}
                               data-testid="input-termination-date"
                             />
                           ) : (
                             <p className="font-medium" data-testid="text-termination-date">
-                              {caregiver.terminationDate ? format(new Date(caregiver.terminationDate), "MMM d, yyyy") : "N/A"}
+                              {caregiver.terminationDate ? formatDateOnly(caregiver.terminationDate, (d) => format(d, "MMM d, yyyy")) : "N/A"}
                             </p>
                           )}
                         </div>
@@ -1180,13 +1181,13 @@ export default function CaregiverProfile() {
                           {isEditing ? (
                             <Input
                               type="date"
-                              value={editFormData.startDate ? new Date(editFormData.startDate).toISOString().split('T')[0] : ""}
-                              onChange={(e) => setEditFormData({ ...editFormData, startDate: e.target.value ? new Date(e.target.value) : undefined })}
+                              value={editFormData.startDate ? toDateOnlyInputValue(editFormData.startDate) : ""}
+                              onChange={(e) => setEditFormData({ ...editFormData, startDate: e.target.value ? parseDateOnlyInput(e.target.value) ?? undefined : undefined })}
                               data-testid="input-start-date"
                             />
                           ) : (
                             <p className="font-medium" data-testid="text-start-date">
-                              {caregiver.startDate ? format(new Date(caregiver.startDate), "MMM d, yyyy") : "N/A"}
+                              {caregiver.startDate ? formatDateOnly(caregiver.startDate, (d) => format(d, "MMM d, yyyy")) : "N/A"}
                             </p>
                           )}
                         </div>
@@ -1542,7 +1543,7 @@ export default function CaregiverProfile() {
                             return <div key={`empty-${idx}`} className="h-24 bg-muted/20 rounded-md" />;
                           }
                           const daySchedules = schedules.filter(
-                            (s) => format(new Date(s.scheduledDate), "yyyy-MM-dd") === format(day, "yyyy-MM-dd")
+                            (s) => toDateOnlyInputValue(s.scheduledDate) === format(day, "yyyy-MM-dd")
                           );
                           return (
                             <div
@@ -1601,7 +1602,7 @@ export default function CaregiverProfile() {
                           <TableBody>
                             {schedules.slice(0, 20).map((schedule) => (
                               <TableRow key={schedule.id} data-testid={`row-visit-${schedule.id}`}>
-                                <TableCell>{format(new Date(schedule.scheduledDate), "MMM d, yyyy")}</TableCell>
+                                <TableCell>{formatDateOnly(schedule.scheduledDate, (d) => format(d, "MMM d, yyyy"))}</TableCell>
                                 <TableCell>{schedule.startTime} - {schedule.endTime}</TableCell>
                                 <TableCell>
                                   <Badge variant={
@@ -2203,11 +2204,11 @@ export default function CaregiverProfile() {
                                 <TableRow key={r.id} data-testid={`row-perf-review-${r.id}`}>
                                   <TableCell className="capitalize">{(r.reviewType || "").replace(/_/g, " ")}</TableCell>
                                   <TableCell>
-                                    {r.reviewPeriodStart ? format(new Date(r.reviewPeriodStart), "MMM d, yyyy") : "—"}
+                                    {r.reviewPeriodStart ? formatDateOnly(r.reviewPeriodStart, (d) => format(d, "MMM d, yyyy")) : "—"}
                                     {" – "}
-                                    {r.reviewPeriodEnd ? format(new Date(r.reviewPeriodEnd), "MMM d, yyyy") : "—"}
+                                    {r.reviewPeriodEnd ? formatDateOnly(r.reviewPeriodEnd, (d) => format(d, "MMM d, yyyy")) : "—"}
                                   </TableCell>
-                                  <TableCell>{r.scheduledDate ? format(new Date(r.scheduledDate), "MMM d, yyyy") : "—"}</TableCell>
+                                  <TableCell>{r.scheduledDate ? formatDateOnly(r.scheduledDate, (d) => format(d, "MMM d, yyyy")) : "—"}</TableCell>
                                   <TableCell>
                                     <Badge variant={r.status === "completed" ? "default" : "secondary"}>
                                       {(r.status || "scheduled").replace(/_/g, " ")}

@@ -14,6 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { UserPlus, Pencil, Loader2 } from "lucide-react";
+import { parseDateOnlyInput, toDateOnlyInputValue, formatDateOnly } from "@/lib/dateOnly";
 import type { ClientReferral, ReferralSource } from "@shared/schema";
 
 const STATUS_STYLES: Record<string, string> = {
@@ -52,7 +53,7 @@ export function ClientReferralSection({ clientId }: { clientId: string }) {
     mutationFn: () => {
       const payload = {
         referralSourceId: form.referralSourceId,
-        referralDate: new Date(form.referralDate).toISOString(),
+        referralDate: parseDateOnlyInput(form.referralDate)?.toISOString(),
         referralNotes: form.referralNotes || undefined,
         status: form.status,
         assignedTo: form.assignedTo || undefined,
@@ -72,7 +73,7 @@ export function ClientReferralSection({ clientId }: { clientId: string }) {
     if (referral) {
       setForm({
         referralSourceId: referral.referralSourceId,
-        referralDate: referral.referralDate ? new Date(referral.referralDate).toISOString().slice(0, 10) : format(new Date(), "yyyy-MM-dd"),
+        referralDate: referral.referralDate ? toDateOnlyInputValue(referral.referralDate) : format(new Date(), "yyyy-MM-dd"),
         referralNotes: referral.referralNotes || "",
         status: referral.status || "converted",
         assignedTo: referral.assignedTo || "",
@@ -112,7 +113,7 @@ export function ClientReferralSection({ clientId }: { clientId: string }) {
             <div className="space-y-1">
               <Label className="text-muted-foreground text-sm">Referral Date</Label>
               <p className="font-medium" data-testid="text-referral-date">
-                {referral.referralDate ? format(new Date(referral.referralDate), "MMM d, yyyy") : "N/A"}
+                {referral.referralDate ? formatDateOnly(referral.referralDate, (d) => format(d, "MMM d, yyyy")) : "N/A"}
               </p>
             </div>
             <div className="space-y-1">

@@ -31,6 +31,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { insertClientScheduleSchema } from "@shared/schema";
 import type { Client, Caregiver } from "@shared/schema";
 import { z } from "zod";
+import { parseDateOnlyInput } from "@/lib/dateOnly";
 
 const scheduleFormSchema = insertClientScheduleSchema.extend({
   scheduledDate: z.string().min(1, "Date is required"),
@@ -73,7 +74,7 @@ export function ClientScheduleModal({
     mutationFn: async (data: z.infer<typeof scheduleFormSchema>) => {
       const scheduleData = {
         ...data,
-        scheduledDate: new Date(data.scheduledDate),
+        scheduledDate: parseDateOnlyInput(data.scheduledDate),
       };
       const response = await apiRequest("POST", "/api/client-schedules", scheduleData);
       return response.json();
@@ -101,7 +102,7 @@ export function ClientScheduleModal({
       if (!schedule) return;
       const scheduleData = {
         ...data,
-        scheduledDate: new Date(data.scheduledDate),
+        scheduledDate: parseDateOnlyInput(data.scheduledDate),
       };
       const response = await apiRequest("PUT", `/api/client-schedules/${schedule.id}`, scheduleData);
       return response.json();

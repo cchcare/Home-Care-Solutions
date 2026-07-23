@@ -1226,13 +1226,13 @@ export default function ClientProfile() {
                         {isEditing ? (
                           <Input
                             type="date"
-                            value={editFormData.serviceStartDate ? new Date(editFormData.serviceStartDate).toISOString().split('T')[0] : ""}
-                            onChange={(e) => setEditFormData({ ...editFormData, serviceStartDate: e.target.value ? new Date(e.target.value) : undefined })}
+                            value={editFormData.serviceStartDate ? toDateOnlyInputValue(editFormData.serviceStartDate) : ""}
+                            onChange={(e) => setEditFormData({ ...editFormData, serviceStartDate: e.target.value ? parseDateOnlyInput(e.target.value) ?? undefined : undefined })}
                             data-testid="input-service-start-date"
                           />
                         ) : (
                           <p className="font-medium" data-testid="text-service-start-date">
-                            {client.serviceStartDate ? format(new Date(client.serviceStartDate), "MMM d, yyyy") : "N/A"}
+                            {client.serviceStartDate ? formatDateOnly(client.serviceStartDate, (d) => format(d, "MMM d, yyyy")) : "N/A"}
                           </p>
                         )}
                       </div>
@@ -1241,13 +1241,13 @@ export default function ClientProfile() {
                         {isEditing ? (
                           <Input
                             type="date"
-                            value={editFormData.lastServiceDate ? new Date(editFormData.lastServiceDate).toISOString().split('T')[0] : ""}
-                            onChange={(e) => setEditFormData({ ...editFormData, lastServiceDate: e.target.value ? new Date(e.target.value) : undefined })}
+                            value={editFormData.lastServiceDate ? toDateOnlyInputValue(editFormData.lastServiceDate) : ""}
+                            onChange={(e) => setEditFormData({ ...editFormData, lastServiceDate: e.target.value ? parseDateOnlyInput(e.target.value) ?? undefined : undefined })}
                             data-testid="input-last-service-date"
                           />
                         ) : (
                           <p className="font-medium" data-testid="text-last-service-date">
-                            {(client as any).lastServiceDate ? format(new Date((client as any).lastServiceDate), "MMM d, yyyy") : "N/A"}
+                            {(client as any).lastServiceDate ? formatDateOnly((client as any).lastServiceDate, (d) => format(d, "MMM d, yyyy")) : "N/A"}
                           </p>
                         )}
                       </div>
@@ -2369,17 +2369,17 @@ export default function ClientProfile() {
                         <div className="space-y-1">
                           <Label className="text-muted-foreground text-sm">Service Start Date</Label>
                           {isEditing ? (
-                            <Input type="date" value={editFormData.serviceStartDate ? new Date(editFormData.serviceStartDate).toISOString().split('T')[0] : ""} onChange={(e) => setEditFormData({ ...editFormData, serviceStartDate: e.target.value ? new Date(e.target.value) : undefined })} />
+                            <Input type="date" value={editFormData.serviceStartDate ? toDateOnlyInputValue(editFormData.serviceStartDate) : ""} onChange={(e) => setEditFormData({ ...editFormData, serviceStartDate: e.target.value ? parseDateOnlyInput(e.target.value) ?? undefined : undefined })} />
                           ) : (
-                            <p className="font-medium">{client?.serviceStartDate ? format(new Date(client.serviceStartDate), "MMM d, yyyy") : "N/A"}</p>
+                            <p className="font-medium">{client?.serviceStartDate ? formatDateOnly(client.serviceStartDate, (d) => format(d, "MMM d, yyyy")) : "N/A"}</p>
                           )}
                         </div>
                         <div className="space-y-1">
                           <Label className="text-muted-foreground text-sm">Last Service Date</Label>
                           {isEditing ? (
-                            <Input type="date" value={editFormData.lastServiceDate ? new Date(editFormData.lastServiceDate).toISOString().split('T')[0] : ""} onChange={(e) => setEditFormData({ ...editFormData, lastServiceDate: e.target.value ? new Date(e.target.value) : undefined })} />
+                            <Input type="date" value={editFormData.lastServiceDate ? toDateOnlyInputValue(editFormData.lastServiceDate) : ""} onChange={(e) => setEditFormData({ ...editFormData, lastServiceDate: e.target.value ? parseDateOnlyInput(e.target.value) ?? undefined : undefined })} />
                           ) : (
-                            <p className="font-medium">{(client as any)?.lastServiceDate ? format(new Date((client as any).lastServiceDate), "MMM d, yyyy") : "N/A"}</p>
+                            <p className="font-medium">{(client as any)?.lastServiceDate ? formatDateOnly((client as any).lastServiceDate, (d) => format(d, "MMM d, yyyy")) : "N/A"}</p>
                           )}
                         </div>
                         <div className="space-y-1">

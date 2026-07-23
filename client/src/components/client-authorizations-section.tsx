@@ -17,6 +17,7 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import { ClipboardList, Plus, Pencil, Trash2, Loader2 } from "lucide-react";
+import { parseDateOnlyInput, toDateOnlyInputValue, formatDateOnly } from "@/lib/dateOnly";
 import type { ClientAuthorization, Mco, CarePlan } from "@shared/schema";
 
 const SERVICE_TYPES = [
@@ -74,9 +75,9 @@ export function ClientAuthorizationsSection({ clientId, officeId }: { clientId: 
         approvedHours: form.approvedHours || undefined,
         usedHours: form.usedHours || undefined,
         frequencyPerWeek: form.frequencyPerWeek ? parseInt(form.frequencyPerWeek, 10) : undefined,
-        startDate: new Date(form.startDate).toISOString(),
-        endDate: form.endDate ? new Date(form.endDate).toISOString() : undefined,
-        renewalDate: form.renewalDate ? new Date(form.renewalDate).toISOString() : undefined,
+        startDate: parseDateOnlyInput(form.startDate)?.toISOString(),
+        endDate: form.endDate ? parseDateOnlyInput(form.endDate)?.toISOString() : undefined,
+        renewalDate: form.renewalDate ? parseDateOnlyInput(form.renewalDate)?.toISOString() : undefined,
         status: form.status,
         notes: form.notes || undefined,
         officeId: officeId || undefined,
@@ -109,9 +110,9 @@ export function ClientAuthorizationsSection({ clientId, officeId }: { clientId: 
       approvedHours: auth.approvedHours ? String(auth.approvedHours) : "",
       usedHours: auth.usedHours ? String(auth.usedHours) : "0",
       frequencyPerWeek: auth.frequencyPerWeek != null ? String(auth.frequencyPerWeek) : "",
-      startDate: new Date(auth.startDate).toISOString().slice(0, 10),
-      endDate: auth.endDate ? new Date(auth.endDate).toISOString().slice(0, 10) : "",
-      renewalDate: auth.renewalDate ? new Date(auth.renewalDate).toISOString().slice(0, 10) : "",
+      startDate: toDateOnlyInputValue(auth.startDate),
+      endDate: auth.endDate ? toDateOnlyInputValue(auth.endDate) : "",
+      renewalDate: auth.renewalDate ? toDateOnlyInputValue(auth.renewalDate) : "",
       status: auth.status || "active",
       notes: auth.notes || "",
     });
@@ -157,8 +158,8 @@ export function ClientAuthorizationsSection({ clientId, officeId }: { clientId: 
                   <TableCell>{mcos.find((m) => m.id === auth.mcoId)?.name || "—"}</TableCell>
                   <TableCell className="text-sm">{auth.usedHours || 0} / {auth.approvedHours || "—"}</TableCell>
                   <TableCell className="text-sm">
-                    {format(new Date(auth.startDate), "MMM d, yyyy")}
-                    {auth.endDate ? ` – ${format(new Date(auth.endDate), "MMM d, yyyy")}` : ""}
+                    {formatDateOnly(auth.startDate, (d) => format(d, "MMM d, yyyy"))}
+                    {auth.endDate ? ` – ${formatDateOnly(auth.endDate, (d) => format(d, "MMM d, yyyy"))}` : ""}
                   </TableCell>
                   <TableCell>
                     <Badge variant={auth.status === "active" ? "default" : "secondary"}>{auth.status}</Badge>

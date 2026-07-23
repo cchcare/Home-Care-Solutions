@@ -1186,6 +1186,7 @@ export const clientSchedules = pgTable("client_schedules", {
   hourlyRate: numeric("hourly_rate", { precision: 10, scale: 2 }),
   totalHours: numeric("total_hours", { precision: 10, scale: 2 }),
   billingAmount: numeric("billing_amount", { precision: 10, scale: 2 }),
+  billed: boolean("billed").default(false),
   includeMileage: boolean("include_mileage").default(false),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
