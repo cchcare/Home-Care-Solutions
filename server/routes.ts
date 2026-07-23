@@ -13,7 +13,8 @@ import multer from "multer";
 import crypto from "crypto";
 import path from "path";
 import fs from "fs";
-import { isS3Enabled, uploadFileToS3, getPresignedUrl, getS3KeyForFile, serveOrRedirectS3File, downloadFileFromS3 } from "./s3Storage";
+import os from "os";
+import { isS3Enabled, uploadFileToS3, uploadBufferToS3, getPresignedUrl, getS3KeyForFile, serveOrRedirectS3File, downloadFileFromS3 } from "./s3Storage";
 import PDFDocument from "pdfkit";
 import {
   insertOfficeSchema,
@@ -141,7 +142,7 @@ import {
 import bcrypt from "bcrypt";
 import { ObjectStorageService, ObjectNotFoundError } from "./objectStorage";
 import { ObjectPermission } from "./objectAcl";
-import { extractPaystubsFromPdf, cleanupPaystubTempFiles, ExtractedPaystubData } from "./ocr-service";
+import { extractCaregiverViaOcrService, extractClientViaOcrService, extractPaystubsViaOcrService } from "./ocrClient";
 import { sendTodaysBirthdayNotifications, getUpcomingBirthdays, getBirthdayNotificationHistory } from "./birthday-service";
 import { 
   queueNotification, 
@@ -187,9 +188,11 @@ function coerceDate(value: string | Date | null | undefined): Date | null | unde
   return undefined;
 }
 
-// Configure multer for HIPAA-compliant file uploads
+// Configure multer for HIPAA-compliant file uploads. Uses memory storage
+// (not disk) so this works under Vercel's stateless/ephemeral filesystem —
+// every route using this buffers straight to S3 via uploadBufferToS3.
 const upload = multer({
-  dest: "uploads/",
+  storage: multer.memoryStorage(),
   limits: {
     fileSize: 10 * 1024 * 1024, // 10MB limit
   },
@@ -218,7 +221,7 @@ const upload = multer({
 
 // Configure multer for audit document uploads (photos, PDF, Excel, Word)
 const auditDocUpload = multer({
-  dest: "uploads/",
+  storage: multer.memoryStorage(),
   limits: { fileSize: 25 * 1024 * 1024 }, // 25 MB
   fileFilter: (_req, file, cb) => {
     const allowedExts = /jpeg|jpg|png|gif|webp|pdf|doc|docx|xls|xlsx/;
@@ -3393,8 +3396,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Generate unique filename
       const timestamp = Date.now();
       const fileName = `employment_verification_${caregiver.id}_${timestamp}.pdf`;
-      const filePath = path.join("uploads", fileName);
-      
+      // Written to the OS temp dir (writable everywhere, incl. Vercel's
+      // read-only filesystem) then persisted to S3 or, for local dev without
+      // S3 configured, copied into the local uploads/ dir below.
+      const filePath = path.join(os.tmpdir(), fileName);
+
       // Create write stream
       const writeStream = fs.createWriteStream(filePath);
       doc.pipe(writeStream);
@@ -3407,7 +3413,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           // Download logo from S3 to a temp file for use in PDFKit
           try {
             const s3Key = getS3KeyForFile(office.logoFileName, "uploads");
-            tempLogoPath = path.join("uploads", `_tmp_logo_${Date.now()}_${office.logoFileName}`);
+            tempLogoPath = path.join(os.tmpdir(), `_tmp_logo_${Date.now()}_${office.logoFileName}`);
             await downloadFileFromS3(s3Key, tempLogoPath);
             logoPath = tempLogoPath;
           } catch {
@@ -3526,13 +3532,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Read file size before potentially uploading to S3
       const fileSize = fs.statSync(filePath).size;
 
-      // Upload to S3 if configured, then remove local temp file
+      // Upload to S3 if configured; otherwise persist into the local
+      // uploads/ dir for dev environments without S3 configured.
       if (isS3Enabled()) {
         const s3Key = getS3KeyForFile(fileName, "uploads");
         await uploadFileToS3(filePath, s3Key, "application/pdf");
-        fs.unlinkSync(filePath);
+      } else {
+        fs.copyFileSync(filePath, path.join("uploads", fileName));
       }
-      
+      fs.unlinkSync(filePath);
+
       // Save document record
       const encryptionKey = crypto.randomBytes(32).toString("hex");
       const document = await storage.createDocument({
@@ -4668,17 +4677,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "No file uploaded" });
       }
 
-      // Upload to S3 if configured
+      const fileName = `${crypto.randomUUID()}${path.extname(req.file.originalname)}`;
+
       if (isS3Enabled()) {
         try {
-          const s3Key = getS3KeyForFile(req.file.filename, "uploads");
-          await uploadFileToS3(req.file.path, s3Key, req.file.mimetype);
-          // Clean up local temp file after S3 upload
-          fs.unlinkSync(req.file.path);
+          const s3Key = getS3KeyForFile(fileName, "uploads");
+          await uploadBufferToS3(req.file.buffer, s3Key, req.file.mimetype);
         } catch (s3Err) {
           console.error("S3 upload failed for document:", s3Err);
           return res.status(500).json({ message: "Failed to store file" });
         }
+      } else {
+        // Local dev fallback when S3 isn't configured
+        fs.writeFileSync(path.join("uploads", fileName), req.file.buffer);
       }
 
       // Generate encryption key for HIPAA compliance
@@ -4719,7 +4730,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         coordinatorId,
         officeId,
         uploadedBy: req.session?.user?.id,
-        fileName: req.file.filename,
+        fileName,
         originalName: req.file.originalname,
         fileType: req.file.mimetype,
         fileSize: req.file.size,
@@ -5876,18 +5887,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const mimetype = allowedImageTypes.test(req.file.mimetype);
       
       if (!mimetype || !extname) {
-        fs.unlinkSync(req.file.path);
         return res.status(400).json({ message: "Only image files (JPEG, PNG, GIF) are allowed" });
       }
-      
+
       // Generate a unique filename
       const uniqueFilename = `profile_${userId}_${Date.now()}${path.extname(req.file.originalname)}`;
 
       if (isS3Enabled()) {
         // Upload directly to S3
         const s3Key = getS3KeyForFile(uniqueFilename, "uploads/profiles");
-        await uploadFileToS3(req.file.path, s3Key, req.file.mimetype);
-        fs.unlinkSync(req.file.path);
+        await uploadBufferToS3(req.file.buffer, s3Key, req.file.mimetype);
       } else {
         // Local storage fallback
         const profilesDir = path.join("uploads", "profiles");
@@ -5895,7 +5904,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           fs.mkdirSync(profilesDir, { recursive: true });
         }
         const newPath = path.join(profilesDir, uniqueFilename);
-        fs.renameSync(req.file.path, newPath);
+        fs.writeFileSync(newPath, req.file.buffer);
       }
       
       // Generate the URL for the profile image
@@ -8824,14 +8833,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       if (!req.file) return res.status(400).json({ message: "No image uploaded" });
 
+      const fileName = `${crypto.randomUUID()}${path.extname(req.file.originalname)}`;
       if (isS3Enabled()) {
-        const s3Key = getS3KeyForFile(req.file.filename, "uploads");
-        await uploadFileToS3(req.file.path, s3Key, req.file.mimetype);
-        fs.unlinkSync(req.file.path);
+        const s3Key = getS3KeyForFile(fileName, "uploads");
+        await uploadBufferToS3(req.file.buffer, s3Key, req.file.mimetype);
+      } else {
+        fs.writeFileSync(path.join("uploads", fileName), req.file.buffer);
       }
 
-      const imageUrl = `/uploads/${req.file.filename}`;
-      res.json({ url: imageUrl, filename: req.file.filename, originalName: req.file.originalname });
+      const imageUrl = `/uploads/${fileName}`;
+      res.json({ url: imageUrl, filename: fileName, originalName: req.file.originalname });
     } catch (error) {
       console.error("Error uploading article image:", error);
       res.status(500).json({ message: "Failed to upload image" });
@@ -8986,35 +8997,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // OCR Document Extraction Routes
-  const { extractCaregiverFromPdf, extractClientFromPdf, extractFromImageFile } = await import("./ocr-service");
+  // OCR Document Extraction Routes — proxied to the standalone ocr-service/
+  // app (see server/ocrClient.ts) since PDF rasterization needs
+  // GraphicsMagick/Ghostscript, which Vercel's serverless runtime can't run.
 
   app.post("/api/ocr/extract-caregiver", isAuthenticated, upload.single("document"), async (req: any, res) => {
     try {
       if (!req.file) {
         return res.status(400).json({ message: "No document uploaded" });
       }
-
-      const filePath = req.file.path;
       const fileType = req.file.mimetype;
-      
-      let extractedData;
-      
-      if (fileType === "application/pdf") {
-        extractedData = await extractCaregiverFromPdf(filePath);
-      } else if (fileType.startsWith("image/")) {
-        extractedData = await extractFromImageFile(filePath, "caregiver");
-      } else {
+      if (fileType !== "application/pdf" && !fileType.startsWith("image/")) {
         return res.status(400).json({ message: "Unsupported file type. Please upload a PDF or image file." });
       }
 
-      // Cleanup uploaded file
-      try {
-        const fs = await import("fs");
-        fs.unlinkSync(filePath);
-      } catch (e) {
-        console.error("Failed to cleanup uploaded file:", e);
-      }
+      const extractedData = await extractCaregiverViaOcrService(req.file.buffer, req.file.originalname, fileType);
 
       await storage.createAuditLog({
         userId: req.session?.user?.id,
@@ -9038,27 +9035,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!req.file) {
         return res.status(400).json({ message: "No document uploaded" });
       }
-
-      const filePath = req.file.path;
       const fileType = req.file.mimetype;
-      
-      let extractedData;
-      
-      if (fileType === "application/pdf") {
-        extractedData = await extractClientFromPdf(filePath);
-      } else if (fileType.startsWith("image/")) {
-        extractedData = await extractFromImageFile(filePath, "client");
-      } else {
+      if (fileType !== "application/pdf" && !fileType.startsWith("image/")) {
         return res.status(400).json({ message: "Unsupported file type. Please upload a PDF or image file." });
       }
 
-      // Cleanup uploaded file
-      try {
-        const fs = await import("fs");
-        fs.unlinkSync(filePath);
-      } catch (e) {
-        console.error("Failed to cleanup uploaded file:", e);
-      }
+      const extractedData = await extractClientViaOcrService(req.file.buffer, req.file.originalname, fileType);
 
       await storage.createAuditLog({
         userId: req.session?.user?.id,
@@ -12534,9 +12516,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
         if (!req.file) return res.status(400).json({ message: "No file uploaded" });
 
+        const fileName = `${crypto.randomUUID()}${path.extname(req.file.originalname)}`;
+        if (isS3Enabled()) {
+          const s3Key = getS3KeyForFile(fileName, "uploads");
+          await uploadBufferToS3(req.file.buffer, s3Key, req.file.mimetype);
+        } else {
+          fs.writeFileSync(path.join("uploads", fileName), req.file.buffer);
+        }
+
         const employeeUserId = await storage.getEmployeeUserId(note.employeeType, note.employeeId);
         const created = await storage.createDocument({
-          fileName: req.file.filename,
+          fileName,
           originalName: req.file.originalname,
           fileType: req.file.mimetype,
           fileSize: req.file.size,
@@ -13702,7 +13692,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // ==================== BULK PAYSTUB UPLOAD ====================
   app.post("/api/bulk-paystub-upload", isAuthenticated, upload.single("file"), async (req: any, res) => {
-    const tempFiles: string[] = [];
     try {
       const userRole = req.session?.user?.role || "caregiver";
       const allowedRoles = ["admin", "super_admin", "supervisor"];
@@ -13716,19 +13705,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const fileExt = path.extname(req.file.originalname).toLowerCase();
       if (fileExt !== ".pdf") {
-        fs.unlinkSync(req.file.path);
         return res.status(400).json({ message: "Only PDF files are supported for paystub extraction" });
       }
 
       const officeId = req.body.officeId;
       if (!officeId) {
-        fs.unlinkSync(req.file.path);
         return res.status(400).json({ message: "Office ID is required" });
       }
 
-      // Extract paystubs from PDF
-      const extractedPages = await extractPaystubsFromPdf(req.file.path);
-      tempFiles.push(...extractedPages.map(p => p.imagePath));
+      // Extract paystubs from PDF via the standalone OCR service
+      const { pages: extractedPages } = await extractPaystubsViaOcrService(
+        req.file.buffer, req.file.originalname, req.file.mimetype,
+      );
 
       // Get all caregivers for matching
       const caregivers = await storage.getAllCaregivers(officeId);
@@ -13854,10 +13842,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
-      // Clean up
-      cleanupPaystubTempFiles(tempFiles);
-      fs.unlinkSync(req.file.path);
-
       const matched = results.filter(r => r.status === "matched").length;
       const unmatched = results.filter(r => r.status === "unmatched").length;
       const notPaystub = results.filter(r => r.status === "not_paystub").length;
@@ -13876,10 +13860,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     } catch (error) {
       console.error("Error processing bulk paystub upload:", error);
-      cleanupPaystubTempFiles(tempFiles);
-      if (req.file && fs.existsSync(req.file.path)) {
-        fs.unlinkSync(req.file.path);
-      }
       res.status(500).json({ message: "Failed to process paystub upload" });
     }
   });
@@ -17133,12 +17113,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         employee, elections: pdfElections, signedName, signedAt, windowName: window.name,
       });
       const filename = `benefits-enrollment-${user.id}-${signedAt.getTime()}.pdf`;
-      const filePath = path.join("uploads", filename);
-      fs.writeFileSync(filePath, pdfBuf);
       if (isS3Enabled()) {
         const s3Key = getS3KeyForFile(filename, "uploads");
-        await uploadFileToS3(filePath, s3Key, "application/pdf");
-        fs.unlinkSync(filePath);
+        await uploadBufferToS3(pdfBuf, s3Key, "application/pdf");
+      } else {
+        fs.writeFileSync(path.join("uploads", filename), pdfBuf);
       }
       const encryptionKey = crypto.randomBytes(32).toString("hex");
       const doc = await storage.createDocument({
@@ -22980,10 +22959,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             const fs = await import("fs");
             const path = await import("path");
             const PDFDocument = (await import("pdfkit")).default;
-            const dir = path.join(process.cwd(), "uploads");
-            fs.mkdirSync(dir, { recursive: true });
             const fileBase = `employee-write-up-${note.id}-${Date.now()}.pdf`;
-            const filePath = path.join(dir, fileBase);
 
             const plainText = String(request.documentContent || "")
               .replace(/<style[\s\S]*?<\/style>/gi, "")
@@ -23001,10 +22977,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
               .replace(/\n{3,}/g, "\n\n")
               .trim();
 
-            await new Promise<void>((resolve, reject) => {
+            const pdfBuf = await new Promise<Buffer>((resolve, reject) => {
               const pdfDoc = new PDFDocument({ size: "LETTER", margin: 50 });
-              const stream = fs.createWriteStream(filePath);
-              pdfDoc.pipe(stream);
+              const chunks: Buffer[] = [];
+              pdfDoc.on("data", (chunk) => chunks.push(chunk));
+              pdfDoc.on("end", () => resolve(Buffer.concat(chunks)));
+              pdfDoc.on("error", reject);
               pdfDoc.fontSize(16).text(`Employee Write-Up — ${String(note.noteType).replace(/_/g, " ")}`, { underline: true });
               pdfDoc.moveDown(0.5);
               pdfDoc.fontSize(10).fillColor("#444")
@@ -23020,17 +22998,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 .text(`Email: ${request.recipientEmail}`)
                 .text(`Date: ${signedAt.toISOString()}`);
               pdfDoc.end();
-              stream.on("finish", () => resolve());
-              stream.on("error", reject);
             });
 
-            const stat = fs.statSync(filePath);
+            if (isS3Enabled()) {
+              const s3Key = getS3KeyForFile(fileBase, "uploads");
+              await uploadBufferToS3(pdfBuf, s3Key, "application/pdf");
+            } else {
+              const dir = path.join(process.cwd(), "uploads");
+              fs.mkdirSync(dir, { recursive: true });
+              fs.writeFileSync(path.join(dir, fileBase), pdfBuf);
+            }
+
             const employeeUserId = await storage.getEmployeeUserId(note.employeeType, note.employeeId);
             const doc = await storage.createDocument({
               fileName: fileBase,
               originalName: `Write-Up (${String(note.noteType).replace(/_/g, " ")}) - signed.pdf`,
               fileType: "application/pdf",
-              fileSize: stat.size,
+              fileSize: pdfBuf.length,
               documentType: "employee_write_up",
               documentCategory: "employee_write_up",
               caregiverId: note.employeeType === "caregiver" ? note.employeeId : null,
@@ -23073,10 +23057,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             const fs = await import("fs");
             const path = await import("path");
             const PDFDocument = (await import("pdfkit")).default;
-            const dir = path.join(process.cwd(), "uploads");
-            fs.mkdirSync(dir, { recursive: true });
             const fileBase = `performance-review-${review.id}-${Date.now()}.pdf`;
-            const filePath = path.join(dir, fileBase);
 
             // Render the e-sign document content + signature footer to PDF.
             const plainText = String(request.documentContent || "")
@@ -23095,10 +23076,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
               .replace(/\n{3,}/g, "\n\n")
               .trim();
 
-            await new Promise<void>((resolve, reject) => {
+            const pdfBuf = await new Promise<Buffer>((resolve, reject) => {
               const pdfDoc = new PDFDocument({ size: "LETTER", margin: 50 });
-              const stream = fs.createWriteStream(filePath);
-              pdfDoc.pipe(stream);
+              const chunks: Buffer[] = [];
+              pdfDoc.on("data", (chunk) => chunks.push(chunk));
+              pdfDoc.on("end", () => resolve(Buffer.concat(chunks)));
+              pdfDoc.on("error", reject);
               pdfDoc.fontSize(16).text(`Performance Review — ${review.reviewType || ""}`, { underline: true });
               pdfDoc.moveDown(0.5);
               pdfDoc.fontSize(10).fillColor("#444")
@@ -23115,11 +23098,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 .text(`Email: ${request.recipientEmail}`)
                 .text(`Date: ${signedAt.toISOString()}`);
               pdfDoc.end();
-              stream.on("finish", () => resolve());
-              stream.on("error", reject);
             });
 
-            const stat = fs.statSync(filePath);
+            if (isS3Enabled()) {
+              const s3Key = getS3KeyForFile(fileBase, "uploads");
+              await uploadBufferToS3(pdfBuf, s3Key, "application/pdf");
+            } else {
+              const dir = path.join(process.cwd(), "uploads");
+              fs.mkdirSync(dir, { recursive: true });
+              fs.writeFileSync(path.join(dir, fileBase), pdfBuf);
+            }
+
             const caregiver = review.caregiverId ? await storage.getCaregiver(review.caregiverId) : null;
             const reviewedUser = review.userId ? await storage.getUser(review.userId) : null;
             const signerUserId = review.userId || caregiver?.userId || null;
@@ -23127,7 +23116,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               fileName: fileBase,
               originalName: `Performance Review (${review.reviewType}) - signed.pdf`,
               fileType: "application/pdf",
-              fileSize: stat.size,
+              fileSize: pdfBuf.length,
               documentType: "performance_review",
               documentCategory: "performance_review",
               caregiverId: review.caregiverId ?? null,
@@ -24573,21 +24562,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!req.file) return res.status(400).json({ message: "No file uploaded" });
       const auditId = req.params.id;
 
-      // S3 upload if configured
+      const fileName = `${crypto.randomUUID()}${path.extname(req.file.originalname)}`;
       if (isS3Enabled()) {
         try {
-          const s3Key = getS3KeyForFile(req.file.filename, "uploads");
-          await uploadFileToS3(req.file.path, s3Key, req.file.mimetype);
-          fs.unlinkSync(req.file.path);
+          const s3Key = getS3KeyForFile(fileName, "uploads");
+          await uploadBufferToS3(req.file.buffer, s3Key, req.file.mimetype);
         } catch (s3Err) {
           console.error("S3 upload failed for audit doc:", s3Err);
           return res.status(500).json({ message: "Failed to store file" });
         }
+      } else {
+        fs.writeFileSync(path.join("uploads", fileName), req.file.buffer);
       }
 
       const doc = await storage.createDohAuditDocument({
         auditId,
-        fileName: req.file.filename,
+        fileName,
         originalName: req.file.originalname,
         mimeType: req.file.mimetype,
         fileSize: req.file.size,
@@ -24808,7 +24798,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ─── Policy Documents ───────────────────────────────────────────────────────
-  const policyUpload = multer({ dest: "uploads/policies/", limits: { fileSize: 25 * 1024 * 1024 } });
+  const policyUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
   app.get("/api/policy-documents", isAuthenticated, async (req: any, res) => {
     try {
       if (!req.query.officeId) return res.status(400).json({ message: "officeId is required" });
@@ -24834,11 +24824,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!(await canAccessOffice(req, officeId))) {
         return res.status(403).json({ message: "Office is outside your scope" });
       }
+      let fileUrl: string | null = null;
+      if (req.file) {
+        const storedName = `${crypto.randomUUID()}${path.extname(req.file.originalname)}`;
+        if (isS3Enabled()) {
+          const s3Key = getS3KeyForFile(storedName, "uploads/policies");
+          await uploadBufferToS3(req.file.buffer, s3Key, req.file.mimetype);
+        } else {
+          const policiesDir = path.join("uploads", "policies");
+          if (!fs.existsSync(policiesDir)) fs.mkdirSync(policiesDir, { recursive: true });
+          fs.writeFileSync(path.join(policiesDir, storedName), req.file.buffer);
+        }
+        fileUrl = `/uploads/policies/${storedName}`;
+      }
       const doc = await storage.createPolicyDocument({
         title, category, version: version || "1.0",
         effectiveDate: effectiveDate || null, reviewDate: reviewDate || null,
         content: content || null,
-        fileUrl: req.file ? `/uploads/policies/${req.file.filename}` : null,
+        fileUrl,
         fileName: req.file ? req.file.originalname : null,
         officeId, requiresAcknowledgment: requiresAcknowledgment !== "false",
         acknowledgmentDueDays: parseInt(acknowledgmentDueDays) || 7,

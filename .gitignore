@@ -5,3 +5,7 @@ server/public
 vite.config.ts.*
 *.tar.gz
 uploads/
+.vercel
+.env
+ocr-service/dist
+ocr-service/node_modules

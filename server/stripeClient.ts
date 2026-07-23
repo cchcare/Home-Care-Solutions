@@ -1,9 +1,12 @@
-// Stripe Client - Integration with Replit Stripe connector
+// Stripe Client - reads credentials directly from env vars (Vercel/any host).
+// Falls back to Replit's connector API only when running inside a Repl that
+// hasn't been given STRIPE_SECRET_KEY/STRIPE_PUBLISHABLE_KEY directly, so
+// existing Replit dev environments keep working unchanged.
 import Stripe from 'stripe';
 
 let connectionSettings: any;
 
-async function getCredentials() {
+async function getCredentialsFromReplitConnector() {
   const hostname = process.env.REPLIT_CONNECTORS_HOSTNAME;
   const xReplitToken = process.env.REPL_IDENTITY
     ? 'repl ' + process.env.REPL_IDENTITY
@@ -42,6 +45,16 @@ async function getCredentials() {
     publishableKey: connectionSettings.settings.publishable,
     secretKey: connectionSettings.settings.secret,
   };
+}
+
+async function getCredentials() {
+  if (process.env.STRIPE_SECRET_KEY) {
+    return {
+      publishableKey: process.env.STRIPE_PUBLISHABLE_KEY || '',
+      secretKey: process.env.STRIPE_SECRET_KEY,
+    };
+  }
+  return getCredentialsFromReplitConnector();
 }
 
 export async function getUncachableStripeClient() {
