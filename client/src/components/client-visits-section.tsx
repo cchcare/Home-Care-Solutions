@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { Link } from "wouter";
 import { format } from "date-fns";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -68,7 +69,17 @@ export function ClientVisitsSection({ clientId }: { clientId: string }) {
                 <TableRow key={visit.id} data-testid={`row-visit-${visit.id}`}>
                   <TableCell>{format(new Date(visit.scheduledDate), "MMM d, yyyy")}</TableCell>
                   <TableCell className="text-sm">S: {visit.startTime} – {visit.endTime}</TableCell>
-                  <TableCell>{caregiverName(visit.caregiverId)}</TableCell>
+                  <TableCell>
+                    {visit.caregiverId ? (
+                      <Link href={`/caregivers/${visit.caregiverId}`}>
+                        <span className="hover:text-primary hover:underline cursor-pointer" data-testid={`link-visit-caregiver-${visit.id}`}>
+                          {caregiverName(visit.caregiverId)}
+                        </span>
+                      </Link>
+                    ) : (
+                      caregiverName(visit.caregiverId)
+                    )}
+                  </TableCell>
                   <TableCell className="text-sm capitalize">{visit.serviceType?.replace(/_/g, " ") || "N/A"}</TableCell>
                   <TableCell>{visit.totalHours || "—"}</TableCell>
                   <TableCell>

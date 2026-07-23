@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Card,
@@ -110,7 +111,7 @@ export function ClientScheduling({ client }: ClientSchedulingProps) {
 
   const getCaregiverName = (caregiverId: string | null) => {
     const caregiver = caregivers.find(c => c.id === caregiverId);
-    return caregiver ? `${caregiver.userId || 'Caregiver'}` : 'Unassigned';
+    return caregiver ? `${caregiver.firstName} ${caregiver.lastName}` : 'Unassigned';
   };
 
   return (
@@ -162,9 +163,17 @@ export function ClientScheduling({ client }: ClientSchedulingProps) {
                         </div>
                         <div className="flex items-center space-x-2">
                           <User className="w-4 h-4 text-muted-foreground" />
-                          <span className="text-sm text-muted-foreground">
-                            {getCaregiverName(schedule.caregiverId)}
-                          </span>
+                          {schedule.caregiverId ? (
+                            <Link href={`/caregivers/${schedule.caregiverId}`}>
+                              <span className="text-sm text-muted-foreground hover:text-primary hover:underline cursor-pointer" data-testid={`link-schedule-caregiver-${schedule.id}`}>
+                                {getCaregiverName(schedule.caregiverId)}
+                              </span>
+                            </Link>
+                          ) : (
+                            <span className="text-sm text-muted-foreground">
+                              {getCaregiverName(schedule.caregiverId)}
+                            </span>
+                          )}
                         </div>
                         {schedule.serviceType && (
                           <div className="text-sm">

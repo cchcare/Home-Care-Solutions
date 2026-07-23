@@ -343,6 +343,12 @@ export default function CaregiverProfile() {
     enabled: !!caregiverId,
   });
 
+  const getClientName = (clientId?: string | null) => {
+    if (!clientId) return null;
+    const client = allClients.find((c) => c.id === clientId);
+    return client ? `${client.firstName} ${client.lastName}` : null;
+  };
+
   const { data: exclusionChecks = [], isLoading: exclusionLoading } = useQuery<any[]>({
     queryKey: ["/api/exclusions/caregiver", caregiverId],
     queryFn: () => fetch(`/api/exclusions/caregiver/${caregiverId}`).then(r => r.json()),
@@ -1563,24 +1569,39 @@ export default function CaregiverProfile() {
                                 {format(day, "d")}
                               </div>
                               <div className="space-y-0.5 mt-1">
-                                {daySchedules.slice(0, 2).map((schedule) => (
-                                  <div
-                                    key={schedule.id}
-                                    className="text-xs p-1 rounded bg-primary/10 text-primary truncate leading-tight"
-                                    title={
-                                      schedule.clockInTime && schedule.clockOutTime
-                                        ? `Scheduled ${schedule.startTime}–${schedule.endTime} · Confirmed ${format(new Date(schedule.clockInTime), "HH:mm")}–${format(new Date(schedule.clockOutTime), "HH:mm")}`
-                                        : `Scheduled ${schedule.startTime}–${schedule.endTime}`
-                                    }
-                                  >
-                                    <div>S: {schedule.startTime}-{schedule.endTime}</div>
-                                    {schedule.clockInTime && schedule.clockOutTime && (
-                                      <div className="text-green-700 dark:text-green-400">
-                                        C: {format(new Date(schedule.clockInTime), "HH:mm")}-{format(new Date(schedule.clockOutTime), "HH:mm")}
-                                      </div>
-                                    )}
-                                  </div>
-                                ))}
+                                {daySchedules.slice(0, 2).map((schedule) => {
+                                  const clientName = getClientName(schedule.clientId);
+                                  return (
+                                    <div
+                                      key={schedule.id}
+                                      className="text-xs p-1 rounded bg-primary/10 text-primary truncate leading-tight"
+                                      title={
+                                        schedule.clockInTime && schedule.clockOutTime
+                                          ? `Scheduled ${schedule.startTime}–${schedule.endTime} · Confirmed ${format(new Date(schedule.clockInTime), "HH:mm")}–${format(new Date(schedule.clockOutTime), "HH:mm")}${clientName ? ` (${clientName})` : ''}`
+                                          : `Scheduled ${schedule.startTime}–${schedule.endTime}${clientName ? ` (${clientName})` : ''}`
+                                      }
+                                    >
+                                      <div>S: {schedule.startTime}-{schedule.endTime}</div>
+                                      {schedule.clockInTime && schedule.clockOutTime && (
+                                        <div className="text-green-700 dark:text-green-400">
+                                          C: {format(new Date(schedule.clockInTime), "HH:mm")}-{format(new Date(schedule.clockOutTime), "HH:mm")}
+                                        </div>
+                                      )}
+                                      {clientName && schedule.clientId && (
+                                        <div
+                                          className="text-muted-foreground truncate hover:text-primary hover:underline"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            navigate(`/clients/${schedule.clientId}`);
+                                          }}
+                                          data-testid={`link-schedule-client-${schedule.id}`}
+                                        >
+                                          {clientName}
+                                        </div>
+                                      )}
+                                    </div>
+                                  );
+                                })}
                                 {daySchedules.length > 2 && (
                                   <div className="text-xs text-muted-foreground">+{daySchedules.length - 2} more</div>
                                 )}
@@ -1611,6 +1632,7 @@ export default function CaregiverProfile() {
                           <TableHeader>
                             <TableRow>
                               <TableHead>Date</TableHead>
+                              <TableHead>Client</TableHead>
                               <TableHead>S: Scheduled</TableHead>
                               <TableHead>Status</TableHead>
                               <TableHead>C: Confirmed</TableHead>
@@ -1620,6 +1642,17 @@ export default function CaregiverProfile() {
                             {schedules.slice(0, 20).map((schedule) => (
                               <TableRow key={schedule.id} data-testid={`row-visit-${schedule.id}`}>
                                 <TableCell>{formatDateOnly(schedule.scheduledDate, (d) => format(d, "MMM d, yyyy"))}</TableCell>
+                                <TableCell>
+                                  {schedule.clientId ? (
+                                    <Link href={`/clients/${schedule.clientId}`}>
+                                      <span className="hover:text-primary hover:underline cursor-pointer" data-testid={`link-visit-client-${schedule.id}`}>
+                                        {getClientName(schedule.clientId) || "Unknown"}
+                                      </span>
+                                    </Link>
+                                  ) : (
+                                    <span className="text-muted-foreground">Unassigned</span>
+                                  )}
+                                </TableCell>
                                 <TableCell>S: {schedule.startTime} - {schedule.endTime}</TableCell>
                                 <TableCell>
                                   <Badge variant={

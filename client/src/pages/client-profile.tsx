@@ -920,12 +920,12 @@ export default function ClientProfile() {
     const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
       id: schedule.id,
     });
-    
+
     const style = {
       transform: CSS.Translate.toString(transform),
       opacity: isDragging ? 0.5 : 1,
     };
-    
+
     return (
       <div
         ref={setNodeRef}
@@ -937,8 +937,18 @@ export default function ClientProfile() {
         data-testid={`draggable-schedule-${schedule.id}`}
       >
         <div>S: {schedule.startTime}</div>
-        {caregiverName && (
-          <div className="text-[10px] text-muted-foreground truncate">{caregiverName}</div>
+        {caregiverName && schedule.caregiverId && (
+          <div
+            className="text-[10px] text-muted-foreground truncate hover:text-primary hover:underline"
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              navigate(`/caregivers/${schedule.caregiverId}`);
+            }}
+            data-testid={`link-schedule-caregiver-${schedule.id}`}
+          >
+            {caregiverName}
+          </div>
         )}
       </div>
     );
