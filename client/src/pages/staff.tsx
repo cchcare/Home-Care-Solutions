@@ -9,6 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Search, Users } from "lucide-react";
 import { Link } from "wouter";
 import { Sidebar } from "@/components/sidebar";
+import { TopBar } from "@/components/topbar";
 import { EmptyState } from "@/components/ui/empty-state";
 
 type StaffRow = {
@@ -60,9 +61,11 @@ export default function Staff() {
   }), [staff]);
 
   return (
-    <div className="flex min-h-screen">
+    <div className="flex h-screen overflow-hidden">
       <Sidebar />
-      <div className="flex-1 space-y-4 p-4 md:p-6 overflow-auto" data-testid="page-staff">
+      <main className="flex-1 flex flex-col overflow-hidden">
+        <TopBar title="Staff" subtitle="Internal office staff directory" />
+        <div className="flex-1 overflow-auto space-y-4 p-4 md:p-6" data-testid="page-staff">
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div className="flex items-center gap-2">
           <Users className="h-6 w-6" />
@@ -120,8 +123,8 @@ export default function Staff() {
       <Card>
         <CardContent className="p-0">
           <Table>
-            <TableHeader>
-              <TableRow>
+            <TableHeader sticky>
+              <TableRow className="hover:bg-transparent">
                 <TableHead>Name</TableHead>
                 <TableHead>Title</TableHead>
                 <TableHead>Department</TableHead>
@@ -185,7 +188,8 @@ export default function Staff() {
           </Table>
         </CardContent>
       </Card>
-      </div>
+        </div>
+      </main>
     </div>
   );
 }
