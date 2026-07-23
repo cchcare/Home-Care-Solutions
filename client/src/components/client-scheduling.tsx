@@ -33,6 +33,7 @@ import type {
 } from "@shared/schema";
 import { MasterWeekTemplateModal } from "./master-week-template-modal";
 import { ClientScheduleModal } from "./client-schedule-modal";
+import { dateOnlyToLocalDate } from "@/lib/dateOnly";
 
 interface ClientSchedulingProps {
   client: Client;
@@ -153,10 +154,10 @@ export function ClientScheduling({ client }: ClientSchedulingProps) {
                       <div className="space-y-2">
                         <div className="flex items-center space-x-4">
                           <Badge variant="outline">
-                            {new Date(schedule.scheduledDate).toLocaleDateString('en-US', { weekday: 'long' })}
+                            {dateOnlyToLocalDate(schedule.scheduledDate)?.toLocaleDateString('en-US', { weekday: 'long' })}
                           </Badge>
                           <span className="font-medium">
-                            {formatTime(schedule.startTime)} - {formatTime(schedule.endTime)}
+                            S: {formatTime(schedule.startTime)} - {formatTime(schedule.endTime)}
                           </span>
                         </div>
                         <div className="flex items-center space-x-2">

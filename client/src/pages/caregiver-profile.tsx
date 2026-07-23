@@ -1559,9 +1559,19 @@ export default function CaregiverProfile() {
                                 {daySchedules.slice(0, 2).map((schedule) => (
                                   <div
                                     key={schedule.id}
-                                    className="text-xs p-1 rounded bg-primary/10 text-primary truncate"
+                                    className="text-xs p-1 rounded bg-primary/10 text-primary truncate leading-tight"
+                                    title={
+                                      schedule.clockInTime && schedule.clockOutTime
+                                        ? `Scheduled ${schedule.startTime}–${schedule.endTime} · Confirmed ${format(new Date(schedule.clockInTime), "HH:mm")}–${format(new Date(schedule.clockOutTime), "HH:mm")}`
+                                        : `Scheduled ${schedule.startTime}–${schedule.endTime}`
+                                    }
                                   >
-                                    {schedule.startTime} - {schedule.endTime}
+                                    <div>S: {schedule.startTime}-{schedule.endTime}</div>
+                                    {schedule.clockInTime && schedule.clockOutTime && (
+                                      <div className="text-green-700 dark:text-green-400">
+                                        C: {format(new Date(schedule.clockInTime), "HH:mm")}-{format(new Date(schedule.clockOutTime), "HH:mm")}
+                                      </div>
+                                    )}
                                   </div>
                                 ))}
                                 {daySchedules.length > 2 && (
@@ -1594,16 +1604,16 @@ export default function CaregiverProfile() {
                           <TableHeader>
                             <TableRow>
                               <TableHead>Date</TableHead>
-                              <TableHead>Time</TableHead>
+                              <TableHead>S: Scheduled</TableHead>
                               <TableHead>Status</TableHead>
-                              <TableHead>Clock In/Out</TableHead>
+                              <TableHead>C: Confirmed</TableHead>
                             </TableRow>
                           </TableHeader>
                           <TableBody>
                             {schedules.slice(0, 20).map((schedule) => (
                               <TableRow key={schedule.id} data-testid={`row-visit-${schedule.id}`}>
                                 <TableCell>{formatDateOnly(schedule.scheduledDate, (d) => format(d, "MMM d, yyyy"))}</TableCell>
-                                <TableCell>{schedule.startTime} - {schedule.endTime}</TableCell>
+                                <TableCell>S: {schedule.startTime} - {schedule.endTime}</TableCell>
                                 <TableCell>
                                   <Badge variant={
                                     schedule.status === "completed" ? "default" :
@@ -1615,11 +1625,11 @@ export default function CaregiverProfile() {
                                 </TableCell>
                                 <TableCell>
                                   {schedule.clockInTime && schedule.clockOutTime ? (
-                                    <span className="text-sm">
-                                      {format(new Date(schedule.clockInTime), "HH:mm")} - {format(new Date(schedule.clockOutTime), "HH:mm")}
+                                    <span className="text-sm text-green-700 dark:text-green-400">
+                                      C: {format(new Date(schedule.clockInTime), "HH:mm")} - {format(new Date(schedule.clockOutTime), "HH:mm")}
                                     </span>
                                   ) : schedule.clockInTime ? (
-                                    <span className="text-sm">{format(new Date(schedule.clockInTime), "HH:mm")} - Pending</span>
+                                    <span className="text-sm text-green-700 dark:text-green-400">C: {format(new Date(schedule.clockInTime), "HH:mm")} - Pending</span>
                                   ) : (
                                     <span className="text-muted-foreground text-sm">Not clocked</span>
                                   )}

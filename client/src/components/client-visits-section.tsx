@@ -55,7 +55,7 @@ export function ClientVisitsSection({ clientId }: { clientId: string }) {
             <TableHeader>
               <TableRow>
                 <TableHead>Date</TableHead>
-                <TableHead>Time</TableHead>
+                <TableHead>S: Scheduled</TableHead>
                 <TableHead>Caregiver</TableHead>
                 <TableHead>Service Type</TableHead>
                 <TableHead>Hours</TableHead>
@@ -67,7 +67,7 @@ export function ClientVisitsSection({ clientId }: { clientId: string }) {
               {sorted.map((visit) => (
                 <TableRow key={visit.id} data-testid={`row-visit-${visit.id}`}>
                   <TableCell>{format(new Date(visit.scheduledDate), "MMM d, yyyy")}</TableCell>
-                  <TableCell className="text-sm">{visit.startTime} – {visit.endTime}</TableCell>
+                  <TableCell className="text-sm">S: {visit.startTime} – {visit.endTime}</TableCell>
                   <TableCell>{caregiverName(visit.caregiverId)}</TableCell>
                   <TableCell className="text-sm capitalize">{visit.serviceType?.replace(/_/g, " ") || "N/A"}</TableCell>
                   <TableCell>{visit.totalHours || "—"}</TableCell>

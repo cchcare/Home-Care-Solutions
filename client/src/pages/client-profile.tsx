@@ -931,10 +931,10 @@ export default function ClientProfile() {
         {...listeners}
         {...attributes}
         className="text-xs p-1 bg-primary/20 rounded truncate cursor-grab active:cursor-grabbing hover:bg-primary/30 transition-colors"
-        title={`${schedule.startTime} - ${schedule.endTime}${caregiverName ? ` (${caregiverName})` : ''} - Drag to move`}
+        title={`Scheduled ${schedule.startTime} - ${schedule.endTime}${caregiverName ? ` (${caregiverName})` : ''} - Drag to move`}
         data-testid={`draggable-schedule-${schedule.id}`}
       >
-        <div>{schedule.startTime}</div>
+        <div>S: {schedule.startTime}</div>
         {caregiverName && (
           <div className="text-[10px] text-muted-foreground truncate">{caregiverName}</div>
         )}
