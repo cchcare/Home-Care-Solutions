@@ -171,9 +171,11 @@ import { CaregiverExpensesSection } from "@/components/caregiver-expenses-sectio
 import { CaregiverInServicesSection } from "@/components/caregiver-in-services-section";
 import { CaregiverOfficeMovesSection } from "@/components/caregiver-office-moves-section";
 import { CaregiverPayrollInfoSection } from "@/components/caregiver-payroll-info-section";
+import { CoordinatorHistorySection } from "@/components/coordinator-history-section";
 
 const CAREGIVER_MENU_ITEMS = [
   { id: "profile", label: "Profile", icon: User },
+  { id: "coordinators", label: "Coordinators", icon: Users },
   { id: "compliance", label: "Compliance", icon: Shield },
   { id: "exclusion", label: "Exclusion Check", icon: AlertTriangle },
   { id: "calendar", label: "Calendar", icon: Calendar },
@@ -341,6 +343,12 @@ export default function CaregiverProfile() {
     enabled: !!caregiverId,
   });
 
+  const getClientName = (clientId?: string | null) => {
+    if (!clientId) return null;
+    const client = allClients.find((c) => c.id === clientId);
+    return client ? `${client.firstName} ${client.lastName}` : null;
+  };
+
   const { data: exclusionChecks = [], isLoading: exclusionLoading } = useQuery<any[]>({
     queryKey: ["/api/exclusions/caregiver", caregiverId],
     queryFn: () => fetch(`/api/exclusions/caregiver/${caregiverId}`).then(r => r.json()),
@@ -439,8 +447,8 @@ export default function CaregiverProfile() {
       setIsEditing(false);
       toast({ title: "Success", description: "Caregiver updated successfully" });
     },
-    onError: () => {
-      toast({ title: "Error", description: "Failed to update caregiver", variant: "destructive" });
+    onError: (error: any) => {
+      toast({ title: "Failed to update caregiver", description: error?.message || "Please try again", variant: "destructive" });
     },
   });
 
@@ -721,6 +729,7 @@ export default function CaregiverProfile() {
         hhaxCaregiverCode: caregiver.hhaxCaregiverCode || "",
         npi: caregiver.npi || "",
         adpCode: caregiver.adpCode || "",
+        coordinatorId: caregiver.coordinatorId || null,
       });
       setIsEditing(true);
     }
@@ -1085,18 +1094,12 @@ export default function CaregiverProfile() {
                             </div>
                           </>
                         )}
-                        <div className="space-y-1">
-                          <Label className="text-muted-foreground text-sm">County</Label>
-                          {isEditing ? (
-                            <Input
-                              value={editFormData.county || ""}
-                              onChange={(e) => setEditFormData({ ...editFormData, county: e.target.value })}
-                              data-testid="input-county"
-                            />
-                          ) : (
+                        {!isEditing && (
+                          <div className="space-y-1">
+                            <Label className="text-muted-foreground text-sm">County</Label>
                             <p className="font-medium" data-testid="text-county">{caregiver.county || "N/A"}</p>
-                          )}
-                        </div>
+                          </div>
+                        )}
                         <div className="space-y-1">
                           <Label className="text-muted-foreground text-sm">HHAX ID</Label>
                           {isEditing ? (
@@ -1256,6 +1259,10 @@ export default function CaregiverProfile() {
                     </CardContent>
                   </Card>
                 </div>
+              )}
+
+              {activeSection === "coordinators" && caregiverId && (
+                <CoordinatorHistorySection entityType="caregiver" entityId={caregiverId} />
               )}
 
               {activeSection === "compliance" && (
@@ -1556,14 +1563,39 @@ export default function CaregiverProfile() {
                                 {format(day, "d")}
                               </div>
                               <div className="space-y-0.5 mt-1">
-                                {daySchedules.slice(0, 2).map((schedule) => (
-                                  <div
-                                    key={schedule.id}
-                                    className="text-xs p-1 rounded bg-primary/10 text-primary truncate"
-                                  >
-                                    {schedule.startTime} - {schedule.endTime}
-                                  </div>
-                                ))}
+                                {daySchedules.slice(0, 2).map((schedule) => {
+                                  const clientName = getClientName(schedule.clientId);
+                                  return (
+                                    <div
+                                      key={schedule.id}
+                                      className="text-xs p-1 rounded bg-primary/10 text-primary truncate leading-tight"
+                                      title={
+                                        schedule.clockInTime && schedule.clockOutTime
+                                          ? `Scheduled ${schedule.startTime}–${schedule.endTime} · Confirmed ${format(new Date(schedule.clockInTime), "HH:mm")}–${format(new Date(schedule.clockOutTime), "HH:mm")}${clientName ? ` (${clientName})` : ''}`
+                                          : `Scheduled ${schedule.startTime}–${schedule.endTime}${clientName ? ` (${clientName})` : ''}`
+                                      }
+                                    >
+                                      <div>S: {schedule.startTime}-{schedule.endTime}</div>
+                                      {schedule.clockInTime && schedule.clockOutTime && (
+                                        <div className="text-green-700 dark:text-green-400">
+                                          C: {format(new Date(schedule.clockInTime), "HH:mm")}-{format(new Date(schedule.clockOutTime), "HH:mm")}
+                                        </div>
+                                      )}
+                                      {clientName && schedule.clientId && (
+                                        <div
+                                          className="text-muted-foreground truncate hover:text-primary hover:underline"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            navigate(`/clients/${schedule.clientId}`);
+                                          }}
+                                          data-testid={`link-schedule-client-${schedule.id}`}
+                                        >
+                                          {clientName}
+                                        </div>
+                                      )}
+                                    </div>
+                                  );
+                                })}
                                 {daySchedules.length > 2 && (
                                   <div className="text-xs text-muted-foreground">+{daySchedules.length - 2} more</div>
                                 )}
@@ -1594,16 +1626,28 @@ export default function CaregiverProfile() {
                           <TableHeader>
                             <TableRow>
                               <TableHead>Date</TableHead>
-                              <TableHead>Time</TableHead>
+                              <TableHead>Client</TableHead>
+                              <TableHead>S: Scheduled</TableHead>
                               <TableHead>Status</TableHead>
-                              <TableHead>Clock In/Out</TableHead>
+                              <TableHead>C: Confirmed</TableHead>
                             </TableRow>
                           </TableHeader>
                           <TableBody>
                             {schedules.slice(0, 20).map((schedule) => (
                               <TableRow key={schedule.id} data-testid={`row-visit-${schedule.id}`}>
                                 <TableCell>{formatDateOnly(schedule.scheduledDate, (d) => format(d, "MMM d, yyyy"))}</TableCell>
-                                <TableCell>{schedule.startTime} - {schedule.endTime}</TableCell>
+                                <TableCell>
+                                  {schedule.clientId ? (
+                                    <Link href={`/clients/${schedule.clientId}`}>
+                                      <span className="hover:text-primary hover:underline cursor-pointer" data-testid={`link-visit-client-${schedule.id}`}>
+                                        {getClientName(schedule.clientId) || "Unknown"}
+                                      </span>
+                                    </Link>
+                                  ) : (
+                                    <span className="text-muted-foreground">Unassigned</span>
+                                  )}
+                                </TableCell>
+                                <TableCell>S: {schedule.startTime} - {schedule.endTime}</TableCell>
                                 <TableCell>
                                   <Badge variant={
                                     schedule.status === "completed" ? "default" :
@@ -1615,11 +1659,11 @@ export default function CaregiverProfile() {
                                 </TableCell>
                                 <TableCell>
                                   {schedule.clockInTime && schedule.clockOutTime ? (
-                                    <span className="text-sm">
-                                      {format(new Date(schedule.clockInTime), "HH:mm")} - {format(new Date(schedule.clockOutTime), "HH:mm")}
+                                    <span className="text-sm text-green-700 dark:text-green-400">
+                                      C: {format(new Date(schedule.clockInTime), "HH:mm")} - {format(new Date(schedule.clockOutTime), "HH:mm")}
                                     </span>
                                   ) : schedule.clockInTime ? (
-                                    <span className="text-sm">{format(new Date(schedule.clockInTime), "HH:mm")} - Pending</span>
+                                    <span className="text-sm text-green-700 dark:text-green-400">C: {format(new Date(schedule.clockInTime), "HH:mm")} - Pending</span>
                                   ) : (
                                     <span className="text-muted-foreground text-sm">Not clocked</span>
                                   )}

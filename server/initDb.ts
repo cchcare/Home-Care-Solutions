@@ -1062,6 +1062,160 @@ export async function ensureVisitLogBilledSchema() {
   }
 }
 
+// Client/caregiver coordinator history: lets a client or caregiver have more
+// than one coordinator over time (start/end dates), mirroring client_mcos.
+let coordinatorHistorySchemaReady = false;
+export async function ensureCoordinatorHistorySchema() {
+  if (coordinatorHistorySchemaReady) return;
+  const client = await pool.connect();
+  try {
+    const ready = await client.query(`
+      SELECT EXISTS (
+        SELECT 1 FROM information_schema.tables WHERE table_name = 'coordinator_history_init_marker'
+      ) AS marker_exists;
+    `);
+    if (ready.rows[0]?.marker_exists) {
+      coordinatorHistorySchemaReady = true;
+      return;
+    }
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS client_coordinators (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        client_id varchar NOT NULL REFERENCES clients(id),
+        coordinator_id varchar NOT NULL REFERENCES coordinators(id),
+        start_date timestamp NOT NULL,
+        end_date timestamp,
+        is_primary boolean DEFAULT false,
+        status varchar DEFAULT 'active',
+        notes text,
+        created_at timestamp DEFAULT NOW(),
+        updated_at timestamp DEFAULT NOW()
+      );
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_client_coordinators_client ON client_coordinators (client_id);`);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS caregiver_coordinators (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        caregiver_id varchar NOT NULL REFERENCES caregivers(id),
+        coordinator_id varchar NOT NULL REFERENCES coordinators(id),
+        start_date timestamp NOT NULL,
+        end_date timestamp,
+        is_primary boolean DEFAULT false,
+        status varchar DEFAULT 'active',
+        notes text,
+        created_at timestamp DEFAULT NOW(),
+        updated_at timestamp DEFAULT NOW()
+      );
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_caregiver_coordinators_caregiver ON caregiver_coordinators (caregiver_id);`);
+
+    await client.query(`CREATE TABLE IF NOT EXISTS coordinator_history_init_marker (initialized_at timestamp DEFAULT NOW());`);
+    coordinatorHistorySchemaReady = true;
+    console.log("[Init] coordinator history schema (client_coordinators, caregiver_coordinators) ensured.");
+  } catch (err) {
+    console.error("[Init] ensureCoordinatorHistorySchema failed (non-fatal):", err);
+  } finally {
+    client.release();
+  }
+}
+
+// storage.upsertUser() does ON CONFLICT (email), which Postgres rejects
+// outright — for every call, not just actual conflicts — unless a real
+// unique constraint exists on the column. That constraint was never present
+// in any migration or in this schema, so upsertUser() (used by new-company
+// signup, caregiver creation, etc.) has always errored with "no unique or
+// exclusion constraint matching the ON CONFLICT specification". This adds it.
+let usersEmailUniqueSchemaReady = false;
+export async function ensureUsersEmailUniqueConstraint() {
+  if (usersEmailUniqueSchemaReady) return;
+  const client = await pool.connect();
+  try {
+    const existing = await client.query(`
+      SELECT 1 FROM pg_constraint WHERE conname = 'users_email_unique';
+    `);
+    if ((existing.rowCount ?? 0) > 0) {
+      usersEmailUniqueSchemaReady = true;
+      return;
+    }
+
+    // Postgres treats every NULL as distinct under a UNIQUE constraint, so
+    // only non-null duplicates would block adding it. If any exist, skip for
+    // now (non-fatal) rather than fail the boot — this will self-heal on a
+    // later boot once the duplicates are resolved.
+    const dupes = await client.query(`
+      SELECT email FROM users WHERE email IS NOT NULL GROUP BY email HAVING count(*) > 1;
+    `);
+    if ((dupes.rowCount ?? 0) > 0) {
+      console.error(
+        `[Init] Skipping users.email unique constraint: ${dupes.rowCount} duplicate email(s) found ` +
+        `(${dupes.rows.map(r => r.email).join(', ')}). Resolve the duplicates, then this self-heals on the next boot.`
+      );
+      return;
+    }
+
+    await client.query(`ALTER TABLE users ADD CONSTRAINT users_email_unique UNIQUE (email);`);
+    usersEmailUniqueSchemaReady = true;
+    console.log("[Init] users.email unique constraint ensured.");
+  } catch (err) {
+    console.error("[Init] ensureUsersEmailUniqueConstraint failed (non-fatal):", err);
+  } finally {
+    client.release();
+  }
+}
+
+// Adds the 'platform_support' value to the existing "role" enum, for the
+// platform-admin (SaaS backoffice) feature. ADD VALUE IF NOT EXISTS is safe
+// to run repeatedly and, unlike CREATE TYPE, is not a duplicate_object error
+// case — it silently no-ops if the value already exists.
+let platformSupportRoleReady = false;
+export async function ensurePlatformSupportRole() {
+  if (platformSupportRoleReady) return;
+  const client = await pool.connect();
+  try {
+    await client.query(`ALTER TYPE role ADD VALUE IF NOT EXISTS 'platform_support';`);
+    platformSupportRoleReady = true;
+  } catch (err) {
+    console.error("[Init] ensurePlatformSupportRole failed (non-fatal):", err);
+  } finally {
+    client.release();
+  }
+}
+
+// Runs every ensure*Schema() self-heal function above. BOTH entry points —
+// server/index.ts (persistent server, used locally/Replit) and api/index.ts
+// (Vercel's serverless function) — must call this on every boot. A new
+// ensure*Schema() added to only one of them would silently never create its
+// schema wherever the other entry point is what's actually serving requests,
+// exactly as happened when api/index.ts was added for the Vercel migration
+// without picking up any of the ensure*Schema calls already in server/index.ts.
+export async function runAllSchemaSelfHeals() {
+  const heals: Array<[string, () => Promise<void>]> = [
+    ["ensureEmployeeNotesSchema", ensureEmployeeNotesSchema],
+    ["ensureOnboardingSchema", ensureOnboardingSchema],
+    ["ensureOffboardingSchema", ensureOffboardingSchema],
+    ["ensureSelfServiceSchema", ensureSelfServiceSchema],
+    ["ensureComplianceBranchSchema", ensureComplianceBranchSchema],
+    ["ensureComplianceProgramSchema", ensureComplianceProgramSchema],
+    ["ensureClientProfileSchema", ensureClientProfileSchema],
+    ["ensureStaffPerformancePtoSchema", ensureStaffPerformancePtoSchema],
+    ["ensureCoordinatorDirectorySchema", ensureCoordinatorDirectorySchema],
+    ["ensureCoordinatorProfileSchema", ensureCoordinatorProfileSchema],
+    ["ensureVisitLogBilledSchema", ensureVisitLogBilledSchema],
+    ["ensureCoordinatorHistorySchema", ensureCoordinatorHistorySchema],
+    ["ensureUsersEmailUniqueConstraint", ensureUsersEmailUniqueConstraint],
+    ["ensurePlatformSupportRole", ensurePlatformSupportRole],
+  ];
+  for (const [name, fn] of heals) {
+    try {
+      await fn();
+    } catch (err) {
+      console.error(`[Init] ${name} failed (non-fatal):`, err);
+    }
+  }
+}
+
 // Guards runProductionInit() so it can only ever execute once per database,
 // no matter how many times the app restarts with INIT_PRODUCTION_DB=true left
 // set. Without this marker, every reboot/redeploy that inherited the env var

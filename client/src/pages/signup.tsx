@@ -88,10 +88,13 @@ export default function Signup() {
     onSuccess: (data) => {
       if (data.checkoutUrl) {
         window.location.href = data.checkoutUrl;
+      } else if (data.organizationId) {
+        setLocation(`/signup/success?org=${data.organizationId}`);
       } else {
         toast({
-          title: "Signup successful",
-          description: "Redirecting to payment...",
+          title: "Signup failed",
+          description: "Something went wrong creating your account. Please try again.",
+          variant: "destructive",
         });
       }
     },
@@ -372,9 +375,6 @@ export default function Signup() {
                         <span>{selectedPlan.name}</span>
                         <span className="font-medium">{formatPrice(selectedPlan.priceMonthly)}/mo</span>
                       </div>
-                      <p className="text-xs text-muted-foreground mt-2">
-                        You'll be redirected to our secure payment page
-                      </p>
                     </div>
                   )}
                 </CardContent>
@@ -416,7 +416,7 @@ export default function Signup() {
                     </>
                   ) : (
                     <>
-                      Continue to Payment <ArrowRight className="h-4 w-4 ml-2" />
+                      Create Account <ArrowRight className="h-4 w-4 ml-2" />
                     </>
                   )}
                 </Button>

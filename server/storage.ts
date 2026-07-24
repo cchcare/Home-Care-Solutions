@@ -206,6 +206,12 @@ import {
   clientMcos,
   type ClientMco,
   type InsertClientMco,
+  clientCoordinators,
+  type ClientCoordinator,
+  type InsertClientCoordinator,
+  caregiverCoordinators,
+  type CaregiverCoordinator,
+  type InsertCaregiverCoordinator,
   coordinators,
   type Coordinator,
   type InsertCoordinator,
@@ -728,6 +734,8 @@ export interface IStorage {
 
   // Additional user operations for communication
   getAllUsers(): Promise<User[]>;
+  getUsersByOrganization(organizationId: string): Promise<User[]>;
+  getPlatformSupportUsers(): Promise<User[]>;
 
   // Unified employee directory (caregivers + non-caregiver users)
   getEmployeeDirectory(officeId?: string): Promise<EmployeeDirectoryEntry[]>;
@@ -1011,6 +1019,23 @@ export interface IStorage {
   createClientMco(mco: InsertClientMco): Promise<ClientMco>;
   updateClientMco(id: string, mco: Partial<InsertClientMco>): Promise<ClientMco>;
   deleteClientMco(id: string): Promise<void>;
+
+  // Client/Caregiver Coordinator history operations
+  getClientCoordinatorsByClient(clientId: string): Promise<ClientCoordinator[]>;
+  getClientCoordinator(id: string): Promise<ClientCoordinator | undefined>;
+  createClientCoordinator(assignment: InsertClientCoordinator): Promise<ClientCoordinator>;
+  updateClientCoordinator(id: string, assignment: Partial<InsertClientCoordinator>): Promise<ClientCoordinator>;
+  deleteClientCoordinator(id: string): Promise<void>;
+  getCaregiverCoordinatorsByCaregiver(caregiverId: string): Promise<CaregiverCoordinator[]>;
+  getCaregiverCoordinator(id: string): Promise<CaregiverCoordinator | undefined>;
+  createCaregiverCoordinator(assignment: InsertCaregiverCoordinator): Promise<CaregiverCoordinator>;
+  updateCaregiverCoordinator(id: string, assignment: Partial<InsertCaregiverCoordinator>): Promise<CaregiverCoordinator>;
+  deleteCaregiverCoordinator(id: string): Promise<void>;
+  // Bidirectional coordinator-assignment sync (one-hop cascade, does not recurse back)
+  recordClientCoordinatorChange(clientId: string, coordinatorId: string | null): Promise<void>;
+  recordCaregiverCoordinatorChange(caregiverId: string, coordinatorId: string | null): Promise<void>;
+  cascadeClientCoordinatorToCaregivers(clientId: string, coordinatorId: string | null): Promise<void>;
+  cascadeCaregiverCoordinatorToClients(caregiverId: string, coordinatorId: string | null): Promise<void>;
 
   // Office Licenses operations
   getOfficeLicenses(officeId: string): Promise<OfficeLicense[]>;
@@ -2317,6 +2342,18 @@ export class DatabaseStorage implements IStorage {
         break; // Only set from the first client with an active MCO
       }
     }
+
+    // Automatically assign coordinator from the first client that has one
+    for (const clientId of clientIds) {
+      const [client] = await db.select().from(clients).where(eq(clients.id, clientId));
+      if (client?.coordinatorId) {
+        await db.update(caregivers)
+          .set({ coordinatorId: client.coordinatorId, updatedAt: new Date() })
+          .where(eq(caregivers.id, caregiverId));
+        await this.recordCaregiverCoordinatorChange(caregiverId, client.coordinatorId);
+        break; // Only set from the first client with a coordinator
+      }
+    }
   }
 
   async unassignClientsFromCaregiver(caregiverId: string, clientIds: string[]): Promise<void> {
@@ -3050,6 +3087,18 @@ export class DatabaseStorage implements IStorage {
   // Additional user operations for communication
   async getAllUsers(): Promise<User[]> {
     return await db.select().from(users).orderBy(desc(users.createdAt));
+  }
+
+  async getUsersByOrganization(organizationId: string): Promise<User[]> {
+    return await db.select().from(users)
+      .where(eq(users.organizationId, organizationId))
+      .orderBy(desc(users.createdAt));
+  }
+
+  async getPlatformSupportUsers(): Promise<User[]> {
+    return await db.select().from(users)
+      .where(eq(users.role, "platform_support"))
+      .orderBy(desc(users.createdAt));
   }
 
   async getMessage(id: string): Promise<Message | undefined> {
@@ -5637,6 +5686,120 @@ export class DatabaseStorage implements IStorage {
 
   async deleteClientMco(id: string): Promise<void> {
     await db.delete(clientMcos).where(eq(clientMcos.id, id));
+  }
+
+  // Client Coordinator history operations
+  async getClientCoordinatorsByClient(clientId: string): Promise<ClientCoordinator[]> {
+    return await db.select().from(clientCoordinators).where(eq(clientCoordinators.clientId, clientId)).orderBy(desc(clientCoordinators.startDate));
+  }
+
+  async getClientCoordinator(id: string): Promise<ClientCoordinator | undefined> {
+    const [row] = await db.select().from(clientCoordinators).where(eq(clientCoordinators.id, id));
+    return row;
+  }
+
+  async createClientCoordinator(assignment: InsertClientCoordinator): Promise<ClientCoordinator> {
+    const [created] = await db.insert(clientCoordinators).values(assignment).returning();
+    return created;
+  }
+
+  async updateClientCoordinator(id: string, assignment: Partial<InsertClientCoordinator>): Promise<ClientCoordinator> {
+    const [updated] = await db.update(clientCoordinators).set({ ...assignment, updatedAt: new Date() }).where(eq(clientCoordinators.id, id)).returning();
+    return updated;
+  }
+
+  async deleteClientCoordinator(id: string): Promise<void> {
+    await db.delete(clientCoordinators).where(eq(clientCoordinators.id, id));
+  }
+
+  // Caregiver Coordinator history operations
+  async getCaregiverCoordinatorsByCaregiver(caregiverId: string): Promise<CaregiverCoordinator[]> {
+    return await db.select().from(caregiverCoordinators).where(eq(caregiverCoordinators.caregiverId, caregiverId)).orderBy(desc(caregiverCoordinators.startDate));
+  }
+
+  async getCaregiverCoordinator(id: string): Promise<CaregiverCoordinator | undefined> {
+    const [row] = await db.select().from(caregiverCoordinators).where(eq(caregiverCoordinators.id, id));
+    return row;
+  }
+
+  async createCaregiverCoordinator(assignment: InsertCaregiverCoordinator): Promise<CaregiverCoordinator> {
+    const [created] = await db.insert(caregiverCoordinators).values(assignment).returning();
+    return created;
+  }
+
+  async updateCaregiverCoordinator(id: string, assignment: Partial<InsertCaregiverCoordinator>): Promise<CaregiverCoordinator> {
+    const [updated] = await db.update(caregiverCoordinators).set({ ...assignment, updatedAt: new Date() }).where(eq(caregiverCoordinators.id, id)).returning();
+    return updated;
+  }
+
+  async deleteCaregiverCoordinator(id: string): Promise<void> {
+    await db.delete(caregiverCoordinators).where(eq(caregiverCoordinators.id, id));
+  }
+
+  // Records a coordinator change in the client's history table (ends the prior
+  // active row, opens a new one). Does not touch caregivers.coordinatorId itself.
+  async recordClientCoordinatorChange(clientId: string, coordinatorId: string | null): Promise<void> {
+    const existing = await this.getClientCoordinatorsByClient(clientId);
+    const activeRows = existing.filter(row => !row.endDate);
+    for (const row of activeRows) {
+      if (row.coordinatorId !== coordinatorId) {
+        await this.updateClientCoordinator(row.id, { endDate: new Date(), status: "ended" });
+      }
+    }
+    if (coordinatorId && !activeRows.some(row => row.coordinatorId === coordinatorId)) {
+      await this.createClientCoordinator({
+        clientId,
+        coordinatorId,
+        startDate: new Date(),
+        isPrimary: true,
+        status: "active",
+      });
+    }
+  }
+
+  // Records a coordinator change in the caregiver's history table. Mirrors
+  // recordClientCoordinatorChange above.
+  async recordCaregiverCoordinatorChange(caregiverId: string, coordinatorId: string | null): Promise<void> {
+    const existing = await this.getCaregiverCoordinatorsByCaregiver(caregiverId);
+    const activeRows = existing.filter(row => !row.endDate);
+    for (const row of activeRows) {
+      if (row.coordinatorId !== coordinatorId) {
+        await this.updateCaregiverCoordinator(row.id, { endDate: new Date(), status: "ended" });
+      }
+    }
+    if (coordinatorId && !activeRows.some(row => row.coordinatorId === coordinatorId)) {
+      await this.createCaregiverCoordinator({
+        caregiverId,
+        coordinatorId,
+        startDate: new Date(),
+        isPrimary: true,
+        status: "active",
+      });
+    }
+  }
+
+  // One-hop cascade: when a client's coordinator changes, propagate the same
+  // coordinator to every caregiver currently assigned to that client. Does not
+  // cascade back to clients (cascadeCaregiverCoordinatorToClients is not called
+  // from here), so a client change and a caregiver change can never loop.
+  async cascadeClientCoordinatorToCaregivers(clientId: string, coordinatorId: string | null): Promise<void> {
+    const assignedCaregivers = await this.getAssignedCaregiversByClient(clientId);
+    for (const caregiver of assignedCaregivers) {
+      if (caregiver.coordinatorId === coordinatorId) continue;
+      await db.update(caregivers).set({ coordinatorId, updatedAt: new Date() }).where(eq(caregivers.id, caregiver.id));
+      await this.recordCaregiverCoordinatorChange(caregiver.id, coordinatorId);
+    }
+  }
+
+  // One-hop cascade: when a caregiver's coordinator changes, propagate the same
+  // coordinator to every client that caregiver is currently assigned to.
+  async cascadeCaregiverCoordinatorToClients(caregiverId: string, coordinatorId: string | null): Promise<void> {
+    const assignedClients = await this.getAssignedClientsByCaregiver(caregiverId);
+    for (const client of assignedClients) {
+      if (client.coordinatorId === coordinatorId) continue;
+      await db.update(clients).set({ coordinatorId, updatedAt: new Date() }).where(eq(clients.id, client.id));
+      await this.recordClientCoordinatorChange(client.id, coordinatorId);
+    }
   }
 
   // Office Licenses

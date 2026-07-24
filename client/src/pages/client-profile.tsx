@@ -100,6 +100,7 @@ import { ClientSpendDownSection } from "@/components/client-spend-down-section";
 import { ClientReferralSection } from "@/components/client-referral-section";
 import { ClientVisitsSection } from "@/components/client-visits-section";
 import { ClientPocSection } from "@/components/client-poc-section";
+import { CoordinatorHistorySection } from "@/components/coordinator-history-section";
 
 const DOCUMENT_CATEGORIES = [
   { value: "id_card", label: "ID Card" },
@@ -118,6 +119,7 @@ const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const CLIENT_MENU_ITEMS = [
   { id: "general", label: "General", icon: Heart },
   { id: "mcos", label: "MCOs/Insurance", icon: Shield },
+  { id: "coordinators", label: "Coordinators", icon: Users },
   { id: "spend-down", label: "Spend Down", icon: Wallet },
   { id: "referral", label: "Referral Member Info", icon: UserPlus },
   { id: "profile", label: "Profile", icon: User },
@@ -918,12 +920,12 @@ export default function ClientProfile() {
     const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
       id: schedule.id,
     });
-    
+
     const style = {
       transform: CSS.Translate.toString(transform),
       opacity: isDragging ? 0.5 : 1,
     };
-    
+
     return (
       <div
         ref={setNodeRef}
@@ -931,12 +933,22 @@ export default function ClientProfile() {
         {...listeners}
         {...attributes}
         className="text-xs p-1 bg-primary/20 rounded truncate cursor-grab active:cursor-grabbing hover:bg-primary/30 transition-colors"
-        title={`${schedule.startTime} - ${schedule.endTime}${caregiverName ? ` (${caregiverName})` : ''} - Drag to move`}
+        title={`Scheduled ${schedule.startTime} - ${schedule.endTime}${caregiverName ? ` (${caregiverName})` : ''} - Drag to move`}
         data-testid={`draggable-schedule-${schedule.id}`}
       >
-        <div>{schedule.startTime}</div>
-        {caregiverName && (
-          <div className="text-[10px] text-muted-foreground truncate">{caregiverName}</div>
+        <div>S: {schedule.startTime}</div>
+        {caregiverName && schedule.caregiverId && (
+          <div
+            className="text-[10px] text-muted-foreground truncate hover:text-primary hover:underline"
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              navigate(`/caregivers/${schedule.caregiverId}`);
+            }}
+            data-testid={`link-schedule-caregiver-${schedule.id}`}
+          >
+            {caregiverName}
+          </div>
         )}
       </div>
     );
@@ -1781,6 +1793,11 @@ export default function ClientProfile() {
                   </CardContent>
                 </Card>
                 </div>
+              )}
+
+              {/* Coordinator Assignments Section */}
+              {activeSection === "coordinators" && clientId && (
+                <CoordinatorHistorySection entityType="client" entityId={clientId} />
               )}
 
               {/* Calendar Section */}

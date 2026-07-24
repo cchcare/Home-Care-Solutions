@@ -27,6 +27,7 @@ import Training from "@/pages/training";
 import Communication from "@/pages/communication";
 import Incidents from "@/pages/incidents";
 import SuperAdmin from "@/pages/super-admin";
+import PlatformAdmin from "@/pages/platform-admin";
 import UserManagement from "@/pages/user-management";
 import Reports from "@/pages/reports";
 import Tasks from "@/pages/tasks";
@@ -139,7 +140,11 @@ function HomeRoute() {
   if ((user as any)?.role === "caregiver") {
     return <Redirect to="/my-profile" />;
   }
-  
+
+  if ((user as any)?.role === "platform_support") {
+    return <Redirect to="/platform-admin" />;
+  }
+
   return <Dashboard />;
 }
 
@@ -200,6 +205,7 @@ function Router() {
           <Route path="/communication" component={Communication} />
           <Route path="/incidents" component={Incidents} />
           <Route path="/super-admin" component={SuperAdmin} />
+          <Route path="/platform-admin" component={PlatformAdmin} />
           <Route path="/user-management" component={UserManagement} />
           <Route path="/reports" component={Reports} />
           <Route path="/tasks" component={Tasks} />

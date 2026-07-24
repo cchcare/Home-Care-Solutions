@@ -2,7 +2,7 @@ import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import { startScheduledJobs } from "./scheduler";
-import { runProductionInit, seedEmailTemplates, ensureEmployeeNotesSchema, ensureOnboardingSchema, ensureOffboardingSchema, ensureSelfServiceSchema, ensureComplianceBranchSchema, ensureComplianceProgramSchema, ensureClientProfileSchema, ensureStaffPerformancePtoSchema, ensureCoordinatorDirectorySchema, ensureCoordinatorProfileSchema, ensureVisitLogBilledSchema } from "./initDb";
+import { runProductionInit, seedEmailTemplates, runAllSchemaSelfHeals } from "./initDb";
 
 import nodePath from "path";
 import { isS3Enabled, getPresignedUrl, getS3KeyForFile } from "./s3Storage";
@@ -66,71 +66,7 @@ app.use((req, res, next) => {
     }
   }
 
-  try {
-    await ensureEmployeeNotesSchema();
-  } catch (err) {
-    console.error("[Init] ensureEmployeeNotesSchema failed (non-fatal):", err);
-  }
-
-  try {
-    await ensureOnboardingSchema();
-  } catch (err) {
-    console.error("[Init] ensureOnboardingSchema failed (non-fatal):", err);
-  }
-
-  try {
-    await ensureOffboardingSchema();
-  } catch (err) {
-    console.error("[Init] ensureOffboardingSchema failed (non-fatal):", err);
-  }
-
-  try {
-    await ensureSelfServiceSchema();
-  } catch (err) {
-    console.error("[Init] ensureSelfServiceSchema failed (non-fatal):", err);
-  }
-
-  try {
-    await ensureComplianceBranchSchema();
-  } catch (err) {
-    console.error("[Init] ensureComplianceBranchSchema failed (non-fatal):", err);
-  }
-
-  try {
-    await ensureComplianceProgramSchema();
-  } catch (err) {
-    console.error("[Init] ensureComplianceProgramSchema failed (non-fatal):", err);
-  }
-
-  try {
-    await ensureClientProfileSchema();
-  } catch (err) {
-    console.error("[Init] ensureClientProfileSchema failed (non-fatal):", err);
-  }
-
-  try {
-    await ensureStaffPerformancePtoSchema();
-  } catch (err) {
-    console.error("[Init] ensureStaffPerformancePtoSchema failed (non-fatal):", err);
-  }
-
-  try {
-    await ensureCoordinatorDirectorySchema();
-  } catch (err) {
-    console.error("[Init] ensureCoordinatorDirectorySchema failed (non-fatal):", err);
-  }
-
-  try {
-    await ensureCoordinatorProfileSchema();
-  } catch (err) {
-    console.error("[Init] ensureCoordinatorProfileSchema failed (non-fatal):", err);
-  }
-
-  try {
-    await ensureVisitLogBilledSchema();
-  } catch (err) {
-    console.error("[Init] ensureVisitLogBilledSchema failed (non-fatal):", err);
-  }
+  await runAllSchemaSelfHeals();
 
   const server = await registerRoutes(app);
 

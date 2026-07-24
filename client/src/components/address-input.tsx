@@ -152,9 +152,10 @@ export function AddressInput({
           setZipError("ZIP lookup failed — please enter city/state manually.");
           return;
         }
-        const data: { city: string; state: string } = await response.json();
+        const data: { city: string; state: string; county?: string } = await response.json();
         if (data.city) onChange("city", data.city);
         if (data.state) onChange("state", data.state);
+        if (data.county) onChange("county", stripCountySuffix(data.county));
       } catch {
         setZipError("Network error — please enter city/state manually.");
       } finally {

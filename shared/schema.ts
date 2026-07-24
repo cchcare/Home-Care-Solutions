@@ -33,7 +33,10 @@ export const sessions = pgTable(
 );
 
 // User roles enum - keeping base roles for system functionality
-export const roleEnum = pgEnum("role", ["super_admin", "admin", "office_admin", "supervisor", "caregiver", "family", "custom"]);
+// platform_support: platform-level SaaS backoffice staff (not tied to any one
+// organization) who can manage companies/plans/billing via /platform-admin,
+// but — unlike super_admin — cannot manage other platform_support accounts.
+export const roleEnum = pgEnum("role", ["super_admin", "admin", "office_admin", "supervisor", "caregiver", "family", "custom", "platform_support"]);
 
 // Gender enum for caregivers and clients
 export const genderEnum = pgEnum("gender", ["male", "female", "non_binary", "prefer_not_to_say"]);
@@ -89,7 +92,7 @@ export const coordinators = pgTable("coordinators", {
 export const users = pgTable("users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   organizationId: varchar("organization_id"),
-  email: varchar("email"),
+  email: varchar("email").unique(),
   username: varchar("username").unique(),
   passwordHash: varchar("password_hash"),
   mustResetPassword: boolean("must_reset_password").default(false),
@@ -2255,6 +2258,44 @@ export const clientMcos = pgTable("client_mcos", {
 export type ClientMco = typeof clientMcos.$inferSelect;
 export type InsertClientMco = typeof clientMcos.$inferInsert;
 export const insertClientMcoSchema = createInsertSchema(clientMcos).omit({ id: true, createdAt: true, updatedAt: true });
+
+// Client Coordinator assignments - tracks coordinator history so a client can
+// have more than one coordinator over time (mirrors clientMcos above).
+export const clientCoordinators = pgTable("client_coordinators", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  clientId: varchar("client_id").references(() => clients.id).notNull(),
+  coordinatorId: varchar("coordinator_id").references(() => coordinators.id).notNull(),
+  startDate: timestamp("start_date").notNull(),
+  endDate: timestamp("end_date"),
+  isPrimary: boolean("is_primary").default(false),
+  status: varchar("status").default("active"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export type ClientCoordinator = typeof clientCoordinators.$inferSelect;
+export type InsertClientCoordinator = typeof clientCoordinators.$inferInsert;
+export const insertClientCoordinatorSchema = createInsertSchema(clientCoordinators).omit({ id: true, createdAt: true, updatedAt: true });
+
+// Caregiver Coordinator assignments - tracks coordinator history so a caregiver
+// can have more than one coordinator over time (mirrors clientCoordinators above).
+export const caregiverCoordinators = pgTable("caregiver_coordinators", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  caregiverId: varchar("caregiver_id").references(() => caregivers.id).notNull(),
+  coordinatorId: varchar("coordinator_id").references(() => coordinators.id).notNull(),
+  startDate: timestamp("start_date").notNull(),
+  endDate: timestamp("end_date"),
+  isPrimary: boolean("is_primary").default(false),
+  status: varchar("status").default("active"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export type CaregiverCoordinator = typeof caregiverCoordinators.$inferSelect;
+export type InsertCaregiverCoordinator = typeof caregiverCoordinators.$inferInsert;
+export const insertCaregiverCoordinatorSchema = createInsertSchema(caregiverCoordinators).omit({ id: true, createdAt: true, updatedAt: true });
 
 // Client Authorizations - tracks service authorizations from MCOs
 export const clientAuthorizations = pgTable("client_authorizations", {

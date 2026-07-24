@@ -72,7 +72,11 @@ import {
   insertCaregiverOfficeMoveSchema,
   insertCaregiverScheduleSchema,
   insertClientMcoSchema,
+  insertClientCoordinatorSchema,
+  insertCaregiverCoordinatorSchema,
   insertClientAuthorizationSchema,
+  insertOrganizationSchema,
+  insertSubscriptionPlanSchema,
   clientAuthorizations,
   clients,
   caregivers,
@@ -455,7 +459,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Agency signup - create pending organization
+  // TEMPORARY: Stripe billing is disabled agency-wide. New organizations are
+  // activated immediately at signup with no payment step. Flip this back to
+  // true (and make sure subscription_plans.stripePriceId is populated via
+  // server/seed-subscription-plans.ts) to re-enable Stripe Checkout.
+  const STRIPE_SIGNUP_ENABLED = false;
+
+  // Agency signup - create organization (and, while Stripe is enabled, hand
+  // off to Stripe Checkout to activate it)
   app.post("/api/public/signup", async (req, res) => {
     try {
       const { organizationName, email, phone, adminFirstName, adminLastName, adminEmail, adminPassword, planId } = req.body;
@@ -478,13 +489,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Invalid plan selected" });
       }
 
-      // Create organization in pending status
+      // Create the organization. While Stripe is disabled it's activated
+      // immediately; otherwise it stays pending until checkout completes.
       const org = await storage.createOrganization({
         name: organizationName,
         slug,
         email,
         phone,
-        status: 'pending',
+        status: STRIPE_SIGNUP_ENABLED ? 'pending' : 'active',
+        subscriptionStatus: STRIPE_SIGNUP_ENABLED ? 'inactive' : 'active',
         subscriptionPlanId: planId,
         clientLimit: plan.clientLimitMax,
         billingEmail: adminEmail,
@@ -510,6 +523,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         email: email,
         phone: phone,
       });
+
+      if (!STRIPE_SIGNUP_ENABLED) {
+        await storage.createSubscriptionHistory({
+          organizationId: org.id,
+          planId: org.subscriptionPlanId,
+          action: 'activated_without_payment',
+          status: 'active',
+          amount: 0,
+        });
+        return res.status(201).json({ organizationId: org.id });
+      }
 
       // Import Stripe client for checkout
       const { getUncachableStripeClient, getStripePublishableKey } = await import('./stripeClient');
@@ -560,7 +584,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
 
       const publishableKey = await getStripePublishableKey();
-      res.json({ 
+      res.json({
         checkoutUrl: session.url,
         publishableKey,
         organizationId: org.id,
@@ -765,6 +789,274 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error: any) {
       console.error("Error fetching subscription history:", error);
       res.status(500).json({ message: error.message || "Failed to fetch subscription history" });
+    }
+  });
+
+  // ============================================
+  // Platform Admin (SaaS backoffice) Routes
+  // ============================================
+  // Separate authorization model from the per-agency /api/users, /api/offices
+  // etc. routes above: those always scope new users to the CALLER's own
+  // organizationId, which is the wrong model for platform staff who manage
+  // every company on the platform. Gated purely by role, never by
+  // organizationId — the platform_support role exists exactly for this.
+
+  const requirePlatformAdmin = async (req: any, res: any, next: any) => {
+    try {
+      const userId = req.session?.user?.id;
+      if (!userId) return res.status(401).json({ message: "Not authenticated" });
+      const user = await storage.getUser(userId);
+      if (!user || !["super_admin", "platform_support"].includes(user.role || "")) {
+        return res.status(403).json({ message: "Access denied. Platform admin privileges required." });
+      }
+      next();
+    } catch (error) {
+      return res.status(500).json({ message: "Failed to verify permissions" });
+    }
+  };
+
+  // Managing OTHER platform_support accounts is restricted to super_admin —
+  // support staff can manage companies/plans but not their own peer accounts.
+  const requirePlatformSuperAdmin = async (req: any, res: any, next: any) => {
+    try {
+      const userId = req.session?.user?.id;
+      if (!userId) return res.status(401).json({ message: "Not authenticated" });
+      const user = await storage.getUser(userId);
+      if (!user || user.role !== "super_admin") {
+        return res.status(403).json({ message: "Access denied. Super admin role required." });
+      }
+      next();
+    } catch (error) {
+      return res.status(500).json({ message: "Failed to verify permissions" });
+    }
+  };
+
+  // Companies (organizations)
+  app.get("/api/platform-admin/organizations", isAuthenticated, requirePlatformAdmin, async (req, res) => {
+    try {
+      const orgs = await storage.getOrganizations();
+      res.json(orgs);
+    } catch (error: any) {
+      console.error("Error fetching organizations:", error);
+      res.status(500).json({ message: error.message || "Failed to fetch organizations" });
+    }
+  });
+
+  app.get("/api/platform-admin/organizations/:id", isAuthenticated, requirePlatformAdmin, async (req, res) => {
+    try {
+      const org = await storage.getOrganization(req.params.id);
+      if (!org) return res.status(404).json({ message: "Organization not found" });
+      res.json(org);
+    } catch (error: any) {
+      console.error("Error fetching organization:", error);
+      res.status(500).json({ message: error.message || "Failed to fetch organization" });
+    }
+  });
+
+  app.put("/api/platform-admin/organizations/:id", isAuthenticated, requirePlatformAdmin, async (req, res) => {
+    try {
+      const validatedData = insertOrganizationSchema.partial().parse(req.body);
+      const org = await storage.updateOrganization(req.params.id, validatedData);
+      res.json(org);
+    } catch (error: any) {
+      console.error("Error updating organization:", error);
+      res.status(400).json({ message: error.message || "Failed to update organization" });
+    }
+  });
+
+  // Users belonging to a specific company
+  app.get("/api/platform-admin/organizations/:id/users", isAuthenticated, requirePlatformAdmin, async (req, res) => {
+    try {
+      const orgUsers = await storage.getUsersByOrganization(req.params.id);
+      res.json(orgUsers);
+    } catch (error: any) {
+      console.error("Error fetching organization users:", error);
+      res.status(500).json({ message: error.message || "Failed to fetch organization users" });
+    }
+  });
+
+  app.post("/api/platform-admin/organizations/:id/users", isAuthenticated, requirePlatformAdmin, async (req, res) => {
+    try {
+      const { password, ...userData } = req.body;
+      if (!password || typeof password !== "string" || password.trim().length < 8) {
+        return res.status(400).json({ message: "Password must be at least 8 characters" });
+      }
+      if (["super_admin", "platform_support"].includes(userData.role)) {
+        return res.status(400).json({ message: "Cannot assign a platform-level role to a company user" });
+      }
+      const org = await storage.getOrganization(req.params.id);
+      if (!org) return res.status(404).json({ message: "Organization not found" });
+
+      if (userData.email) {
+        const existing = await storage.getUserByUsernameOrEmail(userData.email);
+        if (existing) {
+          return res.status(400).json({ message: "An account with this email already exists." });
+        }
+      }
+
+      const passwordHash = await hashPassword(password.trim());
+      const validatedData = insertUserSchema.omit({ id: true, createdAt: true, updatedAt: true }).parse({
+        ...userData,
+        organizationId: req.params.id,
+        passwordHash,
+        mustResetPassword: true,
+      });
+      const user = await storage.createUser(validatedData);
+      res.status(201).json(user);
+    } catch (error: any) {
+      console.error("Error creating organization user:", error);
+      res.status(400).json({ message: error.message || "Failed to create user" });
+    }
+  });
+
+  app.put("/api/platform-admin/users/:id", isAuthenticated, requirePlatformAdmin, async (req, res) => {
+    try {
+      const target = await storage.getUser(req.params.id);
+      if (!target || target.role === "platform_support") {
+        return res.status(404).json({ message: "User not found" });
+      }
+      const { password, ...userData } = req.body;
+      if (password) {
+        userData.passwordHash = await hashPassword(password.trim());
+      }
+      const validatedData = insertUserSchema.partial().omit({ id: true, createdAt: true, updatedAt: true }).parse(userData);
+      const user = await storage.updateUser(req.params.id, validatedData);
+      res.json(user);
+    } catch (error: any) {
+      console.error("Error updating user:", error);
+      res.status(400).json({ message: error.message || "Failed to update user" });
+    }
+  });
+
+  app.delete("/api/platform-admin/users/:id", isAuthenticated, requirePlatformAdmin, async (req, res) => {
+    try {
+      const target = await storage.getUser(req.params.id);
+      if (!target || target.role === "platform_support") {
+        return res.status(404).json({ message: "User not found" });
+      }
+      await storage.deleteUser(req.params.id);
+      res.status(204).send();
+    } catch (error: any) {
+      console.error("Error deleting user:", error);
+      res.status(400).json({ message: error.message || "Failed to delete user" });
+    }
+  });
+
+  // Billing / subscription history for a company
+  app.get("/api/platform-admin/organizations/:id/billing-history", isAuthenticated, requirePlatformAdmin, async (req, res) => {
+    try {
+      const history = await storage.getSubscriptionHistory(req.params.id);
+      res.json(history);
+    } catch (error: any) {
+      console.error("Error fetching billing history:", error);
+      res.status(500).json({ message: error.message || "Failed to fetch billing history" });
+    }
+  });
+
+  // Subscription plans (types, pricing)
+  app.get("/api/platform-admin/plans", isAuthenticated, requirePlatformAdmin, async (req, res) => {
+    try {
+      const plans = await storage.getSubscriptionPlans(false);
+      res.json(plans);
+    } catch (error: any) {
+      console.error("Error fetching plans:", error);
+      res.status(500).json({ message: error.message || "Failed to fetch plans" });
+    }
+  });
+
+  app.post("/api/platform-admin/plans", isAuthenticated, requirePlatformAdmin, async (req, res) => {
+    try {
+      const validatedData = insertSubscriptionPlanSchema.parse(req.body);
+      const plan = await storage.createSubscriptionPlan(validatedData);
+      res.status(201).json(plan);
+    } catch (error: any) {
+      console.error("Error creating plan:", error);
+      res.status(400).json({ message: error.message || "Failed to create plan" });
+    }
+  });
+
+  app.put("/api/platform-admin/plans/:id", isAuthenticated, requirePlatformAdmin, async (req, res) => {
+    try {
+      const validatedData = insertSubscriptionPlanSchema.partial().parse(req.body);
+      const plan = await storage.updateSubscriptionPlan(req.params.id, validatedData);
+      res.json(plan);
+    } catch (error: any) {
+      console.error("Error updating plan:", error);
+      res.status(400).json({ message: error.message || "Failed to update plan" });
+    }
+  });
+
+  // Platform support staff accounts — managing peers is super_admin-only.
+  app.get("/api/platform-admin/support-users", isAuthenticated, requirePlatformAdmin, async (req, res) => {
+    try {
+      const supportUsers = await storage.getPlatformSupportUsers();
+      res.json(supportUsers);
+    } catch (error: any) {
+      console.error("Error fetching support users:", error);
+      res.status(500).json({ message: error.message || "Failed to fetch support users" });
+    }
+  });
+
+  app.post("/api/platform-admin/support-users", isAuthenticated, requirePlatformSuperAdmin, async (req, res) => {
+    try {
+      const { password, email, firstName, lastName } = req.body;
+      if (!email || !password || typeof password !== "string" || password.trim().length < 8) {
+        return res.status(400).json({ message: "Email and a password of at least 8 characters are required" });
+      }
+      const existing = await storage.getUserByUsernameOrEmail(email);
+      if (existing) {
+        return res.status(400).json({ message: "An account with this email already exists." });
+      }
+      const passwordHash = await hashPassword(password.trim());
+      const validatedData = insertUserSchema.omit({ id: true, createdAt: true, updatedAt: true }).parse({
+        email,
+        username: email,
+        firstName,
+        lastName,
+        passwordHash,
+        role: "platform_support",
+        organizationId: null,
+        isActive: true,
+        mustResetPassword: true,
+      });
+      const user = await storage.createUser(validatedData);
+      res.status(201).json(user);
+    } catch (error: any) {
+      console.error("Error creating support user:", error);
+      res.status(400).json({ message: error.message || "Failed to create support user" });
+    }
+  });
+
+  app.put("/api/platform-admin/support-users/:id", isAuthenticated, requirePlatformSuperAdmin, async (req, res) => {
+    try {
+      const target = await storage.getUser(req.params.id);
+      if (!target || target.role !== "platform_support") {
+        return res.status(404).json({ message: "Support user not found" });
+      }
+      const { password, ...userData } = req.body;
+      if (password) {
+        userData.passwordHash = await hashPassword(password.trim());
+      }
+      const validatedData = insertUserSchema.partial().omit({ id: true, createdAt: true, updatedAt: true }).parse(userData);
+      const user = await storage.updateUser(req.params.id, validatedData);
+      res.json(user);
+    } catch (error: any) {
+      console.error("Error updating support user:", error);
+      res.status(400).json({ message: error.message || "Failed to update support user" });
+    }
+  });
+
+  app.delete("/api/platform-admin/support-users/:id", isAuthenticated, requirePlatformSuperAdmin, async (req, res) => {
+    try {
+      const target = await storage.getUser(req.params.id);
+      if (!target || target.role !== "platform_support") {
+        return res.status(404).json({ message: "Support user not found" });
+      }
+      await storage.deleteUser(req.params.id);
+      res.status(204).send();
+    } catch (error: any) {
+      console.error("Error deleting support user:", error);
+      res.status(400).json({ message: error.message || "Failed to delete support user" });
     }
   });
 
@@ -2729,7 +3021,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       };
       const validatedData = insertClientSchema.partial().parse(processedBody);
       const client = await storage.updateClient(req.params.id, validatedData);
-      
+
+      // Bidirectional coordinator sync: propagate a coordinator change to
+      // every caregiver currently assigned to this client.
+      if (client.coordinatorId !== oldClient.coordinatorId) {
+        await storage.recordClientCoordinatorChange(client.id, client.coordinatorId ?? null);
+        await storage.cascadeClientCoordinatorToCaregivers(client.id, client.coordinatorId ?? null);
+      }
+
       // Log audit trail
       await storage.createAuditLog({
         userId: req.session?.user?.id,
@@ -2741,7 +3040,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ipAddress: req.ip,
         userAgent: req.get("User-Agent"),
       });
-      
+
       res.json(client);
     } catch (error) {
       console.error("Error updating client:", error);
@@ -3617,7 +3916,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         hireDate: processedHireDate,
         startDate: processedStartDate,
         terminationDate: processedTerminationDate,
-        userId: user.id
+        userId: user.id,
+        // Empty string isn't "no value" to Postgres like NULL is — two blank
+        // strings collide under these columns' UNIQUE constraints.
+        employeeId: caregiverData.employeeId || null,
+        hhaxCaregiverCode: caregiverData.hhaxCaregiverCode || null,
+        assignmentId: caregiverData.assignmentId || null,
       });
       
       const caregiver = await storage.createCaregiver(validatedCaregiverData);
@@ -3732,11 +4036,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
         hireDate: processedHireDate,
         startDate: processedStartDate,
         terminationDate: processedTerminationDate,
+        // Treat empty string as null to avoid FK violations, matching the
+        // PUT /api/clients/:id route's handling of the same field.
+        ...(("coordinatorId" in req.body) ? { coordinatorId: req.body.coordinatorId || null } : {}),
+        ...(("mcoId" in req.body) ? { mcoId: req.body.mcoId || null } : {}),
+        // Same treatment for the caregiver's unique-constrained text columns:
+        // an empty string is not the same as "no value" to Postgres (unlike
+        // NULL, two blank strings collide under a UNIQUE constraint), so a
+        // second caregiver saved with these left blank would otherwise fail
+        // with a duplicate-key error.
+        ...(("employeeId" in req.body) ? { employeeId: req.body.employeeId || null } : {}),
+        ...(("hhaxCaregiverCode" in req.body) ? { hhaxCaregiverCode: req.body.hhaxCaregiverCode || null } : {}),
+        ...(("assignmentId" in req.body) ? { assignmentId: req.body.assignmentId || null } : {}),
       };
-      
+
       const validatedData = insertCaregiverSchema.partial().parse(processedBody);
       const caregiver = await storage.updateCaregiver(req.params.id, validatedData);
-      
+
+      // Bidirectional coordinator sync: propagate a coordinator change to
+      // every client currently served by this caregiver.
+      if (caregiver.coordinatorId !== oldCaregiver.coordinatorId) {
+        await storage.recordCaregiverCoordinatorChange(caregiver.id, caregiver.coordinatorId ?? null);
+        await storage.cascadeCaregiverCoordinatorToClients(caregiver.id, caregiver.coordinatorId ?? null);
+      }
+
       // Log audit trail
       await storage.createAuditLog({
         userId: req.session?.user?.id,
@@ -3915,7 +4238,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
           
           // Extract user info from the caregiver data
           const { email, firstName, middleName, lastName, dateOfBirth, ...caregiverInfo } = caregiverData;
-          
+
+          // Blank cells for these come through as empty strings, not
+          // undefined/null — but unlike NULL, an empty string isn't "no
+          // value" to Postgres, so two rows both left blank would collide
+          // under these columns' UNIQUE constraints.
+          if (caregiverInfo.employeeId === "") caregiverInfo.employeeId = null;
+          if (caregiverInfo.hhaxCaregiverCode === "") caregiverInfo.hhaxCaregiverCode = null;
+          if (caregiverInfo.assignmentId === "") caregiverInfo.assignmentId = null;
+
           // Check if caregiver already exists by matching IDs (HHAX ID, Assignment ID, or ADP ID)
           let existingCaregiver = null;
           
@@ -7906,6 +8237,122 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ==================== CLIENT COORDINATOR HISTORY ROUTES ====================
+  app.get("/api/clients/:clientId/coordinators", isAuthenticated, async (req, res) => {
+    try {
+      const rows = await storage.getClientCoordinatorsByClient(req.params.clientId);
+      res.json(rows);
+    } catch (error) {
+      console.error("Error fetching client coordinators:", error);
+      res.status(500).json({ message: "Failed to fetch client coordinators" });
+    }
+  });
+
+  app.post("/api/clients/:clientId/coordinators", isAuthenticated, async (req, res) => {
+    try {
+      const { clientId: _, ...userBody } = req.body;
+      const coercedData = {
+        ...userBody,
+        startDate: coerceDate(userBody.startDate),
+        endDate: coerceDate(userBody.endDate),
+      };
+      const validatedBody = insertClientCoordinatorSchema.omit({ clientId: true }).parse(coercedData);
+      const row = await storage.createClientCoordinator({
+        ...validatedBody,
+        clientId: req.params.clientId,
+      });
+      res.status(201).json(row);
+    } catch (error) {
+      console.error("Error creating client coordinator:", error);
+      res.status(400).json({ message: "Failed to create client coordinator" });
+    }
+  });
+
+  app.put("/api/client-coordinators/:id", isAuthenticated, async (req, res) => {
+    try {
+      const { clientId, ...updateData } = req.body;
+      const coercedData = {
+        ...updateData,
+        startDate: coerceDate(updateData.startDate),
+        endDate: coerceDate(updateData.endDate),
+      };
+      const validatedData = insertClientCoordinatorSchema.partial().parse(coercedData);
+      const row = await storage.updateClientCoordinator(req.params.id, validatedData);
+      res.json(row);
+    } catch (error) {
+      console.error("Error updating client coordinator:", error);
+      res.status(400).json({ message: "Failed to update client coordinator" });
+    }
+  });
+
+  app.delete("/api/client-coordinators/:id", isAuthenticated, async (req, res) => {
+    try {
+      await storage.deleteClientCoordinator(req.params.id);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting client coordinator:", error);
+      res.status(400).json({ message: "Failed to delete client coordinator" });
+    }
+  });
+
+  // ==================== CAREGIVER COORDINATOR HISTORY ROUTES ====================
+  app.get("/api/caregivers/:caregiverId/coordinators", isAuthenticated, async (req, res) => {
+    try {
+      const rows = await storage.getCaregiverCoordinatorsByCaregiver(req.params.caregiverId);
+      res.json(rows);
+    } catch (error) {
+      console.error("Error fetching caregiver coordinators:", error);
+      res.status(500).json({ message: "Failed to fetch caregiver coordinators" });
+    }
+  });
+
+  app.post("/api/caregivers/:caregiverId/coordinators", isAuthenticated, async (req, res) => {
+    try {
+      const { caregiverId: _, ...userBody } = req.body;
+      const coercedData = {
+        ...userBody,
+        startDate: coerceDate(userBody.startDate),
+        endDate: coerceDate(userBody.endDate),
+      };
+      const validatedBody = insertCaregiverCoordinatorSchema.omit({ caregiverId: true }).parse(coercedData);
+      const row = await storage.createCaregiverCoordinator({
+        ...validatedBody,
+        caregiverId: req.params.caregiverId,
+      });
+      res.status(201).json(row);
+    } catch (error) {
+      console.error("Error creating caregiver coordinator:", error);
+      res.status(400).json({ message: "Failed to create caregiver coordinator" });
+    }
+  });
+
+  app.put("/api/caregiver-coordinators/:id", isAuthenticated, async (req, res) => {
+    try {
+      const { caregiverId, ...updateData } = req.body;
+      const coercedData = {
+        ...updateData,
+        startDate: coerceDate(updateData.startDate),
+        endDate: coerceDate(updateData.endDate),
+      };
+      const validatedData = insertCaregiverCoordinatorSchema.partial().parse(coercedData);
+      const row = await storage.updateCaregiverCoordinator(req.params.id, validatedData);
+      res.json(row);
+    } catch (error) {
+      console.error("Error updating caregiver coordinator:", error);
+      res.status(400).json({ message: "Failed to update caregiver coordinator" });
+    }
+  });
+
+  app.delete("/api/caregiver-coordinators/:id", isAuthenticated, async (req, res) => {
+    try {
+      await storage.deleteCaregiverCoordinator(req.params.id);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting caregiver coordinator:", error);
+      res.status(400).json({ message: "Failed to delete caregiver coordinator" });
+    }
+  });
+
   // ==================== CLIENT AUTHORIZATION ROUTES ====================
   // Get all authorizations for a client
   app.get("/api/clients/:clientId/authorizations", isAuthenticated, async (req: any, res) => {
@@ -8043,33 +8490,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
       for (let i = 0; i < dataToProcess.length; i++) {
         const authData = dataToProcess[i];
         try {
-          let clientId = authData.clientId;
-          
-          // If clientId is not provided but memberId is, look up the client
-          if (!clientId && authData.memberId) {
-            const [client] = await db.select()
-              .from(clients)
-              .where(eq(clients.memberId, String(authData.memberId)))
-              .limit(1);
-            
-            if (client) {
-              clientId = client.id;
-            } else {
-              results.errors.push({
-                row: i + 2,
-                error: `Client not found with Member ID: ${authData.memberId}`,
-              });
-              continue;
-            }
-          }
-          
-          if (!clientId) {
+          const hhaxAdmissionId = authData.hhaxAdmissionId ? String(authData.hhaxAdmissionId).trim() : "";
+          if (!hhaxAdmissionId) {
             results.errors.push({
               row: i + 2,
-              error: "Either clientId or memberId is required",
+              error: "Client HHAX ID is required",
             });
             continue;
           }
+
+          const [client] = await db.select().from(clients)
+            .where(ilike(clients.hhaxAdmissionId, hhaxAdmissionId))
+            .limit(1);
+          if (!client) {
+            results.errors.push({
+              row: i + 2,
+              error: `Client not found with HHAX ID: ${hhaxAdmissionId}`,
+            });
+            continue;
+          }
+          const clientId = client.id;
 
           const scopedClient = await getClientInScope(req, clientId);
           if (!scopedClient) {
