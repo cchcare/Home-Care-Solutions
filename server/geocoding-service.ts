@@ -174,6 +174,30 @@ interface RawZipResponse {
 export interface ZipLookupResult {
   city: string;
   state: string;
+  county: string;
+}
+
+// Zippopotam.us (used above for city/state) doesn't return county at all.
+// Nominatim's structured postalcode search does, so it's used here as a
+// best-effort supplement — county is left blank rather than failing the
+// whole lookup if this second upstream call errors or comes back empty.
+async function lookupCountyForZip(zip: string): Promise<string> {
+  try {
+    const url =
+      `${NOMINATIM_URL}?postalcode=${encodeURIComponent(zip)}&country=us` +
+      "&format=json&addressdetails=1&limit=1";
+    const response = await fetch(url, {
+      headers: {
+        Accept: "application/json",
+        "User-Agent": USER_AGENT,
+      },
+    });
+    if (!response.ok) return "";
+    const raw = (await response.json()) as RawNominatimResult[];
+    return raw?.[0]?.address?.county || "";
+  } catch {
+    return "";
+  }
 }
 
 export async function lookupZip(zip: string): Promise<ZipLookupResult | null> {
@@ -193,8 +217,12 @@ export async function lookupZip(zip: string): Promise<ZipLookupResult | null> {
   const data = (await response.json()) as RawZipResponse;
   const place = data.places?.[0];
   if (!place) return null;
+
+  const county = await lookupCountyForZip(zip);
+
   return {
     city: place["place name"] || "",
     state: place["state abbreviation"] || "",
+    county,
   };
 }

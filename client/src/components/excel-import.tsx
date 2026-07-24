@@ -97,8 +97,7 @@ const SYSTEM_FIELDS: Record<string, SystemField[]> = {
     { key: "isActive", label: "Active Status", aliases: ["Active", "is_active", "isActive", "Status"] }
   ],
   authorizations: [
-    { key: "clientId", label: "Client ID", aliases: ["Client ID", "client_id", "clientId", "ClientID"] },
-    { key: "memberId", label: "Member ID", aliases: ["Member ID", "member_id", "memberId", "MemberID", "Member Number", "memberNumber"] },
+    { key: "hhaxAdmissionId", label: "Client HHAX ID", required: true, aliases: ["Client HHAX ID", "HHA Admission ID", "HHAX Admission ID", "hhax_admission_id", "hhaxAdmissionId", "HHAX ID", "Admission ID", "AdmissionID"] },
     { key: "authorizationNumber", label: "Authorization Number", required: true, aliases: ["Authorization Number", "authorization_number", "authorizationNumber", "Auth Number", "Auth #", "AuthNumber"] },
     { key: "serviceType", label: "Service Type", required: true, aliases: ["Service Type", "service_type", "serviceType", "Service", "Type"] },
     { key: "approvedHours", label: "Approved Hours", aliases: ["Approved Hours", "approved_hours", "approvedHours", "Hours", "Authorized Hours"] },

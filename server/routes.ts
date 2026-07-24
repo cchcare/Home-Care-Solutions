@@ -3916,7 +3916,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         hireDate: processedHireDate,
         startDate: processedStartDate,
         terminationDate: processedTerminationDate,
-        userId: user.id
+        userId: user.id,
+        // Empty string isn't "no value" to Postgres like NULL is — two blank
+        // strings collide under these columns' UNIQUE constraints.
+        employeeId: caregiverData.employeeId || null,
+        hhaxCaregiverCode: caregiverData.hhaxCaregiverCode || null,
+        assignmentId: caregiverData.assignmentId || null,
       });
       
       const caregiver = await storage.createCaregiver(validatedCaregiverData);
@@ -4035,6 +4040,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // PUT /api/clients/:id route's handling of the same field.
         ...(("coordinatorId" in req.body) ? { coordinatorId: req.body.coordinatorId || null } : {}),
         ...(("mcoId" in req.body) ? { mcoId: req.body.mcoId || null } : {}),
+        // Same treatment for the caregiver's unique-constrained text columns:
+        // an empty string is not the same as "no value" to Postgres (unlike
+        // NULL, two blank strings collide under a UNIQUE constraint), so a
+        // second caregiver saved with these left blank would otherwise fail
+        // with a duplicate-key error.
+        ...(("employeeId" in req.body) ? { employeeId: req.body.employeeId || null } : {}),
+        ...(("hhaxCaregiverCode" in req.body) ? { hhaxCaregiverCode: req.body.hhaxCaregiverCode || null } : {}),
+        ...(("assignmentId" in req.body) ? { assignmentId: req.body.assignmentId || null } : {}),
       };
 
       const validatedData = insertCaregiverSchema.partial().parse(processedBody);
@@ -4225,7 +4238,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
           
           // Extract user info from the caregiver data
           const { email, firstName, middleName, lastName, dateOfBirth, ...caregiverInfo } = caregiverData;
-          
+
+          // Blank cells for these come through as empty strings, not
+          // undefined/null — but unlike NULL, an empty string isn't "no
+          // value" to Postgres, so two rows both left blank would collide
+          // under these columns' UNIQUE constraints.
+          if (caregiverInfo.employeeId === "") caregiverInfo.employeeId = null;
+          if (caregiverInfo.hhaxCaregiverCode === "") caregiverInfo.hhaxCaregiverCode = null;
+          if (caregiverInfo.assignmentId === "") caregiverInfo.assignmentId = null;
+
           // Check if caregiver already exists by matching IDs (HHAX ID, Assignment ID, or ADP ID)
           let existingCaregiver = null;
           
@@ -8469,33 +8490,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
       for (let i = 0; i < dataToProcess.length; i++) {
         const authData = dataToProcess[i];
         try {
-          let clientId = authData.clientId;
-          
-          // If clientId is not provided but memberId is, look up the client
-          if (!clientId && authData.memberId) {
-            const [client] = await db.select()
-              .from(clients)
-              .where(eq(clients.memberId, String(authData.memberId)))
-              .limit(1);
-            
-            if (client) {
-              clientId = client.id;
-            } else {
-              results.errors.push({
-                row: i + 2,
-                error: `Client not found with Member ID: ${authData.memberId}`,
-              });
-              continue;
-            }
-          }
-          
-          if (!clientId) {
+          const hhaxAdmissionId = authData.hhaxAdmissionId ? String(authData.hhaxAdmissionId).trim() : "";
+          if (!hhaxAdmissionId) {
             results.errors.push({
               row: i + 2,
-              error: "Either clientId or memberId is required",
+              error: "Client HHAX ID is required",
             });
             continue;
           }
+
+          const [client] = await db.select().from(clients)
+            .where(ilike(clients.hhaxAdmissionId, hhaxAdmissionId))
+            .limit(1);
+          if (!client) {
+            results.errors.push({
+              row: i + 2,
+              error: `Client not found with HHAX ID: ${hhaxAdmissionId}`,
+            });
+            continue;
+          }
+          const clientId = client.id;
 
           const scopedClient = await getClientInScope(req, clientId);
           if (!scopedClient) {

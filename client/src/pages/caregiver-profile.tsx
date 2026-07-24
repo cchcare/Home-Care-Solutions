@@ -447,8 +447,8 @@ export default function CaregiverProfile() {
       setIsEditing(false);
       toast({ title: "Success", description: "Caregiver updated successfully" });
     },
-    onError: () => {
-      toast({ title: "Error", description: "Failed to update caregiver", variant: "destructive" });
+    onError: (error: any) => {
+      toast({ title: "Failed to update caregiver", description: error?.message || "Please try again", variant: "destructive" });
     },
   });
 
@@ -1094,18 +1094,12 @@ export default function CaregiverProfile() {
                             </div>
                           </>
                         )}
-                        <div className="space-y-1">
-                          <Label className="text-muted-foreground text-sm">County</Label>
-                          {isEditing ? (
-                            <Input
-                              value={editFormData.county || ""}
-                              onChange={(e) => setEditFormData({ ...editFormData, county: e.target.value })}
-                              data-testid="input-county"
-                            />
-                          ) : (
+                        {!isEditing && (
+                          <div className="space-y-1">
+                            <Label className="text-muted-foreground text-sm">County</Label>
                             <p className="font-medium" data-testid="text-county">{caregiver.county || "N/A"}</p>
-                          )}
-                        </div>
+                          </div>
+                        )}
                         <div className="space-y-1">
                           <Label className="text-muted-foreground text-sm">HHAX ID</Label>
                           {isEditing ? (
