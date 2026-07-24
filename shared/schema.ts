@@ -33,7 +33,10 @@ export const sessions = pgTable(
 );
 
 // User roles enum - keeping base roles for system functionality
-export const roleEnum = pgEnum("role", ["super_admin", "admin", "office_admin", "supervisor", "caregiver", "family", "custom"]);
+// platform_support: platform-level SaaS backoffice staff (not tied to any one
+// organization) who can manage companies/plans/billing via /platform-admin,
+// but — unlike super_admin — cannot manage other platform_support accounts.
+export const roleEnum = pgEnum("role", ["super_admin", "admin", "office_admin", "supervisor", "caregiver", "family", "custom", "platform_support"]);
 
 // Gender enum for caregivers and clients
 export const genderEnum = pgEnum("gender", ["male", "female", "non_binary", "prefer_not_to_say"]);

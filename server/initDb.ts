@@ -1165,6 +1165,24 @@ export async function ensureUsersEmailUniqueConstraint() {
   }
 }
 
+// Adds the 'platform_support' value to the existing "role" enum, for the
+// platform-admin (SaaS backoffice) feature. ADD VALUE IF NOT EXISTS is safe
+// to run repeatedly and, unlike CREATE TYPE, is not a duplicate_object error
+// case — it silently no-ops if the value already exists.
+let platformSupportRoleReady = false;
+export async function ensurePlatformSupportRole() {
+  if (platformSupportRoleReady) return;
+  const client = await pool.connect();
+  try {
+    await client.query(`ALTER TYPE role ADD VALUE IF NOT EXISTS 'platform_support';`);
+    platformSupportRoleReady = true;
+  } catch (err) {
+    console.error("[Init] ensurePlatformSupportRole failed (non-fatal):", err);
+  } finally {
+    client.release();
+  }
+}
+
 // Runs every ensure*Schema() self-heal function above. BOTH entry points —
 // server/index.ts (persistent server, used locally/Replit) and api/index.ts
 // (Vercel's serverless function) — must call this on every boot. A new
@@ -1187,6 +1205,7 @@ export async function runAllSchemaSelfHeals() {
     ["ensureVisitLogBilledSchema", ensureVisitLogBilledSchema],
     ["ensureCoordinatorHistorySchema", ensureCoordinatorHistorySchema],
     ["ensureUsersEmailUniqueConstraint", ensureUsersEmailUniqueConstraint],
+    ["ensurePlatformSupportRole", ensurePlatformSupportRole],
   ];
   for (const [name, fn] of heals) {
     try {

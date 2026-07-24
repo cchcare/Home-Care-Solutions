@@ -75,6 +75,8 @@ import {
   insertClientCoordinatorSchema,
   insertCaregiverCoordinatorSchema,
   insertClientAuthorizationSchema,
+  insertOrganizationSchema,
+  insertSubscriptionPlanSchema,
   clientAuthorizations,
   clients,
   caregivers,
@@ -787,6 +789,274 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error: any) {
       console.error("Error fetching subscription history:", error);
       res.status(500).json({ message: error.message || "Failed to fetch subscription history" });
+    }
+  });
+
+  // ============================================
+  // Platform Admin (SaaS backoffice) Routes
+  // ============================================
+  // Separate authorization model from the per-agency /api/users, /api/offices
+  // etc. routes above: those always scope new users to the CALLER's own
+  // organizationId, which is the wrong model for platform staff who manage
+  // every company on the platform. Gated purely by role, never by
+  // organizationId — the platform_support role exists exactly for this.
+
+  const requirePlatformAdmin = async (req: any, res: any, next: any) => {
+    try {
+      const userId = req.session?.user?.id;
+      if (!userId) return res.status(401).json({ message: "Not authenticated" });
+      const user = await storage.getUser(userId);
+      if (!user || !["super_admin", "platform_support"].includes(user.role || "")) {
+        return res.status(403).json({ message: "Access denied. Platform admin privileges required." });
+      }
+      next();
+    } catch (error) {
+      return res.status(500).json({ message: "Failed to verify permissions" });
+    }
+  };
+
+  // Managing OTHER platform_support accounts is restricted to super_admin —
+  // support staff can manage companies/plans but not their own peer accounts.
+  const requirePlatformSuperAdmin = async (req: any, res: any, next: any) => {
+    try {
+      const userId = req.session?.user?.id;
+      if (!userId) return res.status(401).json({ message: "Not authenticated" });
+      const user = await storage.getUser(userId);
+      if (!user || user.role !== "super_admin") {
+        return res.status(403).json({ message: "Access denied. Super admin role required." });
+      }
+      next();
+    } catch (error) {
+      return res.status(500).json({ message: "Failed to verify permissions" });
+    }
+  };
+
+  // Companies (organizations)
+  app.get("/api/platform-admin/organizations", isAuthenticated, requirePlatformAdmin, async (req, res) => {
+    try {
+      const orgs = await storage.getOrganizations();
+      res.json(orgs);
+    } catch (error: any) {
+      console.error("Error fetching organizations:", error);
+      res.status(500).json({ message: error.message || "Failed to fetch organizations" });
+    }
+  });
+
+  app.get("/api/platform-admin/organizations/:id", isAuthenticated, requirePlatformAdmin, async (req, res) => {
+    try {
+      const org = await storage.getOrganization(req.params.id);
+      if (!org) return res.status(404).json({ message: "Organization not found" });
+      res.json(org);
+    } catch (error: any) {
+      console.error("Error fetching organization:", error);
+      res.status(500).json({ message: error.message || "Failed to fetch organization" });
+    }
+  });
+
+  app.put("/api/platform-admin/organizations/:id", isAuthenticated, requirePlatformAdmin, async (req, res) => {
+    try {
+      const validatedData = insertOrganizationSchema.partial().parse(req.body);
+      const org = await storage.updateOrganization(req.params.id, validatedData);
+      res.json(org);
+    } catch (error: any) {
+      console.error("Error updating organization:", error);
+      res.status(400).json({ message: error.message || "Failed to update organization" });
+    }
+  });
+
+  // Users belonging to a specific company
+  app.get("/api/platform-admin/organizations/:id/users", isAuthenticated, requirePlatformAdmin, async (req, res) => {
+    try {
+      const orgUsers = await storage.getUsersByOrganization(req.params.id);
+      res.json(orgUsers);
+    } catch (error: any) {
+      console.error("Error fetching organization users:", error);
+      res.status(500).json({ message: error.message || "Failed to fetch organization users" });
+    }
+  });
+
+  app.post("/api/platform-admin/organizations/:id/users", isAuthenticated, requirePlatformAdmin, async (req, res) => {
+    try {
+      const { password, ...userData } = req.body;
+      if (!password || typeof password !== "string" || password.trim().length < 8) {
+        return res.status(400).json({ message: "Password must be at least 8 characters" });
+      }
+      if (["super_admin", "platform_support"].includes(userData.role)) {
+        return res.status(400).json({ message: "Cannot assign a platform-level role to a company user" });
+      }
+      const org = await storage.getOrganization(req.params.id);
+      if (!org) return res.status(404).json({ message: "Organization not found" });
+
+      if (userData.email) {
+        const existing = await storage.getUserByUsernameOrEmail(userData.email);
+        if (existing) {
+          return res.status(400).json({ message: "An account with this email already exists." });
+        }
+      }
+
+      const passwordHash = await hashPassword(password.trim());
+      const validatedData = insertUserSchema.omit({ id: true, createdAt: true, updatedAt: true }).parse({
+        ...userData,
+        organizationId: req.params.id,
+        passwordHash,
+        mustResetPassword: true,
+      });
+      const user = await storage.createUser(validatedData);
+      res.status(201).json(user);
+    } catch (error: any) {
+      console.error("Error creating organization user:", error);
+      res.status(400).json({ message: error.message || "Failed to create user" });
+    }
+  });
+
+  app.put("/api/platform-admin/users/:id", isAuthenticated, requirePlatformAdmin, async (req, res) => {
+    try {
+      const target = await storage.getUser(req.params.id);
+      if (!target || target.role === "platform_support") {
+        return res.status(404).json({ message: "User not found" });
+      }
+      const { password, ...userData } = req.body;
+      if (password) {
+        userData.passwordHash = await hashPassword(password.trim());
+      }
+      const validatedData = insertUserSchema.partial().omit({ id: true, createdAt: true, updatedAt: true }).parse(userData);
+      const user = await storage.updateUser(req.params.id, validatedData);
+      res.json(user);
+    } catch (error: any) {
+      console.error("Error updating user:", error);
+      res.status(400).json({ message: error.message || "Failed to update user" });
+    }
+  });
+
+  app.delete("/api/platform-admin/users/:id", isAuthenticated, requirePlatformAdmin, async (req, res) => {
+    try {
+      const target = await storage.getUser(req.params.id);
+      if (!target || target.role === "platform_support") {
+        return res.status(404).json({ message: "User not found" });
+      }
+      await storage.deleteUser(req.params.id);
+      res.status(204).send();
+    } catch (error: any) {
+      console.error("Error deleting user:", error);
+      res.status(400).json({ message: error.message || "Failed to delete user" });
+    }
+  });
+
+  // Billing / subscription history for a company
+  app.get("/api/platform-admin/organizations/:id/billing-history", isAuthenticated, requirePlatformAdmin, async (req, res) => {
+    try {
+      const history = await storage.getSubscriptionHistory(req.params.id);
+      res.json(history);
+    } catch (error: any) {
+      console.error("Error fetching billing history:", error);
+      res.status(500).json({ message: error.message || "Failed to fetch billing history" });
+    }
+  });
+
+  // Subscription plans (types, pricing)
+  app.get("/api/platform-admin/plans", isAuthenticated, requirePlatformAdmin, async (req, res) => {
+    try {
+      const plans = await storage.getSubscriptionPlans(false);
+      res.json(plans);
+    } catch (error: any) {
+      console.error("Error fetching plans:", error);
+      res.status(500).json({ message: error.message || "Failed to fetch plans" });
+    }
+  });
+
+  app.post("/api/platform-admin/plans", isAuthenticated, requirePlatformAdmin, async (req, res) => {
+    try {
+      const validatedData = insertSubscriptionPlanSchema.parse(req.body);
+      const plan = await storage.createSubscriptionPlan(validatedData);
+      res.status(201).json(plan);
+    } catch (error: any) {
+      console.error("Error creating plan:", error);
+      res.status(400).json({ message: error.message || "Failed to create plan" });
+    }
+  });
+
+  app.put("/api/platform-admin/plans/:id", isAuthenticated, requirePlatformAdmin, async (req, res) => {
+    try {
+      const validatedData = insertSubscriptionPlanSchema.partial().parse(req.body);
+      const plan = await storage.updateSubscriptionPlan(req.params.id, validatedData);
+      res.json(plan);
+    } catch (error: any) {
+      console.error("Error updating plan:", error);
+      res.status(400).json({ message: error.message || "Failed to update plan" });
+    }
+  });
+
+  // Platform support staff accounts — managing peers is super_admin-only.
+  app.get("/api/platform-admin/support-users", isAuthenticated, requirePlatformAdmin, async (req, res) => {
+    try {
+      const supportUsers = await storage.getPlatformSupportUsers();
+      res.json(supportUsers);
+    } catch (error: any) {
+      console.error("Error fetching support users:", error);
+      res.status(500).json({ message: error.message || "Failed to fetch support users" });
+    }
+  });
+
+  app.post("/api/platform-admin/support-users", isAuthenticated, requirePlatformSuperAdmin, async (req, res) => {
+    try {
+      const { password, email, firstName, lastName } = req.body;
+      if (!email || !password || typeof password !== "string" || password.trim().length < 8) {
+        return res.status(400).json({ message: "Email and a password of at least 8 characters are required" });
+      }
+      const existing = await storage.getUserByUsernameOrEmail(email);
+      if (existing) {
+        return res.status(400).json({ message: "An account with this email already exists." });
+      }
+      const passwordHash = await hashPassword(password.trim());
+      const validatedData = insertUserSchema.omit({ id: true, createdAt: true, updatedAt: true }).parse({
+        email,
+        username: email,
+        firstName,
+        lastName,
+        passwordHash,
+        role: "platform_support",
+        organizationId: null,
+        isActive: true,
+        mustResetPassword: true,
+      });
+      const user = await storage.createUser(validatedData);
+      res.status(201).json(user);
+    } catch (error: any) {
+      console.error("Error creating support user:", error);
+      res.status(400).json({ message: error.message || "Failed to create support user" });
+    }
+  });
+
+  app.put("/api/platform-admin/support-users/:id", isAuthenticated, requirePlatformSuperAdmin, async (req, res) => {
+    try {
+      const target = await storage.getUser(req.params.id);
+      if (!target || target.role !== "platform_support") {
+        return res.status(404).json({ message: "Support user not found" });
+      }
+      const { password, ...userData } = req.body;
+      if (password) {
+        userData.passwordHash = await hashPassword(password.trim());
+      }
+      const validatedData = insertUserSchema.partial().omit({ id: true, createdAt: true, updatedAt: true }).parse(userData);
+      const user = await storage.updateUser(req.params.id, validatedData);
+      res.json(user);
+    } catch (error: any) {
+      console.error("Error updating support user:", error);
+      res.status(400).json({ message: error.message || "Failed to update support user" });
+    }
+  });
+
+  app.delete("/api/platform-admin/support-users/:id", isAuthenticated, requirePlatformSuperAdmin, async (req, res) => {
+    try {
+      const target = await storage.getUser(req.params.id);
+      if (!target || target.role !== "platform_support") {
+        return res.status(404).json({ message: "Support user not found" });
+      }
+      await storage.deleteUser(req.params.id);
+      res.status(204).send();
+    } catch (error: any) {
+      console.error("Error deleting support user:", error);
+      res.status(400).json({ message: error.message || "Failed to delete support user" });
     }
   });
 

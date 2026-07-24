@@ -274,12 +274,20 @@ export default function SuperAdminPage() {
                     <h3 className="text-lg font-semibold">Quick Access</h3>
                     <p className="text-sm text-muted-foreground">Access key system management features</p>
                   </div>
-                  <Link href="/role-wizard">
-                    <Button variant="outline" data-testid="button-role-wizard">
-                      <Cog className="w-4 h-4 mr-2" />
-                      Role & Access Control
-                    </Button>
-                  </Link>
+                  <div className="flex gap-2">
+                    <Link href="/platform-admin">
+                      <Button variant="outline" data-testid="button-platform-admin">
+                        <Building2 className="w-4 h-4 mr-2" />
+                        Platform Admin (Companies & Billing)
+                      </Button>
+                    </Link>
+                    <Link href="/role-wizard">
+                      <Button variant="outline" data-testid="button-role-wizard">
+                        <Cog className="w-4 h-4 mr-2" />
+                        Role & Access Control
+                      </Button>
+                    </Link>
+                  </div>
                 </div>
               </Card>
             </div>

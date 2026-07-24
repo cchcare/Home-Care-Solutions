@@ -734,6 +734,8 @@ export interface IStorage {
 
   // Additional user operations for communication
   getAllUsers(): Promise<User[]>;
+  getUsersByOrganization(organizationId: string): Promise<User[]>;
+  getPlatformSupportUsers(): Promise<User[]>;
 
   // Unified employee directory (caregivers + non-caregiver users)
   getEmployeeDirectory(officeId?: string): Promise<EmployeeDirectoryEntry[]>;
@@ -3085,6 +3087,18 @@ export class DatabaseStorage implements IStorage {
   // Additional user operations for communication
   async getAllUsers(): Promise<User[]> {
     return await db.select().from(users).orderBy(desc(users.createdAt));
+  }
+
+  async getUsersByOrganization(organizationId: string): Promise<User[]> {
+    return await db.select().from(users)
+      .where(eq(users.organizationId, organizationId))
+      .orderBy(desc(users.createdAt));
+  }
+
+  async getPlatformSupportUsers(): Promise<User[]> {
+    return await db.select().from(users)
+      .where(eq(users.role, "platform_support"))
+      .orderBy(desc(users.createdAt));
   }
 
   async getMessage(id: string): Promise<Message | undefined> {
